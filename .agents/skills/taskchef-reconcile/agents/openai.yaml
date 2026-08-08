@@ -1,0 +1,4 @@
+interface:
+  display_name: "TaskChef Reconcile"
+  short_description: "Reconcile visible TaskChef task state"
+  default_prompt: "Use $taskchef-reconcile to refresh active TaskChef task statuses and results once."

@@ -1,0 +1,8 @@
+node_modules/
+*.tgz
+
+# Local design experiments and generated reports may contain machine-specific
+# paths or operational history. Keep them out of the public repository.
+/reports/
+/research/
+/.taskchef/
