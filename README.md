@@ -32,6 +32,17 @@ For headless CLI use, install the npm package with
 `npm install --global taskchef`. Contributors can run `node bin/taskchef.js`
 directly from a source checkout.
 
+## Updating
+
+Refresh the marketplace and reinstall TaskChef:
+
+```sh
+codex plugin marketplace upgrade favoyang-plugins
+codex plugin add taskchef@favoyang-plugins
+```
+
+Start a new Codex task to load the updated skills.
+
 ### Migrating from 1.x
 
 TaskChef 2.x moves skill ownership from dispatcher-workspace symlinks to the
