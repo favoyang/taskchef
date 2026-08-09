@@ -17,14 +17,35 @@ This document contains capabilities intentionally excluded from the v1 MVP.
 
 ## Reconciliation and continuity
 
-- Add event-driven, scheduled, or background reconciliation only if interactive
-  reconciliation proves insufficient.
+- Prototype one standalone Codex Scheduled Task per dispatcher workspace. Run
+  it in the local project, not an isolated worktree, so updates reach the
+  canonical `tasks/*/task.json` records. Default to every 15 minutes and let the
+  user choose another cadence when enabling it.
+- Use a durable prompt that explicitly invokes `$taskchef-reconcile`, names the
+  dispatcher workspace, processes every candidate in sequential batches of at
+  most eight thread snapshots, and reports only changed, blocked, finished, or
+  failed records. An unchanged run produces one concise no-change result.
+- Add an atomic per-workspace reconciliation lease before enabling schedules.
+  One run acquires it, releases it on completion, and skips when another run
+  holds it. Treat a lease older than 30 minutes as stale and report its recovery.
+- Do not retry failed snapshots within the same run. Report the affected task
+  IDs and let the next scheduled run retry them.
+- Keep the scheduled task active when there are no candidates so later
+  delegations are discovered without re-enabling it. Only the user pauses or
+  deletes the schedule. Test the durable prompt manually before enabling it.
+- Keep scheduled reconciliation opt-in. Ordinary delegation must not wait for
+  or invoke `$taskchef-reconcile`; users can request it explicitly to refresh
+  outdated states.
 - Evaluate heartbeat behavior, restart recovery, and recovery after the
   dispatcher task is deleted.
 - Add a reconciliation cursor only when repeated full snapshots become costly
   or incorrect.
 - Determine whether thread status alone is sufficient after Codex or machine
   restarts.
+- Decide whether `$taskchef-bootstrap` should be renamed to
+  `$taskchef-workspace` or split into setup and project-management skills.
+  Until then, keep project listing and configuration in `$taskchef-bootstrap`
+  rather than mixing workspace administration into delegation.
 
 ## Grouping and history
 

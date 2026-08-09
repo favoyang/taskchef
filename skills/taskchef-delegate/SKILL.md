@@ -1,12 +1,11 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, splitting work across projects, or retrying pending executor creation. Dispatch must return immediately and must never use subagents, hooks, schedules, or foreground waiting. Use taskchef-bootstrap instead for workspace setup or configuration changes."
+description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, splitting work across projects, or retrying pending executor creation. Dispatch must return immediately and must never use subagents, hooks, schedules, or foreground waiting. Use $taskchef-bootstrap instead for workspace setup or configuration changes."
 ---
 
 # TaskChef Delegate
 
 Create real Codex tasks from a TaskChef data workspace and return immediately.
-Use `taskchef-reconcile` first when the current prompt has active recorded tasks.
 
 Resolve this linked skill with `realpath`. The TaskChef source root is two
 parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
@@ -25,7 +24,7 @@ all deterministic workspace and task-record operations.
 ## Dispatch
 
 1. Run `project list --json` to load and validate the configured routing
-   targets. Use `taskchef-bootstrap` if the workspace is missing or unhealthy.
+   targets. Use `$taskchef-bootstrap` if the workspace is missing or unhealthy.
 2. Split the request into the smallest independently useful outcomes. Include
    constraints, expected testing, and reporting in every instruction.
 3. Classify against configured `name`, `githubRepo`, and `description`. Use

@@ -21,10 +21,11 @@ TaskChef is not an agent runtime, scheduler, or background service.
 6. TaskChef records the returned `threadId`, changes the status to `running`,
    and returns immediately without waiting.
 7. The user may open and prompt any delegated task directly.
-8. The next user prompt in the dispatcher triggers one bounded reconciliation
-   of active `running` and `blocked` threads.
+8. When the user asks to refresh or fix outdated task states, TaskChef performs
+   one bounded reconciliation of active `running` and `blocked` threads.
 9. Reconciliation updates each task's current status and result, then returns
-   control without waiting for future activity.
+   control without waiting for future activity. Ordinary delegation does not
+   trigger reconciliation first.
 
 Multiple ongoing tasks may target the same project.
 
@@ -51,10 +52,10 @@ implementation utilities remain in the source repository.
 ## Dispatcher instructions
 
 TaskChef owns a marked block in the workspace `AGENTS.md`. The block tells
-Codex to use `taskchef-bootstrap` for workspace setup and repair, use
-`taskchef-reconcile` once for active work, then use
-`taskchef-delegate` for actionable requests without completing delegated work
-in the dispatcher thread.
+Codex to use `$taskchef-bootstrap` for workspace setup and administration and
+`$taskchef-delegate` for actionable requests without completing delegated work
+in the dispatcher thread. The final instruction reserves `$taskchef-reconcile`
+for user-requested refreshes or repairs of outdated task states.
 
 `workspace init` copies the canonical file when `AGENTS.md` does not exist. When it
 does exist, bootstrap preserves unrelated user content and adds or refreshes
@@ -242,7 +243,8 @@ TaskChef does not wait for delegated tasks to finish.
 
 ## Reconciliation workflow
 
-The next user prompt in the dispatcher triggers reconciliation:
+When the user asks to refresh or fix outdated task states, TaskChef uses
+`$taskchef-reconcile` to perform one bounded pass:
 
 1. use `task reconcile-candidates --json` to load only `running` and `blocked`
    task records with executor thread IDs;
@@ -253,8 +255,8 @@ The next user prompt in the dispatcher triggers reconciliation:
 
 The native Codex thread is the live source of truth between reconciliations.
 `task.json` is only the latest reconciled snapshot. It may still say `running`
-after the executor has finished and before the user next prompts the
-dispatcher.
+after the executor has finished and until the user explicitly requests a
+reconciliation pass.
 
 Reconciliation must be safe to repeat. TaskChef has no reconciliation timestamp,
 event cursor, event log, callback, or automatic workspace update.
@@ -300,8 +302,8 @@ The MVP is successful when:
 4. Both `threadId` values are recorded.
 5. The dispatcher returns without waiting for execution.
 6. The user can open and prompt either delegated task directly.
-7. The next dispatcher prompt reconciles each active thread once without
-   reading finished executor threads.
+7. A user request to refresh outdated states reconciles each active thread once
+   without reading finished executor threads; ordinary delegation does not.
 8. Status and result snapshots are updated correctly.
 9. Two ongoing tasks may target the same project without data collisions.
 10. The workspace contains dispatcher instructions, configuration, task

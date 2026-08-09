@@ -152,7 +152,9 @@ test("init preserves existing configuration and merges managed instructions", as
   assert.equal(initialized.instructions.action, "merged");
   const content = await readFile(path.join(workspace, "AGENTS.md"), "utf8");
   assert.match(content, /Keep me/);
-  assert.match(content, /taskchef-bootstrap/);
+  assert.match(content, /\$taskchef-bootstrap/);
+  assert.doesNotMatch(content, /For every ordinary user prompt/);
+  assert.ok(content.indexOf("$taskchef-reconcile") > content.indexOf("Answer directly only"));
 
   const project = await gitProject(root, "project");
   await addProject(workspace, { name: "project", path: project });
