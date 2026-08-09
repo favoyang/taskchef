@@ -11,8 +11,12 @@ The canonical contract is [SPEC.md](SPEC.md). Deferred ideas are in
 
 TaskChef requires Node.js 18 or newer and Git.
 
-TaskChef 2.x is packaged as a Codex plugin. The public marketplace installation
-instructions will be published with the shared catalog.
+Add the shared Favo Yang plugin marketplace, then install TaskChef:
+
+```sh
+codex plugin marketplace add favoyang/codex-plugins
+codex plugin add taskchef@favoyang-plugins
+```
 
 Open or create the folder that will hold TaskChef's dispatcher data, start a
 new Codex task there, and ask:
