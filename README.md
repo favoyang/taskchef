@@ -156,7 +156,14 @@ feat!: change the workspace data contract
 Publishing uses npm trusted publishing from `.github/workflows/release.yml`.
 The workflow runs the test suite, validates the npm tarball, publishes the
 calculated version after synchronizing the plugin manifest, creates the GitHub
-release, and commits both version files back to `main`.
+release, commits the synchronized version files back to `main`, and pins the TaskChef entry
+in `favoyang/codex-plugins` to that exact npm version.
+
+The release job requires an Actions secret named `MARKETPLACE_DEPLOY_KEY`.
+Store the private half of a dedicated SSH deploy key there, and add its public
+half to `favoyang/codex-plugins` with write access. The key must be scoped only
+to that catalog repository; the workflow's repository-scoped `GITHUB_TOKEN`
+cannot update another repository.
 
 ## Development
 

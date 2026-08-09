@@ -39,6 +39,15 @@ import {
   validateConfig,
   validateResult,
 } from "../index.js";
+import {
+  pinTaskChefNpmSource,
+  preserveSharedMarketplaceFile,
+  resolveExpectedPublishedPlugin,
+  updateSharedMarketplaceFile,
+  validateExtractedPlugin,
+  validatePublishedPluginPackage,
+  validateSkillFrontmatter,
+} from "../scripts/update-shared-marketplace.js";
 
 const execFile = promisify(execFileCallback);
 const FIXED_TIME = "2026-08-08T10:00:00.000Z";
@@ -204,6 +213,13 @@ test("plugin manifest packages all skills and stays synchronized by release tool
       < releasePluginNames.indexOf("@semantic-release/npm"),
     "the plugin manifest version must be synchronized before npm creates the release tarball",
   );
+  const releaseGitPlugin = releaseConfig.plugins.find(
+    (plugin) => Array.isArray(plugin) && plugin[0] === "@semantic-release/git",
+  );
+  assert.deepEqual(
+    releaseGitPlugin[1].assets,
+    [".codex-plugin/plugin.json", "package-lock.json", "package.json"],
+  );
   for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
     assert.equal(
       (await lstat(path.resolve("skills", skillName, "SKILL.md"))).isFile(),
@@ -224,6 +240,135 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     await readFile(path.join(root, ".codex-plugin", "plugin.json"), "utf8"),
   );
   assert.equal(synchronized.version, "2.3.4");
+});
+
+test("release automation pins the shared marketplace to the exact npm version", async () => {
+  const marketplace = {
+    name: "favoyang-plugins",
+    plugins: [
+      {
+        name: "taskchef",
+        source: {
+          source: "url",
+          url: "https://github.com/favoyang/taskchef.git",
+          ref: "main",
+        },
+      },
+    ],
+  };
+  const pinned = pinTaskChefNpmSource(marketplace, "2.3.4");
+  assert.equal(pinned.changed, true);
+  assert.deepEqual(marketplace.plugins[0].source, {
+    source: "npm",
+    package: "taskchef",
+    version: "2.3.4",
+    registry: "https://registry.npmjs.org",
+  });
+  assert.equal(pinTaskChefNpmSource(marketplace, "2.3.4").changed, false);
+  assert.throws(() => pinTaskChefNpmSource(marketplace, "latest"), /invalid TaskChef/);
+
+  const packedRelease = [{
+    id: "taskchef@2.3.4",
+    files: [
+      { path: ".codex-plugin/plugin.json" },
+      { path: "bin/taskchef.js", mode: 0o755 },
+      { path: "src/cli.js" },
+      { path: "src/workspace.js" },
+      { path: "skills/taskchef-bootstrap/SKILL.md" },
+      { path: "skills/taskchef-delegate/SKILL.md" },
+      { path: "skills/taskchef-reconcile/SKILL.md" },
+    ],
+  }];
+  assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
+  assert.throws(
+    () => validatePublishedPluginPackage([
+      { ...packedRelease[0], files: packedRelease[0].files.slice(1) },
+    ], "2.3.4"),
+    /missing \.codex-plugin\/plugin\.json/,
+  );
+  assert.throws(
+    () => validatePublishedPluginPackage([{
+      ...packedRelease[0],
+      files: packedRelease[0].files.map((file) =>
+        file.path === "bin/taskchef.js" ? { ...file, mode: 0o644 } : file),
+    }], "2.3.4"),
+    /bin\/taskchef\.js is not executable/,
+  );
+  const currentPackage = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+  assert.equal(
+    (await validateExtractedPlugin(path.resolve("."), currentPackage.version)).name,
+    "taskchef",
+  );
+  assert.throws(
+    () => validateSkillFrontmatter(
+      "---\nname: taskchef-delegate\ndescription: [unterminated\n---\n",
+      "taskchef-delegate",
+    ),
+    /invalid YAML/,
+  );
+
+  let registryAttempts = 0;
+  const verifiedVersions = [];
+  assert.equal(
+    await resolveExpectedPublishedPlugin("2.3.4", {
+      attempts: 2,
+      delayMs: 0,
+      readVersionImpl: async () => {
+        registryAttempts += 1;
+        return registryAttempts === 1 ? "1.0.2" : "2.3.4";
+      },
+      verifyVersionImpl: async (version) => {
+        verifiedVersions.push(version);
+      },
+      waitImpl: async () => {},
+    }),
+    "2.3.4",
+  );
+  assert.equal(registryAttempts, 2);
+  assert.deepEqual(verifiedVersions, ["2.3.4"]);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-marketplace-update-"));
+  const marketplacePath = path.join(root, "marketplace.json");
+  await writeFile(marketplacePath, `${JSON.stringify({
+    name: "favoyang-plugins",
+    plugins: [{
+      name: "taskchef",
+      source: {
+        source: "url",
+        url: "https://github.com/favoyang/taskchef.git",
+        ref: "codex/taskchef-plugin",
+      },
+    }],
+  })}\n`);
+  assert.deepEqual(
+    await preserveSharedMarketplaceFile(marketplacePath),
+    { changed: true },
+  );
+  const fallbackMarketplace = JSON.parse(await readFile(marketplacePath, "utf8"));
+  assert.equal(fallbackMarketplace.plugins[0].source.ref, "main");
+  const result = await updateSharedMarketplaceFile(marketplacePath, "2.3.4");
+  assert.deepEqual(result, { changed: true, version: "2.3.4" });
+  const writtenMarketplace = JSON.parse(await readFile(marketplacePath, "utf8"));
+  assert.equal(writtenMarketplace.plugins[0].source.version, "2.3.4");
+  assert.deepEqual(
+    await updateSharedMarketplaceFile(marketplacePath, "2.3.4"),
+    { changed: false, version: "2.3.4" },
+  );
+  assert.deepEqual(
+    await preserveSharedMarketplaceFile(marketplacePath),
+    { changed: false },
+  );
+
+  const workflow = await readFile(path.resolve(".github/workflows/release.yml"), "utf8");
+  assert.match(workflow, /ssh-key: \$\{\{ secrets\.MARKETPLACE_DEPLOY_KEY \}\}/);
+  assert.match(workflow, /node scripts\/update-shared-marketplace\.js shared-marketplace/);
+  assert.match(workflow, /git push origin HEAD:main/);
+  assert.match(workflow, /marketplace:\n[\s\S]+needs:\n\s+- test\n\s+- release/);
+  assert.match(workflow, /marketplace:\n[\s\S]+always\(\)/);
+  assert.match(workflow, /expected-version: \$\{\{ steps\.expected-version\.outputs\.version \}\}/);
+  assert.match(workflow, /EXPECTED_VERSION: \$\{\{ needs\.release\.outputs\.expected-version \}\}/);
+  assert.match(workflow, /update-shared-marketplace\.js shared-marketplace\/\.agents\/plugins\/marketplace\.json "\$EXPECTED_VERSION"/);
+  assert.match(workflow, /steps\.marketplace-update\.outputs\.npm_ready != 'true'/);
 });
 
 test("init preserves existing configuration and merges managed instructions", async () => {
