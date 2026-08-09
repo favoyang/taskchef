@@ -107,7 +107,7 @@ async function initialize(args) {
     `Workspace: ${value.workspace}`,
     `Configuration: ${value.config.action}`,
     `Instructions: ${value.instructions.action}`,
-    `Skills: ${value.skills.skills.map((skill) => `${skill.name}=${skill.action}`).join(", ")}`,
+    `Legacy skill links removed: ${value.legacySkills.removed.length}`,
   ].join("\n"));
   return 0;
 }

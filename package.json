@@ -18,6 +18,7 @@
     "taskchef": "bin/taskchef.js"
   },
   "files": [
+    ".codex-plugin",
     "assets",
     "BACKLOG.md",
     "bin",
@@ -30,6 +31,9 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.0"
   },
   "scripts": {
     "test": "node --test tests/taskchef.test.js"

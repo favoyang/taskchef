@@ -1,0 +1,37 @@
+{
+  "name": "taskchef",
+  "version": "1.0.2",
+  "description": "Dispatch work from a data-only workspace to visible Codex project tasks.",
+  "author": {
+    "name": "Favo Yang",
+    "url": "https://github.com/favoyang"
+  },
+  "homepage": "https://github.com/favoyang/taskchef#readme",
+  "repository": "https://github.com/favoyang/taskchef",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "delegation",
+    "dispatcher",
+    "tasks"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "TaskChef",
+    "shortDescription": "Dispatch work to the right Codex project task.",
+    "longDescription": "Create a data-only dispatcher workspace, route actionable requests to independently openable Codex project tasks, and reconcile saved task states on demand.",
+    "developerName": "Favo Yang",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/favoyang/taskchef",
+    "defaultPrompt": [
+      "$taskchef-bootstrap Set up TaskChef in this folder.",
+      "$taskchef-delegate Dispatch this request to the right project.",
+      "$taskchef-reconcile Fix outdated TaskChef task states."
+    ],
+    "brandColor": "#D97706"
+  }
+}

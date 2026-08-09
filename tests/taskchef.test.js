@@ -5,7 +5,6 @@ import {
   mkdtemp,
   mkdir,
   readFile,
-  readlink,
   readdir,
   realpath,
   rename,
@@ -26,6 +25,7 @@ import {
   createTask,
   doctorWorkspace,
   ensureWorkspaceInstructions,
+  ensureWorkspaceSkills,
   filterTasks,
   importProjects,
   initializeWorkspace,
@@ -39,6 +39,15 @@ import {
   validateConfig,
   validateResult,
 } from "../index.js";
+import {
+  pinTaskChefNpmSource,
+  preserveSharedMarketplaceFile,
+  resolveExpectedPublishedPlugin,
+  updateSharedMarketplaceFile,
+  validateExtractedPlugin,
+  validatePublishedPluginPackage,
+  validateSkillFrontmatter,
+} from "../scripts/update-shared-marketplace.js";
 
 const execFile = promisify(execFileCallback);
 const FIXED_TIME = "2026-08-08T10:00:00.000Z";
@@ -102,45 +111,264 @@ async function runCli(args, { input = "", cwd } = {}) {
   });
 }
 
-test("lightweight init creates and idempotently repairs the workspace scaffold", async () => {
+test("lightweight init creates a data-only workspace scaffold", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-init-"));
   const workspace = path.join(root, "workspace");
   const initialized = await initializeWorkspace(workspace);
 
   assert.deepEqual(initialized.config.value, { schemaVersion: 1, projects: [] });
   assert.equal(initialized.config.action, "created");
-  assert.deepEqual((await readdir(workspace)).sort(), [".agents", "AGENTS.md", "taskchef.json", "tasks"]);
-  assert.deepEqual(
-    initialized.skills.skills.map(({ name, action }) => ({ name, action })),
-    [
-      { name: "taskchef-bootstrap", action: "created" },
-      { name: "taskchef-delegate", action: "created" },
-      { name: "taskchef-reconcile", action: "created" },
-    ],
-  );
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
-    const skillPath = path.join(workspace, ".agents", "skills", skillName);
-    assert.equal((await lstat(skillPath)).isSymbolicLink(), true);
-    assert.equal(await readlink(skillPath), path.resolve("skills", skillName));
-    const resolvedSkillPath = await realpath(skillPath);
-    const documentedCliPath = path.resolve(resolvedSkillPath, "..", "..", "bin", "taskchef.js");
-    assert.equal((await lstat(documentedCliPath)).isFile(), true);
-  }
+  assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks"]);
 
   const repeated = await initializeWorkspace(workspace);
   assert.equal(repeated.config.action, "unchanged");
   assert.equal(repeated.instructions.action, "unchanged");
-  assert.deepEqual(repeated.skills.skills.map((skill) => skill.action), ["unchanged", "unchanged", "unchanged"]);
+  assert.deepEqual(repeated.legacySkills.removed, []);
+});
 
-  const delegateLink = path.join(workspace, ".agents", "skills", "taskchef-delegate");
-  await unlink(delegateLink);
-  await symlink(root, delegateLink, "dir");
-  const repaired = await initializeWorkspace(workspace);
-  assert.equal(
-    repaired.skills.skills.find((skill) => skill.name === "taskchef-delegate").action,
-    "updated",
+test("init removes legacy TaskChef skill links without deleting unrelated skills", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-legacy-skills-"));
+  const workspace = path.join(root, "workspace");
+  await initializeWorkspace(workspace);
+  const skillsDirectory = path.join(workspace, ".agents", "skills");
+  await mkdir(path.join(skillsDirectory, "other-skill"), { recursive: true });
+  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
+    await symlink(path.join(root, "old-source", skillName), path.join(skillsDirectory, skillName));
+  }
+
+  const stale = await doctorWorkspace(workspace);
+  assert.equal(stale.ok, false);
+  assert.match(
+    stale.checks.find((check) => check.name === "legacy-skill-links").message,
+    /run workspace init/,
   );
-  assert.equal(await readlink(delegateLink), path.resolve("skills", "taskchef-delegate"));
+
+  const refreshed = await initializeWorkspace(workspace);
+  assert.deepEqual(
+    refreshed.legacySkills.removed.map((link) => link.name),
+    ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"],
+  );
+  assert.equal((await lstat(path.join(skillsDirectory, "other-skill"))).isDirectory(), true);
+  assert.equal((await doctorWorkspace(workspace)).ok, true);
+
+  const compatibility = await ensureWorkspaceSkills(workspace);
+  assert.equal(compatibility.directory, null);
+  assert.deepEqual(
+    compatibility.skills.map((skill) => skill.action),
+    ["provided-by-plugin", "provided-by-plugin", "provided-by-plugin"],
+  );
+
+  const onlyLegacy = path.join(root, "only-legacy");
+  await mkdir(path.join(onlyLegacy, ".agents", "skills"), { recursive: true });
+  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
+    await symlink(path.join(root, "old-source", skillName), path.join(onlyLegacy, ".agents", "skills", skillName));
+  }
+  const cleaned = await initializeWorkspace(onlyLegacy);
+  assert.equal(cleaned.legacySkills.removedDirectories.length, 2);
+  await assert.rejects(lstat(path.join(onlyLegacy, ".agents")), { code: "ENOENT" });
+});
+
+test("init refuses to delete a non-symlink legacy TaskChef skill path", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-legacy-skill-directory-"));
+  const skillPath = path.join(root, ".agents", "skills", "taskchef-bootstrap");
+  await mkdir(skillPath, { recursive: true });
+  await writeFile(path.join(skillPath, "KEEP"), "user content\n");
+  await assert.rejects(initializeWorkspace(root), /legacy TaskChef skill path is not a symlink/);
+  assert.equal(await readFile(path.join(skillPath, "KEEP"), "utf8"), "user content\n");
+});
+
+test("init leaves unrelated symlinked agents paths untouched", async () => {
+  for (const symlinkSkillsDirectory of [false, true]) {
+    const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-unrelated-agents-"));
+    const workspace = path.join(root, "workspace");
+    const outside = path.join(root, "outside");
+    await mkdir(workspace);
+    await mkdir(outside);
+    await writeFile(path.join(outside, "KEEP"), "unrelated content\n");
+    if (symlinkSkillsDirectory) {
+      await mkdir(path.join(workspace, ".agents"));
+      await symlink(outside, path.join(workspace, ".agents", "skills"), "dir");
+    } else {
+      await symlink(outside, path.join(workspace, ".agents"), "dir");
+    }
+
+    await initializeWorkspace(workspace);
+    assert.equal(await readFile(path.join(outside, "KEEP"), "utf8"), "unrelated content\n");
+    assert.equal((await doctorWorkspace(workspace)).ok, true);
+  }
+});
+
+test("plugin manifest packages all skills and stays synchronized by release tooling", async () => {
+  const manifest = JSON.parse(await readFile(path.resolve(".codex-plugin/plugin.json"), "utf8"));
+  const packageJson = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+  assert.equal(manifest.name, "taskchef");
+  assert.equal(manifest.version, packageJson.version);
+  assert.equal(manifest.skills, "./skills/");
+  assert.equal(packageJson.files.includes(".codex-plugin"), true);
+  const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
+  const releasePluginNames = releaseConfig.plugins.map((plugin) =>
+    Array.isArray(plugin) ? plugin[0] : plugin);
+  assert.ok(
+    releasePluginNames.indexOf("@semantic-release/exec")
+      < releasePluginNames.indexOf("@semantic-release/npm"),
+    "the plugin manifest version must be synchronized before npm creates the release tarball",
+  );
+  const releaseGitPlugin = releaseConfig.plugins.find(
+    (plugin) => Array.isArray(plugin) && plugin[0] === "@semantic-release/git",
+  );
+  assert.deepEqual(
+    releaseGitPlugin[1].assets,
+    [".codex-plugin/plugin.json", "package-lock.json", "package.json"],
+  );
+  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
+    assert.equal(
+      (await lstat(path.resolve("skills", skillName, "SKILL.md"))).isFile(),
+      true,
+    );
+  }
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-plugin-version-"));
+  await mkdir(path.join(root, ".codex-plugin"));
+  await writeFile(
+    path.join(root, ".codex-plugin", "plugin.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+  await execFile(process.execPath, [path.resolve("scripts/sync-plugin-version.js"), "2.3.4"], {
+    cwd: root,
+  });
+  const synchronized = JSON.parse(
+    await readFile(path.join(root, ".codex-plugin", "plugin.json"), "utf8"),
+  );
+  assert.equal(synchronized.version, "2.3.4");
+});
+
+test("release automation pins the shared marketplace to the exact npm version", async () => {
+  const marketplace = {
+    name: "favoyang-plugins",
+    plugins: [
+      {
+        name: "taskchef",
+        source: {
+          source: "url",
+          url: "https://github.com/favoyang/taskchef.git",
+          ref: "main",
+        },
+      },
+    ],
+  };
+  const pinned = pinTaskChefNpmSource(marketplace, "2.3.4");
+  assert.equal(pinned.changed, true);
+  assert.deepEqual(marketplace.plugins[0].source, {
+    source: "npm",
+    package: "taskchef",
+    version: "2.3.4",
+    registry: "https://registry.npmjs.org",
+  });
+  assert.equal(pinTaskChefNpmSource(marketplace, "2.3.4").changed, false);
+  assert.throws(() => pinTaskChefNpmSource(marketplace, "latest"), /invalid TaskChef/);
+
+  const packedRelease = [{
+    id: "taskchef@2.3.4",
+    files: [
+      { path: ".codex-plugin/plugin.json" },
+      { path: "bin/taskchef.js", mode: 0o755 },
+      { path: "src/cli.js" },
+      { path: "src/workspace.js" },
+      { path: "skills/taskchef-bootstrap/SKILL.md" },
+      { path: "skills/taskchef-delegate/SKILL.md" },
+      { path: "skills/taskchef-reconcile/SKILL.md" },
+    ],
+  }];
+  assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
+  assert.throws(
+    () => validatePublishedPluginPackage([
+      { ...packedRelease[0], files: packedRelease[0].files.slice(1) },
+    ], "2.3.4"),
+    /missing \.codex-plugin\/plugin\.json/,
+  );
+  assert.throws(
+    () => validatePublishedPluginPackage([{
+      ...packedRelease[0],
+      files: packedRelease[0].files.map((file) =>
+        file.path === "bin/taskchef.js" ? { ...file, mode: 0o644 } : file),
+    }], "2.3.4"),
+    /bin\/taskchef\.js is not executable/,
+  );
+  const currentPackage = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+  assert.equal(
+    (await validateExtractedPlugin(path.resolve("."), currentPackage.version)).name,
+    "taskchef",
+  );
+  assert.throws(
+    () => validateSkillFrontmatter(
+      "---\nname: taskchef-delegate\ndescription: [unterminated\n---\n",
+      "taskchef-delegate",
+    ),
+    /invalid YAML/,
+  );
+
+  let registryAttempts = 0;
+  const verifiedVersions = [];
+  assert.equal(
+    await resolveExpectedPublishedPlugin("2.3.4", {
+      attempts: 2,
+      delayMs: 0,
+      readVersionImpl: async () => {
+        registryAttempts += 1;
+        return registryAttempts === 1 ? "1.0.2" : "2.3.4";
+      },
+      verifyVersionImpl: async (version) => {
+        verifiedVersions.push(version);
+      },
+      waitImpl: async () => {},
+    }),
+    "2.3.4",
+  );
+  assert.equal(registryAttempts, 2);
+  assert.deepEqual(verifiedVersions, ["2.3.4"]);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-marketplace-update-"));
+  const marketplacePath = path.join(root, "marketplace.json");
+  await writeFile(marketplacePath, `${JSON.stringify({
+    name: "favoyang-plugins",
+    plugins: [{
+      name: "taskchef",
+      source: {
+        source: "url",
+        url: "https://github.com/favoyang/taskchef.git",
+        ref: "codex/taskchef-plugin",
+      },
+    }],
+  })}\n`);
+  assert.deepEqual(
+    await preserveSharedMarketplaceFile(marketplacePath),
+    { changed: true },
+  );
+  const fallbackMarketplace = JSON.parse(await readFile(marketplacePath, "utf8"));
+  assert.equal(fallbackMarketplace.plugins[0].source.ref, "main");
+  const result = await updateSharedMarketplaceFile(marketplacePath, "2.3.4");
+  assert.deepEqual(result, { changed: true, version: "2.3.4" });
+  const writtenMarketplace = JSON.parse(await readFile(marketplacePath, "utf8"));
+  assert.equal(writtenMarketplace.plugins[0].source.version, "2.3.4");
+  assert.deepEqual(
+    await updateSharedMarketplaceFile(marketplacePath, "2.3.4"),
+    { changed: false, version: "2.3.4" },
+  );
+  assert.deepEqual(
+    await preserveSharedMarketplaceFile(marketplacePath),
+    { changed: false },
+  );
+
+  const workflow = await readFile(path.resolve(".github/workflows/release.yml"), "utf8");
+  assert.match(workflow, /ssh-key: \$\{\{ secrets\.MARKETPLACE_DEPLOY_KEY \}\}/);
+  assert.match(workflow, /node scripts\/update-shared-marketplace\.js shared-marketplace/);
+  assert.match(workflow, /git push origin HEAD:main/);
+  assert.match(workflow, /marketplace:\n[\s\S]+needs:\n\s+- test\n\s+- release/);
+  assert.match(workflow, /marketplace:\n[\s\S]+always\(\)/);
+  assert.match(workflow, /expected-version: \$\{\{ steps\.expected-version\.outputs\.version \}\}/);
+  assert.match(workflow, /EXPECTED_VERSION: \$\{\{ needs\.release\.outputs\.expected-version \}\}/);
+  assert.match(workflow, /update-shared-marketplace\.js shared-marketplace\/\.agents\/plugins\/marketplace\.json "\$EXPECTED_VERSION"/);
+  assert.match(workflow, /steps\.marketplace-update\.outputs\.npm_ready != 'true'/);
 });
 
 test("init preserves existing configuration and merges managed instructions", async () => {
@@ -177,17 +405,17 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.deepEqual(
     literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
     [
-      "<source-root>/bin/taskchef.js project list --json --workspace <workspace>",
-      "<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>",
-      "<source-root>/bin/taskchef.js task create --json --workspace <workspace>",
-      "<source-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>",
     ],
   );
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|project|task)(?:\s|$)/.test(literal)), false);
   const retryRule = body.match(/5\. ([\s\S]+?)\n6\./)?.[1].replace(/\s+/g, " ").trim();
   assert.equal(
     retryRule,
-    "For an explicit retry, require the exact task ID and run `<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`. Reuse the record only when its status is `pending`; ask for the task ID when it is missing and reject retries of non-pending records. For new work, run `<source-root>/bin/taskchef.js task create --json --workspace <workspace>` with the task record JSON on stdin before executor creation.",
+    "For an explicit retry, require the exact task ID and run `<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`. Reuse the record only when its status is `pending`; ask for the task ID when it is missing and reject retries of non-pending records. For new work, run `<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>` with the task record JSON on stdin before executor creation.",
   );
 });
 
@@ -201,26 +429,19 @@ test("init fails safely on malformed managed instruction markers", async () => {
   await assert.rejects(readFile(path.join(root, "taskchef.json"), "utf8"), { code: "ENOENT" });
 });
 
-test("init rejects symlinked managed workspace directories", async () => {
-  for (const segments of [[".agents"], [".agents", "skills"], ["tasks"]]) {
-    const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-symlinked-managed-"));
-    const workspace = path.join(root, "workspace");
-    const outside = path.join(root, "outside");
-    await mkdir(workspace);
-    await mkdir(outside);
-    let parent = workspace;
-    for (const segment of segments.slice(0, -1)) {
-      parent = path.join(parent, segment);
-      await mkdir(parent);
-    }
-    await symlink(outside, path.join(parent, segments.at(-1)), "dir");
+test("init rejects a symlinked managed tasks directory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-symlinked-managed-"));
+  const workspace = path.join(root, "workspace");
+  const outside = path.join(root, "outside");
+  await mkdir(workspace);
+  await mkdir(outside);
+  await symlink(outside, path.join(workspace, "tasks"), "dir");
 
-    await assert.rejects(
-      initializeWorkspace(workspace),
-      /managed workspace path is not a real directory/,
-    );
-    assert.deepEqual(await readdir(outside), []);
-  }
+  await assert.rejects(
+    initializeWorkspace(workspace),
+    /managed workspace path is not a real directory/,
+  );
+  assert.deepEqual(await readdir(outside), []);
 });
 
 test("init rejects symlinked managed workspace files without reading them", async () => {

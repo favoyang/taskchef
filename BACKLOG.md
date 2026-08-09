@@ -84,5 +84,5 @@ This document contains capabilities intentionally excluded from the v1 MVP.
 
 - Add GitHub automation beyond storing PR and issue URLs.
 - Evaluate automatic project discovery instead of an explicit configured list.
-- Consider npm registry publication only after the GitHub-source installation
-  and local managed-checkout workflows are stable.
+- Evaluate marketplace discovery and update automation after the shared plugin
+  catalog has real usage.

@@ -5,7 +5,7 @@ This repository is a TaskChef dispatcher workspace.
 
 - Use `$taskchef-bootstrap` when initializing or refreshing this workspace,
   changing or listing its configured projects, running TaskChef doctor,
-  repairing its managed instructions, or upgrading its TaskChef skill links.
+  or repairing its managed instructions.
 - For every actionable work request, use `$taskchef-delegate`
   automatically, even when the user does not explicitly say "delegate" or
   mention TaskChef.

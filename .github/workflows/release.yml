@@ -28,6 +28,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Test
         run: npm test
 
@@ -37,6 +40,8 @@ jobs:
   release:
     name: Release
     needs: test
+    outputs:
+      expected-version: ${{ steps.expected-version.outputs.version }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -60,7 +65,73 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx -y -p semantic-release@25 -p @semantic-release/git semantic-release
+        run: npx -y -p semantic-release@25 -p @semantic-release/exec -p @semantic-release/git semantic-release
+
+      - name: Capture expected release version
+        id: expected-version
+        if: always()
+        run: echo "version=$(node -p \"require('./.codex-plugin/plugin.json').version\")" >> "$GITHUB_OUTPUT"
+
+  marketplace:
+    name: Update plugin marketplace
+    needs:
+      - test
+      - release
+    if: >-
+      always() &&
+      needs.test.result == 'success' &&
+      github.repository == 'favoyang/taskchef' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout TaskChef
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Checkout shared plugin marketplace
+        uses: actions/checkout@v5
+        with:
+          repository: favoyang/codex-plugins
+          path: shared-marketplace
+          ssh-key: ${{ secrets.MARKETPLACE_DEPLOY_KEY }}
+
+      - name: Update shared plugin marketplace
+        id: marketplace-update
+        env:
+          EXPECTED_VERSION: ${{ needs.release.outputs.expected-version }}
+        run: node scripts/update-shared-marketplace.js shared-marketplace/.agents/plugins/marketplace.json "$EXPECTED_VERSION"
+
+      - name: Publish shared plugin marketplace update
+        working-directory: shared-marketplace
+        run: |
+          git add .agents/plugins/marketplace.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          source=$(node -p "const source = require('./.agents/plugins/marketplace.json').plugins.find(plugin => plugin.name === 'taskchef').source; source.version ?? source.ref")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update taskchef source to ${source}"
+          git push origin HEAD:main
+
+      - name: Require latest npm plugin
+        if: steps.marketplace-update.outputs.npm_ready != 'true'
+        run: |
+          echo "npm latest is not a valid TaskChef plugin; the installable catalog source was preserved."
+          exit 1

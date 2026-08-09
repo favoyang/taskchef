@@ -35,11 +35,6 @@ Multiple ongoing tasks may target the same project.
 taskchef-workspace/
 ├── AGENTS.md
 ├── taskchef.json
-├── .agents/
-│   └── skills/
-│       ├── taskchef-bootstrap -> <TaskChef bootstrap skill>
-│       ├── taskchef-delegate -> <TaskChef delegate skill>
-│       └── taskchef-reconcile -> <TaskChef reconciliation skill>
 └── tasks/
     └── <task-id>/
         └── task.json
@@ -61,12 +56,15 @@ for user-requested refreshes or repairs of outdated task states.
 does exist, bootstrap preserves unrelated user content and adds or refreshes
 only the TaskChef managed block. Repeating the merge is idempotent. Malformed
 or duplicate TaskChef markers fail safely instead of overwriting the file.
-Initialization also installs all three TaskChef skill links. It is idempotent,
-takes no configuration input, creates `{ "schemaVersion": 1, "projects": [] }`
-when configuration is missing, and preserves existing configured projects.
+The installed TaskChef plugin provides all three skills outside the dispatcher
+workspace. Initialization is idempotent, takes no configuration input, creates
+`{ "schemaVersion": 1, "projects": [] }` when configuration is missing, and
+preserves existing configured projects. It removes only the three legacy
+TaskChef skill symlinks from earlier workspaces and preserves unrelated
+`.agents` content.
 
-`doctor` diagnoses configuration, task storage, managed instructions, skill
-links, project paths, and task records without modifying the workspace.
+`doctor` diagnoses configuration, task storage, managed instructions, project
+paths, and task records without modifying the workspace.
 
 ## Configuration
 
@@ -285,8 +283,9 @@ TaskChef is local, interactive, task-focused, and asynchronous. It does not incl
 - one-active-task-per-project restrictions;
 - transcript or hidden-reasoning collection;
 - arbitrary Codex task discovery;
-- npm registry publication; the supported distribution is a GitHub-source
-  global install or a managed source checkout.
+- bundled development-only runtimes in dispatcher workspaces. The Codex plugin
+  marketplace distributes the three skills, and the npm package provides the
+  supported headless CLI.
 
 See `BACKLOG.md` for deferred capabilities and experiments.
 
@@ -306,7 +305,7 @@ The MVP is successful when:
    without reading finished executor threads; ordinary delegation does not.
 8. Status and result snapshots are updated correctly.
 9. Two ongoing tasks may target the same project without data collisions.
-10. The workspace contains dispatcher instructions, configuration, task
-    records, and the three TaskChef skill links.
+10. The workspace contains only dispatcher instructions, configuration, and
+    task records; the installed plugin owns the TaskChef skills.
 11. Bootstrap creates or idempotently merges the TaskChef-managed `AGENTS.md`
     block without overwriting unrelated instructions.

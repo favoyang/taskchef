@@ -11,33 +11,52 @@ The canonical contract is [SPEC.md](SPEC.md). Deferred ideas are in
 
 TaskChef requires Node.js 18 or newer and Git.
 
-Install the CLI and its bundled skills from npm:
+Add the shared Favo Yang plugin marketplace, then install TaskChef:
 
 ```sh
-npm install --global taskchef
+codex plugin marketplace add favoyang/codex-plugins
+codex plugin add taskchef@favoyang-plugins
 ```
 
-Then initialize a dispatcher workspace. Initialization links the three bundled
-TaskChef skills into that workspace; no separate skill installation is needed.
+Open or create the folder that will hold TaskChef's dispatcher data, start a
+new Codex task there, and ask:
+
+```text
+$taskchef-bootstrap Set up TaskChef in this folder and help me choose projects.
+```
+
+The plugin provides all three TaskChef skills and its deterministic CLI runtime;
+dispatcher workspaces do not install or link skills themselves.
+
+For headless CLI use, install the npm package with
+`npm install --global taskchef`. Contributors can run `node bin/taskchef.js`
+directly from a source checkout.
+
+## Updating
+
+Refresh the marketplace and reinstall TaskChef:
 
 ```sh
-taskchef workspace init --workspace <workspace>
-taskchef doctor --workspace <workspace>
+codex plugin marketplace upgrade favoyang-plugins
+codex plugin add taskchef@favoyang-plugins
 ```
 
-Contributors working from a source checkout can run `node bin/taskchef.js`
-directly; this managed skills workspace installs the checkout CLI and skills
-with symlinks. To install an unreleased revision, use
-`npm install --global github:favoyang/taskchef`.
+Start a new Codex task to load the updated skills.
+
+### Migrating from 1.x
+
+TaskChef 2.x moves skill ownership from dispatcher-workspace symlinks to the
+installed plugin. Run `$taskchef-bootstrap` once in an existing workspace to
+remove the three legacy TaskChef links; unrelated `.agents` content is
+preserved. The deprecated `ensureWorkspaceSkills()` export remains available
+for compatibility but reports plugin-provided skills instead of creating
+workspace links.
 
 ## Workspace
 
 ```text
 AGENTS.md
 taskchef.json
-.agents/skills/taskchef-bootstrap -> <source>/skills/taskchef-bootstrap
-.agents/skills/taskchef-delegate -> <source>/skills/taskchef-delegate
-.agents/skills/taskchef-reconcile -> <source>/skills/taskchef-reconcile
 tasks/<task-id>/task.json
 ```
 
@@ -49,7 +68,9 @@ taskchef doctor --workspace <workspace>
 ```
 
 Initialization is idempotent. It creates an empty configuration when missing
-and preserves existing configured projects.
+and preserves existing configured projects. When upgrading from the earlier
+workspace-linked distribution, initialization removes the three legacy
+TaskChef skill symlinks and preserves unrelated `.agents` content.
 
 ## Projects
 
@@ -145,15 +166,22 @@ feat!: change the workspace data contract
 
 Publishing uses npm trusted publishing from `.github/workflows/release.yml`.
 The workflow runs the test suite, validates the npm tarball, publishes the
-calculated version, creates the GitHub release, and commits the updated
-`package.json` version back to `main`.
+calculated version after synchronizing the plugin manifest, creates the GitHub
+release, commits the synchronized version files back to `main`, and pins the TaskChef entry
+in `favoyang/codex-plugins` to that exact npm version.
+
+The release job requires an Actions secret named `MARKETPLACE_DEPLOY_KEY`.
+Store the private half of a dedicated SSH deploy key there, and add its public
+half to `favoyang/codex-plugins` with write access. The key must be scoped only
+to that catalog repository; the workflow's repository-scoped `GITHUB_TOKEN`
+cannot update another repository.
 
 ## Development
 
 ```sh
 npm test
 npm pack --dry-run
-npx -y -p semantic-release@25 -p @semantic-release/git semantic-release --dry-run
+npx -y -p semantic-release@25 -p @semantic-release/exec -p @semantic-release/git semantic-release --dry-run
 ```
 
 ## Boundaries

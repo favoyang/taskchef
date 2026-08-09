@@ -4,13 +4,12 @@ import {
   lstat,
   mkdir,
   readFile,
-  readlink,
   readdir,
   realpath,
   link,
   rename,
+  rmdir,
   stat,
-  symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -244,38 +243,73 @@ export async function ensureWorkspaceInstructions(workspaceRoot) {
   return { path: filePath, action };
 }
 
-async function ensureSkillLink(skillsDirectory, skillName) {
-  const source = path.join(SKILLS_SOURCE_ROOT, skillName);
-  const destination = path.join(skillsDirectory, skillName);
-  await canonicalDirectory(source);
-  const details = await lstat(destination).catch((error) => {
+async function findLegacySkillLinks(workspaceRoot) {
+  const agentsDirectory = path.join(workspaceRoot, ".agents");
+  const agentsDetails = await lstat(agentsDirectory).catch((error) => {
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (details === null) {
-    await symlink(source, destination, "dir");
-    return { name: skillName, path: destination, action: "created" };
+  if (agentsDetails === null) return { agentsDirectory: null, skillsDirectory: null, links: [] };
+  if (agentsDetails.isSymbolicLink() || !agentsDetails.isDirectory()) {
+    return { agentsDirectory: null, skillsDirectory: null, links: [] };
   }
-  if (!details.isSymbolicLink()) {
-    throw new Error(`TaskChef skill path exists and is not a symlink: ${destination}`);
+
+  const skillsDirectory = path.join(agentsDirectory, "skills");
+  const skillsDetails = await lstat(skillsDirectory).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (skillsDetails === null) return { agentsDirectory, skillsDirectory, links: [] };
+  if (skillsDetails.isSymbolicLink() || !skillsDetails.isDirectory()) {
+    return { agentsDirectory, skillsDirectory: null, links: [] };
   }
-  const linked = path.resolve(path.dirname(destination), await readlink(destination));
-  if (linked !== source) {
-    await unlink(destination);
-    await symlink(source, destination, "dir");
-    return { name: skillName, path: destination, action: "updated" };
+
+  const links = [];
+  for (const skillName of TASKCHEF_SKILL_NAMES) {
+    const skillPath = path.join(skillsDirectory, skillName);
+    const details = await lstat(skillPath).catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (details === null) continue;
+    if (!details.isSymbolicLink()) {
+      throw new Error(`legacy TaskChef skill path is not a symlink: ${skillPath}`);
+    }
+    links.push({ name: skillName, path: skillPath });
   }
-  return { name: skillName, path: destination, action: "unchanged" };
+  return { agentsDirectory, skillsDirectory, links };
+}
+
+async function removeLegacySkillLinks(workspaceRoot) {
+  const legacy = await findLegacySkillLinks(workspaceRoot);
+  for (const link of legacy.links) await unlink(link.path);
+  const removedDirectories = [];
+  if (legacy.skillsDirectory && (await readdir(legacy.skillsDirectory)).length === 0) {
+    await rmdir(legacy.skillsDirectory);
+    removedDirectories.push(legacy.skillsDirectory);
+  }
+  if (legacy.agentsDirectory && (await readdir(legacy.agentsDirectory).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }))?.length === 0) {
+    await rmdir(legacy.agentsDirectory);
+    removedDirectories.push(legacy.agentsDirectory);
+  }
+  return { removed: legacy.links, removedDirectories };
 }
 
 export async function ensureWorkspaceSkills(workspaceRoot) {
   const root = await realpath(path.resolve(workspaceRoot));
-  const skillsDirectory = await ensureManagedDirectory(root, ".agents", "skills");
-  const skills = [];
-  for (const skillName of TASKCHEF_SKILL_NAMES) {
-    skills.push(await ensureSkillLink(skillsDirectory, skillName));
-  }
-  return { directory: skillsDirectory, skills };
+  const legacySkills = await removeLegacySkillLinks(root);
+  return {
+    directory: null,
+    skills: TASKCHEF_SKILL_NAMES.map((name) => ({
+      name,
+      path: path.join(SKILLS_SOURCE_ROOT, name),
+      action: "provided-by-plugin",
+    })),
+    legacySkills,
+  };
 }
 
 export async function canonicalGitRoot(projectPath) {
@@ -485,6 +519,7 @@ export async function initializeWorkspace(workspaceRoot) {
   const requestedRoot = path.resolve(workspaceRoot);
   await mkdir(requestedRoot, { recursive: true });
   const root = await realpath(requestedRoot);
+  const { legacySkills } = await ensureWorkspaceSkills(root);
   await ensureManagedDirectory(root, "tasks");
   const configPath = path.join(root, "taskchef.json");
   const configExists = await managedRegularFileExists(configPath);
@@ -496,16 +531,12 @@ export async function initializeWorkspace(workspaceRoot) {
     if (!configExists) await unlink(configPath).catch(() => {});
     throw error;
   });
-  const skills = await ensureWorkspaceSkills(root).catch(async (error) => {
-    if (!configExists) await unlink(configPath).catch(() => {});
-    throw error;
-  });
   return {
     workspace: root,
     config: { path: configPath, action: configExists ? "unchanged" : "created", value: config },
     tasks: { path: path.join(root, "tasks"), action: "ready" },
     instructions,
-    skills,
+    legacySkills,
   };
 }
 
@@ -834,18 +865,13 @@ export async function doctorWorkspace(workspaceRoot) {
     }
     return "managed AGENTS.md instructions current";
   });
-  for (const skillName of TASKCHEF_SKILL_NAMES) {
-    await check(`skill:${skillName}`, async () => {
-      const destination = path.join(root, ".agents", "skills", skillName);
-      const details = await lstat(destination);
-      if (!details.isSymbolicLink()) throw new Error("skill path is not a symlink");
-      const linked = path.resolve(path.dirname(destination), await readlink(destination));
-      const expected = path.join(SKILLS_SOURCE_ROOT, skillName);
-      if (linked !== expected) throw new Error(`unexpected target: ${linked}`);
-      await canonicalDirectory(expected);
-      return "skill link valid";
-    });
-  }
+  await check("legacy-skill-links", async () => {
+    const legacy = await findLegacySkillLinks(root);
+    if (legacy.links.length > 0) {
+      throw new Error("legacy TaskChef skill links remain; run workspace init to remove them");
+    }
+    return "no legacy TaskChef skill links";
+  });
   await check("task-records", async () => {
     const taskRoot = path.join(root, "tasks");
     const entries = await readdir(taskRoot, { withFileTypes: true });
