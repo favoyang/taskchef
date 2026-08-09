@@ -18,6 +18,7 @@
     "taskchef": "bin/taskchef.js"
   },
   "files": [
+    ".codex-plugin",
     "assets",
     "BACKLOG.md",
     "bin",

@@ -1,21 +1,21 @@
 ---
 name: taskchef-bootstrap
-description: "Initialize, diagnose, or refresh TaskChef dispatcher workspaces, project configuration, managed AGENTS.md instructions, and TaskChef skill links. Use when creating a TaskChef workspace, adding, importing, listing, or removing configured projects, running TaskChef doctor, repairing dispatcher setup, or upgrading installed TaskChef skills. Do not dispatch user work or reconcile executor threads."
+description: "Initialize, diagnose, or refresh TaskChef dispatcher workspaces, project configuration, and managed AGENTS.md instructions. Use when creating a TaskChef workspace, adding, importing, listing, or removing configured projects, running TaskChef doctor, or repairing dispatcher setup. Do not dispatch user work or reconcile executor threads."
 ---
 
 # TaskChef Bootstrap
 
 Initialize or refresh a data-only TaskChef dispatcher workspace.
 
-Resolve this linked skill with `realpath`. The TaskChef source root is two
+Resolve this skill directory with `realpath`. The TaskChef plugin root is two
 parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
 all deterministic workspace operations.
 
 ## Boundaries
 
 - Keep implementation, tests, and reports in the TaskChef source repository.
-- Keep only `AGENTS.md`, `taskchef.json`, `tasks/*/task.json`, and the three
-  TaskChef skill links in a dispatcher workspace.
+- Keep only `AGENTS.md`, `taskchef.json`, and `tasks/*/task.json` in a
+  dispatcher workspace.
 - Do not dispatch tasks or reconcile executor threads during bootstrap unless
   the user separately requests those actions.
 - Never use collaboration agents, hooks, schedules, polling, or daemons.
@@ -24,7 +24,8 @@ all deterministic workspace operations.
 
 1. Run `workspace init --json`. It takes no stdin, creates an empty
    configuration when missing, and idempotently creates or refreshes the task
-   directory, managed instructions, and all three skill links.
+   directory and managed instructions. The installed plugin provides all three
+   TaskChef skills outside the dispatcher workspace.
 2. Run `doctor --json` after setup or when the user asks to diagnose the
    workspace. Doctor is read-only; rerun `workspace init --json` to repair the
    managed scaffold.

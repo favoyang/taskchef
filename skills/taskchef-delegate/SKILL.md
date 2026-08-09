@@ -7,15 +7,15 @@ description: "Dispatch actionable requests from an initialized TaskChef workspac
 
 Create real Codex tasks from a TaskChef data workspace and return immediately.
 
-Resolve this linked skill with `realpath`. The TaskChef source root is two
+Resolve this skill directory with `realpath`. The TaskChef plugin root is two
 parents above the skill directory. Use the TaskChef executable under that root
 for all deterministic workspace and task-record operations.
 
 ## Boundaries
 
 - Keep implementation, tests, and reports in the TaskChef source repository.
-- Keep only `AGENTS.md`, `taskchef.json`, `tasks/*/task.json`, and the three
-  TaskChef skill links in a dispatcher workspace.
+- Keep only `AGENTS.md`, `taskchef.json`, and `tasks/*/task.json` in a
+  dispatcher workspace.
 - Use real Codex tasks, never collaboration or subagent tools.
 - Never use hooks, callbacks, schedules, polling, daemons, or event logs.
 - Never wait for delegated work after executor creation.
