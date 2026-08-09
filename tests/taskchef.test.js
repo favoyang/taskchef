@@ -38,7 +38,7 @@ import {
   updateTask,
   validateConfig,
   validateResult,
-} from "./index.js";
+} from "../index.js";
 
 const execFile = promisify(execFileCallback);
 const FIXED_TIME = "2026-08-08T10:00:00.000Z";
@@ -121,7 +121,10 @@ test("lightweight init creates and idempotently repairs the workspace scaffold",
   for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
     const skillPath = path.join(workspace, ".agents", "skills", skillName);
     assert.equal((await lstat(skillPath)).isSymbolicLink(), true);
-    assert.equal(await readlink(skillPath), path.resolve(".agents", "skills", skillName));
+    assert.equal(await readlink(skillPath), path.resolve("skills", skillName));
+    const resolvedSkillPath = await realpath(skillPath);
+    const documentedCliPath = path.resolve(resolvedSkillPath, "..", "..", "bin", "taskchef.js");
+    assert.equal((await lstat(documentedCliPath)).isFile(), true);
   }
 
   const repeated = await initializeWorkspace(workspace);
@@ -137,7 +140,7 @@ test("lightweight init creates and idempotently repairs the workspace scaffold",
     repaired.skills.skills.find((skill) => skill.name === "taskchef-delegate").action,
     "updated",
   );
-  assert.equal(await readlink(delegateLink), path.resolve(".agents", "skills", "taskchef-delegate"));
+  assert.equal(await readlink(delegateLink), path.resolve("skills", "taskchef-delegate"));
 });
 
 test("init preserves existing configuration and merges managed instructions", async () => {

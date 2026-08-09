@@ -7,7 +7,7 @@ description: "Reconcile active TaskChef task records with their visible Codex ex
 
 Refresh TaskChef's recorded task state from native Codex threads exactly once.
 
-Resolve this linked skill with `realpath`. The TaskChef source root is three
+Resolve this linked skill with `realpath`. The TaskChef source root is two
 parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
 all deterministic record operations.
 

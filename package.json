@@ -24,14 +24,14 @@
     "index.js",
     "SPEC.md",
     "src",
-    ".agents/skills/taskchef-bootstrap",
-    ".agents/skills/taskchef-delegate",
-    ".agents/skills/taskchef-reconcile"
+    "skills/taskchef-bootstrap",
+    "skills/taskchef-delegate",
+    "skills/taskchef-reconcile"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test tests/taskchef.test.js"
   }
 }

@@ -20,7 +20,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
-const DISPATCHER_INSTRUCTIONS_URL = new URL("../assets/AGENTS.md", import.meta.url);
+const DISPATCHER_INSTRUCTIONS_URL = new URL("../assets/AGENTS.md.template", import.meta.url);
 const DISPATCHER_INSTRUCTIONS_START = "<!-- taskchef:dispatcher-instructions:start -->";
 const DISPATCHER_INSTRUCTIONS_END = "<!-- taskchef:dispatcher-instructions:end -->";
 const TASKCHEF_SKILL_NAMES = [
@@ -28,7 +28,7 @@ const TASKCHEF_SKILL_NAMES = [
   "taskchef-delegate",
   "taskchef-reconcile",
 ];
-const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../.agents/skills/", import.meta.url));
+const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url));
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
