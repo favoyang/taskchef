@@ -8,7 +8,7 @@ description: "Dispatch actionable requests from an initialized TaskChef workspac
 Create real Codex tasks from a TaskChef data workspace and return immediately.
 Use `taskchef-reconcile` first when the current prompt has active recorded tasks.
 
-Resolve this linked skill with `realpath`. The TaskChef source root is three
+Resolve this linked skill with `realpath`. The TaskChef source root is two
 parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
 all deterministic workspace and task-record operations.
 

@@ -7,7 +7,7 @@ description: "Initialize, diagnose, or refresh TaskChef dispatcher workspaces, p
 
 Initialize or refresh a data-only TaskChef dispatcher workspace.
 
-Resolve this linked skill with `realpath`. The TaskChef source root is three
+Resolve this linked skill with `realpath`. The TaskChef source root is two
 parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
 all deterministic workspace operations.
 

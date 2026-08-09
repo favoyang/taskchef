@@ -35,9 +35,9 @@ with symlinks. To install an unreleased revision, use
 ```text
 AGENTS.md
 taskchef.json
-.agents/skills/taskchef-bootstrap -> <source>/.agents/skills/taskchef-bootstrap
-.agents/skills/taskchef-delegate -> <source>/.agents/skills/taskchef-delegate
-.agents/skills/taskchef-reconcile -> <source>/.agents/skills/taskchef-reconcile
+.agents/skills/taskchef-bootstrap -> <source>/skills/taskchef-bootstrap
+.agents/skills/taskchef-delegate -> <source>/skills/taskchef-delegate
+.agents/skills/taskchef-reconcile -> <source>/skills/taskchef-reconcile
 tasks/<task-id>/task.json
 ```
 
