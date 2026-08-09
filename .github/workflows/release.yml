@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -44,7 +45,8 @@ jobs:
       id-token: write
     if: >-
       github.repository == 'favoyang/taskchef' &&
-      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v5
