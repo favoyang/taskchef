@@ -11,10 +11,10 @@ The canonical contract is [SPEC.md](SPEC.md). Deferred ideas are in
 
 TaskChef requires Node.js 18 or newer and Git.
 
-Install the CLI and its bundled skills directly from the public GitHub source:
+Install the CLI and its bundled skills from npm:
 
 ```sh
-npm install --global github:favoyang/taskchef
+npm install --global taskchef
 ```
 
 Then initialize a dispatcher workspace. Initialization links the three bundled
@@ -25,9 +25,10 @@ taskchef workspace init --workspace <workspace>
 taskchef doctor --workspace <workspace>
 ```
 
-TaskChef is not currently published to the npm registry. Contributors working
-from a source checkout can run `node bin/taskchef.js` directly; this managed
-skills workspace installs the checkout CLI and skills with symlinks.
+Contributors working from a source checkout can run `node bin/taskchef.js`
+directly; this managed skills workspace installs the checkout CLI and skills
+with symlinks. To install an unreleased revision, use
+`npm install --global github:favoyang/taskchef`.
 
 ## Workspace
 
@@ -126,6 +127,31 @@ taskchef task reconcile-candidates
 All commands accept `--workspace <path>`. Add `--json` for deterministic JSON
 output used by the TaskChef skills; otherwise the CLI prints human-readable
 output.
+
+## Release
+
+Releases are automated with semantic-release from the `Release` GitHub Actions
+workflow on `main`. Use Semantic Commit Messages so the release type can be
+calculated:
+
+```text
+fix: correct task reconciliation
+feat: add a new CLI command
+feat!: change the workspace data contract
+```
+
+Publishing uses npm trusted publishing from `.github/workflows/release.yml`.
+The workflow runs the test suite, validates the npm tarball, publishes the
+calculated version, creates the GitHub release, and commits the updated
+`package.json` version back to `main`.
+
+## Development
+
+```sh
+npm test
+npm pack --dry-run
+npx -y -p semantic-release@25 -p @semantic-release/git semantic-release --dry-run
+```
 
 ## Boundaries
 
