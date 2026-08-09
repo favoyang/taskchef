@@ -1,6 +1,6 @@
 ---
 name: taskchef-reconcile
-description: "Reconcile active TaskChef task records with their visible Codex executor threads. Use at the start of ordinary prompts in a TaskChef workspace, for TaskChef status or progress requests, after delegated work may have completed or blocked, or for an explicitly requested full refresh. Performs one bounded snapshot pass and never polls or waits for future activity."
+description: "Reconcile active TaskChef task records with their visible Codex executor threads. Use only when the user asks to refresh, fix, or repair outdated TaskChef task states. Performs one bounded snapshot pass and never polls or waits for future activity."
 ---
 
 # TaskChef Reconcile

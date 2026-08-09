@@ -20,7 +20,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
-const DISPATCHER_INSTRUCTIONS_URL = new URL("../assets/AGENTS.md.template", import.meta.url);
+const DISPATCHER_INSTRUCTIONS_URL = new URL(
+  "../assets/taskchef-dispatcher-instructions.md",
+  import.meta.url,
+);
 const DISPATCHER_INSTRUCTIONS_START = "<!-- taskchef:dispatcher-instructions:start -->";
 const DISPATCHER_INSTRUCTIONS_END = "<!-- taskchef:dispatcher-instructions:end -->";
 const TASKCHEF_SKILL_NAMES = [
