@@ -24,7 +24,7 @@ for all deterministic workspace and task-record operations.
 ## Dispatch
 
 1. Run
-   `<source-root>/bin/taskchef.js project list --json --workspace <workspace>`
+   `<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>`
    to load and validate the configured routing targets. Use
    `$taskchef-bootstrap` if the workspace is missing or unhealthy.
 2. Split the request into the smallest independently useful outcomes. Include
@@ -34,15 +34,15 @@ for all deterministic workspace and task-record operations.
    clear project match.
 4. Resolve native projects once and require the exact configured path.
 5. For an explicit retry, require the exact task ID and run
-   `<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`.
+   `<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`.
    Reuse the record only when its status is `pending`; ask for the task ID when
    it is missing and reject retries of non-pending records. For new work, run
-   `<source-root>/bin/taskchef.js task create --json --workspace <workspace>`
+   `<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>`
    with the task record JSON on stdin before executor creation.
 6. Create one real Codex task per record using the exact saved project and a
    local environment on its executor host.
 7. Immediately run
-   `<source-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>`
+   `<plugin-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>`
    with the `running` status and returned `threadId` on stdin. Never persist
    `hostId`.
 8. Leave a failed creation pending. Do not invent an ID or delete the record.

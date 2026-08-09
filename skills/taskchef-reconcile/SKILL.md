@@ -8,7 +8,7 @@ description: "Reconcile active TaskChef task records with their visible Codex ex
 Refresh TaskChef's recorded task state from native Codex threads exactly once.
 
 Resolve this skill directory with `realpath`. The TaskChef plugin root is two
-parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
+parents above the skill directory. Invoke `<plugin-root>/bin/taskchef.js` for
 all deterministic record operations.
 
 ## Reconcile

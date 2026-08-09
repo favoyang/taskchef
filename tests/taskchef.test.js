@@ -260,17 +260,17 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.deepEqual(
     literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
     [
-      "<source-root>/bin/taskchef.js project list --json --workspace <workspace>",
-      "<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>",
-      "<source-root>/bin/taskchef.js task create --json --workspace <workspace>",
-      "<source-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>",
     ],
   );
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|project|task)(?:\s|$)/.test(literal)), false);
   const retryRule = body.match(/5\. ([\s\S]+?)\n6\./)?.[1].replace(/\s+/g, " ").trim();
   assert.equal(
     retryRule,
-    "For an explicit retry, require the exact task ID and run `<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`. Reuse the record only when its status is `pending`; ask for the task ID when it is missing and reject retries of non-pending records. For new work, run `<source-root>/bin/taskchef.js task create --json --workspace <workspace>` with the task record JSON on stdin before executor creation.",
+    "For an explicit retry, require the exact task ID and run `<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`. Reuse the record only when its status is `pending`; ask for the task ID when it is missing and reject retries of non-pending records. For new work, run `<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>` with the task record JSON on stdin before executor creation.",
   );
 });
 

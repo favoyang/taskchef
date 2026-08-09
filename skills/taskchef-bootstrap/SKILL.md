@@ -8,7 +8,7 @@ description: "Initialize, diagnose, or refresh TaskChef dispatcher workspaces, p
 Initialize or refresh a data-only TaskChef dispatcher workspace.
 
 Resolve this skill directory with `realpath`. The TaskChef plugin root is two
-parents above the skill directory. Invoke `<source-root>/bin/taskchef.js` for
+parents above the skill directory. Invoke `<plugin-root>/bin/taskchef.js` for
 all deterministic workspace operations.
 
 ## Boundaries
