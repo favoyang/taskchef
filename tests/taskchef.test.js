@@ -240,6 +240,13 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     await readFile(path.join(root, ".codex-plugin", "plugin.json"), "utf8"),
   );
   assert.equal(synchronized.version, "2.3.4");
+
+  const outputPath = path.join(root, "github-output");
+  await execFile(process.execPath, [path.resolve("scripts/write-release-version-output.js")], {
+    cwd: root,
+    env: { ...process.env, GITHUB_OUTPUT: outputPath },
+  });
+  assert.equal(await readFile(outputPath, "utf8"), "version=2.3.4\n");
 });
 
 test("release automation pins the shared marketplace to the exact npm version", async () => {
@@ -366,6 +373,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
   assert.match(workflow, /marketplace:\n[\s\S]+needs:\n\s+- test\n\s+- release/);
   assert.match(workflow, /marketplace:\n[\s\S]+always\(\)/);
   assert.match(workflow, /expected-version: \$\{\{ steps\.expected-version\.outputs\.version \}\}/);
+  assert.match(workflow, /run: node scripts\/write-release-version-output\.js/);
   assert.match(workflow, /EXPECTED_VERSION: \$\{\{ needs\.release\.outputs\.expected-version \}\}/);
   assert.match(workflow, /update-shared-marketplace\.js shared-marketplace\/\.agents\/plugins\/marketplace\.json "\$EXPECTED_VERSION"/);
   assert.match(workflow, /steps\.marketplace-update\.outputs\.npm_ready != 'true'/);

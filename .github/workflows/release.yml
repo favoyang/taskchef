@@ -76,7 +76,7 @@ jobs:
       - name: Capture expected release version
         id: expected-version
         if: always()
-        run: echo "version=$(node -p \"require('./.codex-plugin/plugin.json').version\")" >> "$GITHUB_OUTPUT"
+        run: node scripts/write-release-version-output.js
 
   marketplace:
     name: Update plugin marketplace
