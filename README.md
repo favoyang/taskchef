@@ -106,6 +106,9 @@ taskchef task reconcile-candidates --json --workspace <workspace>
 thread IDs. Pass `--include-finished` only for an explicit full refresh or when
 a finished executor is known to have received new work.
 
+Delegation does not reconcile task states first. Ask the dispatcher to refresh
+or fix outdated task states when you want it to run `$taskchef-reconcile`.
+
 ## Complete CLI
 
 ```text
