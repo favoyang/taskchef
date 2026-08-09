@@ -162,6 +162,35 @@ test("init preserves existing configuration and merges managed instructions", as
   assert.equal((await readConfig(workspace)).projects.length, 1);
 });
 
+test("delegate skill isolates trigger metadata and uses complete CLI commands", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-delegate/SKILL.md"), "utf8");
+  const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
+  assert.equal(
+    frontmatter.match(/^description:.*$/m)?.[0],
+    'description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, splitting work across projects, or retrying pending executor creation. Dispatch must return immediately and must never use subagents, hooks, schedules, or foreground waiting."',
+  );
+  assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
+  assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|reconcile)\b/);
+
+  const body = content.slice(content.indexOf("\n---", 4) + 4);
+  const literals = [...body.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+  assert.deepEqual(
+    literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
+    [
+      "<source-root>/bin/taskchef.js project list --json --workspace <workspace>",
+      "<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>",
+      "<source-root>/bin/taskchef.js task create --json --workspace <workspace>",
+      "<source-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>",
+    ],
+  );
+  assert.equal(literals.some((literal) => /^(?:doctor|workspace|project|task)(?:\s|$)/.test(literal)), false);
+  const retryRule = body.match(/5\. ([\s\S]+?)\n6\./)?.[1].replace(/\s+/g, " ").trim();
+  assert.equal(
+    retryRule,
+    "For an explicit retry, require the exact task ID and run `<source-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`. Reuse the record only when its status is `pending`; ask for the task ID when it is missing and reject retries of non-pending records. For new work, run `<source-root>/bin/taskchef.js task create --json --workspace <workspace>` with the task record JSON on stdin before executor creation.",
+  );
+});
+
 test("init fails safely on malformed managed instruction markers", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-invalid-instructions-"));
   await writeFile(
