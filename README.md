@@ -1,12 +1,11 @@
 # TaskChef
 
-TaskChef lets one Codex task send work to other Codex tasks in your local
-projects. Give the dispatcher a request and it opens a visible task in the
-right project for each independent piece of work. You can open those tasks and
-talk to them directly while the dispatcher remains free for the next request.
+One inbox for all your Codex projects. TaskChef routes each request to the
+right local project and opens a normal Codex task there. You can follow that
+task directly while TaskChef stays ready for more work.
 
-It is useful when your work spans several repositories or folders and you want
-one place to route it.
+When a request contains independent work for several projects, TaskChef splits
+it into separate tasks and sends each one to the right place.
 
 ## The mental model
 
@@ -106,15 +105,16 @@ executor. The dispatcher is ready for another request right away.
 ### Route work across projects
 
 Suppose bootstrap also found `storefront`, the project for the customer web
-interface. Name both projects when a request needs work in each one:
+interface. The following request contains two changes that do not depend on
+each other:
 
 ```text
-In payments-api, return the payment retry reason. Then in storefront, display that reason to the customer. Test both changes.
+In payments-api, add structured logs for failed payment retries and test them. Separately, in storefront, fix the checkout form's keyboard focus order and run the browser tests.
 ```
 
-TaskChef splits the request into the smallest pieces that are useful on their
-own. It asks which project to use if the route is missing or ambiguous.
-Multiple active tasks may use the same project.
+TaskChef opens one task in each project, and both can proceed independently. It
+asks which project to use if a route is missing or ambiguous. Multiple active
+tasks may use the same project.
 
 ### Follow up on delegated work
 
@@ -190,8 +190,14 @@ The plugin has three skills:
 - `$taskchef-reconcile` refreshes saved task state once
 
 The deterministic CLI underneath these skills manages the workspace data
-directly. Install the npm package globally if you want to use it without the
-plugin:
+directly. Run it with `npx` so you do not have to install anything globally:
+
+```sh
+npx taskchef help
+```
+
+This is the recommended way to use the CLI. If you prefer the shorter
+`taskchef` command, install the package globally:
 
 ```sh
 npm install --global taskchef
@@ -201,45 +207,45 @@ The npm package does not install the Codex skills that create or reconcile
 executor tasks. From a source checkout, run `node bin/taskchef.js` instead.
 
 ```text
-taskchef help
-taskchef doctor
-taskchef workspace init
-taskchef project add <path>
-taskchef project import [<file> | -]
-taskchef project list
-taskchef project remove <name>
-taskchef task create
-taskchef task update <task-id>
-taskchef task show <task-id>
-taskchef task list
-taskchef task summary
-taskchef task reconcile-candidates
+npx taskchef help
+npx taskchef doctor
+npx taskchef workspace init
+npx taskchef project add <path>
+npx taskchef project import [<file> | -]
+npx taskchef project list
+npx taskchef project remove <name>
+npx taskchef task create
+npx taskchef task update <task-id>
+npx taskchef task show <task-id>
+npx taskchef task list
+npx taskchef task summary
+npx taskchef task reconcile-candidates
 ```
 
 Workspace and data commands accept `--workspace <path>` and default to the
 current directory. Commands that return workspace data accept `--json` for
-deterministic output. Run `taskchef help` to see all options.
+deterministic output. Run `npx taskchef help` to see all options.
 
 ### Project administration
 
 ```sh
-taskchef workspace init --workspace <workspace>
-taskchef doctor --workspace <workspace>
+npx taskchef workspace init --workspace <workspace>
+npx taskchef doctor --workspace <workspace>
 
-taskchef project add /workspace/payments \
+npx taskchef project add /workspace/payments \
   --name payments \
   --description "Owns payment authorization, capture, and refunds." \
   --workspace <workspace>
 
-taskchef project list --workspace <workspace>
-taskchef project remove payments --workspace <workspace>
+npx taskchef project list --workspace <workspace>
+npx taskchef project remove payments --workspace <workspace>
 ```
 
 Import projects as a JSON array from a file or standard input:
 
 ```sh
-taskchef project import projects.json --workspace <workspace>
-taskchef project import - --workspace <workspace> < projects.json
+npx taskchef project import projects.json --workspace <workspace>
+npx taskchef project import - --workspace <workspace> < projects.json
 ```
 
 Import merges projects by canonical path. If an imported project omits its name
@@ -253,20 +259,20 @@ Task creation and updates read JSON from standard input:
 
 ```sh
 printf '%s\n' '{"id":"t1","project":"/workspace/payments","title":"Echo input","instruction":"Create and test echo_input.py."}' |
-  taskchef task create --json --workspace <workspace>
+  npx taskchef task create --json --workspace <workspace>
 
 printf '%s\n' '{"status":"running","threadId":"019f..."}' |
-  taskchef task update t1 --json --workspace <workspace>
+  npx taskchef task update t1 --json --workspace <workspace>
 ```
 
 These commands inspect saved snapshots without querying Codex tasks:
 
 ```sh
-taskchef task show <task-id> --workspace <workspace>
-taskchef task list --workspace <workspace>
-taskchef task list --status running --status blocked --project payments --workspace <workspace>
-taskchef task summary --workspace <workspace>
-taskchef task reconcile-candidates --json --workspace <workspace>
+npx taskchef task show <task-id> --workspace <workspace>
+npx taskchef task list --workspace <workspace>
+npx taskchef task list --status running --status blocked --project payments --workspace <workspace>
+npx taskchef task summary --workspace <workspace>
+npx taskchef task reconcile-candidates --json --workspace <workspace>
 ```
 
 `task reconcile-candidates` returns `running` and `blocked` records with thread
