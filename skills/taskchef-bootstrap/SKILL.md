@@ -1,6 +1,6 @@
 ---
 name: taskchef-bootstrap
-description: "Initialize, diagnose, or refresh TaskChef dispatcher workspaces, project configuration, dispatch history, and managed AGENTS.md instructions. Use when creating a TaskChef workspace, adding, importing, listing, or removing configured projects, running TaskChef doctor, or repairing dispatcher setup. Do not dispatch user work or report on executor threads."
+description: "Initialize, diagnose, or refresh TaskChef dispatcher workspaces, project configuration, task history, and managed AGENTS.md instructions. Use when creating a TaskChef workspace, adding, importing, listing, or removing configured projects, running TaskChef doctor, or repairing dispatcher setup. Do not dispatch user work or report on executor threads."
 ---
 
 # TaskChef Bootstrap
@@ -14,7 +14,7 @@ all deterministic workspace operations.
 ## Boundaries
 
 - Keep implementation, tests, and reports in the TaskChef source repository.
-- Keep only `AGENTS.md`, `taskchef.json`, and `dispatches.jsonl` in a dispatcher
+- Keep only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` in a dispatcher
   workspace.
 - Do not dispatch tasks or report on executor threads during bootstrap unless
   the user separately requests those actions.
@@ -23,7 +23,7 @@ all deterministic workspace operations.
 ## Initialize and repair
 
 1. Run `workspace init --json`. It takes no stdin, creates an empty
-   configuration when missing, creates the append-only dispatch log, refreshes
+   configuration when missing, creates the append-only task log, refreshes
    managed instructions, and migrates legacy task records that have executor
    thread IDs. The installed plugin provides all three TaskChef skills outside
    the dispatcher workspace.
@@ -48,4 +48,4 @@ all deterministic workspace operations.
    or description when omitted. Use `--replace` only when the user explicitly
    requests replacement.
 4. Inspect configured projects with `project list --json`. Remove by name with
-   `project remove`. Existing dispatch entries keep their project snapshots.
+   `project remove`. Existing task entries keep their project snapshots.

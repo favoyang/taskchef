@@ -1,4 +1,4 @@
 interface:
   display_name: "TaskChef Report"
   short_description: "Report on dispatched Codex tasks"
-  default_prompt: "Use $taskchef-report to query the live state of work in the TaskChef dispatch journey once."
+  default_prompt: "Use $taskchef-report to query the live state of work in the TaskChef task history once."

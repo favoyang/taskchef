@@ -3,9 +3,9 @@
 `SPEC.md` is the current contract. These ideas need a concrete user case and a
 clear data model before implementation.
 
-## Journey views
+## Task history views
 
-- Add date ranges and title search if the dispatch log becomes difficult to
+- Add date ranges and title search if the task log becomes difficult to
   browse.
 - Consider export formats for personal activity reports.
 - Define archival or retention only when real logs become large enough to need
@@ -18,7 +18,7 @@ clear data model before implementation.
 - Consider user-scheduled, read-only digests that query recorded Codex tasks
   and publish a report without writing status or results to the TaskChef
   workspace.
-- Define batching and partial-read behavior for large journeys.
+- Define batching and partial-read behavior for large task histories.
 - Decide whether inaccessible or deleted Codex tasks need a separate report
   category.
 
@@ -35,7 +35,7 @@ clear data model before implementation.
 
 ## Integrations
 
-- Add GitHub automation only when dispatch history alone is insufficient.
+- Add GitHub automation only when task history alone is insufficient.
 - Evaluate automatic project discovery rules and exclusions.
 - Consider multiple executor threads for one logical assignment if a real
   workflow requires it.

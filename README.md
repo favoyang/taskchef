@@ -2,8 +2,8 @@
 
 Bring work for all your local Codex projects to one inbox. TaskChef reads each
 request, chooses the right project, and opens a normal Codex task there. It
-keeps a simple journey of what it dispatched, while the created tasks remain
-the source of truth for progress and results.
+keeps a task history so you can find the work later. The created Codex tasks
+remain the source of truth for progress and results.
 
 If a request contains independent work for different projects, TaskChef can
 open several tasks. It returns as soon as they are created, so you can send the
@@ -12,20 +12,20 @@ next request or open any executor and work with it directly.
 ## The mental model
 
 - The **dispatcher workspace** is a small folder that stores project routes and
-  the dispatch journey. A Codex task opened in this folder is the
+  task history. A Codex task opened in this folder is the
   **dispatcher**.
 - A **configured project** is a local repository or folder where TaskChef may
   send work.
 - An **executor** is the normal Codex task that handles delegated work inside a
   configured project.
-- A **dispatch entry** records that TaskChef created an executor. It contains
-  the request, a snapshot of the selected project, and the executor's task ID.
+- A **task entry** records what TaskChef delegated, which project it chose, and
+  the executor's Codex task ID.
 
 ```text
 request in dispatcher
         |
-        +-- dispatch entry --> executor in project A
-        +-- dispatch entry --> executor in project B
+        +-- task entry --> executor in project A
+        +-- task entry --> executor in project B
 ```
 
 TaskChef does not copy executor results into its workspace. When you ask for a
@@ -67,12 +67,11 @@ Bootstrap creates:
 ```text
 AGENTS.md
 taskchef.json
-dispatches.jsonl
+tasks.jsonl
 ```
 
-This is one setup process. TaskChef scans eligible local Codex projects and
-adds them to the managed project list in `taskchef.json` while it initializes
-the workspace.
+TaskChef scans eligible local Codex projects during setup and adds them to the
+managed project list in `taskchef.json`.
 
 `taskchef.json` defines the available routes. A project name or GitHub pull
 request URL in your request is usually enough for TaskChef to choose the right
@@ -118,10 +117,9 @@ the same project.
 Open an executor and prompt it like any other Codex task. Its thread is the
 live source of truth for progress, questions, and results.
 
-The dispatcher workspace keeps `dispatches.jsonl`, an append-only journey of
-successful dispatches. It helps you answer questions such as what TaskChef
-sent, when it sent it, which project it selected, and which Codex task received
-the work. It does not need a cron job because it does not mirror task state.
+The dispatcher workspace keeps `tasks.jsonl`, an append-only history of
+successful delegations. It records what TaskChef sent, when it sent it, which
+project it selected, and which Codex task received the work.
 
 ### Ask for a live report
 
@@ -131,9 +129,9 @@ Ask the dispatcher when you want a current overview:
 Report on the work TaskChef has dispatched.
 ```
 
-This runs `$taskchef-report`. It reads the journey, checks the relevant Codex
-tasks once, and reports their current states and outcomes. Nothing is written
-back to the log, and TaskChef does not keep polling after the report.
+This runs `$taskchef-report`. It reads the task history, checks the relevant
+Codex tasks once, and reports their current states and outcomes. Nothing is
+written back to the log, and TaskChef does not keep polling after the report.
 
 ### Manage configured projects
 
@@ -156,8 +154,8 @@ repository root for a Git project. TaskChef also accepts non-Git folders. It
 detects Git status and the canonical GitHub `origin` when adding or importing
 a project.
 
-Removing a project does not rewrite old journey entries. Each dispatch entry
-keeps the project metadata that TaskChef used at dispatch time.
+Removing a project does not rewrite old task entries. Each entry keeps the
+project metadata that TaskChef used when it delegated the work.
 
 ## Important boundaries
 
@@ -166,8 +164,8 @@ keeps the project metadata that TaskChef used at dispatch time.
 - Executors are visible Codex tasks. The dispatcher does not supervise them or
   wait for them to finish.
 - TaskChef routes only to projects on the same local execution host.
-- The journey contains successful dispatches, not current task status or task
-  results.
+- The task history contains successful delegations, not current task status or
+  task results.
 - TaskChef does not store executor transcripts, hidden reasoning, or `hostId`.
 - A live report is a one-time read of recorded Codex tasks. TaskChef discards
   the fetched state after presenting it.
@@ -187,7 +185,7 @@ The plugin has three skills:
 
 - `$taskchef-bootstrap` initializes, diagnoses, and configures a workspace
 - `$taskchef-delegate` routes requests and creates executor tasks
-- `$taskchef-report` reads the journey and reports live executor state once
+- `$taskchef-report` reads the task history and reports live executor state once
 
 The CLI underneath these skills manages workspace data. Run it once with `npx`
 if you do not want a global installation:
@@ -214,10 +212,10 @@ taskchef project add <path>
 taskchef project import [<file> | -]
 taskchef project list
 taskchef project remove <name>
-taskchef dispatch record
-taskchef dispatch show <dispatch-id>
-taskchef dispatch list
-taskchef dispatch summary
+taskchef task record
+taskchef task show <task-id>
+taskchef task list
+taskchef task summary
 ```
 
 Workspace and data commands accept `--workspace <path>` and default to the
@@ -250,23 +248,23 @@ Import merges by canonical path and preserves an existing name or description
 when the imported object omits it. `--replace` replaces the configured project
 set.
 
-### Dispatch journey
+### Task history
 
-`dispatch record` reads one successful dispatch from standard input. The
+`task record` reads one successful delegation from standard input. The
 `project` value is the exact configured project path:
 
 ```sh
-printf '%s\n' '{"id":"d1","project":"/workspace/payments","title":"Add retry logs","instruction":"Add structured logs for failed retries and test them.","threadId":"019f..."}' |
-  taskchef dispatch record --json --workspace <workspace>
+printf '%s\n' '{"id":"t1","project":"/workspace/payments","title":"Add retry logs","instruction":"Add structured logs for failed retries and test them.","threadId":"019f..."}' |
+  taskchef task record --json --workspace <workspace>
 ```
 
-Inspect the append-only journey without querying Codex tasks:
+Inspect the task history without querying Codex tasks:
 
 ```sh
-taskchef dispatch show d1 --workspace <workspace>
-taskchef dispatch list --workspace <workspace>
-taskchef dispatch list --project payments --workspace <workspace>
-taskchef dispatch summary --workspace <workspace>
+taskchef task show t1 --workspace <workspace>
+taskchef task list --workspace <workspace>
+taskchef task list --project payments --workspace <workspace>
+taskchef task summary --workspace <workspace>
 ```
 
 The complete data contract is in [SPEC.md](SPEC.md). Deferred ideas are in
@@ -284,7 +282,7 @@ The `Release` GitHub Actions workflow runs semantic-release on `main`.
 Semantic Commit Messages determine the release type:
 
 ```text
-fix: correct dispatch log validation
+fix: correct task log validation
 feat: add a new CLI command
 feat!: change the workspace data contract
 ```

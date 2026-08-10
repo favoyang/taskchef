@@ -3,14 +3,14 @@ import path from "node:path";
 
 import {
   addProject,
-  buildDispatchSummary,
+  buildTaskSummary,
   doctorWorkspace,
-  filterDispatches,
+  filterTasks,
   importProjects,
   initializeWorkspace,
   listProjects,
-  readDispatch,
-  recordDispatch,
+  readTask,
+  recordTask,
   removeProject,
 } from "./workspace.js";
 
@@ -91,7 +91,7 @@ async function initialize(args) {
   print(result, args, (value) => [
     `Workspace: ${value.workspace}`,
     `Configuration: ${value.config.action}`,
-    `Dispatch log: ${value.dispatches.action}`,
+    `Task log: ${value.tasks.action}`,
     `Legacy tasks: ${value.legacyTasks.action}`,
     `Instructions: ${value.instructions.action}`,
     `Legacy skill links removed: ${value.legacySkills.removed.length}`,
@@ -173,31 +173,31 @@ async function projectRemove(args) {
   return 0;
 }
 
-async function dispatchRecord(args) {
+async function taskRecord(args) {
   validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
-  const dispatch = await recordDispatch(workspaceRoot(args), await readJsonStdin());
+  const dispatch = await recordTask(workspaceRoot(args), await readJsonStdin());
   print(dispatch, args, (value) => `Recorded ${value.id}: ${value.title}`);
   return 0;
 }
 
-async function dispatchShow(args) {
+async function taskShow(args) {
   validateCommandArgs(args, 3, { values: ["--workspace"], switches: ["--json"] });
-  print(await readDispatch(workspaceRoot(args), args[2]), args);
+  print(await readTask(workspaceRoot(args), args[2]), args);
   return 0;
 }
 
-async function dispatchList(args) {
+async function taskList(args) {
   validateCommandArgs(args, 2, {
     values: ["--workspace", "--project"],
     switches: ["--json"],
   });
-  const dispatches = await filterDispatches(workspaceRoot(args), {
+  const dispatches = await filterTasks(workspaceRoot(args), {
     project: option(args, "--project", null),
   });
-  const result = { dispatchCount: dispatches.length, dispatches };
+  const result = { taskCount: dispatches.length, tasks: dispatches };
   print(result, args, (value) => table(
     ["ID", "CREATED", "PROJECT", "TITLE"],
-    value.dispatches.map((dispatch) => [
+    value.tasks.map((dispatch) => [
       dispatch.id,
       dispatch.createdAt,
       dispatch.project.name,
@@ -207,11 +207,11 @@ async function dispatchList(args) {
   return 0;
 }
 
-async function dispatchSummary(args) {
+async function taskSummary(args) {
   validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
-  const summary = await buildDispatchSummary(workspaceRoot(args));
+  const summary = await buildTaskSummary(workspaceRoot(args));
   print(summary, args, (value) => [
-    `Dispatches: ${value.dispatchCount}`,
+    `Tasks: ${value.taskCount}`,
     ...Object.entries(value.projectCounts).map(([project, count]) => `${project}: ${count}`),
   ].join("\n"));
   return 0;
@@ -228,12 +228,12 @@ Usage:
   taskchef project import [<file> | -] [--replace] [--json] [--workspace <path>]
   taskchef project list [--json] [--workspace <path>]
   taskchef project remove <name> [--json] [--workspace <path>]
-  taskchef dispatch record [--json] [--workspace <path>]
-  taskchef dispatch show <dispatch-id> [--json] [--workspace <path>]
-  taskchef dispatch list [--project <name-or-path>] [--json] [--workspace <path>]
-  taskchef dispatch summary [--json] [--workspace <path>]
+  taskchef task record [--json] [--workspace <path>]
+  taskchef task show <task-id> [--json] [--workspace <path>]
+  taskchef task list [--project <name-or-path>] [--json] [--workspace <path>]
+  taskchef task summary [--json] [--workspace <path>]
 
-Dispatch record reads JSON from standard input. Project import reads a JSON
+Task record reads JSON from standard input. Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
 `);
 }
@@ -249,10 +249,10 @@ export async function runCli(args) {
   if (args[0] === "project" && args[1] === "import") return projectImport(args);
   if (args[0] === "project" && args[1] === "list") return projectList(args);
   if (args[0] === "project" && args[1] === "remove") return projectRemove(args);
-  if (args[0] === "dispatch" && args[1] === "record") return dispatchRecord(args);
-  if (args[0] === "dispatch" && args[1] === "show" && args[2]) return dispatchShow(args);
-  if (args[0] === "dispatch" && args[1] === "list") return dispatchList(args);
-  if (args[0] === "dispatch" && args[1] === "summary") return dispatchSummary(args);
+  if (args[0] === "task" && args[1] === "record") return taskRecord(args);
+  if (args[0] === "task" && args[1] === "show" && args[2]) return taskShow(args);
+  if (args[0] === "task" && args[1] === "list") return taskList(args);
+  if (args[0] === "task" && args[1] === "summary") return taskSummary(args);
   process.stderr.write(`Unknown command: ${args.join(" ")}\n`);
   usage();
   return 2;

@@ -33,7 +33,7 @@ const TASKCHEF_SKILL_NAMES = [
 ];
 const LEGACY_TASKCHEF_SKILL_NAMES = [...TASKCHEF_SKILL_NAMES, "taskchef-reconcile"];
 const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url));
-const DISPATCH_FILE_NAME = "dispatches.jsonl";
+const DISPATCH_FILE_NAME = "tasks.jsonl";
 const DISPATCH_LOCK_NAME = ".taskchef-dispatch.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
@@ -564,7 +564,7 @@ export async function initializeWorkspace(workspaceRoot) {
   const legacyTaskRecords = await inspectLegacyTaskRecords(root, config, existingDispatches);
   const { legacySkills } = await ensureWorkspaceSkills(root);
   if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
-  const dispatches = await ensureDispatchFile(root);
+  const tasks = await ensureDispatchFile(root);
   const legacyTasks = await migrateLegacyTaskRecords(root, legacyTaskRecords);
   const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
     if (!configExists) await unlink(configPath).catch(() => {});
@@ -573,7 +573,7 @@ export async function initializeWorkspace(workspaceRoot) {
   return {
     workspace: root,
     config: { path: configPath, action: configExists ? "unchanged" : "created", value: config },
-    dispatches,
+    tasks,
     instructions,
     legacySkills,
     legacyTasks,
@@ -651,7 +651,7 @@ export async function removeProject(workspaceRoot, name) {
   return { project };
 }
 
-async function validateDispatchShape(dispatch, name = "dispatch") {
+async function validateDispatchShape(dispatch, name = "task") {
   requireExactFields(dispatch, DISPATCH_FIELDS, name);
   if (dispatch.schemaVersion !== 1) throw new Error(`unsupported ${name} schemaVersion`);
   const id = requireSafeId(dispatch.id, `${name}.id`);
@@ -671,7 +671,7 @@ async function readDispatchesUnlocked(root) {
   await readConfig(root, { checkPaths: false });
   const filePath = path.join(root, DISPATCH_FILE_NAME);
   if (!(await managedRegularFileExists(filePath))) {
-    throw new Error(`dispatch log does not exist: ${filePath}`);
+    throw new Error(`task log does not exist: ${filePath}`);
   }
   const content = await readFile(filePath, "utf8");
   if (content.length > 0 && !content.endsWith("\n")) {
@@ -689,14 +689,14 @@ async function readDispatchesUnlocked(root) {
     } catch (error) {
       throw new Error(`${DISPATCH_FILE_NAME} line ${index + 1} is invalid JSON: ${error.message}`);
     }
-    dispatches.push(await validateDispatchShape(value, `dispatch line ${index + 1}`));
+    dispatches.push(await validateDispatchShape(value, `task line ${index + 1}`));
   }
   const ids = new Set();
   const threadIds = new Set();
   for (const dispatch of dispatches) {
-    if (ids.has(dispatch.id)) throw new Error(`duplicate dispatch ID: ${dispatch.id}`);
+    if (ids.has(dispatch.id)) throw new Error(`duplicate task ID: ${dispatch.id}`);
     if (threadIds.has(dispatch.threadId)) {
-      throw new Error(`duplicate dispatch threadId: ${dispatch.threadId}`);
+      throw new Error(`duplicate task threadId: ${dispatch.threadId}`);
     }
     ids.add(dispatch.id);
     threadIds.add(dispatch.threadId);
@@ -704,13 +704,13 @@ async function readDispatchesUnlocked(root) {
   return dispatches;
 }
 
-export async function readDispatches(workspaceRoot) {
+export async function listTasks(workspaceRoot) {
   const root = await realpath(path.resolve(workspaceRoot));
   return readDispatchesUnlocked(root);
 }
 
-export async function recordDispatch(workspaceRoot, input, { now } = {}) {
-  requireExactFields(input, RECORD_DISPATCH_FIELDS, "dispatch input");
+export async function recordTask(workspaceRoot, input, { now } = {}) {
+  requireExactFields(input, RECORD_DISPATCH_FIELDS, "task input");
   const root = await realpath(path.resolve(workspaceRoot));
   const config = await readConfig(root);
   const projectPath = await canonicalDirectory(input.project);
@@ -728,7 +728,7 @@ export async function recordDispatch(workspaceRoot, input, { now } = {}) {
   await withDispatchLock(root, async () => {
     const existing = await readDispatchesUnlocked(root);
     if (existing.some((item) => item.id === dispatch.id)) {
-      throw new Error(`dispatch already exists: ${dispatch.id}`);
+      throw new Error(`task already exists: ${dispatch.id}`);
     }
     if (existing.some((item) => item.threadId === dispatch.threadId)) {
       throw new Error(`threadId is already recorded: ${dispatch.threadId}`);
@@ -738,15 +738,15 @@ export async function recordDispatch(workspaceRoot, input, { now } = {}) {
   return dispatch;
 }
 
-export async function readDispatch(workspaceRoot, dispatchId) {
-  const id = requireSafeId(dispatchId, "dispatchId");
-  const dispatch = (await readDispatches(workspaceRoot)).find((item) => item.id === id);
-  if (!dispatch) throw new Error(`dispatch not found: ${id}`);
+export async function readTask(workspaceRoot, taskId) {
+  const id = requireSafeId(taskId, "taskId");
+  const dispatch = (await listTasks(workspaceRoot)).find((item) => item.id === id);
+  if (!dispatch) throw new Error(`task not found: ${id}`);
   return dispatch;
 }
 
-export async function filterDispatches(workspaceRoot, { project = null } = {}) {
-  const dispatches = await readDispatches(workspaceRoot);
+export async function filterTasks(workspaceRoot, { project = null } = {}) {
+  const dispatches = await listTasks(workspaceRoot);
   if (project === null) return dispatches;
   const value = requireString(project, "project");
   const filtered = dispatches.filter(
@@ -757,8 +757,8 @@ export async function filterDispatches(workspaceRoot, { project = null } = {}) {
   return filtered;
 }
 
-export async function buildDispatchSummary(workspaceRoot) {
-  const dispatches = await readDispatches(workspaceRoot);
+export async function buildTaskSummary(workspaceRoot) {
+  const dispatches = await listTasks(workspaceRoot);
   const projectCounts = new Map();
   for (const dispatch of dispatches) {
     projectCounts.set(
@@ -768,7 +768,7 @@ export async function buildDispatchSummary(workspaceRoot) {
   }
   return {
     schemaVersion: 1,
-    dispatchCount: dispatches.length,
+    taskCount: dispatches.length,
     projectCounts: Object.fromEntries(
       [...projectCounts.entries()].sort(([left], [right]) => left.localeCompare(right)),
     ),
@@ -839,6 +839,9 @@ async function inspectLegacyTaskRecords(workspaceRoot, config, existingDispatche
     const existing = existingDispatches.find((dispatch) => dispatch.id === task.id);
     let dispatch;
     if (existing) {
+      if (task.project.trim() !== existing.project.path) {
+        throw new Error(`legacy task conflicts with task history: ${task.id}`);
+      }
       const comparable = {
         title: task.title.trim(),
         instruction: task.instruction.trim(),
@@ -847,7 +850,7 @@ async function inspectLegacyTaskRecords(workspaceRoot, config, existingDispatche
       };
       for (const [field, value] of Object.entries(comparable)) {
         if (existing[field] !== value) {
-          throw new Error(`legacy task conflicts with dispatch: ${task.id}`);
+          throw new Error(`legacy task conflicts with task history: ${task.id}`);
         }
       }
       dispatch = existing;
@@ -942,9 +945,9 @@ export async function doctorWorkspace(workspaceRoot) {
     const config = await readConfig(root);
     return `${config.projects.length} configured project(s) valid`;
   });
-  await check("dispatch-log", async () => {
-    const dispatches = await readDispatches(root);
-    return `${dispatches.length} dispatch record(s) valid`;
+  await check("task-log", async () => {
+    const dispatches = await listTasks(root);
+    return `${dispatches.length} task record(s) valid`;
   });
   await check("instructions", async () => {
     const filePath = path.join(root, "AGENTS.md");

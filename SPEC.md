@@ -4,7 +4,7 @@
 
 TaskChef is an interactive Codex dispatcher. It routes independent assignments
 to real Codex tasks in configured local projects, records each successful
-dispatch in an append-only journey, and returns immediately.
+delegation in an append-only task history, and returns immediately.
 
 Codex tasks remain authoritative for their progress and results. TaskChef does
 not maintain a second lifecycle database.
@@ -16,9 +16,9 @@ not maintain a second lifecycle database.
 3. It selects each target using configured project metadata and validates the
    selected local path.
 4. It creates an independently openable Codex task in that project.
-5. After creation returns a thread ID, it appends one dispatch entry.
+5. After creation returns a thread ID, it appends one task entry.
 6. It returns without waiting for the executor.
-7. When requested, TaskChef can read journey entries, query the relevant Codex
+7. When requested, TaskChef can read task entries, query the relevant Codex
    tasks once, and present a live report without persisting the fetched state.
 
 Several active executors may target the same project.
@@ -29,7 +29,7 @@ Several active executors may target the same project.
 taskchef/
 ├── AGENTS.md
 ├── taskchef.json
-└── dispatches.jsonl
+└── tasks.jsonl
 ```
 
 `AGENTS.md` contains a marked block that routes setup and administration to
@@ -37,7 +37,7 @@ taskchef/
 live report requests to `$taskchef-report`. Bootstrap preserves unrelated
 instructions and refreshes only the managed block.
 
-`workspace init` is idempotent. It creates an empty configuration and dispatch
+`workspace init` is idempotent. It creates an empty configuration and task
 log when missing, refreshes managed instructions, removes legacy TaskChef skill
 symlinks, and migrates legacy task records that contain executor thread IDs.
 It stops on a legacy pending record with no thread ID rather than discarding
@@ -90,22 +90,22 @@ when metadata does not produce one clear match.
 `project add` and `project import` detect Git status, exact Git roots, and
 canonical GitHub origins. Import merges by canonical path and preserves an
 existing name or description when omitted. `--replace` replaces the configured
-set. Removing or replacing a project does not alter historical dispatch
+set. Removing or replacing a project does not alter historical task
 entries.
 
 The configuration does not store dispatcher identity, execution modes,
 schedules, task status, results, host information, or the workspace path.
 
-## Dispatch entry
+## Task entry
 
-`dispatches.jsonl` contains one compact JSON object per line, in append order:
+`tasks.jsonl` contains one compact JSON object per line, in append order:
 
 ```json
 {"schemaVersion":1,"id":"d1-retry-logs","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepo":"https://github.com/example/payments-api","description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"Add structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
 ```
 
-- `schemaVersion` identifies the dispatch format.
-- `id` is a unique TaskChef dispatch identifier.
+- `schemaVersion` identifies the task entry format.
+- `id` is a unique TaskChef task identifier.
 - `project` is the complete configured project snapshot used for routing.
 - `title` is a short task name.
 - `instruction` is the complete executor instruction.
@@ -116,7 +116,7 @@ Every entry has exactly these fields. IDs and thread IDs must be unique. The
 file is empty or newline terminated, with no blank lines. TaskChef rejects a
 malformed log instead of skipping bad entries. Writers replace the complete
 validated file atomically under a workspace lock, so an interrupted write
-leaves either the old journey or the complete new journey.
+leaves either the old history or the complete new history.
 
 The project snapshot preserves the route even if the project is renamed,
 moved, or removed later. Entries never contain status, result, transcript,
@@ -129,26 +129,26 @@ For each assignment, `$taskchef-delegate`:
 1. loads and validates configured projects
 2. selects one unambiguous target
 3. creates a real Codex task at the exact configured path
-4. appends a dispatch entry only after receiving the task's thread ID
+4. appends a task entry only after receiving the task's thread ID
 5. returns the created task link without reading or waiting for that task.
 
 A failed executor creation produces no entry. If executor creation succeeds but
 the append fails, the executor remains valid and TaskChef tells the user that
 it was not recorded.
 
-## Journey inspection and live reports
+## Task history and live reports
 
 The CLI reads persisted history without contacting Codex:
 
-- `dispatch show <id>` returns one entry.
-- `dispatch list` returns entries in append order, optionally filtered by
+- `task show <id>` returns one entry.
+- `task list` returns entries in append order, optionally filtered by
   historical project name or exact path.
-- `dispatch summary` returns the total and per-project counts.
+- `task summary` returns the total and per-project counts.
 
 When the user requests current state or outcomes, `$taskchef-report` loads the
 relevant entries and queries every recorded Codex task exactly once, in batches
 of no more than eight. It reports the snapshot and discards it. The report does
-not update `dispatches.jsonl`, poll, wait, or create a scheduled job.
+not update `tasks.jsonl`, poll, wait, or create a scheduled job.
 
 ## Boundaries
 
@@ -165,7 +165,7 @@ TaskChef does not include:
 
 ## Acceptance test
 
-1. Bootstrap creates `AGENTS.md`, `taskchef.json`, and `dispatches.jsonl`, then
+1. Bootstrap creates `AGENTS.md`, `taskchef.json`, and `tasks.jsonl`, then
    remains idempotent.
 2. Project metadata routes an unambiguous request to the correct local project.
 3. A successful delegation creates a visible Codex task and appends its thread
@@ -173,7 +173,7 @@ TaskChef does not include:
 4. The dispatcher returns without waiting for execution.
 5. Several independent assignments can create several entries, including
    multiple entries for the same project.
-6. Journey commands return deterministic history and project counts.
+6. Task history commands return deterministic entries and project counts.
 7. A live report queries each relevant task once and writes nothing.
 8. Malformed JSONL, duplicate IDs, duplicate thread IDs, and symlinked managed
    files fail safely.
