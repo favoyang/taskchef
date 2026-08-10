@@ -197,7 +197,7 @@ npx taskchef help
 ```
 
 This is the recommended way to use the CLI. If you prefer the shorter
-`taskchef` command, install the package globally:
+`taskchef` command used in the examples below, install the package globally:
 
 ```sh
 npm install --global taskchef
@@ -207,45 +207,45 @@ The npm package does not install the Codex skills that create or reconcile
 executor tasks. From a source checkout, run `node bin/taskchef.js` instead.
 
 ```text
-npx taskchef help
-npx taskchef doctor
-npx taskchef workspace init
-npx taskchef project add <path>
-npx taskchef project import [<file> | -]
-npx taskchef project list
-npx taskchef project remove <name>
-npx taskchef task create
-npx taskchef task update <task-id>
-npx taskchef task show <task-id>
-npx taskchef task list
-npx taskchef task summary
-npx taskchef task reconcile-candidates
+taskchef help
+taskchef doctor
+taskchef workspace init
+taskchef project add <path>
+taskchef project import [<file> | -]
+taskchef project list
+taskchef project remove <name>
+taskchef task create
+taskchef task update <task-id>
+taskchef task show <task-id>
+taskchef task list
+taskchef task summary
+taskchef task reconcile-candidates
 ```
 
 Workspace and data commands accept `--workspace <path>` and default to the
 current directory. Commands that return workspace data accept `--json` for
-deterministic output. Run `npx taskchef help` to see all options.
+deterministic output. Run `taskchef help` to see all options.
 
 ### Project administration
 
 ```sh
-npx taskchef workspace init --workspace <workspace>
-npx taskchef doctor --workspace <workspace>
+taskchef workspace init --workspace <workspace>
+taskchef doctor --workspace <workspace>
 
-npx taskchef project add /workspace/payments \
+taskchef project add /workspace/payments \
   --name payments \
   --description "Owns payment authorization, capture, and refunds." \
   --workspace <workspace>
 
-npx taskchef project list --workspace <workspace>
-npx taskchef project remove payments --workspace <workspace>
+taskchef project list --workspace <workspace>
+taskchef project remove payments --workspace <workspace>
 ```
 
 Import projects as a JSON array from a file or standard input:
 
 ```sh
-npx taskchef project import projects.json --workspace <workspace>
-npx taskchef project import - --workspace <workspace> < projects.json
+taskchef project import projects.json --workspace <workspace>
+taskchef project import - --workspace <workspace> < projects.json
 ```
 
 Import merges projects by canonical path. If an imported project omits its name
@@ -259,20 +259,20 @@ Task creation and updates read JSON from standard input:
 
 ```sh
 printf '%s\n' '{"id":"t1","project":"/workspace/payments","title":"Echo input","instruction":"Create and test echo_input.py."}' |
-  npx taskchef task create --json --workspace <workspace>
+  taskchef task create --json --workspace <workspace>
 
 printf '%s\n' '{"status":"running","threadId":"019f..."}' |
-  npx taskchef task update t1 --json --workspace <workspace>
+  taskchef task update t1 --json --workspace <workspace>
 ```
 
 These commands inspect saved snapshots without querying Codex tasks:
 
 ```sh
-npx taskchef task show <task-id> --workspace <workspace>
-npx taskchef task list --workspace <workspace>
-npx taskchef task list --status running --status blocked --project payments --workspace <workspace>
-npx taskchef task summary --workspace <workspace>
-npx taskchef task reconcile-candidates --json --workspace <workspace>
+taskchef task show <task-id> --workspace <workspace>
+taskchef task list --workspace <workspace>
+taskchef task list --status running --status blocked --project payments --workspace <workspace>
+taskchef task summary --workspace <workspace>
+taskchef task reconcile-candidates --json --workspace <workspace>
 ```
 
 `task reconcile-candidates` returns `running` and `blocked` records with thread
