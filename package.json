@@ -27,7 +27,7 @@
     "src",
     "skills/taskchef-bootstrap",
     "skills/taskchef-delegate",
-    "skills/taskchef-reconcile"
+    "skills/taskchef-report"
   ],
   "engines": {
     "node": ">=18"
@@ -37,5 +37,8 @@
   },
   "scripts": {
     "test": "node --test tests/taskchef.test.js"
+  },
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
   }
 }

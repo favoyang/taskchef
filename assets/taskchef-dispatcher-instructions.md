@@ -13,6 +13,7 @@ This repository is a TaskChef dispatcher workspace.
 - Return immediately after dispatch, as required by `$taskchef-delegate`.
 - Answer directly only when the user explicitly asks about TaskChef itself or
   explicitly says not to delegate.
-- Use `$taskchef-reconcile` only when the user asks to refresh or fix outdated
-  TaskChef task states.
+- Use `$taskchef-report` only when the user asks for a live report about work in
+  the dispatch journey. Reports query the recorded Codex tasks once and do not
+  write status or results to this workspace.
 <!-- taskchef:dispatcher-instructions:end -->

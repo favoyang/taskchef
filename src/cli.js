@@ -3,17 +3,15 @@ import path from "node:path";
 
 import {
   addProject,
-  buildReconciliationCandidates,
-  buildTaskSummary,
-  createTask,
+  buildDispatchSummary,
   doctorWorkspace,
-  filterTasks,
+  filterDispatches,
   importProjects,
   initializeWorkspace,
   listProjects,
-  readTask,
+  readDispatch,
+  recordDispatch,
   removeProject,
-  updateTask,
 } from "./workspace.js";
 
 async function readStdin() {
@@ -36,19 +34,6 @@ function option(args, name, fallback) {
     throw new Error(`${name} requires a value`);
   }
   return args[index + 1];
-}
-
-function options(args, name) {
-  const values = [];
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] !== name) continue;
-    if (!args[index + 1] || args[index + 1].startsWith("--")) {
-      throw new Error(`${name} requires a value`);
-    }
-    values.push(args[index + 1]);
-    index += 1;
-  }
-  return values;
 }
 
 function validateCommandArgs(
@@ -106,6 +91,8 @@ async function initialize(args) {
   print(result, args, (value) => [
     `Workspace: ${value.workspace}`,
     `Configuration: ${value.config.action}`,
+    `Dispatch log: ${value.dispatches.action}`,
+    `Legacy tasks: ${value.legacyTasks.action}`,
     `Instructions: ${value.instructions.action}`,
     `Legacy skill links removed: ${value.legacySkills.removed.length}`,
   ].join("\n"));
@@ -179,79 +166,54 @@ async function projectRemove(args) {
   if (!args[2] || args[2].startsWith("--")) throw new Error("project remove requires a name");
   validateCommandArgs(args, 3, {
     values: ["--workspace"],
-    switches: ["--json", "--force"],
+    switches: ["--json"],
   });
-  const result = await removeProject(workspaceRoot(args), args[2], {
-    force: args.includes("--force"),
-  });
+  const result = await removeProject(workspaceRoot(args), args[2]);
   print(result, args, (value) => `Removed ${value.project.name}: ${value.project.path}`);
   return 0;
 }
 
-async function create(args) {
+async function dispatchRecord(args) {
   validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
-  const task = await createTask(workspaceRoot(args), await readJsonStdin());
-  print(task, args, (value) => `Created ${value.id}: ${value.title} (${value.status})`);
+  const dispatch = await recordDispatch(workspaceRoot(args), await readJsonStdin());
+  print(dispatch, args, (value) => `Recorded ${value.id}: ${value.title}`);
   return 0;
 }
 
-async function update(args) {
+async function dispatchShow(args) {
   validateCommandArgs(args, 3, { values: ["--workspace"], switches: ["--json"] });
-  const task = await updateTask(workspaceRoot(args), args[2], await readJsonStdin());
-  print(task, args, (value) => `Updated ${value.id}: ${value.status}`);
+  print(await readDispatch(workspaceRoot(args), args[2]), args);
   return 0;
 }
 
-async function show(args) {
-  validateCommandArgs(args, 3, { values: ["--workspace"], switches: ["--json"] });
-  print(await readTask(workspaceRoot(args), args[2]), args);
-  return 0;
-}
-
-async function taskList(args) {
+async function dispatchList(args) {
   validateCommandArgs(args, 2, {
-    values: ["--workspace", "--status", "--project"],
+    values: ["--workspace", "--project"],
     switches: ["--json"],
-    repeatable: ["--status"],
   });
-  const tasks = await filterTasks(workspaceRoot(args), {
-    statuses: options(args, "--status"),
+  const dispatches = await filterDispatches(workspaceRoot(args), {
     project: option(args, "--project", null),
   });
-  const projects = await listProjects(workspaceRoot(args));
-  const projectNames = new Map(projects.map((project) => [project.path, project.name]));
-  const result = { taskCount: tasks.length, tasks };
+  const result = { dispatchCount: dispatches.length, dispatches };
   print(result, args, (value) => table(
-    ["ID", "STATUS", "PROJECT", "TITLE"],
-    value.tasks.map((task) => [
-      task.id,
-      task.status,
-      projectNames.get(task.project) ?? path.basename(task.project),
-      task.title,
+    ["ID", "CREATED", "PROJECT", "TITLE"],
+    value.dispatches.map((dispatch) => [
+      dispatch.id,
+      dispatch.createdAt,
+      dispatch.project.name,
+      dispatch.title,
     ]),
   ));
   return 0;
 }
 
-async function taskSummary(args) {
+async function dispatchSummary(args) {
   validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
-  const summary = await buildTaskSummary(workspaceRoot(args));
+  const summary = await buildDispatchSummary(workspaceRoot(args));
   print(summary, args, (value) => [
-    `Tasks: ${value.taskCount}`,
-    ...Object.entries(value.statusCounts).map(([status, count]) => `${status}: ${count}`),
+    `Dispatches: ${value.dispatchCount}`,
+    ...Object.entries(value.projectCounts).map(([project, count]) => `${project}: ${count}`),
   ].join("\n"));
-  return 0;
-}
-
-async function reconciliationCandidates(args) {
-  validateCommandArgs(args, 2, {
-    values: ["--workspace"],
-    switches: ["--json", "--include-finished"],
-  });
-  const result = await buildReconciliationCandidates(workspaceRoot(args), {
-    includeFinished: args.includes("--include-finished"),
-  });
-  print(result, args);
   return 0;
 }
 
@@ -265,16 +227,14 @@ Usage:
   taskchef project add <path> [--name <name>] [--description <text>] [--github-repo <url> | --no-github] [--json] [--workspace <path>]
   taskchef project import [<file> | -] [--replace] [--json] [--workspace <path>]
   taskchef project list [--json] [--workspace <path>]
-  taskchef project remove <name> [--force] [--json] [--workspace <path>]
-  taskchef task create [--json] [--workspace <path>]
-  taskchef task update <task-id> [--json] [--workspace <path>]
-  taskchef task show <task-id> [--json] [--workspace <path>]
-  taskchef task list [--status <status>]... [--project <name-or-path>] [--json] [--workspace <path>]
-  taskchef task summary [--json] [--workspace <path>]
-  taskchef task reconcile-candidates [--include-finished] [--json] [--workspace <path>]
+  taskchef project remove <name> [--json] [--workspace <path>]
+  taskchef dispatch record [--json] [--workspace <path>]
+  taskchef dispatch show <dispatch-id> [--json] [--workspace <path>]
+  taskchef dispatch list [--project <name-or-path>] [--json] [--workspace <path>]
+  taskchef dispatch summary [--json] [--workspace <path>]
 
-Task create and update read JSON from standard input. Project import reads a
-JSON array from a file, or from standard input when the source is '-' or omitted.
+Dispatch record reads JSON from standard input. Project import reads a JSON
+array from a file, or from standard input when the source is '-' or omitted.
 `);
 }
 
@@ -289,14 +249,10 @@ export async function runCli(args) {
   if (args[0] === "project" && args[1] === "import") return projectImport(args);
   if (args[0] === "project" && args[1] === "list") return projectList(args);
   if (args[0] === "project" && args[1] === "remove") return projectRemove(args);
-  if (args[0] === "task" && args[1] === "create") return create(args);
-  if (args[0] === "task" && args[1] === "update" && args[2]) return update(args);
-  if (args[0] === "task" && args[1] === "show" && args[2]) return show(args);
-  if (args[0] === "task" && args[1] === "list") return taskList(args);
-  if (args[0] === "task" && args[1] === "summary") return taskSummary(args);
-  if (args[0] === "task" && args[1] === "reconcile-candidates") {
-    return reconciliationCandidates(args);
-  }
+  if (args[0] === "dispatch" && args[1] === "record") return dispatchRecord(args);
+  if (args[0] === "dispatch" && args[1] === "show" && args[2]) return dispatchShow(args);
+  if (args[0] === "dispatch" && args[1] === "list") return dispatchList(args);
+  if (args[0] === "dispatch" && args[1] === "summary") return dispatchSummary(args);
   process.stderr.write(`Unknown command: ${args.join(" ")}\n`);
   usage();
   return 2;

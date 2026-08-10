@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
+import lockfile from "proper-lockfile";
 
 const execFile = promisify(execFileCallback);
 const DISPATCHER_INSTRUCTIONS_URL = new URL(
@@ -28,9 +29,12 @@ const DISPATCHER_INSTRUCTIONS_END = "<!-- taskchef:dispatcher-instructions:end -
 const TASKCHEF_SKILL_NAMES = [
   "taskchef-bootstrap",
   "taskchef-delegate",
-  "taskchef-reconcile",
+  "taskchef-report",
 ];
+const LEGACY_TASKCHEF_SKILL_NAMES = [...TASKCHEF_SKILL_NAMES, "taskchef-reconcile"];
 const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url));
+const DISPATCH_FILE_NAME = "dispatches.jsonl";
+const DISPATCH_LOCK_NAME = ".taskchef-dispatch.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
@@ -41,27 +45,22 @@ const PROJECT_FIELDS = new Set([
   "description",
 ]);
 const PROJECT_INPUT_FIELDS = new Set(["name", "path", "githubRepo", "description"]);
-const TASK_FIELDS = new Set([
+const DISPATCH_FIELDS = new Set([
   "schemaVersion",
   "id",
   "project",
   "title",
   "instruction",
-  "status",
   "threadId",
-  "result",
   "createdAt",
-  "updatedAt",
 ]);
-const RESULT_FIELDS = new Set(["message", "githubPRs", "githubIssues"]);
-const CREATE_TASK_FIELDS = new Set(["id", "project", "title", "instruction"]);
-const TASK_STATUSES = new Set(["pending", "running", "blocked", "finished"]);
-const STATUS_TRANSITIONS = {
-  pending: new Set(["pending", "running"]),
-  running: new Set(["running", "blocked", "finished"]),
-  blocked: new Set(["blocked", "running", "finished"]),
-  finished: new Set(["finished", "running", "blocked"]),
-};
+const RECORD_DISPATCH_FIELDS = new Set([
+  "id",
+  "project",
+  "title",
+  "instruction",
+  "threadId",
+]);
 
 function requireExactFields(value, fields, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -138,6 +137,31 @@ async function managedRegularFileExists(filePath) {
     throw new Error(`managed workspace path is not a regular file: ${filePath}`);
   }
   return true;
+}
+
+async function withDispatchLock(workspaceRoot, operation) {
+  const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
+  const lockPath = path.join(workspaceRoot, DISPATCH_LOCK_NAME);
+  const release = await lockfile.lock(dispatchPath, {
+    realpath: false,
+    lockfilePath: lockPath,
+    stale: 5_000,
+    update: 1_000,
+    retries: { retries: 70, factor: 1, minTimeout: 100, maxTimeout: 100 },
+  });
+  try {
+    return await operation();
+  } finally {
+    await release();
+  }
+}
+
+async function appendDispatchesAtomic(workspaceRoot, dispatches) {
+  if (dispatches.length === 0) return;
+  const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
+  const content = await readFile(dispatchPath, "utf8");
+  const appended = dispatches.map((dispatch) => `${JSON.stringify(dispatch)}\n`).join("");
+  await writeTextAtomic(dispatchPath, `${content}${appended}`);
 }
 
 async function writeJsonAtomic(filePath, value, { exclusive = false } = {}) {
@@ -265,7 +289,7 @@ async function findLegacySkillLinks(workspaceRoot) {
   }
 
   const links = [];
-  for (const skillName of TASKCHEF_SKILL_NAMES) {
+  for (const skillName of LEGACY_TASKCHEF_SKILL_NAMES) {
     const skillPath = path.join(skillsDirectory, skillName);
     const details = await lstat(skillPath).catch((error) => {
       if (error.code === "ENOENT") return null;
@@ -515,18 +539,33 @@ export async function validateConfig(config, { checkPaths = true } = {}) {
   };
 }
 
+async function ensureDispatchFile(workspaceRoot) {
+  const filePath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
+  const exists = await managedRegularFileExists(filePath);
+  if (!exists) {
+    await writeFile(filePath, "", { encoding: "utf8", mode: 0o600, flag: "wx" });
+  }
+  return { path: filePath, action: exists ? "unchanged" : "created" };
+}
+
 export async function initializeWorkspace(workspaceRoot) {
   const requestedRoot = path.resolve(workspaceRoot);
   await mkdir(requestedRoot, { recursive: true });
   const root = await realpath(requestedRoot);
-  const { legacySkills } = await ensureWorkspaceSkills(root);
-  await ensureManagedDirectory(root, "tasks");
   const configPath = path.join(root, "taskchef.json");
   const configExists = await managedRegularFileExists(configPath);
   const config = configExists
     ? await readConfig(root, { checkPaths: false })
     : { schemaVersion: 1, projects: [] };
+  const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
+  const existingDispatches = configExists && (await managedRegularFileExists(dispatchPath))
+    ? await readDispatchesUnlocked(root)
+    : [];
+  const legacyTaskRecords = await inspectLegacyTaskRecords(root, config, existingDispatches);
+  const { legacySkills } = await ensureWorkspaceSkills(root);
   if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
+  const dispatches = await ensureDispatchFile(root);
+  const legacyTasks = await migrateLegacyTaskRecords(root, legacyTaskRecords);
   const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
     if (!configExists) await unlink(configPath).catch(() => {});
     throw error;
@@ -534,9 +573,10 @@ export async function initializeWorkspace(workspaceRoot) {
   return {
     workspace: root,
     config: { path: configPath, action: configExists ? "unchanged" : "created", value: config },
-    tasks: { path: path.join(root, "tasks"), action: "ready" },
+    dispatches,
     instructions,
     legacySkills,
+    legacyTasks,
   };
 }
 
@@ -589,21 +629,6 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
     else projects[index] = project;
   }
   const config = await validateConfig({ schemaVersion: 1, projects });
-  if (replace) {
-    const currentPaths = new Set(current.projects.map((project) => project.path));
-    const configuredPaths = new Set(config.projects.map((project) => project.path));
-    const removedPaths = new Set(
-      [...currentPaths].filter((projectPath) => !configuredPaths.has(projectPath)),
-    );
-    const newlyOrphaned = (await listTasks(root, { checkProjects: false })).filter(
-      (task) => removedPaths.has(task.project),
-    );
-    if (newlyOrphaned.length > 0) {
-      throw new Error(
-        `replacement would orphan ${newlyOrphaned.length} task record(s); remove referenced projects with --force first`,
-      );
-    }
-  }
   await writeJsonAtomic(path.join(root, "taskchef.json"), config);
   return {
     mode: replace ? "replace" : "merge",
@@ -613,7 +638,7 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
   };
 }
 
-export async function removeProject(workspaceRoot, name, { force = false } = {}) {
+export async function removeProject(workspaceRoot, name) {
   const root = path.resolve(workspaceRoot);
   const config = await readConfig(root, { checkPaths: false });
   const index = config.projects.findIndex(
@@ -621,215 +646,284 @@ export async function removeProject(workspaceRoot, name, { force = false } = {})
   );
   if (index === -1) throw new Error(`configured project not found: ${name}`);
   const [project] = config.projects.slice(index, index + 1);
-  const referenced = (await listTasks(root, { checkProjects: false })).filter(
-    (task) => task.project === project.path,
-  );
-  if (referenced.length > 0 && !force) {
-    throw new Error(
-      `project is referenced by ${referenced.length} task record(s); pass --force to remove it`,
-    );
-  }
   const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
   await writeJsonAtomic(path.join(root, "taskchef.json"), { schemaVersion: 1, projects });
-  return { project, referencedTaskCount: referenced.length };
+  return { project };
 }
 
-function validateGithubUrl(value, kind, name) {
-  requireString(value, name);
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`${name} must be a canonical GitHub URL`);
-  }
-  const segment = kind === "pull" ? "pull" : "issues";
-  const pattern = new RegExp(`^/[^/]+/[^/]+/${segment}/[1-9]\\d*$`);
-  if (
-    url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.search ||
-    url.hash ||
-    !pattern.test(url.pathname)
-  ) {
-    throw new Error(`${name} must be a canonical GitHub ${kind} URL`);
-  }
-  return value;
-}
-
-export function validateResult(result) {
-  if (result === null) return null;
-  requireExactFields(result, RESULT_FIELDS, "result");
-  requireString(result.message, "result.message");
-  for (const field of ["githubPRs", "githubIssues"]) {
-    if (!Array.isArray(result[field])) throw new Error(`result.${field} must be an array`);
-  }
-  result.githubPRs.forEach((value, index) =>
-    validateGithubUrl(value, "pull", `result.githubPRs[${index}]`));
-  result.githubIssues.forEach((value, index) =>
-    validateGithubUrl(value, "issue", `result.githubIssues[${index}]`));
+async function validateDispatchShape(dispatch, name = "dispatch") {
+  requireExactFields(dispatch, DISPATCH_FIELDS, name);
+  if (dispatch.schemaVersion !== 1) throw new Error(`unsupported ${name} schemaVersion`);
+  const id = requireSafeId(dispatch.id, `${name}.id`);
+  const project = await normalizeProject(dispatch.project, 0, { checkPath: false });
   return {
-    message: result.message,
-    githubPRs: [...result.githubPRs],
-    githubIssues: [...result.githubIssues],
-  };
-}
-
-function validateTaskShape(task) {
-  requireExactFields(task, TASK_FIELDS, "task");
-  if (task.schemaVersion !== 1) throw new Error("unsupported task schemaVersion");
-  requireSafeId(task.id);
-  requireString(task.project, "project");
-  requireString(task.title, "title");
-  requireString(task.instruction, "instruction");
-  if (!TASK_STATUSES.has(task.status)) throw new Error(`unsupported task status: ${task.status}`);
-  if (task.threadId !== null) requireString(task.threadId, "threadId");
-  if (task.status === "pending" && task.threadId !== null) {
-    throw new Error("a pending task must not have a threadId");
-  }
-  if (task.status !== "pending" && task.threadId === null) {
-    throw new Error(`a ${task.status} task requires a threadId`);
-  }
-  validateResult(task.result);
-  requireTimestamp(task.createdAt, "createdAt");
-  requireTimestamp(task.updatedAt, "updatedAt");
-  if (Date.parse(task.updatedAt) < Date.parse(task.createdAt)) {
-    throw new Error("updatedAt must not be earlier than createdAt");
-  }
-  return task;
-}
-
-export async function createTask(workspaceRoot, input, { now } = {}) {
-  const root = await realpath(path.resolve(workspaceRoot));
-  requireExactFields(input, CREATE_TASK_FIELDS, "task creation input");
-  const config = await readConfig(root);
-  const id = requireSafeId(input.id);
-  const project = await canonicalDirectory(input.project);
-  if (!config.projects.some((configuredProject) => configuredProject.path === project)) {
-    throw new Error(`project is not configured in taskchef.json: ${project}`);
-  }
-  const createdAt = now ?? new Date().toISOString();
-  requireTimestamp(createdAt, "createdAt");
-  const task = {
     schemaVersion: 1,
     id,
     project,
-    title: requireString(input.title, "title"),
-    instruction: requireString(input.instruction, "instruction"),
-    status: "pending",
-    threadId: null,
-    result: null,
-    createdAt,
-    updatedAt: createdAt,
+    title: requireString(dispatch.title, `${name}.title`).trim(),
+    instruction: requireString(dispatch.instruction, `${name}.instruction`).trim(),
+    threadId: requireString(dispatch.threadId, `${name}.threadId`).trim(),
+    createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
   };
-  const tasksDirectory = await ensureManagedDirectory(root, "tasks");
-  const taskDirectory = path.join(tasksDirectory, id);
-  if (await lstat(taskDirectory).catch((error) => {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  })) throw new Error(`task already exists: ${id}`);
-  await mkdir(taskDirectory, { recursive: false });
-  await writeJsonAtomic(path.join(taskDirectory, "task.json"), task, { exclusive: true });
-  return task;
 }
 
-export async function readTask(workspaceRoot, taskId) {
-  const id = requireSafeId(taskId, "taskId");
+async function readDispatchesUnlocked(root) {
+  await readConfig(root, { checkPaths: false });
+  const filePath = path.join(root, DISPATCH_FILE_NAME);
+  if (!(await managedRegularFileExists(filePath))) {
+    throw new Error(`dispatch log does not exist: ${filePath}`);
+  }
+  const content = await readFile(filePath, "utf8");
+  if (content.length > 0 && !content.endsWith("\n")) {
+    throw new Error(`${DISPATCH_FILE_NAME} must end with a newline`);
+  }
+  const lines = content.length === 0 ? [] : content.slice(0, -1).split("\n");
+  const dispatches = [];
+  for (const [index, line] of lines.entries()) {
+    if (line.trim().length === 0) {
+      throw new Error(`${DISPATCH_FILE_NAME} line ${index + 1} is empty`);
+    }
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch (error) {
+      throw new Error(`${DISPATCH_FILE_NAME} line ${index + 1} is invalid JSON: ${error.message}`);
+    }
+    dispatches.push(await validateDispatchShape(value, `dispatch line ${index + 1}`));
+  }
+  const ids = new Set();
+  const threadIds = new Set();
+  for (const dispatch of dispatches) {
+    if (ids.has(dispatch.id)) throw new Error(`duplicate dispatch ID: ${dispatch.id}`);
+    if (threadIds.has(dispatch.threadId)) {
+      throw new Error(`duplicate dispatch threadId: ${dispatch.threadId}`);
+    }
+    ids.add(dispatch.id);
+    threadIds.add(dispatch.threadId);
+  }
+  return dispatches;
+}
+
+export async function readDispatches(workspaceRoot) {
   const root = await realpath(path.resolve(workspaceRoot));
-  const tasksDirectory = await ensureManagedDirectory(root, "tasks");
-  const taskDirectory = path.join(tasksDirectory, id);
-  const taskDirectoryDetails = await lstat(taskDirectory);
-  if (taskDirectoryDetails.isSymbolicLink() || !taskDirectoryDetails.isDirectory()) {
-    throw new Error(`task path is not a real directory: ${taskDirectory}`);
-  }
-  const filePath = path.join(taskDirectory, "task.json");
-  const fileDetails = await lstat(filePath);
-  if (fileDetails.isSymbolicLink() || !fileDetails.isFile()) {
-    throw new Error(`task record is not a regular file: ${filePath}`);
-  }
-  const task = validateTaskShape(JSON.parse(await readFile(filePath, "utf8")));
-  if (task.id !== id) throw new Error(`task ID does not match directory: ${id}`);
-  return task;
+  return readDispatchesUnlocked(root);
 }
 
-export async function updateTask(workspaceRoot, taskId, patch, { now } = {}) {
-  const allowed = new Set(["status", "threadId", "result"]);
-  const unexpected = Object.keys(patch).find((key) => !allowed.has(key));
-  if (unexpected) throw new Error(`unsupported task update field: ${unexpected}`);
-  if (Object.keys(patch).length === 0) throw new Error("task update must not be empty");
-  const current = await readTask(workspaceRoot, taskId);
-  const status = patch.status ?? current.status;
-  if (!TASK_STATUSES.has(status)) throw new Error(`unsupported task status: ${status}`);
-  if (!STATUS_TRANSITIONS[current.status].has(status)) {
-    throw new Error(`unsupported task transition: ${current.status} -> ${status}`);
-  }
-  const threadId = patch.threadId === undefined ? current.threadId : patch.threadId;
-  if (threadId !== null) requireString(threadId, "threadId");
-  if (current.threadId && threadId !== current.threadId) {
-    throw new Error("threadId cannot be replaced once recorded");
-  }
-  const updated = {
-    ...current,
-    status,
-    threadId,
-    result: patch.result === undefined ? current.result : validateResult(patch.result),
-    updatedAt: now ?? new Date().toISOString(),
-  };
-  requireTimestamp(updated.updatedAt, "updatedAt");
-  if (Date.parse(updated.updatedAt) < Date.parse(current.updatedAt)) {
-    throw new Error("updatedAt must not move backwards");
-  }
-  validateTaskShape(updated);
-  const filePath = path.join(path.resolve(workspaceRoot), "tasks", current.id, "task.json");
-  await writeJsonAtomic(filePath, updated);
-  return updated;
-}
-
-export async function listTasks(workspaceRoot, { checkProjects = true } = {}) {
+export async function recordDispatch(workspaceRoot, input, { now } = {}) {
+  requireExactFields(input, RECORD_DISPATCH_FIELDS, "dispatch input");
   const root = await realpath(path.resolve(workspaceRoot));
-  await readConfig(root, { checkPaths: checkProjects });
-  const tasksDirectory = await ensureManagedDirectory(root, "tasks");
-  const entries = await readdir(tasksDirectory, { withFileTypes: true });
-  const tasks = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) throw new Error(`unexpected task entry: ${entry.name}`);
-    if (!SAFE_ID.test(entry.name)) throw new Error(`invalid task directory name: ${entry.name}`);
-    tasks.push(await readTask(root, entry.name));
-  }
-  return tasks.sort((left, right) => left.id.localeCompare(right.id));
+  const config = await readConfig(root);
+  const projectPath = await canonicalDirectory(input.project);
+  const project = config.projects.find((candidate) => candidate.path === projectPath);
+  if (!project) throw new Error(`project is not configured in taskchef.json: ${projectPath}`);
+  const dispatch = await validateDispatchShape({
+    schemaVersion: 1,
+    id: input.id,
+    project,
+    title: input.title,
+    instruction: input.instruction,
+    threadId: input.threadId,
+    createdAt: now ?? new Date().toISOString(),
+  });
+  await withDispatchLock(root, async () => {
+    const existing = await readDispatchesUnlocked(root);
+    if (existing.some((item) => item.id === dispatch.id)) {
+      throw new Error(`dispatch already exists: ${dispatch.id}`);
+    }
+    if (existing.some((item) => item.threadId === dispatch.threadId)) {
+      throw new Error(`threadId is already recorded: ${dispatch.threadId}`);
+    }
+    await appendDispatchesAtomic(root, [dispatch]);
+  });
+  return dispatch;
 }
 
-export async function filterTasks(workspaceRoot, { statuses = [], project = null } = {}) {
-  const config = await readConfig(workspaceRoot);
-  const statusSet = new Set(statuses);
-  for (const status of statusSet) {
-    if (!TASK_STATUSES.has(status)) throw new Error(`unsupported task status: ${status}`);
-  }
-  let projectPath = null;
-  if (project !== null) {
-    const configured = config.projects.find(
-      (candidate) => candidate.name.toLowerCase() === project.toLowerCase() || candidate.path === project,
-    );
-    if (!configured) throw new Error(`configured project not found: ${project}`);
-    projectPath = configured.path;
-  }
-  return (await listTasks(workspaceRoot)).filter(
-    (task) =>
-      (statusSet.size === 0 || statusSet.has(task.status)) &&
-      (projectPath === null || task.project === projectPath),
+export async function readDispatch(workspaceRoot, dispatchId) {
+  const id = requireSafeId(dispatchId, "dispatchId");
+  const dispatch = (await readDispatches(workspaceRoot)).find((item) => item.id === id);
+  if (!dispatch) throw new Error(`dispatch not found: ${id}`);
+  return dispatch;
+}
+
+export async function filterDispatches(workspaceRoot, { project = null } = {}) {
+  const dispatches = await readDispatches(workspaceRoot);
+  if (project === null) return dispatches;
+  const value = requireString(project, "project");
+  const filtered = dispatches.filter(
+    (dispatch) =>
+      dispatch.project.name.toLowerCase() === value.toLowerCase() ||
+      dispatch.project.path === value,
   );
+  return filtered;
 }
 
-export async function buildTaskSummary(workspaceRoot) {
-  const tasks = await listTasks(workspaceRoot);
+export async function buildDispatchSummary(workspaceRoot) {
+  const dispatches = await readDispatches(workspaceRoot);
+  const projectCounts = new Map();
+  for (const dispatch of dispatches) {
+    projectCounts.set(
+      dispatch.project.name,
+      (projectCounts.get(dispatch.project.name) ?? 0) + 1,
+    );
+  }
   return {
     schemaVersion: 1,
-    taskCount: tasks.length,
-    statusCounts: Object.fromEntries(
-      [...TASK_STATUSES].map((status) => [status, tasks.filter((task) => task.status === status).length]),
+    dispatchCount: dispatches.length,
+    projectCounts: Object.fromEntries(
+      [...projectCounts.entries()].sort(([left], [right]) => left.localeCompare(right)),
     ),
+  };
+}
+
+const LEGACY_TASK_FIELDS = new Set([
+  "schemaVersion",
+  "id",
+  "project",
+  "title",
+  "instruction",
+  "status",
+  "threadId",
+  "result",
+  "createdAt",
+  "updatedAt",
+]);
+
+function validateLegacyTask(task, taskId) {
+  requireExactFields(task, LEGACY_TASK_FIELDS, `legacy task ${taskId}`);
+  if (task.schemaVersion !== 1) throw new Error(`legacy task ${taskId} has unsupported schemaVersion`);
+  if (requireSafeId(task.id) !== taskId) throw new Error(`legacy task ID does not match directory: ${taskId}`);
+  requireString(task.project, `legacy task ${taskId}.project`);
+  requireString(task.title, `legacy task ${taskId}.title`);
+  requireString(task.instruction, `legacy task ${taskId}.instruction`);
+  requireTimestamp(task.createdAt, `legacy task ${taskId}.createdAt`);
+  if (task.threadId === null) {
+    throw new Error(`legacy pending task ${taskId} has no executor thread and cannot be migrated`);
+  }
+  requireString(task.threadId, `legacy task ${taskId}.threadId`);
+  return task;
+}
+
+async function inspectLegacyTaskRecords(workspaceRoot, config, existingDispatches = []) {
+  const tasksPath = path.join(workspaceRoot, "tasks");
+  const details = await lstat(tasksPath).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (details === null) return { tasksPath, entries: [], records: [], action: "not-found" };
+  if (details.isSymbolicLink() || !details.isDirectory()) {
+    throw new Error(`legacy tasks path is not a real directory: ${tasksPath}`);
+  }
+  const entries = await readdir(tasksPath, { withFileTypes: true });
+  const records = [];
+  const ids = new Set();
+  const threadIds = new Set();
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !SAFE_ID.test(entry.name)) {
+      throw new Error(`unexpected legacy task entry: ${entry.name}`);
+    }
+    const taskDirectory = path.join(tasksPath, entry.name);
+    const taskEntries = await readdir(taskDirectory, { withFileTypes: true });
+    if (taskEntries.length === 0) {
+      records.push({ dispatch: null, taskPath: null, taskDirectory, taskId: entry.name });
+      continue;
+    }
+    if (
+      taskEntries.length !== 1 ||
+      taskEntries[0].name !== "task.json" ||
+      !taskEntries[0].isFile()
+    ) {
+      throw new Error(`legacy task directory must contain only task.json: ${entry.name}`);
+    }
+    const taskPath = path.join(taskDirectory, "task.json");
+    const task = validateLegacyTask(JSON.parse(await readFile(taskPath, "utf8")), entry.name);
+    const existing = existingDispatches.find((dispatch) => dispatch.id === task.id);
+    let dispatch;
+    if (existing) {
+      const comparable = {
+        title: task.title.trim(),
+        instruction: task.instruction.trim(),
+        threadId: task.threadId.trim(),
+        createdAt: task.createdAt,
+      };
+      for (const [field, value] of Object.entries(comparable)) {
+        if (existing[field] !== value) {
+          throw new Error(`legacy task conflicts with dispatch: ${task.id}`);
+        }
+      }
+      dispatch = existing;
+    } else {
+      const project = config.projects.find((candidate) => candidate.path === task.project) ??
+        await inspectProject({ path: task.project });
+      dispatch = await validateDispatchShape({
+        schemaVersion: 1,
+        id: task.id,
+        project,
+        title: task.title,
+        instruction: task.instruction,
+        threadId: task.threadId,
+        createdAt: task.createdAt,
+      });
+    }
+    if (ids.has(dispatch.id)) throw new Error(`duplicate legacy task ID: ${dispatch.id}`);
+    if (threadIds.has(dispatch.threadId)) {
+      throw new Error(`duplicate legacy task threadId: ${dispatch.threadId}`);
+    }
+    ids.add(dispatch.id);
+    threadIds.add(dispatch.threadId);
+    records.push({ dispatch, taskPath, taskDirectory, taskId: task.id });
+  }
+  return {
+    tasksPath,
+    entries,
+    records,
+    action: entries.length === 0 ? "removed-empty" : "migrated",
+  };
+}
+
+async function migrateLegacyTaskRecords(workspaceRoot, inspection) {
+  if (inspection.action === "not-found") return { action: "not-found", migratedCount: 0 };
+  const migrations = await withDispatchLock(workspaceRoot, async () => {
+    const existing = await readDispatchesUnlocked(workspaceRoot);
+    const existingById = new Map(existing.map((dispatch) => [dispatch.id, dispatch]));
+    const threadIds = new Set(existing.map((dispatch) => dispatch.threadId));
+    const pending = [];
+    for (const { dispatch, taskPath, taskDirectory, taskId } of inspection.records) {
+      if (dispatch === null) {
+        if (!existingById.has(taskId)) {
+          throw new Error(`empty legacy task directory has no matching dispatch: ${taskId}`);
+        }
+        pending.push({ dispatch: null, taskPath, taskDirectory });
+        continue;
+      }
+      const previous = existingById.get(dispatch.id);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(dispatch)) {
+        throw new Error(`legacy task conflicts with dispatch: ${dispatch.id}`);
+      }
+      if (!previous && threadIds.has(dispatch.threadId)) {
+        throw new Error(`legacy task threadId is already recorded: ${dispatch.threadId}`);
+      }
+      if (!previous) {
+        pending.push({ dispatch, taskPath, taskDirectory });
+        existingById.set(dispatch.id, dispatch);
+        threadIds.add(dispatch.threadId);
+      } else {
+        pending.push({ dispatch: null, taskPath, taskDirectory });
+      }
+    }
+    await appendDispatchesAtomic(
+      workspaceRoot,
+      pending.filter((item) => item.dispatch).map((item) => item.dispatch),
+    );
+    return pending;
+  });
+  for (const migration of migrations) {
+    if (migration.taskPath !== null) await unlink(migration.taskPath);
+    await rmdir(migration.taskDirectory);
+  }
+  await rmdir(inspection.tasksPath);
+  return {
+    action: inspection.action,
+    migratedCount: migrations.filter((item) => item.dispatch).length,
   };
 }
 
@@ -844,17 +938,13 @@ export async function doctorWorkspace(workspaceRoot) {
       checks.push({ name, status: "fail", message: error.message });
     }
   };
-  let config = null;
   await check("configuration", async () => {
-    config = await readConfig(root);
+    const config = await readConfig(root);
     return `${config.projects.length} configured project(s) valid`;
   });
-  await check("tasks-directory", async () => {
-    const details = await lstat(path.join(root, "tasks"));
-    if (details.isSymbolicLink() || !details.isDirectory()) {
-      throw new Error("tasks path is not a real directory");
-    }
-    return "tasks directory ready";
+  await check("dispatch-log", async () => {
+    const dispatches = await readDispatches(root);
+    return `${dispatches.length} dispatch record(s) valid`;
   });
   await check("instructions", async () => {
     const filePath = path.join(root, "AGENTS.md");
@@ -872,40 +962,11 @@ export async function doctorWorkspace(workspaceRoot) {
     }
     return "no legacy TaskChef skill links";
   });
-  await check("task-records", async () => {
-    const taskRoot = path.join(root, "tasks");
-    const entries = await readdir(taskRoot, { withFileTypes: true });
-    let count = 0;
-    for (const entry of entries) {
-      if (!entry.isDirectory()) throw new Error(`unexpected task entry: ${entry.name}`);
-      if (!SAFE_ID.test(entry.name)) throw new Error(`invalid task directory name: ${entry.name}`);
-      const task = await readTask(root, entry.name);
-      if (task.id !== entry.name) throw new Error(`task ID does not match directory: ${entry.name}`);
-      if (config && !config.projects.some((project) => project.path === task.project)) {
-        throw new Error(`task ${task.id} references an unconfigured project`);
-      }
-      count += 1;
+  await check("legacy-tasks", async () => {
+    if (await pathExists(path.join(root, "tasks"))) {
+      throw new Error("legacy tasks directory remains; run workspace init to migrate it");
     }
-    return `${count} task record(s) valid`;
+    return "no legacy task records";
   });
   return { workspace: root, ok: checks.every((item) => item.status === "pass"), checks };
-}
-
-export async function buildReconciliationCandidates(
-  workspaceRoot,
-  { includeFinished = false } = {},
-) {
-  const includedStatuses = includeFinished
-    ? ["running", "blocked", "finished"]
-    : ["running", "blocked"];
-  const includedStatusSet = new Set(includedStatuses);
-  const tasks = (await listTasks(workspaceRoot)).filter(
-    (task) => task.threadId !== null && includedStatusSet.has(task.status),
-  );
-  return {
-    schemaVersion: 1,
-    candidateCount: tasks.length,
-    includedStatuses,
-    tasks,
-  };
 }

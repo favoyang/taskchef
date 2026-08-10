@@ -1,6 +1,6 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, splitting work across projects, or retrying pending executor creation. Dispatch must return immediately and must never use subagents, hooks, schedules, or foreground waiting."
+description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, or splitting independent work across projects. Record successful dispatches, return immediately, and never use subagents, hooks, schedules, or foreground waiting."
 ---
 
 # TaskChef Delegate
@@ -9,15 +9,15 @@ Create real Codex tasks from a TaskChef data workspace and return immediately.
 
 Resolve this skill directory with `realpath`. The TaskChef plugin root is two
 parents above the skill directory. Use the TaskChef executable under that root
-for all deterministic workspace and task-record operations.
+for all deterministic workspace and dispatch-record operations.
 
 ## Boundaries
 
 - Keep implementation, tests, and reports in the TaskChef source repository.
-- Keep only `AGENTS.md`, `taskchef.json`, and `tasks/*/task.json` in a
-  dispatcher workspace.
+- Keep only `AGENTS.md`, `taskchef.json`, and `dispatches.jsonl` in a dispatcher
+  workspace.
 - Use real Codex tasks, never collaboration or subagent tools.
-- Never use hooks, callbacks, schedules, polling, daemons, or event logs.
+- Never use hooks, callbacks, schedules, polling, or daemons.
 - Never wait for delegated work after executor creation.
 - Never collect transcripts or hidden reasoning.
 
@@ -33,18 +33,16 @@ for all deterministic workspace and task-record operations.
    `path` only as checkout identity. Ask when metadata does not produce one
    clear project match.
 4. Resolve native projects once and require the exact configured path.
-5. For an explicit retry, require the exact task ID and run
-   `<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`.
-   Reuse the record only when its status is `pending`; ask for the task ID when
-   it is missing and reject retries of non-pending records. For new work, run
-   `<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>`
-   with the task record JSON on stdin before executor creation.
-6. Create one real Codex task per record using the exact saved project and a
-   local environment on its executor host.
-7. Immediately run
-   `<plugin-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>`
-   with the `running` status and returned `threadId` on stdin. Never persist
-   `hostId`.
-8. Leave a failed creation pending. Do not invent an ID or delete the record.
-9. Return immediately with a created-thread directive for every success. Do
+5. Create one real Codex task per assignment using the exact configured project
+   and a local environment on its executor host. Generate a unique dispatch ID
+   before creation, but do not write anything yet.
+6. After executor creation returns a thread ID, immediately run
+   `<plugin-root>/bin/taskchef.js dispatch record --json --workspace <workspace>`.
+   Send exactly `id`, `project`, `title`, `instruction`, and `threadId` as JSON
+   on stdin. Use the configured project path for `project`. Never persist
+   `hostId`, status, results, transcripts, or hidden reasoning.
+7. If executor creation fails, do not record a dispatch. If recording fails
+   after creation, still return the created task and clearly say that it is not
+   in the dispatch log. Do not delete the executor.
+8. Return immediately with a created-thread directive for every success. Do
    not read or wait for a newly created executor.
