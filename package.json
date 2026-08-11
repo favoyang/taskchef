@@ -41,5 +41,8 @@
   },
   "dependencies": {
     "proper-lockfile": "^4.1.2"
-  }
+  },
+  "bundleDependencies": [
+    "proper-lockfile"
+  ]
 }
