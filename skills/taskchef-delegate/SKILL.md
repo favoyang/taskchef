@@ -19,8 +19,8 @@ for all deterministic workspace and task-record operations.
 - Use real Codex tasks, never collaboration or subagent tools.
 - Never use hooks, callbacks, schedules, daemons, indefinite polling, or
   background monitors.
-- Use bounded recent-thread retries only to resolve a durable thread ID after
-  `create_thread` returns a provisional client ID.
+- Use only bounded provisional-ID resolution after `create_thread` returns a
+  provisional client ID. Prefer a native Codex wait or resolver when available.
 - Never wait for delegated work after executor creation.
 - Never collect transcripts or hidden reasoning.
 
@@ -39,11 +39,10 @@ for all deterministic workspace and task-record operations.
 5. Generate a lowercase full UUID task ID before creation. Prefix the complete
    executor instruction with exactly `# taskchef_id=<full UUID>`, followed by a
    blank line and the instruction body. Preserve this marked instruction for
-   recording. Take a `list_threads` baseline with limit 50 and retain its thread
-   IDs, then note the creation time.
+   recording, and note the creation time. Do not take a pre-creation thread
+   snapshot; the exact random marker is the correlation key.
 6. Create one real Codex task using the exact configured project, a local
    environment on its executor host, the marked instruction, and a short title.
-   Do not write anything yet.
 7. When `create_thread` returns a durable `threadId`, immediately run
    `<plugin-root>/bin/taskchef.js task record --json --workspace <workspace>`.
    Send exactly `id`, `project`, `title`, `instruction`, and `threadId` as JSON
@@ -54,29 +53,39 @@ for all deterministic workspace and task-record operations.
 8. When creation returns only `clientThreadId` or `pendingWorktreeId`, keep it
    only for the created-thread directive and diagnostic reporting. It is not a
    durable ID and cannot be passed to thread tools or converted directly.
-   Resolve the durable ID with this bounded workflow:
+   Immediately record the marked instruction with `threadId: null` using the
+   command from step 7, then resolve the durable ID with this bounded workflow:
 
-   - Take eleven recent-thread snapshots with limit 50: one immediately, then
-     ten more at one-second intervals. The retry window is ten seconds plus
-     tool latency.
-   - Exclude baseline threads. Filter remaining Codex candidates by the
-     expected host, project, creation time (allow five seconds of clock skew),
-     and worktree environment whenever those fields are present. Use the title
-     only to prioritize reads; Codex may normalize it, so never exclude a
-     candidate because its title differs.
+   - If the current Codex tool surface provides a dedicated operation that
+     accepts the provisional ID and waits for or resolves its durable thread
+     ID, call it exactly once with a timeout of at most 30 seconds. Do not invent
+     an operation or pass the provisional ID to tools that require `threadId`.
+   - When no native operation is available, take at most two `list_threads`
+     snapshots with limit 50, near 10 and 30 seconds after the provisional
+     result. Count tool latency against the 30-second deadline. Do not start a
+     snapshot, candidate read, marker verification, or task-resolution write
+     after it.
+   - Filter Codex candidates by the expected host, project, creation time
+     (allow five seconds of clock skew), and worktree environment whenever
+     those fields are present. Use the title only to prioritize reads; Codex
+     may normalize it, so never exclude a candidate because its title differs.
    - Read every remaining candidate with `read_thread`, requesting one turn and
-     no command output. Inspect only the structured
+     no command output. Read candidates concurrently when the tool surface
+     permits. Inspect only the structured
      `userMessage.content[].codexDelegation.input`; do not trust titles,
      summaries, previews, plain-text echoes, or assistant output as proof.
    - Accept a candidate only when the structured input's first line is exactly
      the task's `# taskchef_id=<full UUID>` marker and exactly one candidate
-     matches. Then record its durable thread ID as in step 7.
-   - Treat snapshot, candidate-read, and retry-delay failures as indeterminate.
-     Continue the bounded retries when possible. If the workflow ends with
-     zero exact matches, multiple matches, or discovery errors, record the
-     marked instruction with `threadId: null`, clearly report the unresolved
-     reason and provisional diagnostic ID, and never guess. The marker
-     preserves the information needed for later recovery.
+     matches. Apply the same marker verification to a thread ID returned by a
+     native resolver. Reject any returned or discovered thread ID equal to the
+     provisional identifier or in its `local:` namespace. Then use
+     the task-resolution command under **Later resolution** to atomically fill
+     the nullable field.
+   - Treat native-resolution, snapshot, candidate-read, wait, and task-resolution
+     failures as indeterminate. If the workflow ends with zero exact matches,
+     multiple matches, or errors, leave the already-recorded `threadId: null`,
+     clearly report the unresolved reason and provisional diagnostic ID, and
+     never guess.
 
 9. If executor creation fails, do not record a task. If recording fails
    after creation, still return the created task and clearly say that it is not

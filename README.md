@@ -124,10 +124,11 @@ when it sent it, which project it selected, and which Codex task received the
 work.
 
 Every delegated instruction includes a unique `# taskchef_id=<UUID>` marker.
-If worktree creation does not return a thread ID immediately, TaskChef waits
-briefly and queries recent tasks for that exact marker before recording the
-delegation. If it cannot identify exactly one task, it reports the delegation
-as unresolved but still records the marked instruction for later recovery.
+If worktree creation does not return a thread ID immediately, TaskChef records
+the marked delegation as unresolved, then waits briefly for the durable task.
+It prefers a native Codex client-ID resolver when available and otherwise makes
+two exact-marker checks during a short bounded window. If it still cannot
+identify exactly one task, the recorded marker remains available for recovery.
 
 ### Ask for a live report
 
