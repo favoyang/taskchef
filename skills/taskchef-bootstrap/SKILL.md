@@ -24,9 +24,8 @@ all deterministic workspace operations.
 
 1. Run `workspace init --json`. It takes no stdin, creates an empty
    configuration when missing, creates the append-only task log, refreshes
-   managed instructions, and migrates legacy task records that have executor
-   thread IDs. The installed plugin provides all three TaskChef skills outside
-   the dispatcher workspace.
+   managed instructions, and removes legacy TaskChef skill links. The installed
+   plugin provides all three TaskChef skills outside the dispatcher workspace.
 2. Run `doctor --json` after setup or when the user asks to diagnose the
    workspace. Doctor is read-only. Rerun `workspace init --json` to repair the
    managed scaffold.

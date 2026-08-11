@@ -50,7 +50,6 @@ import {
 
 const execFile = promisify(execFileCallback);
 const FIXED_TIME = "2026-08-08T10:00:00.000Z";
-const LATER_TIME = "2026-08-08T10:05:00.000Z";
 
 async function gitProject(parent, name, remote = null) {
   const project = path.join(parent, name);
@@ -749,11 +748,12 @@ test("dispatch list filters by historical project and summary counts the journey
   });
 });
 
-test("dispatch reader rejects malformed and non-terminated JSONL", async () => {
+test("dispatch reader and workspace init reject malformed current JSONL", async () => {
   const { workspace } = await fixture(1);
   const log = path.join(workspace, "tasks.jsonl");
   await writeFile(log, "{bad}\n");
   await assert.rejects(listTasks(workspace), /line 1 is invalid JSON/);
+  await assert.rejects(initializeWorkspace(workspace), /line 1 is invalid JSON/);
   await writeFile(log, JSON.stringify({ id: "incomplete" }));
   await assert.rejects(listTasks(workspace), /must end with a newline/);
   await writeFile(log, "\n");
@@ -773,191 +773,20 @@ test("doctor reports healthy and stale workspaces without mutating them", async 
   assert.equal((await doctorWorkspace(workspace)).ok, true);
 });
 
-test("workspace init migrates completed legacy task records without status or results", async () => {
-  const { workspace, projects } = await fixture(1);
-  const tasks = path.join(workspace, "tasks");
-  const taskDirectory = path.join(tasks, "legacy-1");
-  await mkdir(taskDirectory, { recursive: true });
-  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
-    schemaVersion: 1,
-    id: "legacy-1",
-    project: projects[0],
-    title: "Legacy work",
-    instruction: "Finish the legacy work.",
-    status: "finished",
-    threadId: "thread-legacy",
-    result: { message: "Done.", githubPRs: [], githubIssues: [] },
-    createdAt: FIXED_TIME,
-    updatedAt: LATER_TIME,
-  })}\n`);
+test("workspace init and doctor do not recognize the removed task-directory format", async () => {
+  const { workspace } = await fixture(1);
+  const obsoleteTaskPath = path.join(workspace, "tasks", "obsolete-1", "task.json");
+  await mkdir(path.dirname(obsoleteTaskPath), { recursive: true });
+  await writeFile(obsoleteTaskPath, "obsolete task data\n");
 
   const initialized = await initializeWorkspace(workspace);
-  assert.equal(initialized.legacyTasks.action, "migrated");
-  assert.equal(initialized.legacyTasks.migratedCount, 1);
-  await assert.rejects(lstat(tasks), { code: "ENOENT" });
-  const migrated = await readTask(workspace, "legacy-1");
-  assert.equal(migrated.threadId, "thread-legacy");
-  assert.equal("status" in migrated, false);
-  assert.equal("result" in migrated, false);
-});
+  assert.equal("legacyTasks" in initialized, false);
+  assert.equal(await readFile(obsoleteTaskPath, "utf8"), "obsolete task data\n");
+  assert.deepEqual(await listTasks(workspace), []);
 
-test("workspace init migrates a legacy task whose project was force-removed", async () => {
-  const { workspace, projects } = await fixture(1);
-  await removeProject(workspace, "project-1");
-  const taskDirectory = path.join(workspace, "tasks", "orphaned-1");
-  await mkdir(taskDirectory, { recursive: true });
-  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
-    schemaVersion: 1,
-    id: "orphaned-1",
-    project: projects[0],
-    title: "Orphaned legacy work",
-    instruction: "Finish the orphaned legacy work.",
-    status: "finished",
-    threadId: "thread-orphaned",
-    result: null,
-    createdAt: FIXED_TIME,
-    updatedAt: LATER_TIME,
-  })}\n`);
-
-  const initialized = await initializeWorkspace(workspace);
-  assert.equal(initialized.legacyTasks.migratedCount, 1);
-  const migrated = await readTask(workspace, "orphaned-1");
-  assert.equal(migrated.project.path, projects[0]);
-  assert.equal(migrated.project.isGitRepository, true);
-});
-
-test("workspace init resumes legacy cleanup after task.json was removed", async () => {
-  const { workspace, projects } = await fixture(1);
-  await recordTask(
-    workspace,
-    dispatchInput(projects[0], "cleanup-1", "thread-cleanup"),
-    { now: FIXED_TIME },
-  );
-  const taskDirectory = path.join(workspace, "tasks", "cleanup-1");
-  await mkdir(taskDirectory, { recursive: true });
-
-  const initialized = await initializeWorkspace(workspace);
-  assert.equal(initialized.legacyTasks.action, "migrated");
-  assert.equal(initialized.legacyTasks.migratedCount, 0);
-  await assert.rejects(lstat(path.join(workspace, "tasks")), { code: "ENOENT" });
-  assert.equal((await listTasks(workspace)).filter((item) => item.id === "cleanup-1").length, 1);
-});
-
-test("legacy cleanup resumes from the saved snapshot after its project moves", async () => {
-  const { workspace, projects } = await fixture(1);
-  await recordTask(
-    workspace,
-    dispatchInput(projects[0], "moved-cleanup", "thread-moved-cleanup"),
-    { now: FIXED_TIME },
-  );
-  await removeProject(workspace, "project-1");
-  const taskDirectory = path.join(workspace, "tasks", "moved-cleanup");
-  await mkdir(taskDirectory, { recursive: true });
-  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
-    schemaVersion: 1,
-    id: "moved-cleanup",
-    project: projects[0],
-    title: "Echo input",
-    instruction: "Create echo_input.py, test it, and report the result.",
-    status: "finished",
-    threadId: "thread-moved-cleanup",
-    result: null,
-    createdAt: FIXED_TIME,
-    updatedAt: LATER_TIME,
-  })}\n`);
-  await rename(projects[0], `${projects[0]}-moved`);
-
-  const initialized = await initializeWorkspace(workspace);
-  assert.equal(initialized.legacyTasks.migratedCount, 0);
-  await assert.rejects(lstat(path.join(workspace, "tasks")), { code: "ENOENT" });
-  assert.equal((await readTask(workspace, "moved-cleanup")).project.path, projects[0]);
-});
-
-test("legacy cleanup compares normalized fields after an interrupted migration", async () => {
-  const { workspace, projects } = await fixture(1);
-  await recordTask(
-    workspace,
-    {
-      id: "trimmed-cleanup",
-      project: projects[0],
-      title: " Echo input ",
-      instruction: " Create echo_input.py, test it, and report the result. ",
-      threadId: " thread-trimmed ",
-    },
-    { now: FIXED_TIME },
-  );
-  const taskDirectory = path.join(workspace, "tasks", "trimmed-cleanup");
-  await mkdir(taskDirectory, { recursive: true });
-  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
-    schemaVersion: 1,
-    id: "trimmed-cleanup",
-    project: projects[0],
-    title: " Echo input ",
-    instruction: " Create echo_input.py, test it, and report the result. ",
-    status: "finished",
-    threadId: " thread-trimmed ",
-    result: null,
-    createdAt: FIXED_TIME,
-    updatedAt: LATER_TIME,
-  })}\n`);
-
-  const initialized = await initializeWorkspace(workspace);
-  assert.equal(initialized.legacyTasks.migratedCount, 0);
-  await assert.rejects(lstat(path.join(workspace, "tasks")), { code: "ENOENT" });
-});
-
-test("legacy cleanup rejects a same-ID task from a different project", async () => {
-  const { workspace, projects } = await fixture(2);
-  await recordTask(
-    workspace,
-    dispatchInput(projects[0], "project-conflict", "thread-conflict"),
-    { now: FIXED_TIME },
-  );
-  const taskDirectory = path.join(workspace, "tasks", "project-conflict");
-  const taskPath = path.join(taskDirectory, "task.json");
-  await mkdir(taskDirectory, { recursive: true });
-  await writeFile(taskPath, `${JSON.stringify({
-    schemaVersion: 1,
-    id: "project-conflict",
-    project: projects[1],
-    title: "Echo input",
-    instruction: "Create echo_input.py, test it, and report the result.",
-    status: "finished",
-    threadId: "thread-conflict",
-    result: null,
-    createdAt: FIXED_TIME,
-    updatedAt: LATER_TIME,
-  })}\n`);
-
-  await assert.rejects(initializeWorkspace(workspace), /conflicts with task history/);
-  assert.equal((await lstat(taskPath)).isFile(), true);
-});
-
-test("workspace init stops when a pending legacy task has no executor", async () => {
-  const { root, workspace, projects } = await fixture(1);
-  await unlink(path.join(workspace, "tasks.jsonl"));
-  const legacySkill = path.join(workspace, ".agents", "skills", "taskchef-delegate");
-  await mkdir(path.dirname(legacySkill), { recursive: true });
-  await symlink(path.join(root, "legacy-taskchef-delegate"), legacySkill);
-  const taskDirectory = path.join(workspace, "tasks", "pending-1");
-  await mkdir(taskDirectory, { recursive: true });
-  const taskPath = path.join(taskDirectory, "task.json");
-  await writeFile(taskPath, `${JSON.stringify({
-    schemaVersion: 1,
-    id: "pending-1",
-    project: projects[0],
-    title: "Pending work",
-    instruction: "Do pending work.",
-    status: "pending",
-    threadId: null,
-    result: null,
-    createdAt: FIXED_TIME,
-    updatedAt: FIXED_TIME,
-  })}\n`);
-  await assert.rejects(initializeWorkspace(workspace), /has no executor thread/);
-  assert.equal((await lstat(taskPath)).isFile(), true);
-  assert.equal((await lstat(legacySkill)).isSymbolicLink(), true);
-  await assert.rejects(lstat(path.join(workspace, "tasks.jsonl")), { code: "ENOENT" });
+  const diagnosis = await doctorWorkspace(workspace);
+  assert.equal(diagnosis.ok, true);
+  assert.equal(diagnosis.checks.some((check) => check.name === "legacy-tasks"), false);
 });
 
 test("CLI implements the bootstrap, project, doctor, and task surface", async () => {
@@ -968,6 +797,9 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
 
   const initialized = await runCli(["workspace", "init", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(initialized.stdout).config.action, "created");
+  const repeated = await runCli(["workspace", "init", "--workspace", workspace]);
+  assert.match(repeated.stdout, /Task log: unchanged/);
+  assert.doesNotMatch(repeated.stdout, /Legacy tasks:/);
   const added = await runCli([
     "project", "add", first, "--name", "first", "--json", "--workspace", workspace,
   ]);
