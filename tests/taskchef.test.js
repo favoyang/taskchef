@@ -40,7 +40,6 @@ import {
 } from "../index.js";
 import {
   pinTaskChefNpmSource,
-  installPublishedPluginDependencies,
   preserveSharedMarketplaceFile,
   resolveExpectedPublishedPlugin,
   updateSharedMarketplaceFile,
@@ -219,6 +218,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
+  assert.deepEqual(packageJson.bundleDependencies, ["proper-lockfile"]);
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
   const releasePluginNames = releaseConfig.plugins.map((plugin) =>
     Array.isArray(plugin) ? plugin[0] : plugin);
@@ -314,6 +314,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
     files: [
       { path: ".codex-plugin/plugin.json" },
       { path: "bin/taskchef.js", mode: 0o755 },
+      { path: "node_modules/proper-lockfile/package.json" },
       { path: "src/cli.js" },
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
@@ -348,15 +349,6 @@ test("release automation pins the shared marketplace to the exact npm version", 
     ),
     /invalid YAML/,
   );
-  const dependencyInstalls = [];
-  await installPublishedPluginDependencies("/tmp/taskchef-package", async (...args) => {
-    dependencyInstalls.push(args);
-  });
-  assert.deepEqual(dependencyInstalls, [[
-    "npm",
-    ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
-    { cwd: "/tmp/taskchef-package", maxBuffer: 1024 * 1024 },
-  ]]);
 
   let registryAttempts = 0;
   const verifiedVersions = [];
