@@ -558,14 +558,12 @@ export async function initializeWorkspace(workspaceRoot) {
     ? await readConfig(root, { checkPaths: false })
     : { schemaVersion: 1, projects: [] };
   const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
-  const existingDispatches = configExists && (await managedRegularFileExists(dispatchPath))
-    ? await readDispatchesUnlocked(root)
-    : [];
-  const legacyTaskRecords = await inspectLegacyTaskRecords(root, config, existingDispatches);
+  if (configExists && (await managedRegularFileExists(dispatchPath))) {
+    await readDispatchesUnlocked(root);
+  }
   const { legacySkills } = await ensureWorkspaceSkills(root);
   if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
   const tasks = await ensureDispatchFile(root);
-  const legacyTasks = await migrateLegacyTaskRecords(root, legacyTaskRecords);
   const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
     if (!configExists) await unlink(configPath).catch(() => {});
     throw error;
@@ -576,7 +574,6 @@ export async function initializeWorkspace(workspaceRoot) {
     tasks,
     instructions,
     legacySkills,
-    legacyTasks,
   };
 }
 
@@ -775,161 +772,6 @@ export async function buildTaskSummary(workspaceRoot) {
   };
 }
 
-const LEGACY_TASK_FIELDS = new Set([
-  "schemaVersion",
-  "id",
-  "project",
-  "title",
-  "instruction",
-  "status",
-  "threadId",
-  "result",
-  "createdAt",
-  "updatedAt",
-]);
-
-function validateLegacyTask(task, taskId) {
-  requireExactFields(task, LEGACY_TASK_FIELDS, `legacy task ${taskId}`);
-  if (task.schemaVersion !== 1) throw new Error(`legacy task ${taskId} has unsupported schemaVersion`);
-  if (requireSafeId(task.id) !== taskId) throw new Error(`legacy task ID does not match directory: ${taskId}`);
-  requireString(task.project, `legacy task ${taskId}.project`);
-  requireString(task.title, `legacy task ${taskId}.title`);
-  requireString(task.instruction, `legacy task ${taskId}.instruction`);
-  requireTimestamp(task.createdAt, `legacy task ${taskId}.createdAt`);
-  if (task.threadId === null) {
-    throw new Error(`legacy pending task ${taskId} has no executor thread and cannot be migrated`);
-  }
-  requireString(task.threadId, `legacy task ${taskId}.threadId`);
-  return task;
-}
-
-async function inspectLegacyTaskRecords(workspaceRoot, config, existingDispatches = []) {
-  const tasksPath = path.join(workspaceRoot, "tasks");
-  const details = await lstat(tasksPath).catch((error) => {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  });
-  if (details === null) return { tasksPath, entries: [], records: [], action: "not-found" };
-  if (details.isSymbolicLink() || !details.isDirectory()) {
-    throw new Error(`legacy tasks path is not a real directory: ${tasksPath}`);
-  }
-  const entries = await readdir(tasksPath, { withFileTypes: true });
-  const records = [];
-  const ids = new Set();
-  const threadIds = new Set();
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !SAFE_ID.test(entry.name)) {
-      throw new Error(`unexpected legacy task entry: ${entry.name}`);
-    }
-    const taskDirectory = path.join(tasksPath, entry.name);
-    const taskEntries = await readdir(taskDirectory, { withFileTypes: true });
-    if (taskEntries.length === 0) {
-      records.push({ dispatch: null, taskPath: null, taskDirectory, taskId: entry.name });
-      continue;
-    }
-    if (
-      taskEntries.length !== 1 ||
-      taskEntries[0].name !== "task.json" ||
-      !taskEntries[0].isFile()
-    ) {
-      throw new Error(`legacy task directory must contain only task.json: ${entry.name}`);
-    }
-    const taskPath = path.join(taskDirectory, "task.json");
-    const task = validateLegacyTask(JSON.parse(await readFile(taskPath, "utf8")), entry.name);
-    const existing = existingDispatches.find((dispatch) => dispatch.id === task.id);
-    let dispatch;
-    if (existing) {
-      if (task.project.trim() !== existing.project.path) {
-        throw new Error(`legacy task conflicts with task history: ${task.id}`);
-      }
-      const comparable = {
-        title: task.title.trim(),
-        instruction: task.instruction.trim(),
-        threadId: task.threadId.trim(),
-        createdAt: task.createdAt,
-      };
-      for (const [field, value] of Object.entries(comparable)) {
-        if (existing[field] !== value) {
-          throw new Error(`legacy task conflicts with task history: ${task.id}`);
-        }
-      }
-      dispatch = existing;
-    } else {
-      const project = config.projects.find((candidate) => candidate.path === task.project) ??
-        await inspectProject({ path: task.project });
-      dispatch = await validateDispatchShape({
-        schemaVersion: 1,
-        id: task.id,
-        project,
-        title: task.title,
-        instruction: task.instruction,
-        threadId: task.threadId,
-        createdAt: task.createdAt,
-      });
-    }
-    if (ids.has(dispatch.id)) throw new Error(`duplicate legacy task ID: ${dispatch.id}`);
-    if (threadIds.has(dispatch.threadId)) {
-      throw new Error(`duplicate legacy task threadId: ${dispatch.threadId}`);
-    }
-    ids.add(dispatch.id);
-    threadIds.add(dispatch.threadId);
-    records.push({ dispatch, taskPath, taskDirectory, taskId: task.id });
-  }
-  return {
-    tasksPath,
-    entries,
-    records,
-    action: entries.length === 0 ? "removed-empty" : "migrated",
-  };
-}
-
-async function migrateLegacyTaskRecords(workspaceRoot, inspection) {
-  if (inspection.action === "not-found") return { action: "not-found", migratedCount: 0 };
-  const migrations = await withDispatchLock(workspaceRoot, async () => {
-    const existing = await readDispatchesUnlocked(workspaceRoot);
-    const existingById = new Map(existing.map((dispatch) => [dispatch.id, dispatch]));
-    const threadIds = new Set(existing.map((dispatch) => dispatch.threadId));
-    const pending = [];
-    for (const { dispatch, taskPath, taskDirectory, taskId } of inspection.records) {
-      if (dispatch === null) {
-        if (!existingById.has(taskId)) {
-          throw new Error(`empty legacy task directory has no matching dispatch: ${taskId}`);
-        }
-        pending.push({ dispatch: null, taskPath, taskDirectory });
-        continue;
-      }
-      const previous = existingById.get(dispatch.id);
-      if (previous && JSON.stringify(previous) !== JSON.stringify(dispatch)) {
-        throw new Error(`legacy task conflicts with dispatch: ${dispatch.id}`);
-      }
-      if (!previous && threadIds.has(dispatch.threadId)) {
-        throw new Error(`legacy task threadId is already recorded: ${dispatch.threadId}`);
-      }
-      if (!previous) {
-        pending.push({ dispatch, taskPath, taskDirectory });
-        existingById.set(dispatch.id, dispatch);
-        threadIds.add(dispatch.threadId);
-      } else {
-        pending.push({ dispatch: null, taskPath, taskDirectory });
-      }
-    }
-    await appendDispatchesAtomic(
-      workspaceRoot,
-      pending.filter((item) => item.dispatch).map((item) => item.dispatch),
-    );
-    return pending;
-  });
-  for (const migration of migrations) {
-    if (migration.taskPath !== null) await unlink(migration.taskPath);
-    await rmdir(migration.taskDirectory);
-  }
-  await rmdir(inspection.tasksPath);
-  return {
-    action: inspection.action,
-    migratedCount: migrations.filter((item) => item.dispatch).length,
-  };
-}
-
 export async function doctorWorkspace(workspaceRoot) {
   const root = path.resolve(workspaceRoot);
   const checks = [];
@@ -964,12 +806,6 @@ export async function doctorWorkspace(workspaceRoot) {
       throw new Error("legacy TaskChef skill links remain; run workspace init to remove them");
     }
     return "no legacy TaskChef skill links";
-  });
-  await check("legacy-tasks", async () => {
-    if (await pathExists(path.join(root, "tasks"))) {
-      throw new Error("legacy tasks directory remains; run workspace init to migrate it");
-    }
-    return "no legacy task records";
   });
   return { workspace: root, ok: checks.every((item) => item.status === "pass"), checks };
 }

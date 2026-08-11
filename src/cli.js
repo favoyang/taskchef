@@ -92,7 +92,6 @@ async function initialize(args) {
     `Workspace: ${value.workspace}`,
     `Configuration: ${value.config.action}`,
     `Task log: ${value.tasks.action}`,
-    `Legacy tasks: ${value.legacyTasks.action}`,
     `Instructions: ${value.instructions.action}`,
     `Legacy skill links removed: ${value.legacySkills.removed.length}`,
   ].join("\n"));

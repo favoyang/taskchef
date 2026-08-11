@@ -38,15 +38,11 @@ live report requests to `$taskchef-report`. Bootstrap preserves unrelated
 instructions and refreshes only the managed block.
 
 `workspace init` is idempotent. It creates an empty configuration and task
-log when missing, refreshes managed instructions, removes legacy TaskChef skill
-symlinks, and migrates legacy task records that contain executor thread IDs.
-It stops on a legacy pending record with no thread ID rather than discarding
-that record. If a legacy record refers to a project that was removed from the
-configuration, migration reconstructs its project snapshot from the existing
-local project path.
+log when missing, refreshes managed instructions, and removes legacy TaskChef
+skill symlinks.
 
 `doctor` validates configuration, project paths, the JSONL log, managed
-instructions, and the absence of legacy workspace structures without modifying
+instructions, and the absence of legacy TaskChef skill links without modifying
 the workspace.
 
 ## Project configuration
