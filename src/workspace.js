@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
-import { parseTaskChefMarker } from "./delegation.js";
+import { normalizeDurableThreadId, parseTaskChefMarker } from "./delegation.js";
 
 const execFile = promisify(execFileCallback);
 const DISPATCHER_INSTRUCTIONS_URL = new URL(
@@ -668,7 +668,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     instruction: requireString(dispatch.instruction, `${name}.instruction`).trim(),
     threadId: dispatch.threadId === null
       ? null
-      : requireString(dispatch.threadId, `${name}.threadId`).trim(),
+      : normalizeDurableThreadId(dispatch.threadId, `${name}.threadId`),
     createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
   };
   if (
@@ -756,7 +756,7 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
 
 export async function resolveTask(workspaceRoot, taskId, threadId) {
   const id = requireSafeId(taskId, "taskId");
-  const durableThreadId = requireString(threadId, "threadId").trim();
+  const durableThreadId = normalizeDurableThreadId(threadId);
   const root = await realpath(path.resolve(workspaceRoot));
   return withDispatchLock(root, async () => {
     const dispatches = await readDispatchesUnlocked(root);

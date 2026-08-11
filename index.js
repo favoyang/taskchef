@@ -21,14 +21,16 @@ export {
 } from "./src/workspace.js";
 
 export {
-  THREAD_RESOLUTION_ATTEMPTS,
+  THREAD_RESOLUTION_CHECKPOINTS_MS,
   THREAD_RESOLUTION_CLOCK_SKEW_MS,
-  THREAD_RESOLUTION_DELAY_MS,
   THREAD_RESOLUTION_RECENT_LIMIT,
+  THREAD_RESOLUTION_TIMEOUT_MS,
   createAndRecordDelegation,
   filterThreadCandidates,
   hasExactTaskChefMarker,
   listThreadEntries,
+  isProvisionalThreadId,
+  normalizeDurableThreadId,
   parseTaskChefMarker,
   prepareDelegation,
   structuredDelegatedInputs,

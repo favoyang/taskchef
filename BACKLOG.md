@@ -39,3 +39,18 @@ clear data model before implementation.
 - Evaluate automatic project discovery rules and exclusions.
 - Consider multiple executor threads for one logical assignment if a real
   workflow requires it.
+
+## Codex provisional thread lifecycle
+
+- Track [openai/codex#26861](https://github.com/openai/codex/issues/26861),
+  where worktree creation can return only a provisional `clientThreadId` or
+  `pendingWorktreeId` with no supported mapping to the durable `threadId`.
+- Prefer an official bounded operation such as
+  `wait_for_thread(clientThreadId, timeoutMs) -> { status, threadId? }` or
+  `resolve_client_thread(clientThreadId) -> { status, threadId? }`. Returning a
+  reserved durable ID from `create_thread`, or emitting a materialization event
+  containing it, would also close the lifecycle gap.
+- Re-evaluate TaskChef's sparse marker-discovery fallback when Codex exposes
+  one of these APIs. Keep exact marker verification before persisting the
+  returned durable ID unless the official contract provides equivalent
+  correlation guarantees.

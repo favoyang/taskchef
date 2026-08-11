@@ -18,8 +18,8 @@ not maintain a second lifecycle database.
    selected local path.
 4. It creates an independently openable Codex task in that project.
 5. It embeds a generated TaskChef UUID marker in the initial instruction before
-   creation. After creation returns or briefly resolves a durable thread ID, it
-   appends one task entry.
+   creation. It appends one task entry as soon as creation returns, using
+   `threadId: null` while a provisional client ID is briefly resolved.
 6. It returns without waiting for executor work to complete.
 7. When requested, TaskChef can read task entries, query the relevant Codex
    tasks once, and present a live report without persisting the fetched state.
@@ -135,27 +135,35 @@ For each assignment, `$taskchef-delegate`:
 
 1. loads and validates configured projects
 2. selects one unambiguous target
-3. generates a full UUID, prefixes the instruction with its exact
-   `# taskchef_id=<UUID>` marker, and snapshots the 50 most recent threads
+3. generates a full UUID and prefixes the instruction with its exact
+   `# taskchef_id=<UUID>` marker
 4. creates a real Codex task at the exact configured path
 5. appends a task entry immediately when creation returns a durable thread ID
-6. when creation returns only a provisional client ID, takes at most eleven
-   recent-thread snapshots over ten seconds plus tool latency, filters new
+6. when creation returns only a provisional client ID, immediately appends the
+   marked entry with `threadId: null`, then prefers one native client-ID wait or
+   resolution call with a 30-second timeout when Codex exposes one
+7. when no native operation is available, takes at most two recent-thread
+   snapshots near 10 and 30 seconds after the provisional result, filters
    candidates by available host/project/time/worktree metadata, uses title only
    as an advisory ordering hint, and accepts only one thread whose structured
    delegated input starts with the exact marker
-7. returns after recording or after reporting that bounded resolution was
+8. atomically fills the nullable thread ID after an exact match
+9. returns after recording or after reporting that bounded resolution was
    unresolved, without waiting for executor work completion.
 
-The pre-creation baseline prevents an older thread from being claimed. Creation
-time filtering allows five seconds of clock skew. Candidate reads inspect only
-structured `codexDelegation.input`, never untrusted title, summary, preview, or
-plain-text marker echoes. Zero exact matches time out unresolved; multiple exact
-matches are ambiguous. Snapshot or candidate-read errors make the attempt
-indeterminate and do not bypass recording. All unresolved outcomes append the
-marked delegation with `threadId: null`, preserving it for later recovery. A
-`clientThreadId` or `pendingWorktreeId` remains provisional diagnostic context
-and is never stored in the canonical `threadId` field.
+The exact random marker makes a pre-creation thread snapshot unnecessary.
+Creation-time filtering allows five seconds of clock skew. Candidate reads run
+concurrently where the host permits and inspect only structured
+`codexDelegation.input`, never untrusted title, summary, preview, or plain-text
+marker echoes. A native resolver result is verified against the same structured
+marker before persistence. Zero exact matches time out unresolved; multiple
+exact matches are ambiguous. Snapshot, candidate-read, native-resolution, or
+task-resolution errors leave the already-recorded nullable entry intact. No
+snapshot, candidate read, marker verification, or task-resolution write starts
+after the 30-second deadline, so tool latency can reduce the number of attempts.
+A `clientThreadId`, `pendingWorktreeId`, or ID in the documented provisional
+`local:` namespace remains diagnostic context and is rejected from every path
+that could persist the canonical `threadId` field.
 
 Desktop thread tools are available to the Codex skill, not to the standalone
 Node CLI. The package therefore exposes testable marker/filter/orchestration
