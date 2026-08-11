@@ -255,11 +255,24 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(synchronized.version, "2.3.4");
 
   const outputPath = path.join(root, "github-output");
+  await execFile("git", ["init"], { cwd: root });
+  await execFile("git", ["add", ".codex-plugin/plugin.json"], { cwd: root });
+  await execFile("git", [
+    "-c", "user.name=TaskChef Test", "-c", "user.email=test@example.com",
+    "commit", "-m", "test release version",
+  ], { cwd: root });
   await execFile(process.execPath, [path.resolve("scripts/write-release-version-output.js")], {
     cwd: root,
     env: { ...process.env, GITHUB_OUTPUT: outputPath },
   });
-  assert.equal(await readFile(outputPath, "utf8"), "version=2.3.4\n");
+  assert.equal(await readFile(outputPath, "utf8"), "version=\n");
+  await execFile("git", ["tag", "v2.3.4"], { cwd: root });
+  const taggedOutputPath = path.join(root, "tagged-github-output");
+  await execFile(process.execPath, [path.resolve("scripts/write-release-version-output.js")], {
+    cwd: root,
+    env: { ...process.env, GITHUB_OUTPUT: taggedOutputPath },
+  });
+  assert.equal(await readFile(taggedOutputPath, "utf8"), "version=2.3.4\n");
 });
 
 test("release automation pins the shared marketplace to the exact npm version", async () => {
@@ -385,6 +398,8 @@ test("release automation pins the shared marketplace to the exact npm version", 
   assert.match(workflow, /git push origin HEAD:main/);
   assert.match(workflow, /marketplace:\n[\s\S]+needs:\n\s+- test\n\s+- release/);
   assert.match(workflow, /marketplace:\n[\s\S]+always\(\)/);
+  assert.match(workflow, /needs\.release\.result == 'success'/);
+  assert.match(workflow, /needs\.release\.outputs\.expected-version != ''/);
   assert.match(workflow, /expected-version: \$\{\{ steps\.expected-version\.outputs\.version \}\}/);
   assert.match(workflow, /run: node scripts\/write-release-version-output\.js/);
   assert.match(workflow, /EXPECTED_VERSION: \$\{\{ needs\.release\.outputs\.expected-version \}\}/);

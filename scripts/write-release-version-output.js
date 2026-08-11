@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
+import { execFile as execFileCallback } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFile = promisify(execFileCallback);
 
 const outputPath = process.env.GITHUB_OUTPUT;
 if (!outputPath) throw new Error("GITHUB_OUTPUT is required");
@@ -16,4 +20,7 @@ if (
   throw new Error("plugin manifest version must be valid semver");
 }
 
-await appendFile(outputPath, `version=${manifest.version}\n`, "utf8");
+const tag = `v${manifest.version}`;
+const { stdout } = await execFile("git", ["tag", "--points-at", "HEAD", "--list", tag]);
+const releasedVersion = stdout.trim() === tag ? manifest.version : "";
+await appendFile(outputPath, `version=${releasedVersion}\n`, "utf8");
