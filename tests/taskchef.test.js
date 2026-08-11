@@ -221,6 +221,14 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
   const releasePluginNames = releaseConfig.plugins.map((plugin) =>
     Array.isArray(plugin) ? plugin[0] : plugin);
+  for (const pluginName of [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+  ]) {
+    const plugin = releaseConfig.plugins.find((entry) =>
+      Array.isArray(entry) && entry[0] === pluginName);
+    assert.equal(plugin[1].preset, "conventionalcommits");
+  }
   assert.ok(
     releasePluginNames.indexOf("@semantic-release/exec")
       < releasePluginNames.indexOf("@semantic-release/npm"),

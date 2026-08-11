@@ -33,6 +33,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "conventional-changelog-conventionalcommits": "^10.3.0",
     "yaml": "^2.9.0"
   },
   "scripts": {
