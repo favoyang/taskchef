@@ -40,6 +40,7 @@ import {
 } from "../index.js";
 import {
   pinTaskChefNpmSource,
+  installPublishedPluginDependencies,
   preserveSharedMarketplaceFile,
   resolveExpectedPublishedPlugin,
   updateSharedMarketplaceFile,
@@ -347,6 +348,15 @@ test("release automation pins the shared marketplace to the exact npm version", 
     ),
     /invalid YAML/,
   );
+  const dependencyInstalls = [];
+  await installPublishedPluginDependencies("/tmp/taskchef-package", async (...args) => {
+    dependencyInstalls.push(args);
+  });
+  assert.deepEqual(dependencyInstalls, [[
+    "npm",
+    ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
+    { cwd: "/tmp/taskchef-package", maxBuffer: 1024 * 1024 },
+  ]]);
 
   let registryAttempts = 0;
   const verifiedVersions = [];

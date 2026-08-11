@@ -140,6 +140,14 @@ export async function validateExtractedPlugin(pluginRoot, version, execFileImpl 
   return manifest;
 }
 
+export async function installPublishedPluginDependencies(pluginRoot, execFileImpl = execFile) {
+  await execFileImpl(
+    "npm",
+    ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
+    { cwd: pluginRoot, maxBuffer: 1024 * 1024 },
+  );
+}
+
 export async function verifyPublishedPluginArchive(version, execFileImpl = execFile) {
   requireVersion(version);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "taskchef-published-plugin-"));
@@ -154,7 +162,9 @@ export async function verifyPublishedPluginArchive(version, execFileImpl = execF
     const extractedRoot = path.join(temporaryRoot, "extracted");
     await mkdir(extractedRoot);
     await execFileImpl("tar", ["-xzf", archivePath, "-C", extractedRoot]);
-    return await validateExtractedPlugin(path.join(extractedRoot, "package"), version, execFileImpl);
+    const pluginRoot = path.join(extractedRoot, "package");
+    await installPublishedPluginDependencies(pluginRoot, execFileImpl);
+    return await validateExtractedPlugin(pluginRoot, version, execFileImpl);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
