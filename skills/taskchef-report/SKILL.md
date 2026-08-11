@@ -1,6 +1,6 @@
 ---
 name: taskchef-report
-description: "Report the live state of Codex tasks recorded in a TaskChef task history. Use only when the user asks for status, outcomes, or a report about delegated work. Queries each relevant task once, never polls or waits, and never persists status or results."
+description: "Report the live state of Codex tasks recorded in a TaskChef task history. Use only when the user asks for status, outcomes, or a report about delegated work. Queries each relevant task once, may resolve a nullable thread ID from one exact marker match, never polls or waits, and never persists status or results."
 ---
 
 # TaskChef Report
@@ -23,16 +23,26 @@ all deterministic task-log operations.
      `<plugin-root>/bin/taskchef.js task list --json --workspace <workspace>`
      once, then select matching entries. Ask the user if the match is ambiguous.
    - Use the full list only when the user asks for an overview of the task history.
-2. Query every selected thread exactly once using immediate native snapshots,
-   with no more than eight targets per call.
-3. Summarize the live state and any reported outcome for each requested task.
+2. Separate entries whose `threadId` is `null`. For those entries, take one
+   `list_threads` snapshot with limit 50, filter by available project metadata,
+   and inspect candidate structured delegated inputs. Use title only to
+   prioritize candidates, never to exclude them. When exactly one candidate
+   starts with the task's exact marker, run
+   `<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json --workspace <workspace>`.
+   Do not resolve zero or multiple matches. Report unmatched entries as
+   recorded but unresolved and do not pass them to native thread tools.
+3. Query every resolved or previously durable thread exactly once using
+   immediate native snapshots, with no more than eight targets per call.
+4. Summarize the live state and any reported outcome for each requested task.
    Distinguish active work, requests for user input, completed work, and failed
    or partial attempts.
-4. Treat each Codex task as the source of truth. The task log proves that
-   TaskChef created the task, but it does not contain the task's current state.
-5. Never update `tasks.jsonl`. Never persist status, results, transcripts,
-   or hidden reasoning. Do not poll or wait for future activity.
+5. Treat each Codex task as the source of truth. The task log records what
+   TaskChef submitted, but it does not contain the task's current state.
+6. Never edit `tasks.jsonl` directly. Use `task resolve` only for one exact
+   marker match. Never persist status, results, transcripts, or hidden
+   reasoning. Do not poll or wait for future activity.
 
 If the task history is empty, say that TaskChef has not recorded any tasks. If
-a recorded task cannot be read, identify it by task ID and thread ID, then
-continue with the remaining entries.
+a task has no durable thread ID, identify it by task ID and say that its marker
+remains available for later recovery. If a recorded thread cannot be read,
+identify it by task ID and thread ID, then continue with the remaining entries.

@@ -14,7 +14,23 @@ export {
   listTasks,
   readTask,
   recordTask,
+  resolveTask,
   requireSafeId,
   removeProject,
   validateConfig,
 } from "./src/workspace.js";
+
+export {
+  THREAD_RESOLUTION_ATTEMPTS,
+  THREAD_RESOLUTION_CLOCK_SKEW_MS,
+  THREAD_RESOLUTION_DELAY_MS,
+  THREAD_RESOLUTION_RECENT_LIMIT,
+  createAndRecordDelegation,
+  filterThreadCandidates,
+  hasExactTaskChefMarker,
+  listThreadEntries,
+  parseTaskChefMarker,
+  prepareDelegation,
+  structuredDelegatedInputs,
+  taskChefMarker,
+} from "./src/delegation.js";

@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
+import { parseTaskChefMarker } from "./delegation.js";
 
 const execFile = promisify(execFileCallback);
 const DISPATCHER_INSTRUCTIONS_URL = new URL(
@@ -162,6 +163,12 @@ async function appendDispatchesAtomic(workspaceRoot, dispatches) {
   const content = await readFile(dispatchPath, "utf8");
   const appended = dispatches.map((dispatch) => `${JSON.stringify(dispatch)}\n`).join("");
   await writeTextAtomic(dispatchPath, `${content}${appended}`);
+}
+
+async function writeDispatchesAtomic(workspaceRoot, dispatches) {
+  const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
+  const content = dispatches.map((dispatch) => `${JSON.stringify(dispatch)}\n`).join("");
+  await writeTextAtomic(dispatchPath, content);
 }
 
 async function writeJsonAtomic(filePath, value, { exclusive = false } = {}) {
@@ -653,15 +660,24 @@ async function validateDispatchShape(dispatch, name = "task") {
   if (dispatch.schemaVersion !== 1) throw new Error(`unsupported ${name} schemaVersion`);
   const id = requireSafeId(dispatch.id, `${name}.id`);
   const project = await normalizeProject(dispatch.project, 0, { checkPath: false });
-  return {
+  const normalized = {
     schemaVersion: 1,
     id,
     project,
     title: requireString(dispatch.title, `${name}.title`).trim(),
     instruction: requireString(dispatch.instruction, `${name}.instruction`).trim(),
-    threadId: requireString(dispatch.threadId, `${name}.threadId`).trim(),
+    threadId: dispatch.threadId === null
+      ? null
+      : requireString(dispatch.threadId, `${name}.threadId`).trim(),
     createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
   };
+  if (
+    normalized.threadId === null &&
+    parseTaskChefMarker(normalized.instruction) !== normalized.id
+  ) {
+    throw new Error(`${name} with a null threadId must contain its exact TaskChef marker`);
+  }
+  return normalized;
 }
 
 async function readDispatchesUnlocked(root) {
@@ -692,11 +708,11 @@ async function readDispatchesUnlocked(root) {
   const threadIds = new Set();
   for (const dispatch of dispatches) {
     if (ids.has(dispatch.id)) throw new Error(`duplicate task ID: ${dispatch.id}`);
-    if (threadIds.has(dispatch.threadId)) {
+    if (dispatch.threadId !== null && threadIds.has(dispatch.threadId)) {
       throw new Error(`duplicate task threadId: ${dispatch.threadId}`);
     }
     ids.add(dispatch.id);
-    threadIds.add(dispatch.threadId);
+    if (dispatch.threadId !== null) threadIds.add(dispatch.threadId);
   }
   return dispatches;
 }
@@ -727,12 +743,41 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
     if (existing.some((item) => item.id === dispatch.id)) {
       throw new Error(`task already exists: ${dispatch.id}`);
     }
-    if (existing.some((item) => item.threadId === dispatch.threadId)) {
+    if (
+      dispatch.threadId !== null &&
+      existing.some((item) => item.threadId === dispatch.threadId)
+    ) {
       throw new Error(`threadId is already recorded: ${dispatch.threadId}`);
     }
     await appendDispatchesAtomic(root, [dispatch]);
   });
   return dispatch;
+}
+
+export async function resolveTask(workspaceRoot, taskId, threadId) {
+  const id = requireSafeId(taskId, "taskId");
+  const durableThreadId = requireString(threadId, "threadId").trim();
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withDispatchLock(root, async () => {
+    const dispatches = await readDispatchesUnlocked(root);
+    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
+    if (index === -1) throw new Error(`task not found: ${id}`);
+    const dispatch = dispatches[index];
+    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
+      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
+    }
+    if (dispatch.threadId === durableThreadId) return dispatch;
+    if (dispatch.threadId !== null) {
+      throw new Error(`task already has a different threadId: ${id}`);
+    }
+    if (dispatches.some((item) => item.threadId === durableThreadId)) {
+      throw new Error(`threadId is already recorded: ${durableThreadId}`);
+    }
+    const resolved = { ...dispatch, threadId: durableThreadId };
+    dispatches[index] = resolved;
+    await writeDispatchesAtomic(root, dispatches);
+    return resolved;
+  });
 }
 
 export async function readTask(workspaceRoot, taskId) {

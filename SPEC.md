@@ -3,8 +3,9 @@
 ## Purpose
 
 TaskChef is an interactive Codex dispatcher. It routes independent assignments
-to real Codex tasks in configured local projects, records each successful
-delegation in an append-only task history, and returns immediately.
+to real Codex tasks in configured local projects, records each submitted
+delegation in a task history, and returns immediately. New tasks append; only a
+nullable thread ID may later transition to its durable value.
 
 Codex tasks remain authoritative for their progress and results. TaskChef does
 not maintain a second lifecycle database.
@@ -16,8 +17,10 @@ not maintain a second lifecycle database.
 3. It selects each target using configured project metadata and validates the
    selected local path.
 4. It creates an independently openable Codex task in that project.
-5. After creation returns a thread ID, it appends one task entry.
-6. It returns without waiting for the executor.
+5. It embeds a generated TaskChef UUID marker in the initial instruction before
+   creation. After creation returns or briefly resolves a durable thread ID, it
+   appends one task entry.
+6. It returns without waiting for executor work to complete.
 7. When requested, TaskChef can read task entries, query the relevant Codex
    tasks once, and present a live report without persisting the fetched state.
 
@@ -97,22 +100,30 @@ schedules, task status, results, host information, or the workspace path.
 `tasks.jsonl` contains one compact JSON object per line, in append order:
 
 ```json
-{"schemaVersion":1,"id":"d1-retry-logs","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepo":"https://github.com/example/payments-api","description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"Add structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
+{"schemaVersion":1,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepo":"https://github.com/example/payments-api","description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
 ```
 
 - `schemaVersion` identifies the task entry format.
 - `id` is a unique TaskChef task identifier.
 - `project` is the complete configured project snapshot used for routing.
 - `title` is a short task name.
-- `instruction` is the complete executor instruction.
-- `threadId` identifies the created Codex task.
+- `instruction` is the complete executor instruction, including its first-line
+  `# taskchef_id=<full UUID>` correlation marker.
+- `threadId` identifies the created Codex task, or is `null` when creation was
+  accepted but bounded marker resolution did not find one durable task ID.
 - `createdAt` is the dispatch time as an ISO 8601 timestamp.
 
-Every entry has exactly these fields. IDs and thread IDs must be unique. The
-file is empty or newline terminated, with no blank lines. TaskChef rejects a
-malformed log instead of skipping bad entries. Writers replace the complete
-validated file atomically under a workspace lock, so an interrupted write
-leaves either the old history or the complete new history.
+Every entry has exactly these fields. IDs and non-null thread IDs must be
+unique; any number of unresolved entries may have `threadId: null`. The file is
+empty or newline terminated, with no blank lines. TaskChef rejects a malformed
+log instead of skipping bad entries. Writers replace the complete validated
+file atomically under a workspace lock, so an interrupted write leaves either
+the old history or the complete new history.
+
+Task creation appends entries. The only permitted mutation is an atomic,
+idempotent `task resolve` transition from `threadId: null` to one unique durable
+thread ID. Resolution requires the stored instruction's exact marker to match
+the task ID. A resolved or mismatched entry cannot be overwritten.
 
 The project snapshot preserves the route even if the project is renamed,
 moved, or removed later. Entries never contain status, result, transcript,
@@ -124,9 +135,33 @@ For each assignment, `$taskchef-delegate`:
 
 1. loads and validates configured projects
 2. selects one unambiguous target
-3. creates a real Codex task at the exact configured path
-4. appends a task entry only after receiving the task's thread ID
-5. returns the created task link without reading or waiting for that task.
+3. generates a full UUID, prefixes the instruction with its exact
+   `# taskchef_id=<UUID>` marker, and snapshots the 50 most recent threads
+4. creates a real Codex task at the exact configured path
+5. appends a task entry immediately when creation returns a durable thread ID
+6. when creation returns only a provisional client ID, takes at most eleven
+   recent-thread snapshots over ten seconds plus tool latency, filters new
+   candidates by available host/project/time/worktree metadata, uses title only
+   as an advisory ordering hint, and accepts only one thread whose structured
+   delegated input starts with the exact marker
+7. returns after recording or after reporting that bounded resolution was
+   unresolved, without waiting for executor work completion.
+
+The pre-creation baseline prevents an older thread from being claimed. Creation
+time filtering allows five seconds of clock skew. Candidate reads inspect only
+structured `codexDelegation.input`, never untrusted title, summary, preview, or
+plain-text marker echoes. Zero exact matches time out unresolved; multiple exact
+matches are ambiguous. Snapshot or candidate-read errors make the attempt
+indeterminate and do not bypass recording. All unresolved outcomes append the
+marked delegation with `threadId: null`, preserving it for later recovery. A
+`clientThreadId` or `pendingWorktreeId` remains provisional diagnostic context
+and is never stored in the canonical `threadId` field.
+
+Desktop thread tools are available to the Codex skill, not to the standalone
+Node CLI. The package therefore exposes testable marker/filter/orchestration
+helpers with injected thread-tool callbacks, while the skill owns the actual
+desktop-tool calls and the CLI remains responsible only for validated data
+operations.
 
 A failed executor creation produces no entry. If executor creation succeeds but
 the append fails, the executor remains valid and TaskChef tells the user that
@@ -140,19 +175,23 @@ The CLI reads persisted history without contacting Codex:
 - `task list` returns entries in append order, optionally filtered by
   historical project name or exact path.
 - `task summary` returns the total and per-project counts.
+- `task resolve <id> --thread-id <thread-id>` atomically fills one nullable
+  thread ID after Codex verifies the exact structured marker match.
 
-When the user requests current state or outcomes, `$taskchef-report` loads the
-relevant entries and queries every recorded Codex task exactly once, in batches
-of no more than eight. It reports the snapshot and discards it. The report does
-not update `tasks.jsonl`, poll, wait, or create a scheduled job.
+When the user requests current state or outcomes, `$taskchef-report` makes one
+marker-based discovery pass for nullable entries and uses `task resolve` only
+for a single exact match. It reports unmatched entries as unresolved and
+queries every durable thread ID exactly once, in batches of no more than eight.
+The report does not poll, wait, persist status or results, or create a scheduled
+job.
 
 ## Boundaries
 
 TaskChef does not include:
 
 - lifecycle status or result persistence
-- task callbacks, hooks, polling, daemons, heartbeats, or schedules
-- arbitrary Codex task discovery
+- task callbacks, hooks, indefinite polling, daemons, heartbeats, or schedules
+- arbitrary Codex task discovery beyond bounded marker-based creation recovery
 - remote hosts or `hostId` storage
 - transcript or hidden-reasoning collection
 - one-active-task-per-project restrictions
@@ -166,10 +205,13 @@ TaskChef does not include:
 2. Project metadata routes an unambiguous request to the correct local project.
 3. A successful delegation creates a visible Codex task and appends its thread
    ID with a project snapshot.
-4. The dispatcher returns without waiting for execution.
-5. Several independent assignments can create several entries, including
+4. A provisional creation with one exact marker match records its durable
+   thread ID; zero or multiple matches record `threadId: null` for later
+   recovery.
+5. The dispatcher returns without waiting for execution.
+6. Several independent assignments can create several entries, including
    multiple entries for the same project.
-6. Task history commands return deterministic entries and project counts.
-7. A live report queries each relevant task once and writes nothing.
-8. Malformed JSONL, duplicate IDs, duplicate thread IDs, and symlinked managed
+7. Task history commands return deterministic entries and project counts.
+8. A live report queries each relevant task once and writes nothing.
+9. Malformed JSONL, duplicate IDs, duplicate thread IDs, and symlinked managed
    files fail safely.

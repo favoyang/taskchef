@@ -117,9 +117,17 @@ the same project.
 Open an executor and prompt it like any other Codex task. Its thread is the
 live source of truth for progress, questions, and results.
 
-The dispatcher workspace keeps `tasks.jsonl`, an append-only history of
-successful delegations. It records what TaskChef sent, when it sent it, which
-project it selected, and which Codex task received the work.
+The dispatcher workspace keeps `tasks.jsonl`, a history of submitted
+delegations. New tasks are appended; the only later change allowed is filling
+an unresolved task's nullable thread ID. The log records what TaskChef sent,
+when it sent it, which project it selected, and which Codex task received the
+work.
+
+Every delegated instruction includes a unique `# taskchef_id=<UUID>` marker.
+If worktree creation does not return a thread ID immediately, TaskChef waits
+briefly and queries recent tasks for that exact marker before recording the
+delegation. If it cannot identify exactly one task, it reports the delegation
+as unresolved but still records the marked instruction for later recovery.
 
 ### Ask for a live report
 
@@ -161,8 +169,9 @@ project metadata that TaskChef used when it delegated the work.
 
 - TaskChef is an interactive dispatcher. It is not a scheduler, daemon, hook
   service, or background worker.
-- Executors are visible Codex tasks. The dispatcher does not supervise them or
-  wait for them to finish.
+- Executors are visible Codex tasks. The dispatcher may wait briefly to resolve
+  a worktree task's thread ID, but it does not supervise executors or wait for
+  them to finish.
 - TaskChef routes only to projects on the same local execution host.
 - The task history contains successful delegations, not current task status or
   task results.
@@ -213,6 +222,7 @@ taskchef project import [<file> | -]
 taskchef project list
 taskchef project remove <name>
 taskchef task record
+taskchef task resolve <task-id> --thread-id <thread-id>
 taskchef task show <task-id>
 taskchef task list
 taskchef task summary
@@ -250,12 +260,22 @@ set.
 
 ### Task history
 
-`task record` reads one successful delegation from standard input. The
+`task record` reads one submitted delegation from standard input. The
 `project` value is the exact configured project path:
 
 ```sh
-printf '%s\n' '{"id":"t1","project":"/workspace/payments","title":"Add retry logs","instruction":"Add structured logs for failed retries and test them.","threadId":"019f..."}' |
+printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
   taskchef task record --json --workspace <workspace>
+```
+
+If a task has `threadId: null`, Codex can later find its exact marker and pass
+the verified durable ID to the CLI. Resolution is atomic and only permits the
+one-way transition from null to one unique thread ID:
+
+```sh
+taskchef task resolve c0f010ff-84f2-4838-a69d-0ff1f5d721d7 \
+  --thread-id 019f9d46-f42c-7482-9707-3c107bf241ee \
+  --workspace <workspace>
 ```
 
 Inspect the task history without querying Codex tasks:

@@ -20,6 +20,9 @@ import test from "node:test";
 import * as taskchef from "../index.js";
 
 import {
+  THREAD_RESOLUTION_ATTEMPTS,
+  THREAD_RESOLUTION_DELAY_MS,
+  createAndRecordDelegation,
   addProject,
   buildTaskSummary,
   canonicalDirectory,
@@ -35,7 +38,10 @@ import {
   readTask,
   recordTask,
   removeProject,
+  resolveTask,
   requireSafeId,
+  parseTaskChefMarker,
+  prepareDelegation,
   validateConfig,
 } from "../index.js";
 import {
@@ -50,6 +56,50 @@ import {
 
 const execFile = promisify(execFileCallback);
 const FIXED_TIME = "2026-08-08T10:00:00.000Z";
+const TASK_ID = "c0f010ff-84f2-4838-a69d-0ff1f5d721d7";
+const SECOND_TASK_ID = "ea896202-04fc-4a46-a6a1-4c9f5d63edfe";
+
+function threadList(threads = []) {
+  return { schemaVersion: 4, pinnedThreads: [], threads };
+}
+
+function delegatedThreadRead(instruction) {
+  return {
+    schemaVersion: 1,
+    turns: [{
+      items: [{
+        type: "userMessage",
+        content: [{
+          type: "text",
+          text: `<codex_delegation><input>${instruction}</input></codex_delegation>`,
+          codexDelegation: { sourceThreadId: "source", input: instruction },
+        }],
+      }],
+    }],
+  };
+}
+
+function delegationFixture(overrides = {}) {
+  const recorded = [];
+  return {
+    input: {
+      project: "/projects/example",
+      title: "Fix retries",
+      instruction: "Fix retry handling and test it.",
+      target: {
+        type: "project",
+        projectId: "project-example",
+        environment: { type: "worktree" },
+      },
+      taskId: TASK_ID,
+      now: () => 1_786_459_054_000,
+      waitImpl: async () => {},
+      recordTask: async (value) => recorded.push(value),
+      ...overrides,
+    },
+    recorded,
+  };
+}
 
 async function gitProject(parent, name, remote = null) {
   const project = path.join(parent, name);
@@ -128,7 +178,9 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
 });
 
 test("public task history API uses task terminology", () => {
-  for (const name of ["buildTaskSummary", "filterTasks", "listTasks", "readTask", "recordTask"]) {
+  for (const name of [
+    "buildTaskSummary", "filterTasks", "listTasks", "readTask", "recordTask", "resolveTask",
+  ]) {
     assert.equal(typeof taskchef[name], "function");
   }
   for (const name of [
@@ -136,6 +188,243 @@ test("public task history API uses task terminology", () => {
   ]) {
     assert.equal(name in taskchef, false);
   }
+  assert.equal(THREAD_RESOLUTION_ATTEMPTS, 11);
+  assert.equal(THREAD_RESOLUTION_DELAY_MS, 1_000);
+});
+
+test("delegation marker parsing requires the exact first-line full UUID marker", () => {
+  const prepared = prepareDelegation("Do the work.", { taskId: TASK_ID });
+  assert.equal(prepared.id, TASK_ID);
+  assert.equal(prepared.instruction, `# taskchef_id=${TASK_ID}\n\nDo the work.`);
+  assert.equal(parseTaskChefMarker(prepared.instruction), TASK_ID);
+  assert.equal(parseTaskChefMarker(`prefix\n# taskchef_id=${TASK_ID}`), null);
+  assert.equal(parseTaskChefMarker("# taskchef_id=short"), null);
+  assert.equal(parseTaskChefMarker(`# taskchef_id=${TASK_ID} trailing`), null);
+  assert.throws(
+    () => prepareDelegation("Do the work.", { taskId: TASK_ID.toUpperCase() }),
+    /lowercase full UUID/,
+  );
+  assert.throws(
+    () => prepareDelegation(prepared.instruction, { taskId: TASK_ID }),
+    /already contains a TaskChef marker/,
+  );
+});
+
+test("delegation records an immediate durable thread ID and preserves its marker", async () => {
+  const fixture = delegationFixture({
+    listThreads: async () => JSON.stringify(
+      threadList([{ id: "baseline", kind: "codex" }]),
+    ),
+    createThread: async ({ prompt }) => {
+      assert.equal(parseTaskChefMarker(prompt), TASK_ID);
+      return JSON.stringify({
+        threadId: "019ff141-e290-74d0-bc4b-646e83d14bea",
+        clientThreadId: "local:provisional-diagnostic",
+        hostId: "local",
+      });
+    },
+    readThread: async () => assert.fail("immediate resolution must not read threads"),
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded");
+  assert.equal(result.resolution, "immediate");
+  assert.equal(result.threadId, "019ff141-e290-74d0-bc4b-646e83d14bea");
+  assert.equal(result.provisional, "local:provisional-diagnostic");
+  assert.equal(fixture.recorded.length, 1);
+  assert.equal(fixture.recorded[0].threadId, result.threadId);
+  assert.equal(parseTaskChefMarker(fixture.recorded[0].instruction), TASK_ID);
+  assert.notEqual(fixture.recorded[0].threadId, result.provisional);
+});
+
+test("delegation resolves one delayed marker match after bounded discovery", async () => {
+  let listCalls = 0;
+  let waits = 0;
+  const fixture = delegationFixture({
+    listThreads: async () => {
+      listCalls += 1;
+      if (listCalls <= 2) return JSON.stringify(threadList());
+      return JSON.stringify(threadList([{
+        id: "durable-thread",
+        kind: "codex",
+        hostId: "local",
+        projectId: "project-example",
+        title: "Fix retries…",
+        createdAt: 1_786_459_054,
+        environment: { type: "worktree" },
+      }]));
+    },
+    createThread: async () => ({ clientThreadId: "local:pending" }),
+    readThread: async ({ threadId }) => {
+      assert.equal(threadId, "durable-thread");
+      return JSON.stringify(
+        delegatedThreadRead(`# taskchef_id=${TASK_ID}\n\nFix retry handling and test it.`),
+      );
+    },
+    waitImpl: async (delayMs) => {
+      assert.equal(delayMs, 1_000);
+      waits += 1;
+    },
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded");
+  assert.equal(result.resolution, "discovered");
+  assert.equal(result.threadId, "durable-thread");
+  assert.equal(result.attempts, 2);
+  assert.equal(waits, 1);
+  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), ["durable-thread"]);
+});
+
+test("delegation leaves a provisional creation unresolved after the bounded no-match window", async () => {
+  let snapshots = 0;
+  let waits = 0;
+  const fixture = delegationFixture({
+    listThreads: async () => {
+      snapshots += 1;
+      return threadList();
+    },
+    createThread: async () => ({ clientThreadId: "local:pending-only" }),
+    readThread: async () => assert.fail("there are no candidates to read"),
+    waitImpl: async (delayMs) => {
+      assert.equal(delayMs, 1_000);
+      waits += 1;
+    },
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded-unresolved");
+  assert.equal(result.reason, "no-exact-marker-match");
+  assert.equal(result.threadId, null);
+  assert.equal(result.provisional, "local:pending-only");
+  assert.equal(result.attempts, 11);
+  assert.equal(snapshots, 12, "one baseline plus eleven discovery snapshots");
+  assert.equal(waits, 10);
+  assert.equal(fixture.recorded.length, 1);
+  assert.equal(fixture.recorded[0].threadId, null);
+  assert.equal(parseTaskChefMarker(fixture.recorded[0].instruction), TASK_ID);
+});
+
+test("delegation refuses multiple exact marker matches without recording either thread", async () => {
+  const candidates = ["durable-a", "durable-b"].map((id) => ({
+    id,
+    kind: "codex",
+    projectId: "project-example",
+    title: "Fix retries",
+    createdAt: 1_786_459_054,
+    environment: { type: "worktree" },
+  }));
+  let listCalls = 0;
+  const fixture = delegationFixture({
+    attempts: 2,
+    listThreads: async () => {
+      listCalls += 1;
+      return listCalls === 1 ? threadList() : threadList(candidates);
+    },
+    createThread: async () => ({ pendingWorktreeId: "local:pending" }),
+    readThread: async () => delegatedThreadRead(
+      `# taskchef_id=${TASK_ID}\n\nFix retry handling and test it.`,
+    ),
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded-unresolved");
+  assert.equal(result.reason, "multiple-exact-marker-matches");
+  assert.deepEqual(result.matchingThreadIds, ["durable-a", "durable-b"]);
+  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
+});
+
+test("delegation ignores plain-text marker echoes and records null instead of clientThreadId", async () => {
+  let listCalls = 0;
+  const fixture = delegationFixture({
+    attempts: 1,
+    listThreads: async () => {
+      listCalls += 1;
+      return listCalls === 1
+        ? threadList()
+        : threadList([{
+            id: "unverified-thread",
+            kind: "codex",
+            projectId: "project-example",
+            title: "Fix retries",
+            createdAt: 1_786_459_054,
+          }]);
+    },
+    createThread: async () => ({ clientThreadId: "client-only-id" }),
+    readThread: async () => ({
+      turns: [{
+        items: [{
+          type: "userMessage",
+          content: [{ type: "text", text: `# taskchef_id=${TASK_ID}` }],
+        }],
+      }],
+    }),
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded-unresolved");
+  assert.equal(result.provisional, "client-only-id");
+  assert.equal(result.threadId, null);
+  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
+  assert.notEqual(fixture.recorded[0].threadId, result.provisional);
+});
+
+test("delegation preserves the marked task when thread snapshots fail", async () => {
+  let listCalls = 0;
+  const fixture = delegationFixture({
+    attempts: 2,
+    listThreads: async () => {
+      listCalls += 1;
+      if (listCalls === 1) return threadList();
+      throw new Error("snapshot unavailable");
+    },
+    createThread: async () => ({ clientThreadId: "local:pending" }),
+    readThread: async () => assert.fail("failed snapshots have no candidates"),
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded-unresolved");
+  assert.equal(result.reason, "thread-discovery-error");
+  assert.equal(result.attempts, 2);
+  assert.deepEqual(
+    result.discoveryErrors.map((error) => error.operation),
+    ["listThreads", "listThreads"],
+  );
+  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
+});
+
+test("delegation preserves the marked task when a candidate read fails", async () => {
+  let listCalls = 0;
+  const fixture = delegationFixture({
+    attempts: 1,
+    listThreads: async () => {
+      listCalls += 1;
+      return listCalls === 1
+        ? threadList()
+        : threadList([{
+            id: "unreadable-thread",
+            kind: "codex",
+            projectId: "project-example",
+            title: "Fix retries",
+            createdAt: 1_786_459_054,
+          }]);
+    },
+    createThread: async () => ({ clientThreadId: "local:pending" }),
+    readThread: async () => {
+      throw new Error("thread unavailable");
+    },
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded-unresolved");
+  assert.equal(result.reason, "thread-discovery-error");
+  assert.deepEqual(result.discoveryErrors, [{
+    attempt: 1,
+    operation: "readThread",
+    threadId: "unreadable-thread",
+    message: "thread unavailable",
+  }]);
+  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
 });
 
 test("init removes legacy TaskChef skill links without deleting unrelated skills", async () => {
@@ -440,7 +729,7 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, or splitting independent work across projects. Record successful dispatches, return immediately, and never use subagents, hooks, schedules, or foreground waiting."',
+    'description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
   );
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
   assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|report)\b/);
@@ -452,22 +741,29 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
     [
       "<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>",
       "<plugin-root>/bin/taskchef.js task record --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json --workspace <workspace>",
     ],
   );
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
-  assert.match(body, /do not write anything yet/);
+  assert.match(body, /Do not write anything yet/);
+  assert.match(body, /Take eleven recent-thread snapshots with limit 50/);
+  assert.match(body, /ten more at one-second intervals/);
+  assert.match(body, /structured\s+`userMessage\.content\[\]\.codexDelegation\.input`/);
+  assert.match(body, /Never persist a provisional `clientThreadId`/);
   assert.match(body, /If executor creation fails, do not record a task/);
 });
 
-test("report skill reads live task state once without persisting it", async () => {
+test("report skill resolves exact nullable matches and reads live state once", async () => {
   const content = await readFile(path.resolve("skills/taskchef-report/SKILL.md"), "utf8");
   assert.match(content, /^name: taskchef-report$/m);
   assert.match(content, /taskchef\.js task show <task-id> --json --workspace/);
   assert.match(content, /taskchef\.js task list --project <name-or-path> --json --workspace/);
   assert.match(content, /Use the full list only when the user asks for an overview/);
-  assert.match(content, /no more than eight targets per call/);
-  assert.match(content, /Never update `tasks\.jsonl`/);
+  assert.match(content, /no more than\s+eight targets per call/);
+  assert.match(content, /Never edit `tasks\.jsonl` directly/);
   assert.match(content, /Do not poll or wait/);
+  assert.match(content, /entries whose `threadId` is `null`/);
+  assert.match(content, /taskchef\.js task resolve <task-id> --thread-id <thread-id>/);
   assert.doesNotMatch(content, /task update|reconcile-candidates/);
 });
 
@@ -675,6 +971,98 @@ test("dispatch recording rejects duplicate IDs and thread IDs", async () => {
   );
 });
 
+test("dispatch recording preserves multiple unresolved tasks with null thread IDs", async () => {
+  const { workspace, projects } = await fixture(1);
+  const firstPrepared = prepareDelegation("First unresolved task.", { taskId: TASK_ID });
+  const secondPrepared = prepareDelegation(
+    "Second unresolved task.",
+    { taskId: SECOND_TASK_ID },
+  );
+  const first = await recordTask(
+    workspace,
+    {
+      ...dispatchInput(projects[0], firstPrepared.id, null),
+      instruction: firstPrepared.instruction,
+    },
+  );
+  const second = await recordTask(
+    workspace,
+    {
+      ...dispatchInput(projects[0], secondPrepared.id, null),
+      instruction: secondPrepared.instruction,
+    },
+  );
+
+  assert.equal(first.threadId, null);
+  assert.equal(second.threadId, null);
+  assert.deepEqual((await listTasks(workspace)).map((task) => task.threadId), [null, null]);
+});
+
+test("task resolution performs one atomic null-to-threadId transition", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Recover this task later.", { taskId: TASK_ID });
+  const unresolved = await recordTask(workspace, {
+    ...dispatchInput(projects[0], prepared.id, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+
+  const resolved = await resolveTask(workspace, prepared.id, "durable-thread");
+  assert.equal(resolved.threadId, "durable-thread");
+  assert.equal(resolved.createdAt, unresolved.createdAt);
+  assert.equal(resolved.instruction, unresolved.instruction);
+  assert.deepEqual(await resolveTask(workspace, prepared.id, "durable-thread"), resolved);
+  await assert.rejects(
+    resolveTask(workspace, prepared.id, "different-thread"),
+    /already has a different threadId/,
+  );
+  assert.deepEqual(await readTask(workspace, prepared.id), resolved);
+});
+
+test("task resolution validates the marker and durable thread ID uniqueness", async () => {
+  const { workspace, projects } = await fixture(1);
+  await assert.rejects(
+    recordTask(workspace, dispatchInput(projects[0], "unmarked", null)),
+    /null threadId must contain its exact TaskChef marker/,
+  );
+
+  const first = prepareDelegation("First unresolved task.", { taskId: TASK_ID });
+  const second = prepareDelegation("Second unresolved task.", { taskId: SECOND_TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], first.id, null),
+    instruction: first.instruction,
+  });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], second.id, null),
+    instruction: second.instruction,
+  });
+  await resolveTask(workspace, first.id, "shared-thread");
+  await assert.rejects(
+    resolveTask(workspace, second.id, "shared-thread"),
+    /threadId is already recorded/,
+  );
+});
+
+test("concurrent task resolution permits exactly one durable thread ID", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Resolve concurrently.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], prepared.id, null),
+    instruction: prepared.instruction,
+  });
+
+  const settled = await Promise.allSettled([
+    resolveTask(workspace, prepared.id, "race-thread-a"),
+    resolveTask(workspace, prepared.id, "race-thread-b"),
+  ]);
+  assert.equal(settled.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(settled.filter((result) => result.status === "rejected").length, 1);
+  assert.match(
+    settled.find((result) => result.status === "rejected").reason.message,
+    /already has a different threadId/,
+  );
+  assert.match((await readTask(workspace, prepared.id)).threadId, /^race-thread-[ab]$/);
+});
+
 test("concurrent dispatch recording cannot poison the journey", async () => {
   const { workspace, projects } = await fixture(1);
   const input = dispatchInput(projects[0], "same", "same-thread");
@@ -814,15 +1202,30 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   await runCli(["task", "record", "--json", "--workspace", workspace], {
     input: JSON.stringify(dispatchInput(first)),
   });
+  const prepared = prepareDelegation("Recover this CLI task.", { taskId: TASK_ID });
+  await runCli(["task", "record", "--json", "--workspace", workspace], {
+    input: JSON.stringify({
+      ...dispatchInput(first, prepared.id, null),
+      instruction: prepared.instruction,
+    }),
+  });
+  const resolved = await runCli([
+    "task", "resolve", prepared.id, "--thread-id", "cli-durable-thread",
+    "--json", "--workspace", workspace,
+  ]);
+  assert.equal(JSON.parse(resolved.stdout).threadId, "cli-durable-thread");
   const shown = await runCli(["task", "show", "dispatch-1", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(shown.stdout).id, "dispatch-1");
   const listed = await runCli([
     "task", "list", "--project", "first", "--json", "--workspace", workspace,
   ]);
-  assert.deepEqual(JSON.parse(listed.stdout).tasks.map((item) => item.id), ["dispatch-1"]);
+  assert.deepEqual(
+    JSON.parse(listed.stdout).tasks.map((item) => item.id),
+    ["dispatch-1", TASK_ID],
+  );
   const summary = await runCli(["task", "summary", "--json", "--workspace", workspace]);
-  assert.equal(JSON.parse(summary.stdout).taskCount, 1);
-  assert.equal(JSON.parse(summary.stdout).projectCounts.first, 1);
+  assert.equal(JSON.parse(summary.stdout).taskCount, 2);
+  assert.equal(JSON.parse(summary.stdout).projectCounts.first, 2);
   const doctor = await runCli(["doctor", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(doctor.stdout).ok, true);
 });
