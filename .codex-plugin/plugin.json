@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "TaskChef",
     "shortDescription": "Dispatch work to the right Codex project task.",
-    "longDescription": "Create a data-only dispatcher workspace, route actionable requests to independently openable Codex project tasks, and reconcile saved task states on demand.",
+    "longDescription": "Route actionable requests to independently openable Codex project tasks, keep an append-only task history, and query live reports on demand.",
     "developerName": "Favo Yang",
     "category": "Productivity",
     "capabilities": [
@@ -30,7 +30,7 @@
     "defaultPrompt": [
       "$taskchef-bootstrap Set up TaskChef in this folder.",
       "$taskchef-delegate Dispatch this request to the right project.",
-      "$taskchef-reconcile Fix outdated TaskChef task states."
+      "$taskchef-report Report on work in the TaskChef task history."
     ],
     "brandColor": "#D97706"
   }

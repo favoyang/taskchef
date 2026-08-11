@@ -20,7 +20,7 @@ const execFile = promisify(execFileCallback);
 const SKILL_NAMES = [
   "taskchef-bootstrap",
   "taskchef-delegate",
-  "taskchef-reconcile",
+  "taskchef-report",
 ];
 const REQUIRED_PLUGIN_FILES = [
   ".codex-plugin/plugin.json",

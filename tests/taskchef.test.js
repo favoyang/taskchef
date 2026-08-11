@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
 import {
+  chmod,
   lstat,
   mkdtemp,
   mkdir,
@@ -16,13 +17,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
+import * as taskchef from "../index.js";
 
 import {
   addProject,
-  buildReconciliationCandidates,
   buildTaskSummary,
   canonicalDirectory,
-  createTask,
   doctorWorkspace,
   ensureWorkspaceInstructions,
   ensureWorkspaceSkills,
@@ -30,14 +30,13 @@ import {
   importProjects,
   initializeWorkspace,
   listProjects,
-  listTasks,
   readConfig,
+  listTasks,
   readTask,
+  recordTask,
   removeProject,
   requireSafeId,
-  updateTask,
   validateConfig,
-  validateResult,
 } from "../index.js";
 import {
   pinTaskChefNpmSource,
@@ -82,12 +81,13 @@ async function fixture(projectCount = 2) {
   return { root, workspace, projects };
 }
 
-function taskInput(project, id = "task-1") {
+function dispatchInput(project, id = "dispatch-1", threadId = `thread-${id}`) {
   return {
     id,
     project,
     title: "Echo input",
     instruction: "Create echo_input.py, test it, and report the result.",
+    threadId,
   };
 }
 
@@ -118,12 +118,25 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
 
   assert.deepEqual(initialized.config.value, { schemaVersion: 1, projects: [] });
   assert.equal(initialized.config.action, "created");
-  assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks"]);
+  assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks.jsonl"]);
+  assert.equal(await readFile(path.join(workspace, "tasks.jsonl"), "utf8"), "");
 
   const repeated = await initializeWorkspace(workspace);
   assert.equal(repeated.config.action, "unchanged");
+  assert.equal(repeated.tasks.action, "unchanged");
   assert.equal(repeated.instructions.action, "unchanged");
   assert.deepEqual(repeated.legacySkills.removed, []);
+});
+
+test("public task history API uses task terminology", () => {
+  for (const name of ["buildTaskSummary", "filterTasks", "listTasks", "readTask", "recordTask"]) {
+    assert.equal(typeof taskchef[name], "function");
+  }
+  for (const name of [
+    "buildDispatchSummary", "filterDispatches", "readDispatch", "readDispatches", "recordDispatch",
+  ]) {
+    assert.equal(name in taskchef, false);
+  }
 });
 
 test("init removes legacy TaskChef skill links without deleting unrelated skills", async () => {
@@ -220,7 +233,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     releaseGitPlugin[1].assets,
     [".codex-plugin/plugin.json", "package-lock.json", "package.json"],
   );
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
+  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-report"]) {
     assert.equal(
       (await lstat(path.resolve("skills", skillName, "SKILL.md"))).isFile(),
       true,
@@ -283,7 +296,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
       { path: "skills/taskchef-delegate/SKILL.md" },
-      { path: "skills/taskchef-reconcile/SKILL.md" },
+      { path: "skills/taskchef-report/SKILL.md" },
     ],
   }];
   assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
@@ -390,7 +403,7 @@ test("init preserves existing configuration and merges managed instructions", as
   assert.match(content, /Keep me/);
   assert.match(content, /\$taskchef-bootstrap/);
   assert.doesNotMatch(content, /For every ordinary user prompt/);
-  assert.ok(content.indexOf("$taskchef-reconcile") > content.indexOf("Answer directly only"));
+  assert.ok(content.indexOf("$taskchef-report") > content.indexOf("Answer directly only"));
 
   const project = await gitProject(root, "project");
   await addProject(workspace, { name: "project", path: project });
@@ -403,10 +416,10 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, splitting work across projects, or retrying pending executor creation. Dispatch must return immediately and must never use subagents, hooks, schedules, or foreground waiting."',
+    'description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, or splitting independent work across projects. Record successful dispatches, return immediately, and never use subagents, hooks, schedules, or foreground waiting."',
   );
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
-  assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|reconcile)\b/);
+  assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|report)\b/);
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
   const literals = [...body.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
@@ -414,17 +427,24 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
     literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
     [
       "<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>",
-      "<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>",
-      "<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>",
-      "<plugin-root>/bin/taskchef.js task update <task-id> --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js task record --json --workspace <workspace>",
     ],
   );
-  assert.equal(literals.some((literal) => /^(?:doctor|workspace|project|task)(?:\s|$)/.test(literal)), false);
-  const retryRule = body.match(/5\. ([\s\S]+?)\n6\./)?.[1].replace(/\s+/g, " ").trim();
-  assert.equal(
-    retryRule,
-    "For an explicit retry, require the exact task ID and run `<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`. Reuse the record only when its status is `pending`; ask for the task ID when it is missing and reject retries of non-pending records. For new work, run `<plugin-root>/bin/taskchef.js task create --json --workspace <workspace>` with the task record JSON on stdin before executor creation.",
-  );
+  assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
+  assert.match(body, /do not write anything yet/);
+  assert.match(body, /If executor creation fails, do not record a task/);
+});
+
+test("report skill reads live task state once without persisting it", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-report/SKILL.md"), "utf8");
+  assert.match(content, /^name: taskchef-report$/m);
+  assert.match(content, /taskchef\.js task show <task-id> --json --workspace/);
+  assert.match(content, /taskchef\.js task list --project <name-or-path> --json --workspace/);
+  assert.match(content, /Use the full list only when the user asks for an overview/);
+  assert.match(content, /no more than eight targets per call/);
+  assert.match(content, /Never update `tasks\.jsonl`/);
+  assert.match(content, /Do not poll or wait/);
+  assert.doesNotMatch(content, /task update|reconcile-candidates/);
 });
 
 test("init fails safely on malformed managed instruction markers", async () => {
@@ -437,23 +457,23 @@ test("init fails safely on malformed managed instruction markers", async () => {
   await assert.rejects(readFile(path.join(root, "taskchef.json"), "utf8"), { code: "ENOENT" });
 });
 
-test("init rejects a symlinked managed tasks directory", async () => {
+test("init rejects a symlinked dispatch log", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-symlinked-managed-"));
   const workspace = path.join(root, "workspace");
   const outside = path.join(root, "outside");
   await mkdir(workspace);
-  await mkdir(outside);
-  await symlink(outside, path.join(workspace, "tasks"), "dir");
+  await writeFile(outside, "outside\n");
+  await symlink(outside, path.join(workspace, "tasks.jsonl"));
 
   await assert.rejects(
     initializeWorkspace(workspace),
-    /managed workspace path is not a real directory/,
+    /managed workspace path is not a regular file/,
   );
-  assert.deepEqual(await readdir(outside), []);
+  assert.equal(await readFile(outside, "utf8"), "outside\n");
 });
 
 test("init rejects symlinked managed workspace files without reading them", async () => {
-  for (const fileName of ["AGENTS.md", "taskchef.json"]) {
+  for (const fileName of ["AGENTS.md", "taskchef.json", "tasks.jsonl"]) {
     const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-symlinked-file-"));
     const workspace = path.join(root, "workspace");
     const outside = path.join(root, "outside.txt");
@@ -557,33 +577,14 @@ test("project import merges by canonical path and preserves omitted curation", a
   await assert.rejects(importProjects(workspace, {}), /JSON array/);
 });
 
-test("project removal protects referenced task records unless forced", async () => {
-  const { workspace, projects } = await fixture(1);
-  await createTask(workspace, taskInput(projects[0]));
-  await assert.rejects(removeProject(workspace, "project-1"), /referenced by 1 task/);
-  const removed = await removeProject(workspace, "project-1", { force: true });
-  assert.equal(removed.referencedTaskCount, 1);
+test("project removal and replacement preserve historical dispatch snapshots", async () => {
+  const { root, workspace, projects } = await fixture(1);
+  await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
+  await removeProject(workspace, "project-1");
   assert.deepEqual(await listProjects(workspace), []);
-});
+  assert.equal((await readTask(workspace, "dispatch-1")).project.name, "project-1");
 
-test("project replacement refuses to orphan task records", async () => {
-  const { root, workspace, projects } = await fixture(1);
-  await createTask(workspace, taskInput(projects[0]));
   const replacement = await gitProject(root, "replacement");
-
-  await assert.rejects(
-    importProjects(workspace, [{ name: "replacement", path: replacement }], { replace: true }),
-    /replacement would orphan 1 task record/,
-  );
-  assert.deepEqual((await listProjects(workspace)).map((project) => project.path), projects);
-});
-
-test("project replacement permits tasks deliberately orphaned by force removal", async () => {
-  const { root, workspace, projects } = await fixture(1);
-  await createTask(workspace, taskInput(projects[0]));
-  await removeProject(workspace, "project-1", { force: true });
-  const replacement = await gitProject(root, "replacement");
-
   const result = await importProjects(
     workspace,
     [{ name: "replacement", path: replacement }],
@@ -611,97 +612,127 @@ test("moved projects can be removed or replaced through configuration repair", a
   assert.deepEqual(replaced.projects.map((project) => project.path), [replacement]);
 });
 
-test("configuration and result schemas remain strict", async () => {
+test("configuration and dispatch schemas remain strict", async () => {
   await assert.rejects(
     validateConfig({ schemaVersion: 1, projects: [], hostId: "forbidden" }),
     /unsupported field: hostId/,
   );
-  assert.deepEqual(
-    validateResult({
-      message: "Opened related work.",
-      githubPRs: ["https://github.com/example/repo/pull/12"],
-      githubIssues: ["https://github.com/example/repo/issues/8"],
-    }),
-    {
-      message: "Opened related work.",
-      githubPRs: ["https://github.com/example/repo/pull/12"],
-      githubIssues: ["https://github.com/example/repo/issues/8"],
-    },
+  const { workspace, projects } = await fixture(1);
+  await assert.rejects(
+    recordTask(workspace, { ...dispatchInput(projects[0]), status: "running" }),
+    /unsupported field: status/,
   );
   assert.throws(() => requireSafeId("../escape"), /unsupported characters/);
 });
 
-test("tasks preserve exact creation and lifecycle behavior", async () => {
+test("dispatch recording appends one immutable journey entry", async () => {
   const { workspace, projects } = await fixture(1);
-  const created = await createTask(workspace, taskInput(projects[0]), { now: FIXED_TIME });
-  assert.equal(created.status, "pending");
-  assert.equal(created.threadId, null);
-  const running = await updateTask(
-    workspace,
-    "task-1",
-    { status: "running", threadId: "thread-1" },
-    { now: LATER_TIME },
-  );
-  assert.equal(running.threadId, "thread-1");
-  await assert.rejects(updateTask(workspace, "task-1", { threadId: "thread-2" }), /cannot be replaced/);
-  await updateTask(workspace, "task-1", {
-    status: "finished",
-    result: { message: "Done.", githubPRs: [], githubIssues: [] },
-  });
-  const resumed = await updateTask(workspace, "task-1", { status: "running" });
-  assert.equal(resumed.result.message, "Done.");
-  assert.deepEqual(await readdir(path.join(workspace, "tasks", "task-1")), ["task.json"]);
+  const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
+  assert.equal(recorded.createdAt, FIXED_TIME);
+  assert.equal(recorded.project.name, "project-1");
+  assert.deepEqual(Object.keys(recorded), [
+    "schemaVersion", "id", "project", "title", "instruction", "threadId", "createdAt",
+  ]);
+  const content = await readFile(path.join(workspace, "tasks.jsonl"), "utf8");
+  assert.equal(content.split("\n").length, 2);
+  assert.deepEqual(JSON.parse(content.trim()), recorded);
 });
 
-test("task reads and updates reject records whose IDs do not match their directories", async () => {
+test("dispatch recording rejects duplicate IDs and thread IDs", async () => {
   const { workspace, projects } = await fixture(1);
-  await createTask(workspace, taskInput(projects[0], "task-a"), { now: FIXED_TIME });
-  await createTask(workspace, taskInput(projects[0], "task-b"), { now: FIXED_TIME });
-  const firstPath = path.join(workspace, "tasks", "task-a", "task.json");
-  const secondPath = path.join(workspace, "tasks", "task-b", "task.json");
-  const first = JSON.parse(await readFile(firstPath, "utf8"));
-  await writeFile(firstPath, `${JSON.stringify({ ...first, id: "task-b" }, null, 2)}\n`);
-  const secondBefore = await readFile(secondPath, "utf8");
-
-  await assert.rejects(readTask(workspace, "task-a"), /task ID does not match directory/);
+  await recordTask(workspace, dispatchInput(projects[0], "dispatch-a", "thread-a"));
   await assert.rejects(
-    updateTask(workspace, "task-a", { status: "running", threadId: "thread-a" }),
-    /task ID does not match directory/,
+    recordTask(workspace, dispatchInput(projects[0], "dispatch-a", "thread-b")),
+    /task already exists/,
   );
-  assert.equal(await readFile(secondPath, "utf8"), secondBefore);
+  await assert.rejects(
+    recordTask(workspace, dispatchInput(projects[0], "dispatch-b", "thread-a")),
+    /threadId is already recorded/,
+  );
 });
 
-test("task list filters and summary replace the old snapshot command", async () => {
-  const { workspace, projects } = await fixture(2);
-  await createTask(workspace, taskInput(projects[0], "pending"));
-  await createTask(workspace, taskInput(projects[0], "running"));
-  await updateTask(workspace, "running", { status: "running", threadId: "thread-running" });
-  await createTask(workspace, taskInput(projects[1], "finished"));
-  await updateTask(workspace, "finished", { status: "running", threadId: "thread-finished" });
-  await updateTask(workspace, "finished", { status: "finished" });
+test("concurrent dispatch recording cannot poison the journey", async () => {
+  const { workspace, projects } = await fixture(1);
+  const input = dispatchInput(projects[0], "same", "same-thread");
+  const settled = await Promise.allSettled([
+    recordTask(workspace, input),
+    recordTask(workspace, input),
+  ]);
+  assert.equal(settled.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(settled.filter((item) => item.status === "rejected").length, 1);
+  assert.match(settled.find((item) => item.status === "rejected").reason.message, /already/);
+  assert.deepEqual((await listTasks(workspace)).map((item) => item.id), ["same"]);
+  await assert.rejects(lstat(path.join(workspace, ".taskchef-dispatch.lock")), { code: "ENOENT" });
 
-  assert.deepEqual((await filterTasks(workspace, { statuses: ["running"] })).map((task) => task.id), ["running"]);
-  assert.deepEqual((await filterTasks(workspace, { project: "project-1" })).map((task) => task.id), ["pending", "running"]);
+  await Promise.all([
+    recordTask(workspace, dispatchInput(projects[0], "distinct-a", "thread-distinct-a")),
+    recordTask(workspace, dispatchInput(projects[0], "distinct-b", "thread-distinct-b")),
+  ]);
+  const ids = (await listTasks(workspace)).map((item) => item.id);
+  assert.equal(ids[0], "same");
+  assert.deepEqual(ids.slice(1).sort(), ["distinct-a", "distinct-b"]);
+
+  const cliInput = JSON.stringify(dispatchInput(projects[0], "cross-process", "thread-cross"));
+  const processes = await Promise.allSettled([
+    runCli(["task", "record", "--json", "--workspace", workspace], { input: cliInput }),
+    runCli(["task", "record", "--json", "--workspace", workspace], { input: cliInput }),
+  ]);
+  assert.equal(processes.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(processes.filter((item) => item.status === "rejected").length, 1);
+  assert.equal((await listTasks(workspace)).filter((item) => item.id === "cross-process").length, 1);
+});
+
+test("dispatch operations recover an abandoned lock", async () => {
+  const { workspace, projects } = await fixture(1);
+  const lockPath = path.join(workspace, ".taskchef-dispatch.lock");
+  await mkdir(lockPath);
+
+  await recordTask(workspace, dispatchInput(projects[0], "after-crash", "thread-after-crash"));
+  assert.deepEqual((await listTasks(workspace)).map((item) => item.id), ["after-crash"]);
+  await assert.rejects(lstat(lockPath), { code: "ENOENT" });
+});
+
+test("journey reads and doctor do not require workspace write access", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(workspace, dispatchInput(projects[0]));
+  const lockPath = path.join(workspace, ".taskchef-dispatch.lock");
+  await chmod(workspace, 0o555);
+  try {
+    assert.equal((await listTasks(workspace)).length, 1);
+    assert.equal((await doctorWorkspace(workspace)).ok, true);
+    await assert.rejects(lstat(lockPath), { code: "ENOENT" });
+  } finally {
+    await chmod(workspace, 0o755);
+  }
+});
+
+test("dispatch list filters by historical project and summary counts the journey", async () => {
+  const { workspace, projects } = await fixture(2);
+  await recordTask(workspace, dispatchInput(projects[0], "first", "thread-first"));
+  await recordTask(workspace, dispatchInput(projects[0], "second", "thread-second"));
+  await recordTask(workspace, dispatchInput(projects[1], "third", "thread-third"));
+
+  assert.deepEqual(
+    (await filterTasks(workspace, { project: "PROJECT-1" })).map((item) => item.id),
+    ["first", "second"],
+  );
+  assert.deepEqual(await filterTasks(workspace, { project: "unused" }), []);
   assert.deepEqual(await buildTaskSummary(workspace), {
     schemaVersion: 1,
     taskCount: 3,
-    statusCounts: { pending: 1, running: 1, blocked: 0, finished: 1 },
+    projectCounts: { "project-1": 2, "project-2": 1 },
   });
 });
 
-test("reconciliation candidates exclude pending and finished by default", async () => {
-  const { workspace, projects } = await fixture(1);
-  await createTask(workspace, taskInput(projects[0], "pending"));
-  await createTask(workspace, taskInput(projects[0], "running"));
-  await updateTask(workspace, "running", { status: "running", threadId: "thread-running" });
-  await createTask(workspace, taskInput(projects[0], "finished"));
-  await updateTask(workspace, "finished", { status: "running", threadId: "thread-finished" });
-  await updateTask(workspace, "finished", { status: "finished" });
-  assert.deepEqual((await buildReconciliationCandidates(workspace)).tasks.map((task) => task.id), ["running"]);
-  assert.deepEqual(
-    (await buildReconciliationCandidates(workspace, { includeFinished: true })).tasks.map((task) => task.id),
-    ["finished", "running"],
-  );
+test("dispatch reader rejects malformed and non-terminated JSONL", async () => {
+  const { workspace } = await fixture(1);
+  const log = path.join(workspace, "tasks.jsonl");
+  await writeFile(log, "{bad}\n");
+  await assert.rejects(listTasks(workspace), /line 1 is invalid JSON/);
+  await writeFile(log, JSON.stringify({ id: "incomplete" }));
+  await assert.rejects(listTasks(workspace), /must end with a newline/);
+  await writeFile(log, "\n");
+  await assert.rejects(listTasks(workspace), /line 1 is empty/);
 });
 
 test("doctor reports healthy and stale workspaces without mutating them", async () => {
@@ -717,24 +748,194 @@ test("doctor reports healthy and stale workspaces without mutating them", async 
   assert.equal((await doctorWorkspace(workspace)).ok, true);
 });
 
-test("task listing and doctor reject unexpected task entries", async () => {
-  for (const kind of ["file", "symlink"]) {
-    const { root, workspace } = await fixture(1);
-    const entry = path.join(workspace, "tasks", `unexpected-${kind}`);
-    if (kind === "file") await writeFile(entry, "not a task directory\n");
-    else await symlink(root, entry, "dir");
+test("workspace init migrates completed legacy task records without status or results", async () => {
+  const { workspace, projects } = await fixture(1);
+  const tasks = path.join(workspace, "tasks");
+  const taskDirectory = path.join(tasks, "legacy-1");
+  await mkdir(taskDirectory, { recursive: true });
+  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    id: "legacy-1",
+    project: projects[0],
+    title: "Legacy work",
+    instruction: "Finish the legacy work.",
+    status: "finished",
+    threadId: "thread-legacy",
+    result: { message: "Done.", githubPRs: [], githubIssues: [] },
+    createdAt: FIXED_TIME,
+    updatedAt: LATER_TIME,
+  })}\n`);
 
-    await assert.rejects(listTasks(workspace), /unexpected task entry/);
-    const diagnosis = await doctorWorkspace(workspace);
-    assert.equal(diagnosis.ok, false);
-    assert.match(
-      diagnosis.checks.find((check) => check.name === "task-records").message,
-      /unexpected task entry/,
-    );
-  }
+  const initialized = await initializeWorkspace(workspace);
+  assert.equal(initialized.legacyTasks.action, "migrated");
+  assert.equal(initialized.legacyTasks.migratedCount, 1);
+  await assert.rejects(lstat(tasks), { code: "ENOENT" });
+  const migrated = await readTask(workspace, "legacy-1");
+  assert.equal(migrated.threadId, "thread-legacy");
+  assert.equal("status" in migrated, false);
+  assert.equal("result" in migrated, false);
 });
 
-test("CLI implements the v2 bootstrap, project, doctor, and task surface", async () => {
+test("workspace init migrates a legacy task whose project was force-removed", async () => {
+  const { workspace, projects } = await fixture(1);
+  await removeProject(workspace, "project-1");
+  const taskDirectory = path.join(workspace, "tasks", "orphaned-1");
+  await mkdir(taskDirectory, { recursive: true });
+  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    id: "orphaned-1",
+    project: projects[0],
+    title: "Orphaned legacy work",
+    instruction: "Finish the orphaned legacy work.",
+    status: "finished",
+    threadId: "thread-orphaned",
+    result: null,
+    createdAt: FIXED_TIME,
+    updatedAt: LATER_TIME,
+  })}\n`);
+
+  const initialized = await initializeWorkspace(workspace);
+  assert.equal(initialized.legacyTasks.migratedCount, 1);
+  const migrated = await readTask(workspace, "orphaned-1");
+  assert.equal(migrated.project.path, projects[0]);
+  assert.equal(migrated.project.isGitRepository, true);
+});
+
+test("workspace init resumes legacy cleanup after task.json was removed", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(
+    workspace,
+    dispatchInput(projects[0], "cleanup-1", "thread-cleanup"),
+    { now: FIXED_TIME },
+  );
+  const taskDirectory = path.join(workspace, "tasks", "cleanup-1");
+  await mkdir(taskDirectory, { recursive: true });
+
+  const initialized = await initializeWorkspace(workspace);
+  assert.equal(initialized.legacyTasks.action, "migrated");
+  assert.equal(initialized.legacyTasks.migratedCount, 0);
+  await assert.rejects(lstat(path.join(workspace, "tasks")), { code: "ENOENT" });
+  assert.equal((await listTasks(workspace)).filter((item) => item.id === "cleanup-1").length, 1);
+});
+
+test("legacy cleanup resumes from the saved snapshot after its project moves", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(
+    workspace,
+    dispatchInput(projects[0], "moved-cleanup", "thread-moved-cleanup"),
+    { now: FIXED_TIME },
+  );
+  await removeProject(workspace, "project-1");
+  const taskDirectory = path.join(workspace, "tasks", "moved-cleanup");
+  await mkdir(taskDirectory, { recursive: true });
+  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    id: "moved-cleanup",
+    project: projects[0],
+    title: "Echo input",
+    instruction: "Create echo_input.py, test it, and report the result.",
+    status: "finished",
+    threadId: "thread-moved-cleanup",
+    result: null,
+    createdAt: FIXED_TIME,
+    updatedAt: LATER_TIME,
+  })}\n`);
+  await rename(projects[0], `${projects[0]}-moved`);
+
+  const initialized = await initializeWorkspace(workspace);
+  assert.equal(initialized.legacyTasks.migratedCount, 0);
+  await assert.rejects(lstat(path.join(workspace, "tasks")), { code: "ENOENT" });
+  assert.equal((await readTask(workspace, "moved-cleanup")).project.path, projects[0]);
+});
+
+test("legacy cleanup compares normalized fields after an interrupted migration", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(
+    workspace,
+    {
+      id: "trimmed-cleanup",
+      project: projects[0],
+      title: " Echo input ",
+      instruction: " Create echo_input.py, test it, and report the result. ",
+      threadId: " thread-trimmed ",
+    },
+    { now: FIXED_TIME },
+  );
+  const taskDirectory = path.join(workspace, "tasks", "trimmed-cleanup");
+  await mkdir(taskDirectory, { recursive: true });
+  await writeFile(path.join(taskDirectory, "task.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    id: "trimmed-cleanup",
+    project: projects[0],
+    title: " Echo input ",
+    instruction: " Create echo_input.py, test it, and report the result. ",
+    status: "finished",
+    threadId: " thread-trimmed ",
+    result: null,
+    createdAt: FIXED_TIME,
+    updatedAt: LATER_TIME,
+  })}\n`);
+
+  const initialized = await initializeWorkspace(workspace);
+  assert.equal(initialized.legacyTasks.migratedCount, 0);
+  await assert.rejects(lstat(path.join(workspace, "tasks")), { code: "ENOENT" });
+});
+
+test("legacy cleanup rejects a same-ID task from a different project", async () => {
+  const { workspace, projects } = await fixture(2);
+  await recordTask(
+    workspace,
+    dispatchInput(projects[0], "project-conflict", "thread-conflict"),
+    { now: FIXED_TIME },
+  );
+  const taskDirectory = path.join(workspace, "tasks", "project-conflict");
+  const taskPath = path.join(taskDirectory, "task.json");
+  await mkdir(taskDirectory, { recursive: true });
+  await writeFile(taskPath, `${JSON.stringify({
+    schemaVersion: 1,
+    id: "project-conflict",
+    project: projects[1],
+    title: "Echo input",
+    instruction: "Create echo_input.py, test it, and report the result.",
+    status: "finished",
+    threadId: "thread-conflict",
+    result: null,
+    createdAt: FIXED_TIME,
+    updatedAt: LATER_TIME,
+  })}\n`);
+
+  await assert.rejects(initializeWorkspace(workspace), /conflicts with task history/);
+  assert.equal((await lstat(taskPath)).isFile(), true);
+});
+
+test("workspace init stops when a pending legacy task has no executor", async () => {
+  const { root, workspace, projects } = await fixture(1);
+  await unlink(path.join(workspace, "tasks.jsonl"));
+  const legacySkill = path.join(workspace, ".agents", "skills", "taskchef-delegate");
+  await mkdir(path.dirname(legacySkill), { recursive: true });
+  await symlink(path.join(root, "legacy-taskchef-delegate"), legacySkill);
+  const taskDirectory = path.join(workspace, "tasks", "pending-1");
+  await mkdir(taskDirectory, { recursive: true });
+  const taskPath = path.join(taskDirectory, "task.json");
+  await writeFile(taskPath, `${JSON.stringify({
+    schemaVersion: 1,
+    id: "pending-1",
+    project: projects[0],
+    title: "Pending work",
+    instruction: "Do pending work.",
+    status: "pending",
+    threadId: null,
+    result: null,
+    createdAt: FIXED_TIME,
+    updatedAt: FIXED_TIME,
+  })}\n`);
+  await assert.rejects(initializeWorkspace(workspace), /has no executor thread/);
+  assert.equal((await lstat(taskPath)).isFile(), true);
+  assert.equal((await lstat(legacySkill)).isSymbolicLink(), true);
+  await assert.rejects(lstat(path.join(workspace, "tasks.jsonl")), { code: "ENOENT" });
+});
+
+test("CLI implements the bootstrap, project, doctor, and task surface", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-cli-v2-"));
   const workspace = path.join(root, "workspace");
   const first = await gitProject(root, "first", "https://github.com/example/first.git");
@@ -753,18 +954,18 @@ test("CLI implements the v2 bootstrap, project, doctor, and task surface", async
   const projects = await runCli(["project", "list", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(projects.stdout).projectCount, 2);
 
-  await runCli(["task", "create", "--json", "--workspace", workspace], {
-    input: JSON.stringify(taskInput(first)),
+  await runCli(["task", "record", "--json", "--workspace", workspace], {
+    input: JSON.stringify(dispatchInput(first)),
   });
-  await runCli(["task", "update", "task-1", "--json", "--workspace", workspace], {
-    input: JSON.stringify({ status: "running", threadId: "thread-1" }),
-  });
+  const shown = await runCli(["task", "show", "dispatch-1", "--json", "--workspace", workspace]);
+  assert.equal(JSON.parse(shown.stdout).id, "dispatch-1");
   const listed = await runCli([
-    "task", "list", "--status", "running", "--json", "--workspace", workspace,
+    "task", "list", "--project", "first", "--json", "--workspace", workspace,
   ]);
-  assert.deepEqual(JSON.parse(listed.stdout).tasks.map((task) => task.id), ["task-1"]);
+  assert.deepEqual(JSON.parse(listed.stdout).tasks.map((item) => item.id), ["dispatch-1"]);
   const summary = await runCli(["task", "summary", "--json", "--workspace", workspace]);
-  assert.equal(JSON.parse(summary.stdout).statusCounts.running, 1);
+  assert.equal(JSON.parse(summary.stdout).taskCount, 1);
+  assert.equal(JSON.parse(summary.stdout).projectCounts.first, 1);
   const doctor = await runCli(["doctor", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(doctor.stdout).ok, true);
 });
@@ -775,6 +976,8 @@ test("CLI rejects removed legacy commands", async () => {
     ["workspace", "ensure-skills", "--json"],
     ["config", "validate", "--json"],
     ["task", "snapshot", "--json"],
+    ["dispatch", "record", "--json"],
+    ["dispatch", "list", "--json"],
   ]) {
     await assert.rejects(
       runCli(args),
