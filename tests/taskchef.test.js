@@ -357,11 +357,33 @@ test("public task history API uses task terminology", () => {
 test("delegation marker parsing requires the exact first-line full UUID marker", () => {
   const prepared = prepareDelegation("Do the work.", { taskId: TASK_ID });
   assert.equal(prepared.id, TASK_ID);
-  assert.equal(prepared.instruction, `# taskchef_id=${TASK_ID}\n\nDo the work.`);
+  assert.equal(prepared.instruction, `<!-- taskchef_id=${TASK_ID} -->\n\nDo the work.`);
+  const [marker, blankLine] = prepared.instruction.split("\n", 2);
+  assert.equal(marker, `<!-- taskchef_id=${TASK_ID} -->`);
+  assert.equal(blankLine, "");
+  assert.match(marker, /^<!-- [^-][\s\S]* -->$/);
+  assert.doesNotMatch(marker, /^#{1,6}(?:\s|$)/);
   assert.equal(parseTaskChefMarker(prepared.instruction), TASK_ID);
-  assert.equal(parseTaskChefMarker(`prefix\n# taskchef_id=${TASK_ID}`), null);
-  assert.equal(parseTaskChefMarker("# taskchef_id=short"), null);
-  assert.equal(parseTaskChefMarker(`# taskchef_id=${TASK_ID} trailing`), null);
+  assert.equal(parseTaskChefMarker(`prefix\n<!-- taskchef_id=${TASK_ID} -->`), null);
+  assert.equal(parseTaskChefMarker("<!-- taskchef_id=short -->"), null);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} --> trailing`), null);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID.toUpperCase()} -->`), null);
+  assert.equal(parseTaskChefMarker(`<!--  taskchef_id=${TASK_ID} -->`), null);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID}-->`), null);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\nDo the work.`), null);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\nDo the work.`), null);
+  assert.equal(parseTaskChefMarker(`# taskchef_id=${TASK_ID}\n\nDo the work.`), null);
+  assert.equal(
+    parseTaskChefMarker(
+      `# taskchef_id=${TASK_ID}\n\nHistorical work.`,
+      { allowLegacyHeading: true },
+    ),
+    TASK_ID,
+  );
+  assert.equal(
+    parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\n\r\nDo the work.`),
+    TASK_ID,
+  );
   assert.throws(
     () => prepareDelegation("Do the work.", { taskId: TASK_ID.toUpperCase() }),
     /lowercase full UUID/,
@@ -377,11 +399,26 @@ test("marker verification ignores top-level delegation metadata", () => {
     turns: [{
       items: [{
         type: "userMessage",
-        codexDelegation: { input: `# taskchef_id=${TASK_ID}\n\nUntrusted location.` },
+        codexDelegation: { input: `<!-- taskchef_id=${TASK_ID} -->\n\nUntrusted location.` },
         content: [],
       }],
     }],
   }, TASK_ID), false);
+});
+
+test("candidate verification rejects old-style and malformed marker comments", () => {
+  for (const instruction of [
+    `# taskchef_id=${TASK_ID}\n\nOld heading marker.`,
+    `<!-- taskchef_id=${TASK_ID} -->\nMissing blank line.`,
+    `<!-- taskchef_id=${TASK_ID}-->\n\nMissing required space.`,
+    `<!-- taskchef_id=${TASK_ID} --> trailing\n\nTrailing text.`,
+  ]) {
+    assert.equal(hasExactTaskChefMarker(delegatedThreadRead(instruction), TASK_ID), false);
+  }
+  assert.equal(hasExactTaskChefMarker(
+    delegatedThreadRead(`<!-- taskchef_id=${TASK_ID} -->\n\nExact marker.`),
+    TASK_ID,
+  ), true);
 });
 
 test("delegation records an immediate durable thread ID and preserves its marker", async () => {
@@ -432,7 +469,7 @@ test("delegation resolves one delayed marker match after bounded discovery", asy
     readThread: async ({ threadId }) => {
       assert.equal(threadId, "durable-thread");
       return JSON.stringify(
-        delegatedThreadRead(`# taskchef_id=${TASK_ID}\n\nFix retry handling and test it.`),
+        delegatedThreadRead(`<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`),
       );
     },
     waitImpl: async (delayMs) => {
@@ -469,7 +506,7 @@ test("delegation prefers one bounded native provisional-thread resolver when ava
     },
     readThread: async ({ threadId }) => {
       assert.equal(threadId, "native-durable");
-      return delegatedThreadRead(`# taskchef_id=${TASK_ID}\n\nFix retry handling and test it.`);
+      return delegatedThreadRead(`<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`);
     },
   });
 
@@ -509,7 +546,7 @@ test("delegation verifies a native resolver result against the exact structured 
     listThreads: async () => assert.fail("native resolution must not list threads"),
     resolveProvisionalThread: async () => ({ threadId: "wrong-native-thread" }),
     readThread: async () => delegatedThreadRead(
-      `# taskchef_id=${SECOND_TASK_ID}\n\nA different delegation.`,
+      `<!-- taskchef_id=${SECOND_TASK_ID} -->\n\nA different delegation.`,
     ),
   });
 
@@ -672,7 +709,7 @@ test("delegation refuses multiple exact marker matches without recording either 
     listThreads: async () => threadList(candidates),
     createThread: async () => ({ pendingWorktreeId: "local:pending" }),
     readThread: async () => delegatedThreadRead(
-      `# taskchef_id=${TASK_ID}\n\nFix retry handling and test it.`,
+      `<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`,
     ),
   });
 
@@ -803,7 +840,7 @@ test("delegation does not persist a marker read that completes after the deadlin
             content: [{
               get codexDelegation() {
                 markerAccesses += 1;
-                return { input: `# taskchef_id=${TASK_ID}\n\nLate marker read.` };
+                return { input: `<!-- taskchef_id=${TASK_ID} -->\n\nLate marker read.` };
               },
             }],
           }],
@@ -872,7 +909,7 @@ test("delegation does not resolve after an earlier discovery error", async () =>
     },
     createThread: async () => ({ clientThreadId: "local:pending" }),
     readThread: async () => delegatedThreadRead(
-      `# taskchef_id=${TASK_ID}\n\nFix retry handling and test it.`,
+      `<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`,
     ),
   });
 
@@ -1231,6 +1268,9 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
     ],
   );
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
+  assert.match(body, /exactly `<!-- taskchef_id=<full UUID> -->` as the\s+first line/);
+  assert.match(body, /Require an immediately following blank line/);
+  assert.doesNotMatch(body, /`# taskchef_id=/);
   assert.match(body, /Do not take a pre-creation thread\s+snapshot/);
   assert.match(body, /call it exactly once with a timeout of at most 30 seconds/);
   assert.match(body, /at most two `list_threads`\s+snapshots with limit 50/);
@@ -1263,6 +1303,9 @@ test("report skill resolves exact nullable matches and reads live state once", a
   assert.match(content, /taskchef\.js task show <task-id> --json/);
   assert.match(content, /taskchef\.js task list --project <name-or-path> --json/);
   assert.match(content, /Use the full list only when the user asks for an overview/);
+  assert.match(content, /`<!-- taskchef_id=<full lowercase UUID> -->`/);
+  assert.match(content, /an immediately following\s+blank line/);
+  assert.doesNotMatch(content, /`# taskchef_id=/);
   assert.match(content, /no more than\s+eight targets per call/);
   assert.match(content, /Never edit `tasks\.jsonl` directly/);
   assert.match(content, /Do not poll or wait/);
@@ -1641,6 +1684,91 @@ test("dispatch recording appends one immutable journey entry", async () => {
   const content = await readFile(path.join(workspace, "tasks.jsonl"), "utf8");
   assert.equal(content.split("\n").length, 2);
   assert.deepEqual(JSON.parse(content.trim()), recorded);
+});
+
+test("durable direct recording remains marker-independent", async () => {
+  const { workspace, projects } = await fixture(1);
+  const recorded = await recordTask(
+    workspace,
+    dispatchInput(projects[0], "direct-record", "durable-thread"),
+    { now: FIXED_TIME },
+  );
+
+  assert.equal(recorded.id, "direct-record");
+  assert.equal(recorded.instruction, "Create echo_input.py, test it, and report the result.");
+  assert.equal(recorded.threadId, "durable-thread");
+  assert.deepEqual(await resolveTask(workspace, "direct-record", "durable-thread"), recorded);
+  await assert.rejects(
+    resolveTask(workspace, "direct-record", "different-thread"),
+    /already has a different threadId/,
+  );
+});
+
+test("old heading markers remain history-readable but cannot be newly recorded or resolved", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Historical unresolved task.", { taskId: TASK_ID });
+  const recorded = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  const legacyInstruction = `# taskchef_id=${TASK_ID}\n\nHistorical unresolved task.`;
+  const historical = { ...recorded, instruction: legacyInstruction };
+  const logPath = path.join(workspace, "tasks.jsonl");
+  await writeFile(logPath, `${JSON.stringify(historical)}\n`);
+
+  assert.equal((await listTasks(workspace))[0].instruction, legacyInstruction);
+  await assert.rejects(
+    recordTask(workspace, {
+      ...dispatchInput(projects[0], SECOND_TASK_ID, null),
+      instruction: `# taskchef_id=${SECOND_TASK_ID}\n\nNew unresolved task.`,
+    }),
+    /null threadId must contain its exact TaskChef marker/,
+  );
+  await assert.rejects(
+    recordTask(workspace, {
+      ...dispatchInput(projects[0], SECOND_TASK_ID, null),
+      instruction: `<!-- taskchef_id=${SECOND_TASK_ID} -->\nMissing blank line.`,
+    }),
+    /null threadId must contain its exact TaskChef marker/,
+  );
+  await assert.rejects(
+    resolveTask(workspace, TASK_ID, "durable-thread"),
+    /does not contain its exact TaskChef marker/,
+  );
+});
+
+test("historical heading markers retain their prior first-line read compatibility", async () => {
+  for (const legacyInstruction of [
+    `# taskchef_id=${TASK_ID}\nHistorical body without a blank separator.`,
+    `# taskchef_id=${TASK_ID}`,
+  ]) {
+    const { workspace, projects } = await fixture(1);
+    const historical = {
+      schemaVersion: 2,
+      id: TASK_ID,
+      project: {
+        name: "project-1",
+        path: projects[0],
+        isGitRepository: true,
+        githubRepos: ["https://github.com/example/project-1"],
+        description: "Fixture project 1.",
+      },
+      title: "Historical unresolved task",
+      instruction: legacyInstruction,
+      threadId: null,
+      createdAt: FIXED_TIME,
+    };
+    await writeFile(
+      path.join(workspace, "tasks.jsonl"),
+      `${JSON.stringify(historical)}\n`,
+    );
+
+    assert.equal((await listTasks(workspace))[0].instruction, legacyInstruction);
+    await assert.rejects(
+      resolveTask(workspace, TASK_ID, "durable-thread"),
+      /does not contain its exact TaskChef marker/,
+    );
+  }
 });
 
 test("legacy task snapshots normalize repository scalars without eager log rewrites", async () => {

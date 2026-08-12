@@ -29,8 +29,10 @@ all deterministic task-log operations.
 2. Separate entries whose `threadId` is `null`. For those entries, take one
    `list_threads` snapshot with limit 50, filter by available project metadata,
    and inspect candidate structured delegated inputs. Use title only to
-   prioritize candidates, never to exclude them. When exactly one candidate
-   starts with the task's exact marker, run
+   prioritize candidates, never to exclude them. Require the exact first line
+   `<!-- taskchef_id=<full lowercase UUID> -->` and an immediately following
+   blank line; reject old heading-style markers, malformed comments, and missing
+   blank separators. When exactly one candidate has that exact prefix, run
    `<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json`.
    Do not resolve zero or multiple matches. Report unmatched entries as
    recorded but unresolved and do not pass them to native thread tools.

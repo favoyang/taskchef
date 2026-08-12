@@ -47,10 +47,11 @@ for all deterministic workspace and task-record operations.
    matches. Ask instead of guessing when no project or several projects match.
 4. Resolve native projects once and require the exact configured path.
 5. Generate a lowercase full UUID task ID before creation. Prefix the complete
-   executor instruction with exactly `# taskchef_id=<full UUID>`, followed by a
-   blank line and the instruction body. Preserve this marked instruction for
-   recording, and note the creation time. Do not take a pre-creation thread
-   snapshot; the exact random marker is the correlation key.
+   executor instruction with exactly `<!-- taskchef_id=<full UUID> -->` as the
+   first line, followed by a blank line and the instruction body. Preserve this
+   marked instruction for recording, and note the creation time.
+   Do not take a pre-creation thread snapshot; the exact random marker is the
+   correlation key.
 6. Create one real Codex task using the exact configured project, a local
    environment on its executor host, the marked instruction, and a short title.
 7. When `create_thread` returns a durable `threadId`, immediately run
@@ -85,10 +86,13 @@ for all deterministic workspace and task-record operations.
      `userMessage.content[].codexDelegation.input`; do not trust titles,
      summaries, previews, plain-text echoes, or assistant output as proof.
    - Accept a candidate only when the structured input's first line is exactly
-     the task's `# taskchef_id=<full UUID>` marker and exactly one candidate
-     matches. Apply the same marker verification to a thread ID returned by a
-     native resolver. Reject any returned or discovered thread ID equal to the
-     provisional identifier or in its `local:` namespace. Then use
+     the task's `<!-- taskchef_id=<full UUID> -->` marker and exactly one
+     candidate matches. Require an immediately following blank line. Reject old
+     heading-style markers, malformed comments, missing blank separators, and
+     marker-like text anywhere else. Apply the same marker verification to a
+     thread ID returned by a native resolver. Reject any returned or discovered
+     thread ID equal to the provisional identifier or in its `local:` namespace.
+     Then use
      the task-resolution command under **Later resolution** to atomically fill
      the nullable field.
    - Treat native-resolution, snapshot, candidate-read, wait, and task-resolution

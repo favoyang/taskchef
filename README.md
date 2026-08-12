@@ -119,7 +119,9 @@ an unresolved task's nullable thread ID. The log records what TaskChef sent,
 when it sent it, which project it selected, and which Codex task received the
 work.
 
-Every delegated instruction includes a unique `# taskchef_id=<UUID>` marker.
+Every delegated instruction begins with a unique
+`<!-- taskchef_id=<UUID> -->` marker followed by a blank line. The valid HTML
+comment stays invisible in rendered Markdown.
 If worktree creation does not return a thread ID immediately, TaskChef records
 the marked delegation as unresolved, then waits briefly for the durable task.
 It prefers a native Codex client-ID resolver when available and otherwise makes
@@ -316,7 +318,7 @@ task lines remain readable without an eager rewrite of the append-only history.
 `project` value is the exact configured project path:
 
 ```sh
-printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
+printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
   taskchef task record --json
 ```
 
