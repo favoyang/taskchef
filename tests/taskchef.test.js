@@ -1762,7 +1762,7 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   assert.equal(JSON.parse(doctor.stdout).ok, true);
 });
 
-test("CLI project list shows the primary repository and aligns additional tree rows", async () => {
+test("CLI project list renders zero, one, and multiple repositories without glyphs or tabs", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-project-list-"));
   const workspace = path.join(root, "workspace");
   const multiPath = path.join(root, "multi");
@@ -1797,19 +1797,19 @@ test("CLI project list shows the primary repository and aligns additional tree r
   assert.equal(human.stdout, [
     header,
     `multi   folder  https://github.com/example/one    ${multi.path}`,
-    "  ├─            https://github.com/example/two",
-    "  └─            https://github.com/example/three",
+    `multi   folder  https://github.com/example/two    ${multi.path}`,
+    `multi   folder  https://github.com/example/three  ${multi.path}`,
     `single  folder  https://github.com/example/only   ${single.path}`,
     `zero    folder  -                                 ${zero.path}`,
     "",
   ].join("\n"));
   assert.equal(human.stdout.split("\n")[0], header);
   assert.equal(human.stdout.match(/https:\/\/github\.com\/example\//g)?.length, 4);
+  assert.doesNotMatch(human.stdout, /[├└]─|\t/);
   const lines = human.stdout.trimEnd().split("\n");
-  const repositoryColumn = lines[0].indexOf("GITHUB REPOSITORY");
-  for (const line of lines.slice(1, 4)) {
-    assert.equal(line.indexOf("https://"), repositoryColumn);
-  }
+  assert.equal(lines.filter((line) => line.startsWith("multi ")).length, 3);
+  assert.equal(lines.filter((line) => line.startsWith("single ")).length, 1);
+  assert.equal(lines.filter((line) => line.startsWith("zero ")).length, 1);
   assert.equal(lines.some((line) => /\s+$/.test(line)), false);
 
   const json = await runCli(["project", "list", "--json", "--workspace", workspace]);
