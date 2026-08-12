@@ -5,7 +5,10 @@ export const THREAD_RESOLUTION_TIMEOUT_MS = 30_000;
 export const THREAD_RESOLUTION_RECENT_LIMIT = 50;
 export const THREAD_RESOLUTION_CLOCK_SKEW_MS = 5_000;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
+const TASKCHEF_MARKER_PATTERN = new RegExp(`^<!-- taskchef_id=(${UUID_SOURCE}) -->$`);
+const LEGACY_TASKCHEF_MARKER_PATTERN = new RegExp(`^# taskchef_id=(${UUID_SOURCE})$`);
 
 function requireObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -67,14 +70,19 @@ function wait(delayMs) {
 }
 
 export function taskChefMarker(taskId) {
-  return `# taskchef_id=${requireUuid(taskId)}`;
+  return `<!-- taskchef_id=${requireUuid(taskId)} -->`;
 }
 
-export function parseTaskChefMarker(instruction) {
+export function parseTaskChefMarker(instruction, { allowLegacyHeading = false } = {}) {
   if (typeof instruction !== "string") return null;
   const firstLine = instruction.split(/\r?\n/, 1)[0];
-  const match = firstLine.match(/^# taskchef_id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
-  return match?.[1] ?? null;
+  const currentMatch = firstLine.match(TASKCHEF_MARKER_PATTERN);
+  if (currentMatch !== null) {
+    const prefix = instruction.match(/^([^\r\n]*)(\r?\n)\2/);
+    return prefix === null ? null : currentMatch[1];
+  }
+  if (!allowLegacyHeading) return null;
+  return firstLine.match(LEGACY_TASKCHEF_MARKER_PATTERN)?.[1] ?? null;
 }
 
 export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
@@ -119,9 +127,9 @@ export function structuredDelegatedInputs(result) {
 }
 
 export function hasExactTaskChefMarker(result, taskId) {
-  const marker = taskChefMarker(taskId);
+  const id = requireUuid(taskId);
   return structuredDelegatedInputs(result).some(
-    (input) => input.split(/\r?\n/, 1)[0] === marker,
+    (input) => parseTaskChefMarker(input) === id,
   );
 }
 

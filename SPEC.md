@@ -134,7 +134,7 @@ schedules, task status, results, host information, or the workspace path.
 `tasks.jsonl` contains one compact JSON object per line, in append order:
 
 ```json
-{"schemaVersion":2,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
+{"schemaVersion":2,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
 ```
 
 - `schemaVersion` identifies the task entry format.
@@ -142,7 +142,8 @@ schedules, task status, results, host information, or the workspace path.
 - `project` is the complete configured project snapshot used for routing.
 - `title` is a short task name.
 - `instruction` is the complete executor instruction, including its first-line
-  `# taskchef_id=<full UUID>` correlation marker.
+  `<!-- taskchef_id=<full UUID> -->` correlation marker and the blank line that
+  follows it.
 - `threadId` identifies the created Codex task, or is `null` when creation was
   accepted but bounded marker resolution did not find one durable task ID.
 - `createdAt` is the dispatch time as an ISO 8601 timestamp.
@@ -165,8 +166,13 @@ hidden reasoning, `hostId`, or update timestamps.
 
 New task entries use schema version 2 and list-valued project snapshots.
 Version 1 entries with string or null repository metadata remain readable and
-normalize to version 2 in API and CLI output. TaskChef does not eagerly rewrite
-legacy history solely for this migration.
+normalize to version 2 in API and CLI output. Historical task entries with the
+old heading-style marker also remain readable. New nullable records, candidate
+matching, and resolution require the exact HTML-comment marker; TaskChef never
+uses an old marker to correlate a thread. Direct records that already have a
+durable thread ID remain marker-independent because they do not use recovery.
+TaskChef does not eagerly rewrite legacy history solely for these compatibility
+cases.
 
 ## Dispatch workflow
 
@@ -175,7 +181,8 @@ For each assignment, `$taskchef-delegate`:
 1. loads and validates configured projects
 2. selects one unambiguous target
 3. generates a full UUID and prefixes the instruction with its exact
-   `# taskchef_id=<UUID>` marker
+   `<!-- taskchef_id=<UUID> -->` marker as the first line, followed by a blank
+   line
 4. creates a real Codex task at the exact configured path
 5. appends a task entry immediately when creation returns a durable thread ID
 6. when creation returns only a provisional client ID, immediately appends the

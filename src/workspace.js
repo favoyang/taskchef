@@ -701,7 +701,11 @@ export async function removeProject(workspaceRoot, name) {
   });
 }
 
-async function validateDispatchShape(dispatch, name = "task") {
+async function validateDispatchShape(
+  dispatch,
+  name = "task",
+  { allowLegacyHeading = false } = {},
+) {
   requireExactFields(dispatch, DISPATCH_FIELDS, name);
   if (![LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION].includes(dispatch.schemaVersion)) {
     throw new Error(`unsupported ${name} schemaVersion`);
@@ -724,7 +728,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   };
   if (
     normalized.threadId === null &&
-    parseTaskChefMarker(normalized.instruction) !== normalized.id
+    parseTaskChefMarker(normalized.instruction, { allowLegacyHeading }) !== normalized.id
   ) {
     throw new Error(`${name} with a null threadId must contain its exact TaskChef marker`);
   }
@@ -756,7 +760,9 @@ async function readDispatchRecordsUnlocked(root) {
     records.push({
       line,
       raw: value,
-      normalized: await validateDispatchShape(value, `task line ${index + 1}`),
+      normalized: await validateDispatchShape(value, `task line ${index + 1}`, {
+        allowLegacyHeading: true,
+      }),
     });
   }
   const ids = new Set();
@@ -823,12 +829,12 @@ export async function resolveTask(workspaceRoot, taskId, threadId) {
     const index = dispatches.findIndex((dispatch) => dispatch.id === id);
     if (index === -1) throw new Error(`task not found: ${id}`);
     const dispatch = dispatches[index];
-    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
-      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
-    }
     if (dispatch.threadId === durableThreadId) return dispatch;
     if (dispatch.threadId !== null) {
       throw new Error(`task already has a different threadId: ${id}`);
+    }
+    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
+      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
     }
     if (dispatches.some((item) => item.threadId === durableThreadId)) {
       throw new Error(`threadId is already recorded: ${durableThreadId}`);
