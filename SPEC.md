@@ -54,20 +54,23 @@ the workspace.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "projects": [
     {
       "name": "payments-api",
       "path": "/workspace/payments-api",
       "isGitRepository": true,
-      "githubRepo": "https://github.com/example/payments-api",
+      "githubRepos": [
+        "https://github.com/example/payments-api",
+        "https://github.com/example/payments-sdk"
+      ],
       "description": "Owns payment authorization, capture, refunds, and provider integrations."
     },
     {
       "name": "local-data-tools",
       "path": "/workspace/local-data-tools",
       "isGitRepository": false,
-      "githubRepo": null
+      "githubRepos": []
     }
   ]
 }
@@ -79,18 +82,31 @@ the workspace.
 - `path` is the normalized, canonical local directory. A Git project must use
   its repository root.
 - `isGitRepository` identifies Git and non-Git projects.
-- `githubRepo` is a canonical GitHub repository URL or `null`.
+- `githubRepos` is a deduplicated list of canonical GitHub repository URLs. Use
+  `[]` when the project advertises no repositories. A managed `*-workspace`
+  project lists each child or sub-repository that should route to it.
 - `description` is optional routing context.
 
-TaskChef classifies work against `name`, `githubRepo`, and `description`. The
-path identifies the checkout but is not a routing hint. TaskChef asks the user
-when metadata does not produce one clear match.
+TaskChef classifies work against `name`, every URL in `githubRepos`, and
+`description`. The path identifies the checkout but is not a routing hint. For
+a GitHub issue or pull-request URL, TaskChef compares canonical,
+case-insensitive owner/repository identities across every configured list. It
+ignores the issue or PR suffix, `http` versus `https`, optional `www`, trailing
+slashes, and trailing `.git`. It routes only when one configured project
+matches; ambiguous and unmatched URLs are never guessed.
 
 `project add` and `project import` detect Git status, exact Git roots, and
-canonical GitHub origins. Import merges by canonical path and preserves an
-existing name or description when omitted. `--replace` replaces the configured
-set. Removing or replacing a project does not alter historical task
-entries.
+canonical GitHub origins. `--github-repo` is repeatable. Import merges by
+canonical path, preserves an existing name or description when omitted, and
+unions existing and imported repository lists without duplicates. `--replace`
+replaces the configured set. Removing or replacing a project does not alter
+historical task entries.
+
+Schema version 2 replaces the string-or-null `githubRepo` field with the
+list-valued `githubRepos` field. Schema-version-1 configurations remain
+compatible: reads normalize a legacy string to one canonical list item and
+legacy `null` to `[]`; `workspace init` persists the migration atomically, and
+any later configuration write emits version 2.
 
 The configuration does not store dispatcher identity, execution modes,
 schedules, task status, results, host information, or the workspace path.
@@ -100,7 +116,7 @@ schedules, task status, results, host information, or the workspace path.
 `tasks.jsonl` contains one compact JSON object per line, in append order:
 
 ```json
-{"schemaVersion":1,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepo":"https://github.com/example/payments-api","description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
+{"schemaVersion":2,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
 ```
 
 - `schemaVersion` identifies the task entry format.
@@ -128,6 +144,11 @@ the task ID. A resolved or mismatched entry cannot be overwritten.
 The project snapshot preserves the route even if the project is renamed,
 moved, or removed later. Entries never contain status, result, transcript,
 hidden reasoning, `hostId`, or update timestamps.
+
+New task entries use schema version 2 and list-valued project snapshots.
+Version 1 entries with string or null repository metadata remain readable and
+normalize to version 2 in API and CLI output. TaskChef does not eagerly rewrite
+legacy history solely for this migration.
 
 ## Dispatch workflow
 

@@ -73,11 +73,13 @@ tasks.jsonl
 TaskChef scans eligible local Codex projects during setup and adds them to the
 managed project list in `taskchef.json`.
 
-`taskchef.json` defines the available routes. A project name or GitHub pull
-request URL in your request is usually enough for TaskChef to choose the right
-project. If a project needs more context, extend its optional `description`
-field with responsibilities and keywords that distinguish it from nearby
-projects.
+`taskchef.json` defines the available routes. A project name or GitHub issue or
+pull-request URL in your request is usually enough for TaskChef to choose the
+right project. Each project's `githubRepos` field is a list. A managed
+`*-workspace` project lists all child or sub-repositories there, so links into
+any of them route to the workspace. If a project needs more context, extend its
+optional `description` field with responsibilities and keywords that
+distinguish it from nearby projects.
 
 The generated `AGENTS.md` turns ordinary requests in this project into
 delegated work. You do not need to name the delegate skill each time.
@@ -161,7 +163,8 @@ $taskchef-bootstrap Diagnose this TaskChef workspace and fix any repairable conf
 Project paths must exist when you add or dispatch to them. Configure the
 repository root for a Git project. TaskChef also accepts non-Git folders. It
 detects Git status and the canonical GitHub `origin` when adding or importing
-a project.
+a project. Repeat `--github-repo` to configure several repositories, or place a
+`githubRepos` array in an import. URLs are canonicalized and deduplicated.
 
 Removing a project does not rewrite old task entries. Each entry keeps the
 project metadata that TaskChef used when it delegated the work.
@@ -242,6 +245,8 @@ taskchef doctor --workspace <workspace>
 taskchef project add /workspace/payments \
   --name payments \
   --description "Owns payment authorization, capture, and refunds." \
+  --github-repo https://github.com/example/payments-api \
+  --github-repo https://github.com/example/payments-sdk \
   --workspace <workspace>
 
 taskchef project list --workspace <workspace>
@@ -255,9 +260,15 @@ taskchef project import projects.json --workspace <workspace>
 taskchef project import - --workspace <workspace> < projects.json
 ```
 
-Import merges by canonical path and preserves an existing name or description
-when the imported object omits it. `--replace` replaces the configured project
-set.
+Import merges by canonical path, preserves an existing name or description
+when the imported object omits it, and unions repository lists without
+duplicates. `--replace` replaces the configured project set.
+
+The current configuration schema is version 2. Version 1 remains readable:
+legacy `githubRepo: null` normalizes to `githubRepos: []`, and a legacy string
+normalizes to a one-item `githubRepos` list. `workspace init` persists this
+migration atomically; other configuration writes also emit version 2. Legacy
+task lines remain readable without an eager rewrite of the append-only history.
 
 ### Task history
 

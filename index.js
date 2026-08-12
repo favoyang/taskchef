@@ -21,6 +21,12 @@ export {
 } from "./src/workspace.js";
 
 export {
+  canonicalGithubRepository,
+  matchProjectForGithubUrl,
+  normalizeGithubRepositories,
+} from "./src/github.js";
+
+export {
   THREAD_RESOLUTION_CHECKPOINTS_MS,
   THREAD_RESOLUTION_CLOCK_SKEW_MS,
   THREAD_RESOLUTION_RECENT_LIMIT,

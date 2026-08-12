@@ -32,9 +32,15 @@ for all deterministic workspace and task-record operations.
    `$taskchef-bootstrap` if the workspace is missing or unhealthy.
 2. Split the request into the smallest independently useful outcomes. Include
    constraints, expected testing, and reporting in every instruction.
-3. Classify against configured `name`, `githubRepo`, and `description`. Use
-   `path` only as checkout identity. Ask when metadata does not produce one
-   clear project match.
+3. Classify against configured `name`, every URL in the `githubRepos` list, and
+   `description`. Use `path` only as checkout identity. Managed `*-workspace`
+   projects advertise their child or sub-repositories in this list.
+   When the prompt contains a GitHub issue or pull-request URL, canonicalize
+   its case-insensitive owner/repository identity, ignoring `http` versus
+   `https`, an optional `www`, a trailing slash or `.git`, and the issue or PR
+   suffix. Check that identity against every repository URL of every configured
+   project. Route on this evidence only when exactly one configured project
+   matches. Ask instead of guessing when no project or several projects match.
 4. Resolve native projects once and require the exact configured path.
 5. Generate a lowercase full UUID task ID before creation. Prefix the complete
    executor instruction with exactly `# taskchef_id=<full UUID>`, followed by a
@@ -97,11 +103,12 @@ for all deterministic workspace and task-record operations.
     not read an executor for progress and never wait for executor work
     completion.
 
-The package exports pure marker, candidate-filtering, and injected-adapter
-orchestration helpers from `src/delegation.js` for deterministic tests and
-hosts that can supply thread-tool callbacks. The standalone Node CLI cannot
-call desktop thread tools; perform the tool calls in Codex and use the CLI only
-for validated workspace data operations.
+The package exports pure repository canonicalization and unique URL matching
+helpers from `src/github.js`, plus marker, candidate-filtering, and
+injected-adapter orchestration helpers from `src/delegation.js`, for
+deterministic tests and hosts that can supply thread-tool callbacks. The
+standalone Node CLI cannot call desktop thread tools; perform the tool calls in
+Codex and use the CLI only for validated workspace data operations.
 
 ## Later resolution
 
