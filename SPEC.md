@@ -201,8 +201,9 @@ it was not recorded.
 The CLI reads persisted history without contacting Codex:
 
 - `task show <id>` returns one entry.
-- `task list` returns entries in append order, optionally filtered by
-  historical project name or exact path.
+- `task list` returns entries newest-first by creation time, optionally filtered
+  by historical project name or exact path. `--ascending` returns oldest-first.
+  The selected order applies to both human rows and the JSON `tasks` array.
 - `task summary` returns the total and per-project counts.
 - `task resolve <id> --thread-id <thread-id>` atomically fills one nullable
   thread ID after Codex verifies the exact structured marker match.

@@ -88,10 +88,42 @@ function print(value, args, human) {
 }
 
 function table(headers, rows) {
+  const display = (value) => value === null || value === undefined || value === ""
+    ? "-"
+    : String(value);
   const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => String(row[index]).length)));
-  const format = (row) => row.map((value, index) => String(value).padEnd(widths[index])).join("  ");
+    Math.max(header.length, ...rows.map((row) => display(row[index]).length)));
+  const format = (row) => row.map((value, index) => index === row.length - 1
+    ? display(value)
+    : display(value).padEnd(widths[index])).join("  ");
   return [format(headers), ...rows.map(format)].join("\n");
+}
+
+function projectRows(projects) {
+  return projects.flatMap((project) => {
+    const repositories = project.githubRepos.length > 0 ? project.githubRepos : [null];
+    return repositories.map((repository) => [
+      project.name,
+      project.isGitRepository ? "git" : "folder",
+      repository,
+      project.path,
+    ]);
+  });
+}
+
+function sortTasksByCreatedAt(tasks, ascending) {
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((left, right) => {
+      const leftCreatedAt = left.task.createdAt;
+      const rightCreatedAt = right.task.createdAt;
+      if (!leftCreatedAt && !rightCreatedAt) return left.index - right.index;
+      if (!leftCreatedAt) return 1;
+      if (!rightCreatedAt) return -1;
+      const chronological = Date.parse(leftCreatedAt) - Date.parse(rightCreatedAt);
+      return (ascending ? chronological : -chronological) || left.index - right.index;
+    })
+    .map(({ task }) => task);
 }
 
 async function initialize(args) {
@@ -161,13 +193,8 @@ async function projectList(args) {
   validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
   const projects = await listProjects(workspaceRoot(args));
   print({ projectCount: projects.length, projects }, args, (value) => table(
-    ["NAME", "KIND", "GITHUB REPOSITORIES", "PATH"],
-    value.projects.map((project) => [
-      project.name,
-      project.isGitRepository ? "git" : "folder",
-      project.githubRepos.join(", ") || "-",
-      project.path,
-    ]),
+    ["NAME", "KIND", "GITHUB REPOSITORY", "PATH"],
+    projectRows(value.projects),
   ));
   return 0;
 }
@@ -215,19 +242,20 @@ async function taskShow(args) {
 async function taskList(args) {
   validateCommandArgs(args, 2, {
     values: ["--workspace", "--project"],
-    switches: ["--json"],
+    switches: ["--ascending", "--json"],
   });
-  const dispatches = await filterTasks(workspaceRoot(args), {
+  const filtered = await filterTasks(workspaceRoot(args), {
     project: option(args, "--project", null),
   });
+  const dispatches = sortTasksByCreatedAt(filtered, args.includes("--ascending"));
   const result = { taskCount: dispatches.length, tasks: dispatches };
   print(result, args, (value) => table(
-    ["ID", "CREATED", "PROJECT", "TITLE"],
+    ["TITLE", "PROJECT", "CREATED", "ID"],
     value.tasks.map((dispatch) => [
-      dispatch.id,
-      dispatch.createdAt,
-      dispatch.project.name,
       dispatch.title,
+      dispatch.project?.name,
+      dispatch.createdAt,
+      dispatch.id,
     ]),
   ));
   return 0;
@@ -257,7 +285,7 @@ Usage:
   taskchef task record [--json] [--workspace <path>]
   taskchef task resolve <task-id> --thread-id <thread-id> [--json] [--workspace <path>]
   taskchef task show <task-id> [--json] [--workspace <path>]
-  taskchef task list [--project <name-or-path>] [--json] [--workspace <path>]
+  taskchef task list [--project <name-or-path>] [--ascending] [--json] [--workspace <path>]
   taskchef task summary [--json] [--workspace <path>]
 
 Task record reads JSON from standard input. Project import reads a JSON

@@ -253,6 +253,17 @@ taskchef project list --workspace <workspace>
 taskchef project remove payments --workspace <workspace>
 ```
 
+Human-readable project listings use one row per GitHub repository. Project
+details repeat on each row so multi-repository projects remain clear, while a
+project without a configured repository has one row containing `-`:
+
+```text
+NAME      KIND    GITHUB REPOSITORY                               PATH
+payments  git     https://github.com/example/payments-api         /workspace/payments
+payments  git     https://github.com/example/payments-sdk         /workspace/payments
+notes     folder  -                                                /workspace/notes
+```
+
 Import projects as a JSON array from a file or standard input:
 
 ```sh
@@ -296,7 +307,18 @@ Inspect the task history without querying Codex tasks:
 taskchef task show t1 --workspace <workspace>
 taskchef task list --workspace <workspace>
 taskchef task list --project payments --workspace <workspace>
+taskchef task list --ascending --workspace <workspace>
 taskchef task summary --workspace <workspace>
+```
+
+Human-readable task listings put the scannable fields first and the durable ID
+last. Values are kept in full and aligned in columns. Tasks are newest-first by
+default; pass `--ascending` to list them from oldest to newest. The same order
+applies to the `tasks` array in `--json` output.
+
+```text
+TITLE           PROJECT   CREATED                   ID
+Add retry logs  payments  2026-08-12T10:00:00.000Z  c0f010ff-84f2-4838-a69d-0ff1f5d721d7
 ```
 
 The complete data contract is in [SPEC.md](SPEC.md). Deferred ideas are in
