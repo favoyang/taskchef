@@ -12,7 +12,8 @@ not maintain a second lifecycle database.
 
 ## Core behavior
 
-1. The user submits a request in the dispatcher workspace.
+1. The user submits a request in the dispatcher workspace or explicitly invokes
+   the delegation skill from another Codex project.
 2. TaskChef separates only outcomes that can proceed independently.
 3. It selects each target using configured project metadata and validates the
    selected local path.
@@ -29,7 +30,7 @@ Several active executors may target the same project.
 ## Workspace layout
 
 ```text
-taskchef/
+~/.agents/taskchef/
 ├── AGENTS.md
 ├── taskchef.json
 └── tasks.jsonl
@@ -44,9 +45,26 @@ instructions and refreshes only the managed block.
 log when missing, refreshes managed instructions, and removes legacy TaskChef
 skill symlinks.
 
+Every command resolves one workspace in this precedence order:
+
+1. explicit `--workspace <path>`
+2. `TASKCHEF_WORKSPACE`
+3. `~/.agents/taskchef`
+
+The current directory is never an implicit workspace. `workspace path` exposes
+the resolved absolute path and its source. Bootstrap compares this canonical
+path with native Codex projects, and when absent invokes the validated
+`codex app <path>` command before verifying the native list again. It never
+uses `codex add` or a hard-coded application bundle path.
+
 `doctor` validates configuration, project paths, the JSONL log, managed
 instructions, and the absence of legacy TaskChef skill links without modifying
 the workspace.
+
+Neither the workspace nor any directory containing it can be configured as a
+delegation project. All project configuration and task-history mutations share
+one cross-process workspace lock. Writers reread and validate state while
+holding that lock and publish complete files by atomic replacement.
 
 ## Project configuration
 

@@ -1,11 +1,12 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
+description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project, explicit delegation from any project, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
 ---
 
 # TaskChef Delegate
 
-Create real Codex tasks from a TaskChef data workspace and return immediately.
+Create real Codex tasks through the canonical per-user TaskChef data workspace
+and return immediately.
 
 Resolve this skill directory with `realpath`. The TaskChef plugin root is two
 parents above the skill directory. Use the TaskChef executable under that root
@@ -26,10 +27,13 @@ for all deterministic workspace and task-record operations.
 
 ## Dispatch
 
-1. Run
-   `<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>`
+1. Run `<plugin-root>/bin/taskchef.js workspace path --json`, then run
+   `<plugin-root>/bin/taskchef.js project list --json`
    to load and validate the configured routing targets. Use
    `$taskchef-bootstrap` if the workspace is missing or unhealthy.
+   The CLI resolves `--workspace`, then `TASKCHEF_WORKSPACE`, then
+   `~/.agents/taskchef`; do not substitute the current project. Reject the
+   dispatcher workspace itself as a target.
 2. Split the request into the smallest independently useful outcomes. Include
    constraints, expected testing, and reporting in every instruction.
 3. Classify against configured `name`, every URL in the `githubRepos` list, and
@@ -50,7 +54,7 @@ for all deterministic workspace and task-record operations.
 6. Create one real Codex task using the exact configured project, a local
    environment on its executor host, the marked instruction, and a short title.
 7. When `create_thread` returns a durable `threadId`, immediately run
-   `<plugin-root>/bin/taskchef.js task record --json --workspace <workspace>`.
+   `<plugin-root>/bin/taskchef.js task record --json`.
    Send exactly `id`, `project`, `title`, `instruction`, and `threadId` as JSON
    on stdin. Use the configured project path for `project`, and send the marked
    instruction unchanged. Never persist a provisional `clientThreadId` or
@@ -114,6 +118,6 @@ Codex and use the CLI only for validated workspace data operations.
 
 When a later Codex workflow finds exactly one durable thread whose structured
 delegated input contains an unresolved task's exact marker, run
-`<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json --workspace <workspace>`.
+`<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json`.
 Never edit `tasks.jsonl` directly. The CLI permits only an idempotent one-way
 transition from `threadId: null` to one unique durable thread ID.

@@ -1,5 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+
+import { openWorkspaceInCodex } from "./codex-app.js";
+import { resolveWorkspacePath } from "./workspace-path.js";
 
 import {
   addProject,
@@ -75,8 +78,14 @@ function validateCommandArgs(
   }
 }
 
+function workspaceSelection(args) {
+  return resolveWorkspacePath({
+    explicit: args.includes("--workspace") ? option(args, "--workspace") : null,
+  });
+}
+
 function workspaceRoot(args) {
-  return path.resolve(option(args, "--workspace", process.cwd()));
+  return workspaceSelection(args).workspace;
 }
 
 function print(value, args, human) {
@@ -127,15 +136,46 @@ function sortTasksByCreatedAt(tasks, ascending) {
 }
 
 async function initialize(args) {
-  validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
-  const result = await initializeWorkspace(workspaceRoot(args));
+  validateCommandArgs(args, 2, {
+    values: ["--workspace", "--codex-cli"],
+    switches: ["--json", "--register-codex"],
+  });
+  const resolution = workspaceSelection(args);
+  const result = await initializeWorkspace(resolution.workspace);
+  result.resolutionSource = resolution.source;
+  let registrationFailed = false;
+  if (args.includes("--register-codex")) {
+    try {
+      result.registration = await openWorkspaceInCodex(result.workspace, {
+        explicit: args.includes("--codex-cli") ? option(args, "--codex-cli") : null,
+      });
+    } catch (error) {
+      registrationFailed = true;
+      result.registration = { status: "failed", reason: error.message };
+    }
+  }
   print(result, args, (value) => [
     `Workspace: ${value.workspace}`,
     `Configuration: ${value.config.action}`,
     `Task log: ${value.tasks.action}`,
     `Instructions: ${value.instructions.action}`,
     `Legacy skill links removed: ${value.legacySkills.removed.length}`,
+    ...(value.registration ? [`Codex opening: ${value.registration.status}`] : []),
   ].join("\n"));
+  return registrationFailed ? 5 : 0;
+}
+
+async function workspacePath(args) {
+  validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
+  const resolution = workspaceSelection(args);
+  const exists = await access(resolution.workspace).then(() => true).catch(() => false);
+  const workspace = exists ? await realpath(resolution.workspace) : resolution.workspace;
+  print({
+    schemaVersion: 1,
+    workspace,
+    source: resolution.source,
+    exists,
+  }, args, (value) => value.workspace);
   return 0;
 }
 
@@ -277,7 +317,8 @@ function usage() {
 Usage:
   taskchef help
   taskchef doctor [--json] [--workspace <path>]
-  taskchef workspace init [--json] [--workspace <path>]
+  taskchef workspace path [--json] [--workspace <path>]
+  taskchef workspace init [--register-codex] [--codex-cli <path>] [--json] [--workspace <path>]
   taskchef project add <path> [--name <name>] [--description <text>] [--github-repo <url> ... | --no-github] [--json] [--workspace <path>]
   taskchef project import [<file> | -] [--replace] [--json] [--workspace <path>]
   taskchef project list [--json] [--workspace <path>]
@@ -290,6 +331,8 @@ Usage:
 
 Task record reads JSON from standard input. Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
+Workspace resolution precedence is --workspace, TASKCHEF_WORKSPACE, then
+~/.agents/taskchef.
 `);
 }
 
@@ -299,6 +342,7 @@ export async function runCli(args) {
     return 0;
   }
   if (args[0] === "doctor") return doctor(args);
+  if (args[0] === "workspace" && args[1] === "path") return workspacePath(args);
   if (args[0] === "workspace" && args[1] === "init") return initialize(args);
   if (args[0] === "project" && args[1] === "add") return projectAdd(args);
   if (args[0] === "project" && args[1] === "import") return projectImport(args);
