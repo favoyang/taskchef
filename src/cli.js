@@ -15,6 +15,8 @@ import {
   resolveTask,
 } from "./workspace.js";
 
+const BLANK_TABLE_CELL = Symbol("blank table cell");
+
 async function readStdin() {
   let input = "";
   process.stdin.setEncoding("utf8");
@@ -88,27 +90,34 @@ function print(value, args, human) {
 }
 
 function table(headers, rows) {
-  const display = (value) => value === null || value === undefined || value === ""
-    ? "-"
-    : String(value);
+  const display = (value) => {
+    if (value === BLANK_TABLE_CELL) return "";
+    if (value === null || value === undefined || value === "") return "-";
+    return String(value);
+  };
   const widths = headers.map((header, index) =>
     Math.max(header.length, ...rows.map((row) => display(row[index]).length)));
   const format = (row) => row.map((value, index) => index === row.length - 1
     ? display(value)
-    : display(value).padEnd(widths[index])).join("  ");
+    : display(value).padEnd(widths[index])).join("  ").trimEnd();
   return [format(headers), ...rows.map(format)].join("\n");
 }
 
 function projectRows(projects) {
-  return projects.flatMap((project) => {
-    const repositories = project.githubRepos.length > 0 ? project.githubRepos : [null];
-    return repositories.map((repository) => [
+  return projects.flatMap((project) => [
+    [
       project.name,
       project.isGitRepository ? "git" : "folder",
-      repository,
+      null,
       project.path,
-    ]);
-  });
+    ],
+    ...project.githubRepos.map((repository, index) => [
+      `  ${index === project.githubRepos.length - 1 ? "└─" : "├─"} repository`,
+      BLANK_TABLE_CELL,
+      repository,
+      BLANK_TABLE_CELL,
+    ]),
+  ]);
 }
 
 function sortTasksByCreatedAt(tasks, ascending) {

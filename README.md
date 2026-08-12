@@ -253,15 +253,17 @@ taskchef project list --workspace <workspace>
 taskchef project remove payments --workspace <workspace>
 ```
 
-Human-readable project listings use one row per GitHub repository. Project
-details repeat on each row so multi-repository projects remain clear, while a
-project without a configured repository has one row containing `-`:
+Human-readable project listings show one parent row per project. Configured
+GitHub repositories appear beneath it as indented tree rows, with repeated kind
+and path cells left blank. A project without a configured repository has only
+its parent row, containing `-` in the repository column:
 
 ```text
-NAME      KIND    GITHUB REPOSITORY                               PATH
-payments  git     https://github.com/example/payments-api         /workspace/payments
-payments  git     https://github.com/example/payments-sdk         /workspace/payments
-notes     folder  -                                                /workspace/notes
+NAME             KIND    GITHUB REPOSITORY                        PATH
+notes            folder  -                                        /workspace/notes
+payments         git     -                                        /workspace/payments
+  ├─ repository          https://github.com/example/payments-api
+  └─ repository          https://github.com/example/payments-sdk
 ```
 
 Import projects as a JSON array from a file or standard input:
