@@ -1753,13 +1753,119 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   ]);
   assert.deepEqual(
     JSON.parse(listed.stdout).tasks.map((item) => item.id),
-    ["dispatch-1", TASK_ID],
+    [TASK_ID, "dispatch-1"],
   );
   const summary = await runCli(["task", "summary", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(summary.stdout).taskCount, 2);
   assert.equal(JSON.parse(summary.stdout).projectCounts.first, 2);
   const doctor = await runCli(["doctor", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(doctor.stdout).ok, true);
+});
+
+test("CLI project list renders one repository per line and preserves JSON output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-project-list-"));
+  const workspace = path.join(root, "workspace");
+  const multiPath = path.join(root, "multi");
+  const zeroPath = path.join(root, "zero");
+  await mkdir(multiPath);
+  await mkdir(zeroPath);
+  await initializeWorkspace(workspace);
+  const multi = await addProject(workspace, {
+    name: "multi",
+    path: multiPath,
+    githubRepos: [
+      "https://github.com/example/one",
+      "https://github.com/example/two",
+    ],
+  });
+  const zero = await addProject(workspace, {
+    name: "zero",
+    path: zeroPath,
+    githubRepos: [],
+  });
+
+  const human = await runCli(["project", "list", "--workspace", workspace]);
+  const header = "NAME   KIND    GITHUB REPOSITORY               PATH";
+  assert.equal(human.stdout, [
+    header,
+    `multi  folder  https://github.com/example/one  ${multi.path}`,
+    `multi  folder  https://github.com/example/two  ${multi.path}`,
+    `zero   folder  -                               ${zero.path}`,
+    "",
+  ].join("\n"));
+  assert.equal(human.stdout.split("\n")[0], header);
+  assert.equal(human.stdout.match(/https:\/\/github\.com\/example\//g)?.length, 2);
+
+  const json = await runCli(["project", "list", "--json", "--workspace", workspace]);
+  assert.deepEqual(JSON.parse(json.stdout), {
+    projectCount: 2,
+    projects: [multi, zero],
+  });
+});
+
+test("CLI task list uses TITLE PROJECT CREATED ID order, filters, sorts, and preserves JSON", async () => {
+  const { workspace, projects } = await fixture(2);
+  const longTitle = "Investigate and document a deliberately long retry-handling failure title";
+  const first = await recordTask(workspace, {
+    ...dispatchInput(projects[0], "task-first", "thread-first"),
+    title: longTitle,
+  }, { now: FIXED_TIME });
+  await recordTask(workspace, dispatchInput(projects[1], "task-second", "thread-second"), {
+    now: "2026-08-08T11:00:00.000Z",
+  });
+  const newest = await recordTask(
+    workspace,
+    dispatchInput(projects[0], "task-newest", "thread-newest"),
+    { now: "2026-08-08T12:00:00.000+05:00" },
+  );
+  const latest = await recordTask(
+    workspace,
+    dispatchInput(projects[0], "task-latest", "thread-latest"),
+    { now: "2026-08-08T08:00:00.000Z" },
+  );
+
+  const human = await runCli([
+    "task", "list", "--project", "project-1", "--workspace", workspace,
+  ]);
+  const createdWidth = "2026-08-08T12:00:00.000+05:00".length;
+  const header = `${"TITLE".padEnd(longTitle.length)}  PROJECT    ${"CREATED".padEnd(createdWidth)}  ID`;
+  assert.equal(human.stdout, [
+    header,
+    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  task-first`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  task-latest`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest`,
+    "",
+  ].join("\n"));
+  assert.deepEqual(human.stdout.trimEnd().split("\n")[0].trim().split(/\s{2,}/), [
+    "TITLE", "PROJECT", "CREATED", "ID",
+  ]);
+  assert.doesNotMatch(human.stdout, /task-second/);
+
+  const json = await runCli([
+    "task", "list", "--project", "PROJECT-1", "--json", "--workspace", workspace,
+  ]);
+  assert.deepEqual(JSON.parse(json.stdout), {
+    taskCount: 3,
+    tasks: [first, latest, newest],
+  });
+  const ascendingHuman = await runCli([
+    "task", "list", "--project", "project-1", "--ascending", "--workspace", workspace,
+  ]);
+  assert.equal(ascendingHuman.stdout, [
+    header,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  task-latest`,
+    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  task-first`,
+    "",
+  ].join("\n"));
+  const ascendingJson = await runCli([
+    "task", "list", "--project", "project-1", "--ascending", "--json",
+    "--workspace", workspace,
+  ]);
+  assert.deepEqual(JSON.parse(ascendingJson.stdout), {
+    taskCount: 3,
+    tasks: [newest, latest, first],
+  });
 });
 
 test("CLI rejects removed legacy commands", async () => {
