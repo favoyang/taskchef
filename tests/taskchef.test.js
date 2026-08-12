@@ -1762,7 +1762,7 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   assert.equal(JSON.parse(doctor.stdout).ok, true);
 });
 
-test("CLI project list groups repository tree rows beneath projects and preserves JSON", async () => {
+test("CLI project list shows the primary repository and aligns additional tree rows", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-project-list-"));
   const workspace = path.join(root, "workspace");
   const multiPath = path.join(root, "multi");
@@ -1778,6 +1778,7 @@ test("CLI project list groups repository tree rows beneath projects and preserve
     githubRepos: [
       "https://github.com/example/one",
       "https://github.com/example/two",
+      "https://github.com/example/three",
     ],
   });
   const zero = await addProject(workspace, {
@@ -1792,20 +1793,24 @@ test("CLI project list groups repository tree rows beneath projects and preserve
   });
 
   const human = await runCli(["project", "list", "--workspace", workspace]);
-  const header = "NAME             KIND    GITHUB REPOSITORY                PATH";
+  const header = "NAME    KIND    GITHUB REPOSITORY                 PATH";
   assert.equal(human.stdout, [
     header,
-    `multi            folder  -                                ${multi.path}`,
-    "  ├─ repository          https://github.com/example/one",
-    "  └─ repository          https://github.com/example/two",
-    `single           folder  -                                ${single.path}`,
-    "  └─ repository          https://github.com/example/only",
-    `zero             folder  -                                ${zero.path}`,
+    `multi   folder  https://github.com/example/one    ${multi.path}`,
+    "  ├─            https://github.com/example/two",
+    "  └─            https://github.com/example/three",
+    `single  folder  https://github.com/example/only   ${single.path}`,
+    `zero    folder  -                                 ${zero.path}`,
     "",
   ].join("\n"));
   assert.equal(human.stdout.split("\n")[0], header);
-  assert.equal(human.stdout.match(/https:\/\/github\.com\/example\//g)?.length, 3);
-  assert.doesNotMatch(human.stdout, /repository\s+-\s+https:/);
+  assert.equal(human.stdout.match(/https:\/\/github\.com\/example\//g)?.length, 4);
+  const lines = human.stdout.trimEnd().split("\n");
+  const repositoryColumn = lines[0].indexOf("GITHUB REPOSITORY");
+  for (const line of lines.slice(1, 4)) {
+    assert.equal(line.indexOf("https://"), repositoryColumn);
+  }
+  assert.equal(lines.some((line) => /\s+$/.test(line)), false);
 
   const json = await runCli(["project", "list", "--json", "--workspace", workspace]);
   assert.deepEqual(JSON.parse(json.stdout), {

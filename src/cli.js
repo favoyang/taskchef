@@ -104,20 +104,20 @@ function table(headers, rows) {
 }
 
 function projectRows(projects) {
-  return projects.flatMap((project) => [
-    [
+  return projects.flatMap((project) => {
+    const [primaryRepository = null, ...additionalRepositories] = project.githubRepos;
+    return [[
       project.name,
       project.isGitRepository ? "git" : "folder",
-      null,
+      primaryRepository,
       project.path,
-    ],
-    ...project.githubRepos.map((repository, index) => [
-      `  ${index === project.githubRepos.length - 1 ? "└─" : "├─"} repository`,
+    ], ...additionalRepositories.map((repository, index) => [
+      `  ${index === additionalRepositories.length - 1 ? "└─" : "├─"}`,
       BLANK_TABLE_CELL,
       repository,
       BLANK_TABLE_CELL,
-    ]),
-  ]);
+    ])];
+  });
 }
 
 function sortTasksByCreatedAt(tasks, ascending) {
