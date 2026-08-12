@@ -42,3 +42,14 @@ export {
   structuredDelegatedInputs,
   taskChefMarker,
 } from "./src/delegation.js";
+
+export {
+  TASKCHEF_WORKSPACE_ENV,
+  defaultWorkspacePath,
+  resolveWorkspacePath,
+} from "./src/workspace-path.js";
+
+export {
+  discoverCodexCli,
+  openWorkspaceInCodex,
+} from "./src/codex-app.js";

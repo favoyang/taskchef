@@ -1,4 +1,4 @@
 interface:
   display_name: "TaskChef Bootstrap"
-  short_description: "Bootstrap TaskChef dispatcher workspaces"
-  default_prompt: "Use $taskchef-bootstrap to initialize or refresh this TaskChef dispatcher workspace."
+  short_description: "Bootstrap the per-user TaskChef workspace"
+  default_prompt: "Use $taskchef-bootstrap to initialize or refresh my per-user TaskChef dispatcher workspace."

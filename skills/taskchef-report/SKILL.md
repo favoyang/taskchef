@@ -5,8 +5,8 @@ description: "Report the live state of Codex tasks recorded in a TaskChef task h
 
 # TaskChef Report
 
-Read the TaskChef task history and report the current state of its Codex
-tasks once.
+Read the canonical per-user TaskChef task history and report the current state
+of its Codex tasks once.
 
 Resolve this skill directory with `realpath`. The TaskChef plugin root is two
 parents above the skill directory. Invoke `<plugin-root>/bin/taskchef.js` for
@@ -14,13 +14,16 @@ all deterministic task-log operations.
 
 ## Report
 
-1. Select only the tasks the user asked about:
+1. Run `<plugin-root>/bin/taskchef.js workspace path --json`. The CLI resolves
+   `--workspace`, then `TASKCHEF_WORKSPACE`, then `~/.agents/taskchef`; never
+   infer the history from the current project. Select only the tasks the user
+   asked about:
    - For an exact task ID, run
-     `<plugin-root>/bin/taskchef.js task show <task-id> --json --workspace <workspace>`.
+     `<plugin-root>/bin/taskchef.js task show <task-id> --json`.
    - For a project, run
-     `<plugin-root>/bin/taskchef.js task list --project <name-or-path> --json --workspace <workspace>`.
+     `<plugin-root>/bin/taskchef.js task list --project <name-or-path> --json`.
    - For a title or other description, run
-     `<plugin-root>/bin/taskchef.js task list --json --workspace <workspace>`
+     `<plugin-root>/bin/taskchef.js task list --json`
      once, then select matching entries. Ask the user if the match is ambiguous.
    - Use the full list only when the user asks for an overview of the task history.
 2. Separate entries whose `threadId` is `null`. For those entries, take one
@@ -28,7 +31,7 @@ all deterministic task-log operations.
    and inspect candidate structured delegated inputs. Use title only to
    prioritize candidates, never to exclude them. When exactly one candidate
    starts with the task's exact marker, run
-   `<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json --workspace <workspace>`.
+   `<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json`.
    Do not resolve zero or multiple matches. Report unmatched entries as
    recorded but unresolved and do not pass them to native thread tools.
 3. Query every resolved or previously durable thread exactly once using

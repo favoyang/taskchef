@@ -9,14 +9,17 @@ import {
   readdir,
   realpath,
   rename,
+  stat,
   symlink,
   unlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
+import lockfile from "proper-lockfile";
 import * as taskchef from "../index.js";
 
 import {
@@ -27,6 +30,8 @@ import {
   buildTaskSummary,
   canonicalGithubRepository,
   canonicalDirectory,
+  defaultWorkspacePath,
+  discoverCodexCli,
   doctorWorkspace,
   ensureWorkspaceInstructions,
   ensureWorkspaceSkills,
@@ -45,6 +50,7 @@ import {
   requireSafeId,
   parseTaskChefMarker,
   prepareDelegation,
+  resolveWorkspacePath,
   validateConfig,
 } from "../index.js";
 import {
@@ -148,12 +154,12 @@ function dispatchInput(project, id = "dispatch-1", threadId = `thread-${id}`) {
   };
 }
 
-async function runCli(args, { input = "", cwd } = {}) {
+async function runCli(args, { input = "", cwd, env = {} } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFileCallback(
       process.execPath,
       [path.resolve("bin/taskchef.js"), ...args],
-      { cwd: cwd ?? process.cwd() },
+      { cwd: cwd ?? process.cwd(), env: { ...process.env, ...env } },
       (error, stdout, stderr) => {
         if (error) {
           error.stdout = stdout;
@@ -177,12 +183,160 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
   assert.equal(initialized.config.action, "created");
   assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks.jsonl"]);
   assert.equal(await readFile(path.join(workspace, "tasks.jsonl"), "utf8"), "");
+  assert.equal((await stat(workspace)).mode & 0o777, 0o700);
+  for (const fileName of ["AGENTS.md", "taskchef.json", "tasks.jsonl"]) {
+    assert.equal((await stat(path.join(workspace, fileName))).mode & 0o777, 0o600);
+  }
 
   const repeated = await initializeWorkspace(workspace);
   assert.equal(repeated.config.action, "unchanged");
   assert.equal(repeated.tasks.action, "unchanged");
   assert.equal(repeated.instructions.action, "unchanged");
   assert.deepEqual(repeated.legacySkills.removed, []);
+});
+
+test("workspace resolution prefers explicit, environment, then the per-user default", () => {
+  const homedir = "/Users/example";
+  assert.equal(defaultWorkspacePath({ homedir }), "/Users/example/.agents/taskchef");
+  assert.deepEqual(resolveWorkspacePath({ homedir, cwd: "/tmp", env: {} }), {
+    workspace: "/Users/example/.agents/taskchef",
+    source: "default",
+  });
+  assert.deepEqual(resolveWorkspacePath({
+    homedir,
+    cwd: "/tmp",
+    env: { TASKCHEF_WORKSPACE: "~/shared-taskchef" },
+  }), {
+    workspace: "/Users/example/shared-taskchef",
+    source: "environment",
+  });
+  assert.deepEqual(resolveWorkspacePath({
+    explicit: "./chosen",
+    homedir,
+    cwd: "/tmp",
+    env: { TASKCHEF_WORKSPACE: "/ignored" },
+  }), {
+    workspace: "/tmp/chosen",
+    source: "explicit",
+  });
+  assert.throws(
+    () => resolveWorkspacePath({ homedir, env: { TASKCHEF_WORKSPACE: "" } }),
+    /must be a non-empty path/,
+  );
+});
+
+test("CLI uses the per-user default independently of its current directory", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "taskchef-home-"));
+  const firstCwd = await mkdtemp(path.join(os.tmpdir(), "taskchef-cwd-a-"));
+  const secondCwd = await mkdtemp(path.join(os.tmpdir(), "taskchef-cwd-b-"));
+  const initialized = JSON.parse((await runCli(["workspace", "init", "--json"], {
+    cwd: firstCwd,
+    env: { HOME: home },
+  })).stdout);
+  assert.equal(initialized.workspace, path.join(await realpath(home), ".agents", "taskchef"));
+  assert.equal(initialized.resolutionSource, "default");
+  const resolved = JSON.parse((await runCli(["workspace", "path", "--json"], {
+    cwd: secondCwd,
+    env: { HOME: home },
+  })).stdout);
+  assert.equal(resolved.workspace, initialized.workspace);
+  assert.equal(resolved.exists, true);
+});
+
+test("Codex CLI discovery prefers a desktop-bundled PATH candidate and validates app support", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-codex-cli-"));
+  const bundledDirectory = path.join(root, "ChatGPT.app", "Contents", "Resources");
+  await mkdir(bundledDirectory, { recursive: true });
+  const bundled = path.join(bundledDirectory, "codex");
+  await writeFile(bundled, "#!/bin/sh\nprintf 'Usage: codex app [OPTIONS] [PATH]\\n'\n", { mode: 0o700 });
+  const found = await discoverCodexCli({ env: { PATH: bundledDirectory } });
+  assert.equal(found.path, bundled);
+  assert.equal(found.source, "desktop-path");
+});
+
+test("Codex CLI discovery preserves a multicall shim invocation path", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-codex-shim-"));
+  const target = path.join(root, "mise");
+  const shim = path.join(root, "codex");
+  await writeFile(target, [
+    "#!/bin/sh",
+    "if [ \"${0##*/}\" != \"codex\" ]; then exit 2; fi",
+    "if [ \"$1\" = \"app\" ] && [ \"$2\" = \"--help\" ]; then",
+    "  printf 'Usage: codex app [OPTIONS] [PATH]\\n'",
+    "  exit 0",
+    "fi",
+    "exit 2",
+    "",
+  ].join("\n"), { mode: 0o700 });
+  await symlink(target, shim);
+  const found = await discoverCodexCli({ explicit: shim });
+  assert.equal(found.path, shim);
+  assert.equal(found.source, "explicit");
+});
+
+test("Codex CLI discovery never probes lower-precedence PATH entries", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-codex-path-order-"));
+  const firstDirectory = path.join(root, "first");
+  const secondDirectory = path.join(root, "second");
+  const lowerProbe = path.join(root, "lower-probed");
+  await Promise.all([mkdir(firstDirectory), mkdir(secondDirectory)]);
+  await writeFile(path.join(firstDirectory, "codex"), [
+    "#!/bin/sh",
+    "printf 'Usage: codex app [OPTIONS] [PATH]\\n'",
+    "",
+  ].join("\n"), { mode: 0o700 });
+  await writeFile(path.join(secondDirectory, "codex"), [
+    "#!/bin/sh",
+    `printf 'invoked\\n' > ${JSON.stringify(lowerProbe)}`,
+    "exit 2",
+    "",
+  ].join("\n"), { mode: 0o700 });
+  const found = await discoverCodexCli({
+    env: { PATH: [firstDirectory, secondDirectory].join(path.delimiter) },
+  });
+  assert.equal(found.path, path.join(firstDirectory, "codex"));
+  await assert.rejects(lstat(lowerProbe), { code: "ENOENT" });
+});
+
+test("workspace init can request Codex app opening through an explicit validated CLI", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-register-"));
+  const workspace = path.join(root, "workspace");
+  const log = path.join(root, "codex.log");
+  const codex = path.join(root, "codex");
+  await writeFile(codex, [
+    "#!/bin/sh",
+    "if [ \"$1\" = \"app\" ] && [ \"$2\" = \"--help\" ]; then",
+    "  printf 'Usage: codex app [OPTIONS] [PATH]\\n'",
+    "  exit 0",
+    "fi",
+    `printf '%s\\n' \"$*\" >> ${JSON.stringify(log)}`,
+    "",
+  ].join("\n"), { mode: 0o700 });
+  const result = JSON.parse((await runCli([
+    "workspace", "init", "--register-codex", "--codex-cli", codex,
+    "--workspace", workspace, "--json",
+  ])).stdout);
+  assert.equal(result.registration.status, "requested");
+  assert.equal(await readFile(log, "utf8"), `app ${await realpath(workspace)}\n`);
+});
+
+test("Codex opening failure leaves an initialized workspace and returns structured recovery", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-register-failure-"));
+  const workspace = path.join(root, "workspace");
+  await assert.rejects(
+    runCli([
+      "workspace", "init", "--register-codex", "--codex-cli", path.join(root, "missing"),
+      "--workspace", workspace, "--json",
+    ]),
+    (error) => {
+      assert.equal(error.code, 5);
+      const result = JSON.parse(error.stdout);
+      assert.equal(result.registration.status, "failed");
+      assert.match(result.registration.reason, /not executable/);
+      return true;
+    },
+  );
+  assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks.jsonl"]);
 });
 
 test("public task history API uses task terminology", () => {
@@ -1060,7 +1214,7 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests from an initialized TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in a TaskChef workspace, explicit delegation, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
+    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project, explicit delegation from any project, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
   );
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
   assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|report)\b/);
@@ -1070,9 +1224,10 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.deepEqual(
     literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
     [
-      "<plugin-root>/bin/taskchef.js project list --json --workspace <workspace>",
-      "<plugin-root>/bin/taskchef.js task record --json --workspace <workspace>",
-      "<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json --workspace <workspace>",
+      "<plugin-root>/bin/taskchef.js workspace path --json",
+      "<plugin-root>/bin/taskchef.js project list --json",
+      "<plugin-root>/bin/taskchef.js task record --json",
+      "<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json",
     ],
   );
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
@@ -1091,11 +1246,22 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.match(backlog, /resolve_client_thread\(clientThreadId\)/);
 });
 
+test("bootstrap skill initializes and verifies the canonical Codex project without hard-coded paths", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-bootstrap/SKILL.md"), "utf8");
+  assert.match(content, /taskchef\.js workspace path --json|workspace path --json/);
+  assert.match(content, /workspace init --register-codex --json/);
+  assert.match(content, /list native projects once more/);
+  assert.match(content, /~\/\.agents\/taskchef/);
+  assert.match(content, /never invoke\s+`codex add`/);
+  assert.doesNotMatch(content, /\/Applications\/[^\s]+\.app\/Contents\/Resources\/codex/);
+});
+
 test("report skill resolves exact nullable matches and reads live state once", async () => {
   const content = await readFile(path.resolve("skills/taskchef-report/SKILL.md"), "utf8");
   assert.match(content, /^name: taskchef-report$/m);
-  assert.match(content, /taskchef\.js task show <task-id> --json --workspace/);
-  assert.match(content, /taskchef\.js task list --project <name-or-path> --json --workspace/);
+  assert.match(content, /taskchef\.js workspace path --json/);
+  assert.match(content, /taskchef\.js task show <task-id> --json/);
+  assert.match(content, /taskchef\.js task list --project <name-or-path> --json/);
   assert.match(content, /Use the full list only when the user asks for an overview/);
   assert.match(content, /no more than\s+eight targets per call/);
   assert.match(content, /Never edit `tasks\.jsonl` directly/);
@@ -1128,6 +1294,15 @@ test("init rejects a symlinked dispatch log", async () => {
     /managed workspace path is not a regular file/,
   );
   assert.equal(await readFile(outside, "utf8"), "outside\n");
+});
+
+test("init rejects a symlinked workspace root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-symlink-root-"));
+  const outside = path.join(root, "outside");
+  const workspace = path.join(root, "workspace");
+  await mkdir(outside);
+  await symlink(outside, workspace);
+  await assert.rejects(initializeWorkspace(workspace), /workspace path is not a real directory/);
 });
 
 test("init rejects symlinked managed workspace files without reading them", async () => {
@@ -1349,6 +1524,56 @@ test("project import merges by canonical path and preserves omitted curation", a
   assert.equal(replaced.mode, "replace");
   assert.deepEqual((await listProjects(workspace)).map((project) => project.name), ["second-only"]);
   await assert.rejects(importProjects(workspace, {}), /JSON array/);
+});
+
+test("concurrent project configuration writes do not lose updates", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-config-race-"));
+  const workspace = path.join(root, "workspace");
+  await initializeWorkspace(workspace);
+  const projects = await Promise.all([
+    gitProject(root, "first"),
+    gitProject(root, "second"),
+    gitProject(root, "third"),
+  ]);
+  await Promise.all(projects.map((project, index) => addProject(workspace, {
+    name: `project-${index + 1}`,
+    path: project,
+  })));
+  assert.deepEqual((await listProjects(workspace)).map((project) => project.name), [
+    "project-1", "project-2", "project-3",
+  ]);
+});
+
+test("workspace cannot be configured inside a delegation project", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-self-route-"));
+  const workspace = path.join(root, "workspace");
+  await initializeWorkspace(workspace);
+  await assert.rejects(
+    addProject(workspace, { name: "taskchef", path: workspace }),
+    /cannot be configured as its own delegation project/,
+  );
+  await assert.rejects(
+    importProjects(workspace, [{ name: "taskchef", path: workspace }]),
+    /cannot be configured as its own delegation project/,
+  );
+  await assert.rejects(
+    addProject(workspace, { name: "ancestor", path: root }),
+    /inside a delegation project/,
+  );
+  await assert.rejects(
+    importProjects(workspace, [{ name: "ancestor", path: root }]),
+    /inside a delegation project/,
+  );
+  await writeFile(path.join(workspace, "taskchef.json"), `${JSON.stringify({
+    schemaVersion: 2,
+    projects: [{
+      name: "ancestor",
+      path: root,
+      isGitRepository: false,
+      githubRepos: [],
+    }],
+  })}\n`);
+  await assert.rejects(readConfig(workspace), /inside a delegation project/);
 });
 
 test("project removal and replacement preserve historical dispatch snapshots", async () => {
@@ -1587,7 +1812,7 @@ test("concurrent dispatch recording cannot poison the journey", async () => {
   assert.equal(settled.filter((item) => item.status === "rejected").length, 1);
   assert.match(settled.find((item) => item.status === "rejected").reason.message, /already/);
   assert.deepEqual((await listTasks(workspace)).map((item) => item.id), ["same"]);
-  await assert.rejects(lstat(path.join(workspace, ".taskchef-dispatch.lock")), { code: "ENOENT" });
+  await assert.rejects(lstat(path.join(workspace, ".taskchef-workspace.lock")), { code: "ENOENT" });
 
   await Promise.all([
     recordTask(workspace, dispatchInput(projects[0], "distinct-a", "thread-distinct-a")),
@@ -1609,18 +1834,42 @@ test("concurrent dispatch recording cannot poison the journey", async () => {
 
 test("dispatch operations recover an abandoned lock", async () => {
   const { workspace, projects } = await fixture(1);
-  const lockPath = path.join(workspace, ".taskchef-dispatch.lock");
+  const lockPath = path.join(workspace, ".taskchef-workspace.lock");
   await mkdir(lockPath);
+  const abandonedAt = new Date(Date.now() - 700_000);
+  await utimes(lockPath, abandonedAt, abandonedAt);
 
   await recordTask(workspace, dispatchInput(projects[0], "after-crash", "thread-after-crash"));
   assert.deepEqual((await listTasks(workspace)).map((item) => item.id), ["after-crash"]);
   await assert.rejects(lstat(lockPath), { code: "ENOENT" });
 });
 
+test("a live workspace writer is not reaped after the former five-second stale window", async () => {
+  const { workspace, projects } = await fixture(1);
+  const lockPath = path.join(workspace, ".taskchef-workspace.lock");
+  const release = await lockfile.lock(workspace, {
+    realpath: false,
+    lockfilePath: lockPath,
+    stale: 600_000,
+    update: 10_000,
+  });
+  const startedAt = Date.now();
+  const recording = recordTask(
+    workspace,
+    dispatchInput(projects[0], "after-live-writer", "thread-after-live-writer"),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 5_200));
+  assert.equal((await listTasks(workspace)).length, 0);
+  await release();
+  await recording;
+  assert.ok(Date.now() - startedAt >= 5_000);
+  assert.deepEqual((await listTasks(workspace)).map((item) => item.id), ["after-live-writer"]);
+});
+
 test("journey reads and doctor do not require workspace write access", async () => {
   const { workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0]));
-  const lockPath = path.join(workspace, ".taskchef-dispatch.lock");
+  const lockPath = path.join(workspace, ".taskchef-workspace.lock");
   await chmod(workspace, 0o555);
   try {
     assert.equal((await listTasks(workspace)).length, 1);

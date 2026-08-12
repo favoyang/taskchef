@@ -11,8 +11,8 @@ next request or open any executor and work with it directly.
 
 ## The mental model
 
-- The **dispatcher workspace** is a small folder that stores project routes and
-  task history. A Codex task opened in this folder is the
+- The **dispatcher workspace** is the per-user `~/.agents/taskchef` folder that
+  stores project routes and task history. A Codex task opened in this folder is the
   **dispatcher**.
 - A **configured project** is a local repository or folder where TaskChef may
   send work.
@@ -46,23 +46,16 @@ codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
 ```
 
-### 2. Create the dispatcher workspace
+### 2. Bootstrap the dispatcher workspace
 
-Create a folder wherever you keep local projects:
-
-```sh
-mkdir -p ~/taskchef
-cd ~/taskchef
-```
-
-Add `~/taskchef` as a project in Codex. Start a new task in that project and
-run the bootstrap skill:
+Invoke the bootstrap skill from any Codex project:
 
 ```text
-$taskchef-bootstrap Set up TaskChef in this folder.
+$taskchef-bootstrap Set up TaskChef.
 ```
 
-Bootstrap creates:
+Bootstrap creates `~/.agents/taskchef`, opens it in the current Codex desktop
+app when it is not already a saved local project, and creates:
 
 ```text
 AGENTS.md
@@ -81,8 +74,9 @@ any of them route to the workspace. If a project needs more context, extend its
 optional `description` field with responsibilities and keywords that
 distinguish it from nearby projects.
 
-The generated `AGENTS.md` turns ordinary requests in this project into
-delegated work. You do not need to name the delegate skill each time.
+The generated `AGENTS.md` turns ordinary requests in the TaskChef project into
+delegated work. From any other project, explicitly invoke `$taskchef-delegate`;
+it uses the same configuration and task history.
 
 ### 3. Delegate the first task
 
@@ -220,6 +214,7 @@ that create and inspect executor tasks. From a source checkout, use
 ```text
 taskchef help
 taskchef doctor
+taskchef workspace path
 taskchef workspace init
 taskchef project add <path>
 taskchef project import [<file> | -]
@@ -232,25 +227,58 @@ taskchef task list
 taskchef task summary
 ```
 
-Workspace and data commands accept `--workspace <path>` and default to the
-current directory. Data commands accept `--json` for machine-readable output.
-Run `taskchef help` for every option.
+Workspace resolution is deterministic: `--workspace <path>`, then the
+`TASKCHEF_WORKSPACE` environment variable, then `~/.agents/taskchef`. The
+current directory is never an implicit workspace. Data commands accept
+`--json` for machine-readable output. Run `taskchef help` for every option.
+
+### One-time upgrade from an older workspace
+
+TaskChef 5 does not include a general migration command. For a one-time upgrade,
+stop delegating and validate the old workspace. Then perform this one-time copy
+only when the destination does not already exist:
+
+```sh
+set -eu
+old_workspace=/path/to/old-taskchef-workspace
+new_workspace="$HOME/.agents/taskchef"
+backup_workspace="$old_workspace.pre-taskchef-5-backup"
+if [ -e "$new_workspace" ]; then
+  printf '%s\n' "Refusing to overwrite existing destination: $new_workspace" >&2
+  exit 1
+fi
+if [ -e "$backup_workspace" ]; then
+  printf '%s\n' "Refusing to overwrite existing backup: $backup_workspace" >&2
+  exit 1
+fi
+taskchef doctor --workspace "$old_workspace"
+cp -pR "$old_workspace" "$backup_workspace"
+install -d -m 700 "$new_workspace"
+install -m 600 "$old_workspace/AGENTS.md" "$new_workspace/AGENTS.md"
+install -m 600 "$old_workspace/taskchef.json" "$new_workspace/taskchef.json"
+install -m 600 "$old_workspace/tasks.jsonl" "$new_workspace/tasks.jsonl"
+taskchef workspace init --workspace "$new_workspace" --register-codex
+taskchef doctor --workspace "$new_workspace"
+```
+
+Keep the backup and old saved Codex project until `project list`, `task list`,
+and `doctor` confirm the expected project and task counts. Do not merge several
+histories by hand; conflicting task or thread IDs require case-by-case review.
 
 ### Project administration
 
 ```sh
-taskchef workspace init --workspace <workspace>
-taskchef doctor --workspace <workspace>
+taskchef workspace init
+taskchef doctor
 
 taskchef project add /workspace/payments \
   --name payments \
   --description "Owns payment authorization, capture, and refunds." \
   --github-repo https://github.com/example/payments-api \
-  --github-repo https://github.com/example/payments-sdk \
-  --workspace <workspace>
+  --github-repo https://github.com/example/payments-sdk
 
-taskchef project list --workspace <workspace>
-taskchef project remove payments --workspace <workspace>
+taskchef project list
+taskchef project remove payments
 ```
 
 Human-readable project listings show one row per configured GitHub repository.
@@ -268,8 +296,8 @@ payments  git     https://github.com/example/payments-sdk  /workspace/payments
 Import projects as a JSON array from a file or standard input:
 
 ```sh
-taskchef project import projects.json --workspace <workspace>
-taskchef project import - --workspace <workspace> < projects.json
+taskchef project import projects.json
+taskchef project import - < projects.json
 ```
 
 Import merges by canonical path, preserves an existing name or description
@@ -289,7 +317,7 @@ task lines remain readable without an eager rewrite of the append-only history.
 
 ```sh
 printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"# taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
-  taskchef task record --json --workspace <workspace>
+  taskchef task record --json
 ```
 
 If a task has `threadId: null`, Codex can later find its exact marker and pass
@@ -298,18 +326,17 @@ one-way transition from null to one unique thread ID:
 
 ```sh
 taskchef task resolve c0f010ff-84f2-4838-a69d-0ff1f5d721d7 \
-  --thread-id 019f9d46-f42c-7482-9707-3c107bf241ee \
-  --workspace <workspace>
+  --thread-id 019f9d46-f42c-7482-9707-3c107bf241ee
 ```
 
 Inspect the task history without querying Codex tasks:
 
 ```sh
-taskchef task show t1 --workspace <workspace>
-taskchef task list --workspace <workspace>
-taskchef task list --project payments --workspace <workspace>
-taskchef task list --ascending --workspace <workspace>
-taskchef task summary --workspace <workspace>
+taskchef task show t1
+taskchef task list
+taskchef task list --project payments
+taskchef task list --ascending
+taskchef task summary
 ```
 
 Human-readable task listings put the scannable fields first and the durable ID

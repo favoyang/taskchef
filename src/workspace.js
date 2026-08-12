@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import {
   access,
+  chmod,
   lstat,
   mkdir,
   readFile,
@@ -39,7 +40,7 @@ const TASKCHEF_SKILL_NAMES = [
 const LEGACY_TASKCHEF_SKILL_NAMES = [...TASKCHEF_SKILL_NAMES, "taskchef-reconcile"];
 const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url));
 const DISPATCH_FILE_NAME = "tasks.jsonl";
-const DISPATCH_LOCK_NAME = ".taskchef-dispatch.lock";
+const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_SCHEMA_VERSION = 2;
 const LEGACY_SCHEMA_VERSION = 1;
@@ -147,14 +148,22 @@ async function managedRegularFileExists(filePath) {
   return true;
 }
 
-async function withDispatchLock(workspaceRoot, operation) {
-  const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
-  const lockPath = path.join(workspaceRoot, DISPATCH_LOCK_NAME);
-  const release = await lockfile.lock(dispatchPath, {
+function assertWorkspaceOutsideProject(workspaceRoot, projectPath) {
+  const relative = path.relative(projectPath, workspaceRoot);
+  if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) {
+    throw new Error(
+      "TaskChef workspace cannot be configured as its own delegation project or inside a delegation project",
+    );
+  }
+}
+
+async function withWorkspaceLock(workspaceRoot, operation) {
+  const lockPath = path.join(workspaceRoot, WORKSPACE_LOCK_NAME);
+  const release = await lockfile.lock(workspaceRoot, {
     realpath: false,
     lockfilePath: lockPath,
-    stale: 5_000,
-    update: 1_000,
+    stale: 600_000,
+    update: 10_000,
     retries: { retries: 70, factor: 1, minTimeout: 100, maxTimeout: 100 },
   });
   try {
@@ -211,7 +220,7 @@ async function writeTextAtomic(filePath, value) {
   const mode = await stat(filePath)
     .then((details) => details.mode & 0o777)
     .catch((error) => {
-      if (error.code === "ENOENT") return 0o644;
+      if (error.code === "ENOENT") return 0o600;
       throw error;
     });
   await writeFile(temporaryPath, value, {
@@ -551,43 +560,55 @@ async function ensureDispatchFile(workspaceRoot) {
 
 export async function initializeWorkspace(workspaceRoot) {
   const requestedRoot = path.resolve(workspaceRoot);
-  await mkdir(requestedRoot, { recursive: true });
+  await mkdir(requestedRoot, { recursive: true, mode: 0o700 });
+  const requestedDetails = await lstat(requestedRoot);
+  if (requestedDetails.isSymbolicLink() || !requestedDetails.isDirectory()) {
+    throw new Error(`workspace path is not a real directory: ${requestedRoot}`);
+  }
+  if (typeof process.getuid === "function" && requestedDetails.uid !== process.getuid()) {
+    throw new Error(`workspace is not owned by the current user: ${requestedRoot}`);
+  }
   const root = await realpath(requestedRoot);
-  const configPath = path.join(root, "taskchef.json");
-  const configExists = await managedRegularFileExists(configPath);
-  const storedConfigVersion = configExists
-    ? JSON.parse(await readFile(configPath, "utf8")).schemaVersion
-    : null;
-  const config = configExists
-    ? await readConfig(root, { checkPaths: false })
-    : { schemaVersion: CURRENT_SCHEMA_VERSION, projects: [] };
-  const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
-  if (configExists && (await managedRegularFileExists(dispatchPath))) {
-    await readDispatchesUnlocked(root);
-  }
-  const { legacySkills } = await ensureWorkspaceSkills(root);
-  if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
-  else if (storedConfigVersion !== CURRENT_SCHEMA_VERSION) {
-    await writeJsonAtomic(configPath, config);
-  }
-  const tasks = await ensureDispatchFile(root);
-  const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
-    if (!configExists) await unlink(configPath).catch(() => {});
-    throw error;
+  await chmod(root, 0o700);
+  return withWorkspaceLock(root, async () => {
+    const configPath = path.join(root, "taskchef.json");
+    const configExists = await managedRegularFileExists(configPath);
+    const storedConfigVersion = configExists
+      ? JSON.parse(await readFile(configPath, "utf8")).schemaVersion
+      : null;
+    const config = configExists
+      ? await readConfig(root, { checkPaths: false })
+      : { schemaVersion: CURRENT_SCHEMA_VERSION, projects: [] };
+    const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
+    if (configExists && (await managedRegularFileExists(dispatchPath))) {
+      await readDispatchesUnlocked(root);
+    }
+    const { legacySkills } = await ensureWorkspaceSkills(root);
+    if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
+    else if (storedConfigVersion !== CURRENT_SCHEMA_VERSION) {
+      await writeJsonAtomic(configPath, config);
+    }
+    const tasks = await ensureDispatchFile(root);
+    const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
+      if (!configExists) await unlink(configPath).catch(() => {});
+      throw error;
+    });
+    await Promise.all([configPath, tasks.path, instructions.path]
+      .map((filePath) => chmod(filePath, 0o600)));
+    return {
+      workspace: root,
+      config: {
+        path: configPath,
+        action: !configExists
+          ? "created"
+          : storedConfigVersion === CURRENT_SCHEMA_VERSION ? "unchanged" : "migrated",
+        value: config,
+      },
+      tasks,
+      instructions,
+      legacySkills,
+    };
   });
-  return {
-    workspace: root,
-    config: {
-      path: configPath,
-      action: !configExists
-        ? "created"
-        : storedConfigVersion === CURRENT_SCHEMA_VERSION ? "unchanged" : "migrated",
-      value: config,
-    },
-    tasks,
-    instructions,
-    legacySkills,
-  };
 }
 
 export async function readConfig(workspaceRoot, { checkPaths = true } = {}) {
@@ -596,8 +617,10 @@ export async function readConfig(workspaceRoot, { checkPaths = true } = {}) {
   if (!(await managedRegularFileExists(configPath))) {
     throw new Error(`configuration does not exist: ${configPath}`);
   }
-  const config = JSON.parse(await readFile(configPath, "utf8"));
-  return validateConfig(config, { checkPaths });
+  const config = await validateConfig(JSON.parse(await readFile(configPath, "utf8")), { checkPaths });
+  const canonicalRoot = await realpath(root);
+  for (const project of config.projects) assertWorkspaceOutsideProject(canonicalRoot, project.path);
+  return config;
 }
 
 export async function listProjects(workspaceRoot) {
@@ -606,68 +629,76 @@ export async function listProjects(workspaceRoot) {
 }
 
 export async function addProject(workspaceRoot, input) {
-  const root = path.resolve(workspaceRoot);
-  const config = await readConfig(root);
-  const project = await inspectProject(input);
-  const updated = await validateConfig({
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    projects: [...config.projects, project],
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const config = await readConfig(root);
+    const project = await inspectProject(input);
+    assertWorkspaceOutsideProject(root, project.path);
+    const updated = await validateConfig({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projects: [...config.projects, project],
+    });
+    await writeJsonAtomic(path.join(root, "taskchef.json"), updated);
+    return project;
   });
-  await writeJsonAtomic(path.join(root, "taskchef.json"), updated);
-  return project;
 }
 
 export async function importProjects(workspaceRoot, inputs, { replace = false } = {}) {
   if (!Array.isArray(inputs)) throw new Error("project import must be a JSON array");
-  const root = path.resolve(workspaceRoot);
-  const current = await readConfig(root, { checkPaths: !replace });
-  const imported = [];
-  for (const [index, input] of inputs.entries()) {
-    const canonicalPath = await canonicalDirectory(input?.path);
-    const existing = current.projects.find((project) => project.path === canonicalPath);
-    const mergedInput = { ...input, path: canonicalPath };
-    if (!("name" in mergedInput) && existing) mergedInput.name = existing.name;
-    if (!("description" in mergedInput) && existing?.description) {
-      mergedInput.description = existing.description;
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const current = await readConfig(root, { checkPaths: !replace });
+    const imported = [];
+    for (const [index, input] of inputs.entries()) {
+      const canonicalPath = await canonicalDirectory(input?.path);
+      assertWorkspaceOutsideProject(root, canonicalPath);
+      const existing = current.projects.find((project) => project.path === canonicalPath);
+      const mergedInput = { ...input, path: canonicalPath };
+      if (!("name" in mergedInput) && existing) mergedInput.name = existing.name;
+      if (!("description" in mergedInput) && existing?.description) {
+        mergedInput.description = existing.description;
+      }
+      if (existing && !replace) {
+        const importedRepositories = "githubRepos" in mergedInput
+          ? normalizeGithubRepositories(mergedInput.githubRepos, `projects[${index}].githubRepos`)
+          : [];
+        mergedInput.githubRepos = [...existing.githubRepos, ...importedRepositories];
+      }
+      imported.push(await inspectProject(mergedInput, index));
     }
-    if (existing && !replace) {
-      const importedRepositories = "githubRepos" in mergedInput
-        ? normalizeGithubRepositories(mergedInput.githubRepos, `projects[${index}].githubRepos`)
-        : [];
-      mergedInput.githubRepos = [...existing.githubRepos, ...importedRepositories];
+    const projects = replace ? [] : [...current.projects];
+    for (const project of imported) {
+      const index = projects.findIndex((existing) => existing.path === project.path);
+      if (index === -1) projects.push(project);
+      else projects[index] = project;
     }
-    imported.push(await inspectProject(mergedInput, index));
-  }
-  const projects = replace ? [] : [...current.projects];
-  for (const project of imported) {
-    const index = projects.findIndex((existing) => existing.path === project.path);
-    if (index === -1) projects.push(project);
-    else projects[index] = project;
-  }
-  const config = await validateConfig({ schemaVersion: CURRENT_SCHEMA_VERSION, projects });
-  await writeJsonAtomic(path.join(root, "taskchef.json"), config);
-  return {
-    mode: replace ? "replace" : "merge",
-    importedCount: imported.length,
-    projectCount: config.projects.length,
-    projects: imported,
-  };
+    const config = await validateConfig({ schemaVersion: CURRENT_SCHEMA_VERSION, projects });
+    await writeJsonAtomic(path.join(root, "taskchef.json"), config);
+    return {
+      mode: replace ? "replace" : "merge",
+      importedCount: imported.length,
+      projectCount: config.projects.length,
+      projects: imported,
+    };
+  });
 }
 
 export async function removeProject(workspaceRoot, name) {
-  const root = path.resolve(workspaceRoot);
-  const config = await readConfig(root, { checkPaths: false });
-  const index = config.projects.findIndex(
-    (project) => project.name.toLowerCase() === requireString(name, "project name").toLowerCase(),
-  );
-  if (index === -1) throw new Error(`configured project not found: ${name}`);
-  const [project] = config.projects.slice(index, index + 1);
-  const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
-  await writeJsonAtomic(path.join(root, "taskchef.json"), {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    projects,
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const config = await readConfig(root, { checkPaths: false });
+    const index = config.projects.findIndex(
+      (project) => project.name.toLowerCase() === requireString(name, "project name").toLowerCase(),
+    );
+    if (index === -1) throw new Error(`configured project not found: ${name}`);
+    const [project] = config.projects.slice(index, index + 1);
+    const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
+    await writeJsonAtomic(path.join(root, "taskchef.json"), {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projects,
+    });
+    return { project };
   });
-  return { project };
 }
 
 async function validateDispatchShape(dispatch, name = "task") {
@@ -753,20 +784,20 @@ export async function listTasks(workspaceRoot) {
 export async function recordTask(workspaceRoot, input, { now } = {}) {
   requireExactFields(input, RECORD_DISPATCH_FIELDS, "task input");
   const root = await realpath(path.resolve(workspaceRoot));
-  const config = await readConfig(root);
-  const projectPath = await canonicalDirectory(input.project);
-  const project = config.projects.find((candidate) => candidate.path === projectPath);
-  if (!project) throw new Error(`project is not configured in taskchef.json: ${projectPath}`);
-  const dispatch = await validateDispatchShape({
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    id: input.id,
-    project,
-    title: input.title,
-    instruction: input.instruction,
-    threadId: input.threadId,
-    createdAt: now ?? new Date().toISOString(),
-  });
-  await withDispatchLock(root, async () => {
+  return withWorkspaceLock(root, async () => {
+    const config = await readConfig(root);
+    const projectPath = await canonicalDirectory(input.project);
+    const project = config.projects.find((candidate) => candidate.path === projectPath);
+    if (!project) throw new Error(`project is not configured in taskchef.json: ${projectPath}`);
+    const dispatch = await validateDispatchShape({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      id: input.id,
+      project,
+      title: input.title,
+      instruction: input.instruction,
+      threadId: input.threadId,
+      createdAt: now ?? new Date().toISOString(),
+    });
     const existing = await readDispatchesUnlocked(root);
     if (existing.some((item) => item.id === dispatch.id)) {
       throw new Error(`task already exists: ${dispatch.id}`);
@@ -778,15 +809,15 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
       throw new Error(`threadId is already recorded: ${dispatch.threadId}`);
     }
     await appendDispatchesAtomic(root, [dispatch]);
+    return dispatch;
   });
-  return dispatch;
 }
 
 export async function resolveTask(workspaceRoot, taskId, threadId) {
   const id = requireSafeId(taskId, "taskId");
   const durableThreadId = normalizeDurableThreadId(threadId);
   const root = await realpath(path.resolve(workspaceRoot));
-  return withDispatchLock(root, async () => {
+  return withWorkspaceLock(root, async () => {
     const records = await readDispatchRecordsUnlocked(root);
     const dispatches = records.map((record) => record.normalized);
     const index = dispatches.findIndex((dispatch) => dispatch.id === id);
