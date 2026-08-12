@@ -9,6 +9,8 @@ This repository is a TaskChef dispatcher workspace.
 - For every actionable work request, use `$taskchef-delegate`
   automatically, even when the user does not explicitly say "delegate" or
   mention TaskChef.
+- GitHub issue and pull-request URLs may identify any repository advertised by
+  a configured project, including child repositories of managed workspaces.
 - Do not perform delegated work directly in the dispatcher thread.
 - Return immediately after dispatch, as required by `$taskchef-delegate`.
 - Answer directly only when the user explicitly asks about TaskChef itself or

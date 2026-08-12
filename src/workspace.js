@@ -19,6 +19,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
 import { normalizeDurableThreadId, parseTaskChefMarker } from "./delegation.js";
+import {
+  canonicalGithubRepository,
+  normalizeGithubRepositories,
+} from "./github.js";
 
 const execFile = promisify(execFileCallback);
 const DISPATCHER_INSTRUCTIONS_URL = new URL(
@@ -37,15 +41,18 @@ const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url))
 const DISPATCH_FILE_NAME = "tasks.jsonl";
 const DISPATCH_LOCK_NAME = ".taskchef-dispatch.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const CURRENT_SCHEMA_VERSION = 2;
+const LEGACY_SCHEMA_VERSION = 1;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
   "name",
   "path",
   "isGitRepository",
   "githubRepo",
+  "githubRepos",
   "description",
 ]);
-const PROJECT_INPUT_FIELDS = new Set(["name", "path", "githubRepo", "description"]);
+const PROJECT_INPUT_FIELDS = new Set(["name", "path", "githubRepos", "description"]);
 const DISPATCH_FIELDS = new Set([
   "schemaVersion",
   "id",
@@ -165,9 +172,9 @@ async function appendDispatchesAtomic(workspaceRoot, dispatches) {
   await writeTextAtomic(dispatchPath, `${content}${appended}`);
 }
 
-async function writeDispatchesAtomic(workspaceRoot, dispatches) {
+async function writeDispatchLinesAtomic(workspaceRoot, lines) {
   const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
-  const content = dispatches.map((dispatch) => `${JSON.stringify(dispatch)}\n`).join("");
+  const content = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
   await writeTextAtomic(dispatchPath, content);
 }
 
@@ -369,39 +376,23 @@ export async function canonicalDirectory(projectPath) {
   return requested;
 }
 
-function validateGithubRepository(value, name) {
-  if (value === null) return null;
-  requireString(value, name);
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`${name} must be a canonical GitHub repository URL or null`);
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.search ||
-    url.hash ||
-    !/^\/[^/]+\/[^/]+$/.test(url.pathname) ||
-    url.pathname.endsWith(".git")
-  ) {
-    throw new Error(`${name} must be a canonical GitHub repository URL or null`);
-  }
-  return value;
-}
-
-async function normalizeProject(project, index, { checkPath = true } = {}) {
+async function normalizeProject(
+  project,
+  index,
+  { checkPath = true, allowLegacyGithubRepo = false } = {},
+) {
   const field = `projects[${index}]`;
   if (!project || typeof project !== "object" || Array.isArray(project)) {
     throw new Error(`${field} must be an object`);
   }
   const unexpected = Object.keys(project).find((key) => !PROJECT_FIELDS.has(key));
   if (unexpected) throw new Error(`${field} has unsupported field: ${unexpected}`);
-  for (const required of ["name", "path", "isGitRepository", "githubRepo"]) {
+  const repositoryField = allowLegacyGithubRepo ? "githubRepo" : "githubRepos";
+  const unsupportedRepositoryField = allowLegacyGithubRepo ? "githubRepos" : "githubRepo";
+  if (unsupportedRepositoryField in project) {
+    throw new Error(`${field} has unsupported field: ${unsupportedRepositoryField}`);
+  }
+  for (const required of ["name", "path", "isGitRepository", repositoryField]) {
     if (!(required in project)) throw new Error(`${field} is missing field: ${required}`);
   }
   const name = requireString(project.name, `${field}.name`).trim();
@@ -419,15 +410,14 @@ async function normalizeProject(project, index, { checkPath = true } = {}) {
       throw new Error(`${field}.path must be a normalized absolute path`);
     }
   }
-  const githubRepo = validateGithubRepository(project.githubRepo, `${field}.githubRepo`);
-  if (!project.isGitRepository && githubRepo !== null) {
-    throw new Error(`${field}.githubRepo must be null for a non-Git project`);
-  }
+  const githubRepos = normalizeGithubRepositories(project[repositoryField], `${field}.${repositoryField}`, {
+    allowLegacyScalar: allowLegacyGithubRepo,
+  });
   const normalized = {
     name,
     path: projectPath,
     isGitRepository: project.isGitRepository,
-    githubRepo,
+    githubRepos,
   };
   if ("description" in project) {
     normalized.description = requireString(
@@ -438,11 +428,17 @@ async function normalizeProject(project, index, { checkPath = true } = {}) {
   return normalized;
 }
 
-async function normalizeProjects(projects, { checkPaths = true } = {}) {
+async function normalizeProjects(
+  projects,
+  { checkPaths = true, allowLegacyGithubRepo = false } = {},
+) {
   if (!Array.isArray(projects)) throw new Error("projects must be an array");
   const normalized = [];
   for (const [index, project] of projects.entries()) {
-    normalized.push(await normalizeProject(project, index, { checkPath: checkPaths }));
+    normalized.push(await normalizeProject(project, index, {
+      checkPath: checkPaths,
+      allowLegacyGithubRepo,
+    }));
   }
   if (new Set(normalized.map((project) => project.path)).size !== normalized.length) {
     throw new Error("project paths must not contain duplicates");
@@ -458,16 +454,8 @@ async function normalizeProjects(projects, { checkPaths = true } = {}) {
 
 function normalizeGithubRemote(remote) {
   if (typeof remote !== "string" || remote.trim().length === 0) return null;
-  const value = remote.trim();
-  const scpMatch = value.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
-  if (scpMatch) return `https://github.com/${scpMatch[1]}/${scpMatch[2]}`;
-  const sshMatch = value.match(/^ssh:\/\/git@github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
-  if (sshMatch) return `https://github.com/${sshMatch[1]}/${sshMatch[2]}`;
   try {
-    const url = new URL(value);
-    if (url.hostname !== "github.com") return null;
-    const match = url.pathname.match(/^\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-    return match ? `https://github.com/${match[1]}/${match[2]}` : null;
+    return canonicalGithubRepository(remote, "GitHub origin");
   } catch {
     return null;
   }
@@ -507,10 +495,10 @@ async function inspectProject(input, index = 0) {
   if (isGitRepository && gitRoot !== projectPath) {
     throw new Error(`project must be the Git repository root: ${projectPath}`);
   }
-  let githubRepo = null;
+  let githubRepos = [];
   if (isGitRepository) {
-    if ("githubRepo" in input) {
-      githubRepo = validateGithubRepository(input.githubRepo, `${field}.githubRepo`);
+    if ("githubRepos" in input) {
+      githubRepos = normalizeGithubRepositories(input.githubRepos, `${field}.githubRepos`);
     } else {
       const remote = await execFile("git", ["remote", "get-url", "origin"], {
         cwd: projectPath,
@@ -518,10 +506,11 @@ async function inspectProject(input, index = 0) {
         if (error.code === 2 && /No such remote/i.test(error.stderr ?? "")) return null;
         throw gitInspectionError("failed to inspect GitHub origin", error);
       });
-      githubRepo = normalizeGithubRemote(remote);
+      const detected = normalizeGithubRemote(remote);
+      githubRepos = detected === null ? [] : [detected];
     }
-  } else if ("githubRepo" in input && input.githubRepo !== null) {
-    throw new Error(`${field}.githubRepo must be null for a non-Git project`);
+  } else if ("githubRepos" in input) {
+    githubRepos = normalizeGithubRepositories(input.githubRepos, `${field}.githubRepos`);
   }
   const project = {
     name: "name" in input
@@ -529,7 +518,7 @@ async function inspectProject(input, index = 0) {
       : path.basename(projectPath),
     path: projectPath,
     isGitRepository,
-    githubRepo,
+    githubRepos,
   };
   if ("description" in input) {
     project.description = requireString(input.description, `${field}.description`).trim();
@@ -539,10 +528,15 @@ async function inspectProject(input, index = 0) {
 
 export async function validateConfig(config, { checkPaths = true } = {}) {
   requireExactFields(config, CONFIG_FIELDS, "taskchef.json");
-  if (config.schemaVersion !== 1) throw new Error("unsupported configuration schemaVersion");
+  if (![LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION].includes(config.schemaVersion)) {
+    throw new Error("unsupported configuration schemaVersion");
+  }
   return {
-    schemaVersion: 1,
-    projects: await normalizeProjects(config.projects, { checkPaths }),
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: await normalizeProjects(config.projects, {
+      checkPaths,
+      allowLegacyGithubRepo: config.schemaVersion === LEGACY_SCHEMA_VERSION,
+    }),
   };
 }
 
@@ -561,15 +555,21 @@ export async function initializeWorkspace(workspaceRoot) {
   const root = await realpath(requestedRoot);
   const configPath = path.join(root, "taskchef.json");
   const configExists = await managedRegularFileExists(configPath);
+  const storedConfigVersion = configExists
+    ? JSON.parse(await readFile(configPath, "utf8")).schemaVersion
+    : null;
   const config = configExists
     ? await readConfig(root, { checkPaths: false })
-    : { schemaVersion: 1, projects: [] };
+    : { schemaVersion: CURRENT_SCHEMA_VERSION, projects: [] };
   const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
   if (configExists && (await managedRegularFileExists(dispatchPath))) {
     await readDispatchesUnlocked(root);
   }
   const { legacySkills } = await ensureWorkspaceSkills(root);
   if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
+  else if (storedConfigVersion !== CURRENT_SCHEMA_VERSION) {
+    await writeJsonAtomic(configPath, config);
+  }
   const tasks = await ensureDispatchFile(root);
   const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
     if (!configExists) await unlink(configPath).catch(() => {});
@@ -577,7 +577,13 @@ export async function initializeWorkspace(workspaceRoot) {
   });
   return {
     workspace: root,
-    config: { path: configPath, action: configExists ? "unchanged" : "created", value: config },
+    config: {
+      path: configPath,
+      action: !configExists
+        ? "created"
+        : storedConfigVersion === CURRENT_SCHEMA_VERSION ? "unchanged" : "migrated",
+      value: config,
+    },
     tasks,
     instructions,
     legacySkills,
@@ -604,7 +610,7 @@ export async function addProject(workspaceRoot, input) {
   const config = await readConfig(root);
   const project = await inspectProject(input);
   const updated = await validateConfig({
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [...config.projects, project],
   });
   await writeJsonAtomic(path.join(root, "taskchef.json"), updated);
@@ -624,6 +630,12 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
     if (!("description" in mergedInput) && existing?.description) {
       mergedInput.description = existing.description;
     }
+    if (existing && !replace) {
+      const importedRepositories = "githubRepos" in mergedInput
+        ? normalizeGithubRepositories(mergedInput.githubRepos, `projects[${index}].githubRepos`)
+        : [];
+      mergedInput.githubRepos = [...existing.githubRepos, ...importedRepositories];
+    }
     imported.push(await inspectProject(mergedInput, index));
   }
   const projects = replace ? [] : [...current.projects];
@@ -632,7 +644,7 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
     if (index === -1) projects.push(project);
     else projects[index] = project;
   }
-  const config = await validateConfig({ schemaVersion: 1, projects });
+  const config = await validateConfig({ schemaVersion: CURRENT_SCHEMA_VERSION, projects });
   await writeJsonAtomic(path.join(root, "taskchef.json"), config);
   return {
     mode: replace ? "replace" : "merge",
@@ -651,17 +663,25 @@ export async function removeProject(workspaceRoot, name) {
   if (index === -1) throw new Error(`configured project not found: ${name}`);
   const [project] = config.projects.slice(index, index + 1);
   const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
-  await writeJsonAtomic(path.join(root, "taskchef.json"), { schemaVersion: 1, projects });
+  await writeJsonAtomic(path.join(root, "taskchef.json"), {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects,
+  });
   return { project };
 }
 
 async function validateDispatchShape(dispatch, name = "task") {
   requireExactFields(dispatch, DISPATCH_FIELDS, name);
-  if (dispatch.schemaVersion !== 1) throw new Error(`unsupported ${name} schemaVersion`);
+  if (![LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION].includes(dispatch.schemaVersion)) {
+    throw new Error(`unsupported ${name} schemaVersion`);
+  }
   const id = requireSafeId(dispatch.id, `${name}.id`);
-  const project = await normalizeProject(dispatch.project, 0, { checkPath: false });
+  const project = await normalizeProject(dispatch.project, 0, {
+    checkPath: false,
+    allowLegacyGithubRepo: dispatch.schemaVersion === LEGACY_SCHEMA_VERSION,
+  });
   const normalized = {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     id,
     project,
     title: requireString(dispatch.title, `${name}.title`).trim(),
@@ -680,7 +700,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   return normalized;
 }
 
-async function readDispatchesUnlocked(root) {
+async function readDispatchRecordsUnlocked(root) {
   await readConfig(root, { checkPaths: false });
   const filePath = path.join(root, DISPATCH_FILE_NAME);
   if (!(await managedRegularFileExists(filePath))) {
@@ -691,7 +711,7 @@ async function readDispatchesUnlocked(root) {
     throw new Error(`${DISPATCH_FILE_NAME} must end with a newline`);
   }
   const lines = content.length === 0 ? [] : content.slice(0, -1).split("\n");
-  const dispatches = [];
+  const records = [];
   for (const [index, line] of lines.entries()) {
     if (line.trim().length === 0) {
       throw new Error(`${DISPATCH_FILE_NAME} line ${index + 1} is empty`);
@@ -702,11 +722,15 @@ async function readDispatchesUnlocked(root) {
     } catch (error) {
       throw new Error(`${DISPATCH_FILE_NAME} line ${index + 1} is invalid JSON: ${error.message}`);
     }
-    dispatches.push(await validateDispatchShape(value, `task line ${index + 1}`));
+    records.push({
+      line,
+      raw: value,
+      normalized: await validateDispatchShape(value, `task line ${index + 1}`),
+    });
   }
   const ids = new Set();
   const threadIds = new Set();
-  for (const dispatch of dispatches) {
+  for (const { normalized: dispatch } of records) {
     if (ids.has(dispatch.id)) throw new Error(`duplicate task ID: ${dispatch.id}`);
     if (dispatch.threadId !== null && threadIds.has(dispatch.threadId)) {
       throw new Error(`duplicate task threadId: ${dispatch.threadId}`);
@@ -714,7 +738,11 @@ async function readDispatchesUnlocked(root) {
     ids.add(dispatch.id);
     if (dispatch.threadId !== null) threadIds.add(dispatch.threadId);
   }
-  return dispatches;
+  return records;
+}
+
+async function readDispatchesUnlocked(root) {
+  return (await readDispatchRecordsUnlocked(root)).map((record) => record.normalized);
 }
 
 export async function listTasks(workspaceRoot) {
@@ -730,7 +758,7 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
   const project = config.projects.find((candidate) => candidate.path === projectPath);
   if (!project) throw new Error(`project is not configured in taskchef.json: ${projectPath}`);
   const dispatch = await validateDispatchShape({
-    schemaVersion: 1,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     id: input.id,
     project,
     title: input.title,
@@ -759,7 +787,8 @@ export async function resolveTask(workspaceRoot, taskId, threadId) {
   const durableThreadId = normalizeDurableThreadId(threadId);
   const root = await realpath(path.resolve(workspaceRoot));
   return withDispatchLock(root, async () => {
-    const dispatches = await readDispatchesUnlocked(root);
+    const records = await readDispatchRecordsUnlocked(root);
+    const dispatches = records.map((record) => record.normalized);
     const index = dispatches.findIndex((dispatch) => dispatch.id === id);
     if (index === -1) throw new Error(`task not found: ${id}`);
     const dispatch = dispatches[index];
@@ -774,8 +803,10 @@ export async function resolveTask(workspaceRoot, taskId, threadId) {
       throw new Error(`threadId is already recorded: ${durableThreadId}`);
     }
     const resolved = { ...dispatch, threadId: durableThreadId };
-    dispatches[index] = resolved;
-    await writeDispatchesAtomic(root, dispatches);
+    const lines = records.map((record, recordIndex) => recordIndex === index
+      ? JSON.stringify({ ...record.raw, threadId: durableThreadId })
+      : record.line);
+    await writeDispatchLinesAtomic(root, lines);
     return resolved;
   });
 }

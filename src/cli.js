@@ -37,6 +37,14 @@ function option(args, name, fallback) {
   return args[index + 1];
 }
 
+function options(args, name) {
+  const values = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === name) values.push(args[index + 1]);
+  }
+  return values;
+}
+
 function validateCommandArgs(
   args,
   startIndex,
@@ -113,6 +121,7 @@ async function projectAdd(args) {
   validateCommandArgs(args, 3, {
     values: ["--workspace", "--name", "--description", "--github-repo"],
     switches: ["--json", "--no-github"],
+    repeatable: ["--github-repo"],
   });
   if (args.includes("--no-github") && args.includes("--github-repo")) {
     throw new Error("--no-github and --github-repo cannot be used together");
@@ -122,8 +131,8 @@ async function projectAdd(args) {
   const description = option(args, "--description", null);
   if (name !== null) input.name = name;
   if (description !== null) input.description = description;
-  if (args.includes("--no-github")) input.githubRepo = null;
-  else if (args.includes("--github-repo")) input.githubRepo = option(args, "--github-repo");
+  if (args.includes("--no-github")) input.githubRepos = [];
+  else if (args.includes("--github-repo")) input.githubRepos = options(args, "--github-repo");
   const project = await addProject(workspaceRoot(args), input);
   print(project, args, (value) => `Added ${value.name}: ${value.path}`);
   return 0;
@@ -152,10 +161,11 @@ async function projectList(args) {
   validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
   const projects = await listProjects(workspaceRoot(args));
   print({ projectCount: projects.length, projects }, args, (value) => table(
-    ["NAME", "KIND", "PATH"],
+    ["NAME", "KIND", "GITHUB REPOSITORIES", "PATH"],
     value.projects.map((project) => [
       project.name,
       project.isGitRepository ? "git" : "folder",
+      project.githubRepos.join(", ") || "-",
       project.path,
     ]),
   ));
@@ -240,7 +250,7 @@ Usage:
   taskchef help
   taskchef doctor [--json] [--workspace <path>]
   taskchef workspace init [--json] [--workspace <path>]
-  taskchef project add <path> [--name <name>] [--description <text>] [--github-repo <url> | --no-github] [--json] [--workspace <path>]
+  taskchef project add <path> [--name <name>] [--description <text>] [--github-repo <url> ... | --no-github] [--json] [--workspace <path>]
   taskchef project import [<file> | -] [--replace] [--json] [--workspace <path>]
   taskchef project list [--json] [--workspace <path>]
   taskchef project remove <name> [--json] [--workspace <path>]

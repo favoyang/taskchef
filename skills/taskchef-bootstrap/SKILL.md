@@ -39,12 +39,34 @@ all deterministic workspace operations.
    projects are outside the v1 contract.
 2. Add one project with `project add <path>`, normally supplying `--name` and a
    curated `--description`. The CLI detects Git status, exact Git root, and a
-   canonical GitHub `origin`. Use `--no-github` or `--github-repo` only to
-   override detection.
+   canonical GitHub `origin`. Repeat `--github-repo <url>` to advertise several
+   repositories, or use `--no-github` for an empty list. A managed
+   `*-workspace` project must list all of its child or sub-repositories so issue
+   and pull-request URLs route to that workspace.
 3. Bulk import with `project import <file|-> --json`. Input is a JSON array of
    objects containing `path` plus optional `name`, `description`, and
-   `githubRepo`. Import merges by canonical path and preserves an existing name
-   or description when omitted. Use `--replace` only when the user explicitly
-   requests replacement.
+   `githubRepos`, which is always a JSON array of GitHub repository URLs. Import
+   merges by canonical path, preserves an existing name or description when
+   omitted, and unions existing and imported repository lists without
+   duplicates. Use `--replace` only when the user explicitly requests
+   replacement.
 4. Inspect configured projects with `project list --json`. Remove by name with
    `project remove`. Existing task entries keep their project snapshots.
+
+Example managed-workspace import entry:
+
+```json
+{
+  "name": "skills-workspace",
+  "path": "/workspace/skills-workspace",
+  "githubRepos": [
+    "https://github.com/example/skill-one",
+    "https://github.com/example/skill-two"
+  ],
+  "description": "Manages the listed child skill repositories."
+}
+```
+
+`workspace init` safely migrates schema-version-1 configuration: a string
+`githubRepo` becomes a one-item `githubRepos` list and `null` becomes
+`githubRepos: []`. All subsequent configuration writes use schema version 2.

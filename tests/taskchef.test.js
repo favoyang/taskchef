@@ -25,6 +25,7 @@ import {
   createAndRecordDelegation,
   addProject,
   buildTaskSummary,
+  canonicalGithubRepository,
   canonicalDirectory,
   doctorWorkspace,
   ensureWorkspaceInstructions,
@@ -36,6 +37,7 @@ import {
   listProjects,
   readConfig,
   listTasks,
+  matchProjectForGithubUrl,
   readTask,
   recordTask,
   removeProject,
@@ -171,7 +173,7 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
   const workspace = path.join(root, "workspace");
   const initialized = await initializeWorkspace(workspace);
 
-  assert.deepEqual(initialized.config.value, { schemaVersion: 1, projects: [] });
+  assert.deepEqual(initialized.config.value, { schemaVersion: 2, projects: [] });
   assert.equal(initialized.config.action, "created");
   assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks.jsonl"]);
   assert.equal(await readFile(path.join(workspace, "tasks.jsonl"), "utf8"), "");
@@ -1160,7 +1162,7 @@ test("project add detects Git roots and normalizes GitHub remotes", async () => 
     name: "source",
     path: projectPath,
     isGitRepository: true,
-    githubRepo: "https://github.com/Example/source",
+    githubRepos: ["https://github.com/Example/source"],
     description: "Owns source code.",
   });
   await assert.rejects(addProject(workspace, { name: "duplicate", path: projectPath }), /duplicates/);
@@ -1179,11 +1181,116 @@ test("project add supports non-Git directories and explicit GitHub suppression",
   const folder = await addProject(workspace, { path: notes });
   assert.equal(folder.name, "notes");
   assert.equal(folder.isGitRepository, false);
-  assert.equal(folder.githubRepo, null);
+  assert.deepEqual(folder.githubRepos, []);
   await assert.rejects(
     addProject(workspace, { path: path.join(root, "missing") }),
     /does not exist/,
   );
+});
+
+test("schemaVersion 1 configuration normalizes read-only and migrates on init", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-schema-migration-"));
+  const workspace = path.join(root, "workspace");
+  const first = await gitProject(root, "first");
+  const notes = path.join(root, "notes");
+  await mkdir(workspace);
+  await mkdir(notes);
+  await writeFile(path.join(workspace, "taskchef.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    projects: [{
+      name: "first",
+      path: first,
+      isGitRepository: true,
+      githubRepo: "https://github.com/Example/first",
+    }, {
+      name: "notes",
+      path: notes,
+      isGitRepository: false,
+      githubRepo: null,
+    }],
+  }, null, 2)}\n`);
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+
+  assert.deepEqual((await readConfig(workspace)).projects.map((project) => project.githubRepos), [
+    ["https://github.com/Example/first"],
+    [],
+  ]);
+  assert.equal(JSON.parse(await readFile(path.join(workspace, "taskchef.json"), "utf8")).schemaVersion, 1);
+
+  const initialized = await initializeWorkspace(workspace);
+  assert.equal(initialized.config.action, "migrated");
+  const persisted = JSON.parse(await readFile(path.join(workspace, "taskchef.json"), "utf8"));
+  assert.equal(persisted.schemaVersion, 2);
+  assert.equal(persisted.projects.some((project) => "githubRepo" in project), false);
+  assert.deepEqual(persisted.projects.map((project) => project.githubRepos), [
+    ["https://github.com/Example/first"],
+    [],
+  ]);
+});
+
+test("GitHub repository lists canonicalize and deduplicate common remote spellings", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-repositories-"));
+  const workspace = path.join(root, "workspace");
+  const projectPath = await gitProject(root, "workspace-project");
+  await initializeWorkspace(workspace);
+  const project = await addProject(workspace, {
+    path: projectPath,
+    githubRepos: [
+      "git@github.com:Example/child.git",
+      "https://github.com/example/CHILD/",
+      "http://www.github.com/Example/other.git",
+    ],
+  });
+  assert.deepEqual(project.githubRepos, [
+    "https://github.com/Example/child",
+    "https://github.com/Example/other",
+  ]);
+  assert.equal(canonicalGithubRepository("ssh://git@github.com/Owner/repository.git"),
+    "https://github.com/Owner/repository");
+  await assert.rejects(
+    validateConfig({
+      schemaVersion: 2,
+      projects: [{ ...project, githubRepos: "https://github.com/Example/child" }],
+    }),
+    /must be an array/,
+  );
+});
+
+test("GitHub issue and pull request URLs route only on one unique configured repository", () => {
+  const projects = [{
+    name: "monorepo-workspace",
+    githubRepos: [
+      "https://github.com/Example/child-one",
+      "https://github.com/Example/child-two",
+    ],
+  }, {
+    name: "other",
+    githubRepos: ["https://github.com/elsewhere/other"],
+  }];
+  const issue = matchProjectForGithubUrl(
+    "http://www.github.com/example/CHILD-TWO.git/issues/42?notification_referrer_id=1",
+    projects,
+  );
+  assert.equal(issue.status, "matched");
+  assert.equal(issue.project.name, "monorepo-workspace");
+  assert.equal(
+    matchProjectForGithubUrl("https://github.com/elsewhere/other/pull/7/files", projects).project.name,
+    "other",
+  );
+  assert.equal(
+    matchProjectForGithubUrl("https://github.com/unconfigured/repository/issues/1", projects).status,
+    "unmatched",
+  );
+
+  const ambiguous = matchProjectForGithubUrl(
+    "https://github.com/example/child-one/pull/9",
+    [...projects, { name: "duplicate", githubRepos: ["https://github.com/EXAMPLE/CHILD-ONE.git"] }],
+  );
+  assert.equal(ambiguous.status, "ambiguous");
+  assert.deepEqual(ambiguous.projects.map((project) => project.name), [
+    "monorepo-workspace",
+    "duplicate",
+  ]);
 });
 
 test("project inspection reports Git execution failures", async () => {
@@ -1214,8 +1321,15 @@ test("project import merges by canonical path and preserves omitted curation", a
     name: "curated-first",
     path: first,
     description: "Preserve this description.",
+    githubRepos: ["https://github.com/example/first-child"],
   });
-  const merged = await importProjects(workspace, [{ path: first }, { name: "second", path: second }]);
+  const merged = await importProjects(workspace, [{
+    path: first,
+    githubRepos: [
+      "http://www.github.com/EXAMPLE/first-child.git/",
+      "https://github.com/example/second-child",
+    ],
+  }, { name: "second", path: second }]);
   assert.equal(merged.mode, "merge");
   assert.equal(merged.projectCount, 2);
   const projects = await listProjects(workspace);
@@ -1224,6 +1338,10 @@ test("project import merges by canonical path and preserves omitted curation", a
     projects.find((project) => project.path === first).description,
     "Preserve this description.",
   );
+  assert.deepEqual(projects.find((project) => project.path === first).githubRepos, [
+    "https://github.com/example/first-child",
+    "https://github.com/example/second-child",
+  ]);
 
   const replaced = await importProjects(workspace, [{ name: "second-only", path: second }], {
     replace: true,
@@ -1289,13 +1407,68 @@ test("dispatch recording appends one immutable journey entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
+  assert.equal(recorded.schemaVersion, 2);
   assert.equal(recorded.project.name, "project-1");
+  assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [
     "schemaVersion", "id", "project", "title", "instruction", "threadId", "createdAt",
   ]);
   const content = await readFile(path.join(workspace, "tasks.jsonl"), "utf8");
   assert.equal(content.split("\n").length, 2);
   assert.deepEqual(JSON.parse(content.trim()), recorded);
+});
+
+test("legacy task snapshots normalize repository scalars without eager log rewrites", async () => {
+  const { workspace, projects } = await fixture(1);
+  const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
+  const { githubRepos, ...legacyProject } = recorded.project;
+  const legacy = {
+    ...recorded,
+    schemaVersion: 1,
+    project: { ...legacyProject, githubRepo: githubRepos[0] },
+  };
+  const logPath = path.join(workspace, "tasks.jsonl");
+  await writeFile(logPath, `${JSON.stringify(legacy)}\n`);
+
+  const [normalized] = await listTasks(workspace);
+  assert.equal(normalized.schemaVersion, 2);
+  assert.deepEqual(normalized.project.githubRepos, ["https://github.com/example/project-1"]);
+  assert.deepEqual(JSON.parse((await readFile(logPath, "utf8")).trim()), legacy);
+});
+
+test("resolving a legacy task preserves every unrelated history line byte-for-byte", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Resolve the legacy task.", { taskId: TASK_ID });
+  const unresolved = await recordTask(workspace, {
+    ...dispatchInput(projects[0], prepared.id, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  const unrelated = await recordTask(
+    workspace,
+    dispatchInput(projects[0], "unrelated", "unrelated-thread"),
+  );
+  const { githubRepos, ...legacyProject } = unresolved.project;
+  const legacy = {
+    ...unresolved,
+    schemaVersion: 1,
+    project: { ...legacyProject, githubRepo: githubRepos[0] },
+  };
+  const legacyLine = JSON.stringify(legacy);
+  const unrelatedLine = `  ${JSON.stringify(unrelated)}  `;
+  const logPath = path.join(workspace, "tasks.jsonl");
+  await writeFile(logPath, `${legacyLine}\n${unrelatedLine}\n`);
+
+  const resolved = await resolveTask(workspace, prepared.id, "resolved-legacy-thread");
+  assert.equal(resolved.schemaVersion, 2);
+  assert.deepEqual(resolved.project.githubRepos, githubRepos);
+  const [updatedLegacyLine, preservedUnrelatedLine] = (await readFile(logPath, "utf8"))
+    .slice(0, -1)
+    .split("\n");
+  assert.deepEqual(JSON.parse(updatedLegacyLine), {
+    ...legacy,
+    threadId: "resolved-legacy-thread",
+  });
+  assert.equal(preservedUnrelatedLine, unrelatedLine);
 });
 
 test("dispatch recording rejects duplicate IDs and thread IDs", async () => {
@@ -1529,9 +1702,15 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   assert.match(repeated.stdout, /Task log: unchanged/);
   assert.doesNotMatch(repeated.stdout, /Legacy tasks:/);
   const added = await runCli([
-    "project", "add", first, "--name", "first", "--json", "--workspace", workspace,
+    "project", "add", first, "--name", "first",
+    "--github-repo", "https://github.com/example/first-child",
+    "--github-repo", "git@github.com:example/second-child.git",
+    "--json", "--workspace", workspace,
   ]);
-  assert.equal(JSON.parse(added.stdout).githubRepo, "https://github.com/example/first");
+  assert.deepEqual(JSON.parse(added.stdout).githubRepos, [
+    "https://github.com/example/first-child",
+    "https://github.com/example/second-child",
+  ]);
   const imported = await runCli([
     "project", "import", "-", "--json", "--workspace", workspace,
   ], { input: JSON.stringify([{ name: "second", path: second }]) });
