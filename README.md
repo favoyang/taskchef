@@ -281,16 +281,16 @@ taskchef project list
 taskchef project remove payments
 ```
 
-Human-readable project listings show one row per configured GitHub repository.
-Project details repeat on each row so multi-repository projects remain clear.
-A project without a configured repository has one row containing `-` in the
-repository column:
+Human-readable project listings group configured GitHub repositories by
+project. The first row shows the project details; additional repository rows
+leave the repeated name, kind, and path columns blank. A project without a
+configured repository has one row containing `-` in the repository column:
 
 ```text
 NAME      KIND    GITHUB REPOSITORY                        PATH
 notes     folder  -                                        /workspace/notes
 payments  git     https://github.com/example/payments-api  /workspace/payments
-payments  git     https://github.com/example/payments-sdk  /workspace/payments
+                  https://github.com/example/payments-sdk
 ```
 
 Import projects as a JSON array from a file or standard input:
