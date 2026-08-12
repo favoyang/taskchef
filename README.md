@@ -253,17 +253,16 @@ taskchef project list --workspace <workspace>
 taskchef project remove payments --workspace <workspace>
 ```
 
-Human-readable project listings show one parent row per project. The first
-configured GitHub repository appears on that row; additional repositories
-appear beneath it as indented tree rows, aligned with the repository column and
-with repeated kind and path cells left blank. A project without a configured
-repository has only its parent row, containing `-` in the repository column:
+Human-readable project listings show one row per configured GitHub repository.
+Project details repeat on each row so multi-repository projects remain clear.
+A project without a configured repository has one row containing `-` in the
+repository column:
 
 ```text
 NAME      KIND    GITHUB REPOSITORY                        PATH
 notes     folder  -                                        /workspace/notes
 payments  git     https://github.com/example/payments-api  /workspace/payments
-  └─              https://github.com/example/payments-sdk
+payments  git     https://github.com/example/payments-sdk  /workspace/payments
 ```
 
 Import projects as a JSON array from a file or standard input:

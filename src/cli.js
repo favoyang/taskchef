@@ -15,8 +15,6 @@ import {
   resolveTask,
 } from "./workspace.js";
 
-const BLANK_TABLE_CELL = Symbol("blank table cell");
-
 async function readStdin() {
   let input = "";
   process.stdin.setEncoding("utf8");
@@ -90,11 +88,9 @@ function print(value, args, human) {
 }
 
 function table(headers, rows) {
-  const display = (value) => {
-    if (value === BLANK_TABLE_CELL) return "";
-    if (value === null || value === undefined || value === "") return "-";
-    return String(value);
-  };
+  const display = (value) => value === null || value === undefined || value === ""
+    ? "-"
+    : String(value);
   const widths = headers.map((header, index) =>
     Math.max(header.length, ...rows.map((row) => display(row[index]).length)));
   const format = (row) => row.map((value, index) => index === row.length - 1
@@ -105,18 +101,13 @@ function table(headers, rows) {
 
 function projectRows(projects) {
   return projects.flatMap((project) => {
-    const [primaryRepository = null, ...additionalRepositories] = project.githubRepos;
-    return [[
+    const repositories = project.githubRepos.length > 0 ? project.githubRepos : [null];
+    return repositories.map((repository) => [
       project.name,
       project.isGitRepository ? "git" : "folder",
-      primaryRepository,
-      project.path,
-    ], ...additionalRepositories.map((repository, index) => [
-      `  ${index === additionalRepositories.length - 1 ? "└─" : "├─"}`,
-      BLANK_TABLE_CELL,
       repository,
-      BLANK_TABLE_CELL,
-    ])];
+      project.path,
+    ]);
   });
 }
 
