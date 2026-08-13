@@ -1251,12 +1251,20 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project, explicit delegation from any project, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
+    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project or explicit delegation from any project. Forward one request as one task by default; split only when the user asks for standalone tasks or requirements clearly belong to different projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
   );
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
   assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|report)\b/);
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
+  assert.match(body, /Preserve the user's request as one executor instruction by default/);
+  assert.match(
+    body,
+    /Do not split work that belongs to one project unless the\s+user explicitly asks for standalone tasks/,
+  );
+  assert.match(body, /distinct requirements that clearly belong to\s+different configured projects/);
+  assert.match(body, /When one target is clear, dispatch without a routing preview/);
+  assert.match(body, /Ask the user to choose/);
   const literals = [...body.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
   assert.deepEqual(
     literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),

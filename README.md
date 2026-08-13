@@ -5,9 +5,10 @@ request, chooses the right project, and opens a normal Codex task there. It
 keeps a task history so you can find the work later. The created Codex tasks
 remain the source of truth for progress and results.
 
-If a request contains independent work for different projects, TaskChef can
-open several tasks. It returns as soon as they are created, so you can send the
-next request or open any executor and work with it directly.
+TaskChef normally forwards one request to one project task without breaking it
+into smaller pieces. It opens several tasks only when you explicitly ask for
+standalone tasks or when distinct requirements clearly belong to different
+projects. It returns as soon as the tasks are created.
 
 ## The mental model
 
@@ -96,17 +97,21 @@ request immediately.
 ### Route work across projects
 
 Suppose `storefront` is another configured project and owns the customer web
-interface. These two changes do not depend on each other, so they can run in
-separate tasks:
+interface. These two requirements clearly belong to different projects, so
+TaskChef opens separate tasks:
 
 ```text
 In payments-api, add structured logs for failed payment retries and test them. Separately, in storefront, fix the checkout form's keyboard focus order and run the browser tests.
 ```
 
-TaskChef opens one executor in each project. If several changes need close
-coordination, keep them in one task instead of splitting them just because
-they touch frontend and backend code. Multiple active executors may also use
-the same project.
+TaskChef opens one executor in each project. Within one project, it forwards
+the request as one task even when the prompt contains several requirements.
+To split same-project work, explicitly ask for standalone tasks. Multiple
+active executors may use the same project.
+
+When exactly one project matches, TaskChef dispatches without showing a
+preview. If no project matches confidently or several projects look plausible,
+it asks you to choose and shows the routing evidence instead of guessing.
 
 ### Follow up on delegated work
 

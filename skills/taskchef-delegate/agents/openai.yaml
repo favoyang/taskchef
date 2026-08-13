@@ -1,4 +1,4 @@
 interface:
   display_name: "TaskChef Delegate"
   short_description: "Dispatch work into visible Codex tasks"
-  default_prompt: "Use $taskchef-delegate to route this request into independently openable Codex tasks."
+  default_prompt: "Use $taskchef-delegate to route this request into the right Codex project task."
