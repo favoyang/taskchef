@@ -178,8 +178,9 @@ cases.
 
 For each assignment, `$taskchef-delegate`:
 
-1. runs `dispatch prepare` and native Codex project discovery concurrently;
-   the preparation command resolves the canonical workspace, loads and
+1. calls the structured `prepare_dispatch` tool and native Codex project
+   discovery concurrently; the preparation tool resolves the canonical
+   workspace, loads and
    validates configured projects, and generates the full UUID, preparation
    timestamp, and exact marker in one process; it never takes a pre-creation
    thread snapshot
@@ -189,10 +190,9 @@ For each assignment, `$taskchef-delegate`:
    `<!-- taskchef_id=<UUID> -->` marker as the first line, followed by a blank
    line
 4. creates a real Codex task at the exact configured path
-5. appends a task entry immediately through closed, non-interactive stdin when
-   creation returns a durable thread ID; it never opens a TTY or writes a
-   temporary record file, and requests canonical-workspace write permission on
-   the first attempt when the command sandbox does not allow that path
+5. appends a task entry immediately through the structured `record_task` tool
+   when creation returns a durable thread ID; it never opens a shell, parses
+   stdin, writes a temporary record file, or probes command-sandbox permission
 6. when creation returns only a provisional client ID, immediately appends the
    marked entry with `threadId: null`; the current supported Codex surface has
    no provisional-ID resolver, so the skill performs no post-creation tool
@@ -207,7 +207,8 @@ For each assignment, `$taskchef-delegate`:
    delegated input starts with the exact marker; inability to execute that
    required batch leaves the nullable record unresolved instead of switching to
    serial reads
-8. atomically fills the nullable thread ID after an exact match
+8. atomically fills the nullable thread ID with `resolve_task` after an exact
+   match
 9. returns after recording or after reporting that bounded resolution was
    unresolved, without waiting for executor work completion.
 
@@ -226,11 +227,15 @@ A `clientThreadId`, `pendingWorktreeId`, or ID in the documented provisional
 `local:` namespace remains diagnostic context and is rejected from every path
 that could persist the canonical `threadId` field.
 
-Desktop thread tools are available to the Codex skill, not to the standalone
-Node CLI. The package therefore exposes testable marker/filter/orchestration
-helpers with injected thread-tool callbacks, while the skill owns the actual
-desktop-tool calls and the CLI remains responsible only for validated data
-operations.
+The plugin bundles a local stdio MCP server with focused `prepare_dispatch`,
+`record_task`, and `resolve_task` tools. It accepts no workspace path from the
+model and resolves only `TASKCHEF_WORKSPACE` or the canonical
+`~/.agents/taskchef` default. The write tools reuse the public workspace APIs,
+so structured calls cannot bypass exact-field validation, locking, atomic
+replacement, unique IDs, or one-way nullable resolution. They are closed-world
+local mutations and never create Codex tasks. Desktop thread tools remain
+available only to the Codex skill; the standalone CLI remains available for
+bootstrap, manual inspection, and recovery.
 
 ### End-to-end benchmark results
 

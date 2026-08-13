@@ -19,10 +19,12 @@
   },
   "files": [
     ".codex-plugin",
+    ".mcp.json",
     "assets",
     "BACKLOG.md",
     "bin",
     "index.js",
+    "mcp",
     "SPEC.md",
     "scripts/benchmark-dispatch-prepare.js",
     "scripts/e2e-benchmark.js",
@@ -44,9 +46,13 @@
     "test": "node --test tests/taskchef.test.js"
   },
   "dependencies": {
-    "proper-lockfile": "^4.1.2"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "proper-lockfile": "^4.1.2",
+    "zod": "^4.4.3"
   },
   "bundleDependencies": [
-    "proper-lockfile"
+    "@modelcontextprotocol/sdk",
+    "proper-lockfile",
+    "zod"
   ]
 }

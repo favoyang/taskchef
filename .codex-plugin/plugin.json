@@ -16,6 +16,7 @@
     "tasks"
   ],
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "TaskChef",
     "shortDescription": "Dispatch work to the right Codex project task.",

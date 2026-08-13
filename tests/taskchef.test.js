@@ -19,6 +19,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import lockfile from "proper-lockfile";
 import * as taskchef from "../index.js";
 
@@ -26,6 +29,7 @@ import {
   THREAD_RESOLUTION_CHECKPOINTS_MS,
   THREAD_RESOLUTION_TIMEOUT_MS,
   createAndRecordDelegation,
+  createTaskChefMcpServer,
   prepareDispatch,
   addProject,
   buildTaskSummary,
@@ -436,6 +440,92 @@ test("dispatch preparation combines canonical routing data and correlation value
     prepareDispatch(workspace, { taskId: TASK_ID, now: () => "not-a-time" }),
     /preparedAt must be an ISO 8601 timestamp/,
   );
+});
+
+test("structured MCP tools prepare, record, and resolve through canonical workspace APIs", async () => {
+  const { workspace, projects } = await fixture(1);
+  const server = createTaskChefMcpServer({ workspace });
+  const client = new Client({ name: "taskchef-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  try {
+    const listed = await client.listTools();
+    assert.deepEqual(listed.tools.map((tool) => tool.name), [
+      "prepare_dispatch",
+      "record_task",
+      "resolve_task",
+    ]);
+    assert.equal(listed.tools[0].annotations.readOnlyHint, true);
+    assert.equal(listed.tools[1].annotations.readOnlyHint, false);
+    assert.equal(listed.tools[1].annotations.destructiveHint, false);
+    assert.equal(listed.tools[1].annotations.openWorldHint, false);
+    for (const tool of listed.tools) {
+      assert.equal("workspace" in (tool.inputSchema.properties ?? {}), false);
+    }
+
+    const preparedResult = await client.callTool({ name: "prepare_dispatch", arguments: {} });
+    const prepared = preparedResult.structuredContent.preparation;
+    assert.equal(prepared.workspace, await realpath(workspace));
+    assert.equal(prepared.projectCount, 1);
+
+    const instruction = `${prepared.marker}\n\nImplement and test the requested change.`;
+    const recordedResult = await client.callTool({
+      name: "record_task",
+      arguments: {
+        id: prepared.taskId,
+        project: projects[0],
+        title: "MCP task",
+        instruction,
+        threadId: null,
+      },
+    });
+    assert.equal(recordedResult.structuredContent.task.id, prepared.taskId);
+    assert.equal(recordedResult.structuredContent.task.threadId, null);
+
+    const unmarkedResult = await client.callTool({
+      name: "record_task",
+      arguments: {
+        id: SECOND_TASK_ID,
+        project: projects[0],
+        title: "Unmarked MCP task",
+        instruction: "This input has no correlation marker.",
+        threadId: "durable-unmarked-thread",
+      },
+    });
+    assert.equal(unmarkedResult.isError, true);
+    assert.match(unmarkedResult.content[0].text, /must start with its exact TaskChef marker/);
+    await assert.rejects(readTask(workspace, SECOND_TASK_ID), /task not found/);
+
+    const resolvedResult = await client.callTool({
+      name: "resolve_task",
+      arguments: { taskId: prepared.taskId, threadId: "durable-mcp-thread" },
+    });
+    assert.equal(resolvedResult.structuredContent.task.threadId, "durable-mcp-thread");
+    assert.equal((await readTask(workspace, prepared.taskId)).threadId, "durable-mcp-thread");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("bundled stdio MCP entry resolves TASKCHEF_WORKSPACE without model path input", async () => {
+  const { workspace } = await fixture(1);
+  const client = new Client({ name: "taskchef-stdio-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.resolve("mcp/server.js")],
+    cwd: path.resolve("."),
+    env: { ...process.env, TASKCHEF_WORKSPACE: workspace },
+  });
+  await client.connect(transport);
+  try {
+    const prepared = await client.callTool({ name: "prepare_dispatch", arguments: {} });
+    assert.equal(prepared.structuredContent.preparation.workspace, await realpath(workspace));
+  } finally {
+    await client.close();
+  }
 });
 
 test("task recording rejects interactive stdin before waiting for EOF", () => {
@@ -1529,10 +1619,17 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.name, "taskchef");
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");
+  assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
+  assert.equal(packageJson.files.includes(".mcp.json"), true);
+  assert.equal(packageJson.files.includes("mcp"), true);
   assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
   assert.equal(packageJson.files.includes("scripts/e2e-benchmark.js"), true);
-  assert.deepEqual(packageJson.bundleDependencies, ["proper-lockfile"]);
+  assert.deepEqual(packageJson.bundleDependencies, [
+    "@modelcontextprotocol/sdk",
+    "proper-lockfile",
+    "zod",
+  ]);
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
   const releasePluginNames = releaseConfig.plugins.map((plugin) =>
     Array.isArray(plugin) ? plugin[0] : plugin);
@@ -1627,9 +1724,14 @@ test("release automation pins the shared marketplace to the exact npm version", 
     id: "taskchef@2.3.4",
     files: [
       { path: ".codex-plugin/plugin.json" },
+      { path: ".mcp.json" },
       { path: "bin/taskchef.js", mode: 0o755 },
+      { path: "mcp/server.js" },
+      { path: "node_modules/@modelcontextprotocol/sdk/package.json" },
       { path: "node_modules/proper-lockfile/package.json" },
+      { path: "node_modules/zod/package.json" },
       { path: "src/cli.js" },
+      { path: "src/mcp.js" },
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
       { path: "skills/taskchef-delegate/SKILL.md" },
@@ -1750,7 +1852,7 @@ test("init preserves existing configuration and merges managed instructions", as
   assert.equal((await readConfig(workspace)).projects.length, 1);
 });
 
-test("delegate skill isolates trigger metadata and uses complete CLI commands", async () => {
+test("delegate skill isolates trigger metadata and requires structured workspace tools", async () => {
   const content = await readFile(path.resolve("skills/taskchef-delegate/SKILL.md"), "utf8");
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
@@ -1762,23 +1864,20 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
   const literals = [...body.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
-  assert.deepEqual(
-    literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
-    [
-      "<plugin-root>/bin/taskchef.js dispatch prepare --json",
-      "<plugin-root>/bin/taskchef.js task record --json",
-      "<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json",
-    ],
-  );
+  assert.deepEqual(literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)), []);
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
+  for (const toolName of ["prepare_dispatch", "record_task", "resolve_task"]) {
+    assert.ok(literals.includes(toolName));
+  }
+  assert.match(body, /never probe for them or fall back to shell CLI writes/i);
   assert.match(body, /exactly `<!-- taskchef_id=<full UUID> -->` as the\s+first line/);
   assert.match(body, /Require an immediately following blank line/);
   assert.doesNotMatch(body, /`# taskchef_id=/);
-  assert.match(body, /In parallel, run .*dispatch prepare --json.*native Codex projects once/s);
+  assert.match(body, /In parallel, call `prepare_dispatch` and list the native Codex projects\s+once/);
   assert.match(body, /Never take a pre-creation thread\s+snapshot/);
   assert.match(body, /exact\s+random marker is the sole correlation proof/i);
-  assert.match(body, /Never open an interactive TTY and never create a temporary record\s+file/);
-  assert.match(body, /request permission for that exact write on the first attempt/);
+  assert.match(body, /immediately call\s+`record_task` once/i);
+  assert.match(body, /without shell parsing, stdin, or\s+per-command filesystem escalation/);
   assert.match(body, /supported Codex surface has no provisional-ID resolver/);
   assert.match(body, /Do not inspect\s+the tool surface for one after creation/);
   assert.match(body, /at most two post-creation\s+`list_threads` snapshots with limit 50/);

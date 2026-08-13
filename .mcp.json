@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "taskchef": {
+      "command": "node",
+      "args": ["./mcp/server.js"],
+      "cwd": ".",
+      "env_vars": ["TASKCHEF_WORKSPACE"],
+      "tool_timeout_sec": 30
+    }
+  }
+}
