@@ -179,11 +179,10 @@ cases.
 For each assignment, `$taskchef-delegate`:
 
 1. runs `dispatch prepare` and native Codex project discovery concurrently;
-   only when neither a native provisional-ID resolver nor programmatic tool
-   orchestration is available, it also takes one recent-thread baseline
-   snapshot in that parallel group. The preparation command resolves the
-   canonical workspace, loads and validates configured projects, and generates
-   the full UUID, preparation timestamp, and exact marker in one process
+   the preparation command resolves the canonical workspace, loads and
+   validates configured projects, and generates the full UUID, preparation
+   timestamp, and exact marker in one process; it never takes a pre-creation
+   thread snapshot
 2. selects one unambiguous configured target and matches its exact path against
    the already-loaded native projects
 3. prefixes the instruction with the prepared exact
@@ -195,33 +194,31 @@ For each assignment, `$taskchef-delegate`:
    temporary record file, and requests canonical-workspace write permission on
    the first attempt when the command sandbox does not allow that path
 6. when creation returns only a provisional client ID, immediately appends the
-   marked entry with `threadId: null`, then prefers one native client-ID wait or
-   resolution call with a 30-second timeout when Codex exposes one
-7. when no native operation is available, excludes durable Codex IDs from the
-   successful pre-creation baseline, then takes at most two recent-thread
+   marked entry with `threadId: null`; the current supported Codex surface has
+   no provisional-ID resolver, so the skill performs no post-creation tool
+   availability inspection
+7. takes at most two recent-thread
    snapshots on a nominal 10- and 30-second schedule after the provisional
    result; a late first checkpoint runs immediately, and the second starts at
    least 20 seconds after the first actually started. It filters candidates by
    available host/project/time/worktree metadata, uses title only as an advisory
-   ordering hint, batches independent reads programmatically when supported,
-   and accepts only one thread whose structured delegated input starts with the
-   exact marker
+   ordering hint, issues all independent candidate reads in exactly one
+   programmatic batch per snapshot, and accepts only one thread whose structured
+   delegated input starts with the exact marker; inability to execute that
+   required batch leaves the nullable record unresolved instead of switching to
+   serial reads
 8. atomically fills the nullable thread ID after an exact match
 9. returns after recording or after reporting that bounded resolution was
    unresolved, without waiting for executor work completion.
 
-The exact random marker remains the sole correlation proof. A successful
-pre-creation snapshot is only a candidate-elimination baseline; its failure
-does not block creation or weaken the marker check. Creation-time filtering
-allows five seconds of clock skew. Candidate reads run concurrently where the
-host permits, use one programmatic batch when available, and inspect only
+The exact random marker remains the sole correlation proof. Creation-time
+filtering allows five seconds of clock skew. Candidate reads use exactly one
+programmatic batch per snapshot and inspect only
 structured `codexDelegation.input`, never untrusted title, summary, preview, or
-plain-text marker echoes. A native resolver result is verified against the same
-structured
-marker before persistence. Zero exact matches remain unresolved; multiple exact
-matches are ambiguous. Snapshot, candidate-read, native-resolution, or
-task-resolution errors leave the already-recorded nullable entry intact. The
-fallback is bounded by two snapshots rather than an absolute wall-clock cutoff:
+plain-text marker echoes. Zero exact matches remain unresolved; multiple exact
+matches are ambiguous. Snapshot, candidate-read, or task-resolution errors
+leave the already-recorded nullable entry intact. The workflow is bounded by
+two snapshots rather than an absolute wall-clock cutoff:
 mandatory recording or tool latency can shift both attempts later, but cannot
 erase an attempt or reduce the minimum 20-second interval between their start
 times.
