@@ -1,6 +1,6 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project, explicit delegation from any project, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
+description: "Dispatch actionable project work from the per-user TaskChef dispatcher workspace into independently openable Codex project tasks. Trigger automatically for project work requests submitted inside that dispatcher workspace. Do not trigger for TaskChef setup, configuration, or diagnosis, or for status, outcomes, or live reports about delegated work. Outside the dispatcher workspace, trigger only when the user explicitly invokes this delegation skill. Forward one request as one task by default; split only when the user asks for standalone tasks or requirements clearly belong to different projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
 ---
 
 # TaskChef Delegate
@@ -34,8 +34,19 @@ for all deterministic workspace and task-record operations.
    The CLI resolves `--workspace`, then `TASKCHEF_WORKSPACE`, then
    `~/.agents/taskchef`; do not substitute the current project. Reject the
    dispatcher workspace itself as a target.
-2. Split the request into the smallest independently useful outcomes. Include
-   constraints, expected testing, and reporting in every instruction.
+2. Preserve the user's request as one executor instruction by default. Do not
+   decompose several requirements merely because they can be completed
+   independently. Do not split work that belongs to one project unless the
+   user explicitly asks for standalone tasks. Create multiple tasks only when
+   either:
+
+   - the user explicitly asks for standalone tasks; or
+   - the request contains distinct requirements that clearly belong to
+     different configured projects.
+
+   When splitting for either reason, keep each requirement intact with its
+   constraints, expected testing, and reporting. Do not create task groups or
+   persist the broad request.
 3. Classify against configured `name`, every URL in the `githubRepos` list, and
    `description`. Use `path` only as checkout identity. Managed `*-workspace`
    projects advertise their child or sub-repositories in this list.
@@ -44,7 +55,10 @@ for all deterministic workspace and task-record operations.
    `https`, an optional `www`, a trailing slash or `.git`, and the issue or PR
    suffix. Check that identity against every repository URL of every configured
    project. Route on this evidence only when exactly one configured project
-   matches. Ask instead of guessing when no project or several projects match.
+   matches. When one target is clear, dispatch without a routing preview. When
+   no project matches confidently or several projects remain plausible, do not
+   create a task. Ask the user to choose, concisely showing the candidate
+   projects and the routing evidence that made the choice ambiguous.
 4. Resolve native projects once and require the exact configured path.
 5. Generate a lowercase full UUID task ID before creation. Prefix the complete
    executor instruction with exactly `<!-- taskchef_id=<full UUID> -->` as the

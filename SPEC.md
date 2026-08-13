@@ -2,8 +2,8 @@
 
 ## Purpose
 
-TaskChef is an interactive Codex dispatcher. It routes independent assignments
-to real Codex tasks in configured local projects, records each submitted
+TaskChef is an interactive Codex dispatcher. It routes user requests to real
+Codex tasks in configured local projects, records each submitted
 delegation in a task history, and returns immediately. New tasks append; only a
 nullable thread ID may later transition to its durable value.
 
@@ -14,9 +14,12 @@ not maintain a second lifecycle database.
 
 1. The user submits a request in the dispatcher workspace or explicitly invokes
    the delegation skill from another Codex project.
-2. TaskChef separates only outcomes that can proceed independently.
+2. TaskChef preserves the request as one task by default. It creates multiple
+   tasks only when the user explicitly asks for standalone tasks or distinct
+   requirements clearly belong to different configured projects.
 3. It selects each target using configured project metadata and validates the
-   selected local path.
+   selected local path. It dispatches immediately when one route is clear and
+   asks the user when no project or several projects plausibly match.
 4. It creates an independently openable Codex task in that project.
 5. It embeds a generated TaskChef UUID marker in the initial instruction before
    creation. It appends one task entry as soon as creation returns, using
@@ -264,8 +267,9 @@ TaskChef does not include:
    thread ID; zero or multiple matches record `threadId: null` for later
    recovery.
 5. The dispatcher returns without waiting for execution.
-6. Several independent assignments can create several entries, including
-   multiple entries for the same project.
+6. An explicitly requested multi-task dispatch or a request spanning distinct
+   projects can create several entries. Ordinary single-project requests create
+   one entry, including requests with several related requirements.
 7. Task history commands return deterministic entries and project counts.
 8. A live report queries each relevant task once and writes nothing.
 9. Malformed JSONL, duplicate IDs, duplicate thread IDs, and symlinked managed
