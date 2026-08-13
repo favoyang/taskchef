@@ -23,6 +23,7 @@
     "assets",
     "BACKLOG.md",
     "bin",
+    "docs/delegation-design.md",
     "index.js",
     "mcp",
     "SPEC.md",

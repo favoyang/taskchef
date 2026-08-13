@@ -32,6 +32,10 @@ TaskChef does not copy executor results into its workspace. When you ask for a
 report, it reads the recorded task IDs, checks those Codex tasks once, and
 shows their current state without saving another snapshot.
 
+See [Delegation design](docs/delegation-design.md) for the complete illustrated
+workflow, durable and provisional-ID examples, safety invariants, and measured
+CLI-versus-MCP latency comparison.
+
 ## Quickstart
 
 ### 1. Install the plugin
@@ -378,7 +382,9 @@ TITLE           PROJECT   CREATED                   ID        THREAD ID
 Add retry logs  payments  2026-08-12T10:00:00.000Z  c0f010ff  019f9d46
 ```
 
-The complete data contract is in [SPEC.md](SPEC.md). Deferred ideas are in
+The complete data contract is in [SPEC.md](SPEC.md). The illustrated runtime
+workflow and latency analysis are in
+[Delegation design](docs/delegation-design.md). Deferred ideas are in
 [BACKLOG.md](BACKLOG.md).
 
 ## Development and release
