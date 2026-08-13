@@ -27,15 +27,21 @@ for all deterministic workspace and task-record operations.
 
 ## Dispatch
 
-1. In parallel, run `<plugin-root>/bin/taskchef.js dispatch prepare --json`
-   and list the native Codex projects once. The prepare command resolves the
+1. In parallel, run `<plugin-root>/bin/taskchef.js dispatch prepare --json`,
+   list the native Codex projects once, and, only when neither a dedicated
+   provisional-ID resolver nor programmatic tool orchestration is available,
+   take one pre-creation `list_threads` snapshot with limit 50. Do not add this
+   snapshot when candidate reads can be issued in one programmatic batch. The
+   prepare command resolves the
    canonical workspace, loads and validates the configured routing targets,
    generates the lowercase full UUID task ID, and returns `preparedAt` plus the
    exact first-line marker. Use
    `$taskchef-bootstrap` if the workspace is missing or unhealthy.
    The CLI resolves `--workspace`, then `TASKCHEF_WORKSPACE`, then
    `~/.agents/taskchef`; do not substitute the current project. Reject the
-   dispatcher workspace itself as a target.
+   dispatcher workspace itself as a target. From the pre-creation snapshot,
+   retain only durable Codex thread IDs as a candidate-elimination baseline.
+   Snapshot failure must not block creation; continue without a baseline.
 2. Split the request into the smallest independently useful outcomes. Include
    constraints, expected testing, and reporting in every instruction.
 3. Classify against configured `name`, every URL in the `githubRepos` list, and
@@ -54,9 +60,9 @@ for all deterministic workspace and task-record operations.
    Prefix the complete executor instruction with
    exactly `<!-- taskchef_id=<full UUID> -->` as the first line, followed by a
    blank line and the instruction body. Preserve this
-   marked instruction for recording, and note the creation time.
-   Do not take a pre-creation thread snapshot; the exact random marker is the
-   correlation key.
+   marked instruction for recording, and note the creation time. The exact
+   random marker remains the sole correlation proof; the pre-creation IDs only
+   eliminate threads that already existed.
 6. Create one real Codex task using the exact configured project, a local
    environment on its executor host, the marked instruction, and a short title.
 7. When `create_thread` returns a durable `threadId`, immediately run
@@ -81,8 +87,10 @@ for all deterministic workspace and task-record operations.
      accepts the provisional ID and waits for or resolves its durable thread
      ID, call it exactly once with a timeout of at most 30 seconds. Do not invent
      an operation or pass the provisional ID to tools that require `threadId`.
-   - When no native operation is available, take at most two `list_threads`
-     snapshots with limit 50. The nominal schedule is 10 and 30 seconds after
+   - When no native operation is available, take at most two post-creation
+     `list_threads` snapshots with limit 50. Exclude every durable Codex ID from
+     the successful pre-creation baseline before reading candidates. The
+     nominal schedule is 10 and 30 seconds after
      the provisional result. Treat the first checkpoint as due, not expired: if
      nullable recording or other required work finishes after 10 seconds, take
      the first snapshot immediately. Start the second snapshot no sooner than
@@ -96,7 +104,9 @@ for all deterministic workspace and task-record operations.
      may normalize it, so never exclude a candidate because its title differs.
    - Read every remaining candidate with `read_thread`, requesting one turn and
      no command output. Read candidates concurrently when the tool surface
-     permits. Inspect only the structured
+     permits; when programmatic tool orchestration is available, issue the
+     independent reads together in one programmatic batch. Inspect only the
+     structured
      `userMessage.content[].codexDelegation.input`; do not trust titles,
      summaries, previews, plain-text echoes, or assistant output as proof.
    - Accept a candidate only when the structured input's first line is exactly
