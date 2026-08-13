@@ -196,10 +196,12 @@ For each assignment, `$taskchef-delegate`:
    marked entry with `threadId: null`, then prefers one native client-ID wait or
    resolution call with a 30-second timeout when Codex exposes one
 7. when no native operation is available, takes at most two recent-thread
-   snapshots near 10 and 30 seconds after the provisional result, filters
-   candidates by available host/project/time/worktree metadata, uses title only
-   as an advisory ordering hint, and accepts only one thread whose structured
-   delegated input starts with the exact marker
+   snapshots on a nominal 10- and 30-second schedule after the provisional
+   result; a late first checkpoint runs immediately, and the second starts at
+   least 20 seconds after the first actually started. It filters candidates by
+   available host/project/time/worktree metadata, uses title only as an advisory
+   ordering hint, and accepts only one thread whose structured delegated input
+   starts with the exact marker
 8. atomically fills the nullable thread ID after an exact match
 9. returns after recording or after reporting that bounded resolution was
    unresolved, without waiting for executor work completion.
@@ -209,11 +211,13 @@ Creation-time filtering allows five seconds of clock skew. Candidate reads run
 concurrently where the host permits and inspect only structured
 `codexDelegation.input`, never untrusted title, summary, preview, or plain-text
 marker echoes. A native resolver result is verified against the same structured
-marker before persistence. Zero exact matches time out unresolved; multiple
-exact matches are ambiguous. Snapshot, candidate-read, native-resolution, or
-task-resolution errors leave the already-recorded nullable entry intact. No
-snapshot, candidate read, marker verification, or task-resolution write starts
-after the 30-second deadline, so tool latency can reduce the number of attempts.
+marker before persistence. Zero exact matches remain unresolved; multiple exact
+matches are ambiguous. Snapshot, candidate-read, native-resolution, or
+task-resolution errors leave the already-recorded nullable entry intact. The
+fallback is bounded by two snapshots rather than an absolute wall-clock cutoff:
+mandatory recording or tool latency can shift both attempts later, but cannot
+erase an attempt or reduce the minimum 20-second interval between their start
+times.
 A `clientThreadId`, `pendingWorktreeId`, or ID in the documented provisional
 `local:` namespace remains diagnostic context and is rejected from every path
 that could persist the canonical `threadId` field.

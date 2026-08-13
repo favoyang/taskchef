@@ -82,10 +82,14 @@ for all deterministic workspace and task-record operations.
      ID, call it exactly once with a timeout of at most 30 seconds. Do not invent
      an operation or pass the provisional ID to tools that require `threadId`.
    - When no native operation is available, take at most two `list_threads`
-     snapshots with limit 50, near 10 and 30 seconds after the provisional
-     result. Count tool latency against the 30-second deadline. Do not start a
-     snapshot, candidate read, marker verification, or task-resolution write
-     after it.
+     snapshots with limit 50. The nominal schedule is 10 and 30 seconds after
+     the provisional result. Treat the first checkpoint as due, not expired: if
+     nullable recording or other required work finishes after 10 seconds, take
+     the first snapshot immediately. Start the second snapshot no sooner than
+     20 seconds after the first snapshot actually started. Useful candidate
+     work counts toward that interval; when it finishes sooner, wait only the
+     remainder. Never suppress either snapshot merely because an earlier step
+     ran late, and never take a third snapshot.
    - Filter Codex candidates by the expected host, project, creation time
      (allow five seconds of clock skew), and worktree environment whenever
      those fields are present. Use the title only to prioritize reads; Codex

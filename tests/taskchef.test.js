@@ -354,7 +354,7 @@ test("public task history API uses task terminology", () => {
   ]) {
     assert.equal(name in taskchef, false);
   }
-  assert.deepEqual(THREAD_RESOLUTION_CHECKPOINTS_MS, [10_000, 29_000]);
+  assert.deepEqual(THREAD_RESOLUTION_CHECKPOINTS_MS, [10_000, 30_000]);
   assert.equal(THREAD_RESOLUTION_TIMEOUT_MS, 30_000);
 });
 
@@ -553,9 +553,25 @@ test("delegation resolves one delayed marker match after bounded discovery", asy
   assert.equal(result.resolution, "discovered");
   assert.equal(result.threadId, "durable-thread");
   assert.equal(result.attempts, 2);
-  assert.deepEqual(waitDelays, [10_000, 19_000]);
+  assert.deepEqual(waitDelays, [10_000, 20_000]);
   assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
   assert.deepEqual(fixture.resolved, [{ id: TASK_ID, threadId: "durable-thread" }]);
+});
+
+test("delegation rejects schedules that exceed two snapshots or 20-second spacing", async () => {
+  for (const [checkpointsMs, timeoutMs, message] of [
+    [[1, 20_001, 40_001], 40_001, /at most two checkpoints/],
+    [[1, 20_000], 20_000, /at least 20000ms apart/],
+  ]) {
+    const fixture = delegationFixture({
+      checkpointsMs,
+      timeoutMs,
+      createThread: async () => assert.fail("invalid schedules must fail before creation"),
+      listThreads: async () => assert.fail("invalid schedules must fail before discovery"),
+      readThread: async () => assert.fail("invalid schedules must fail before candidate reads"),
+    });
+    await assert.rejects(createAndRecordDelegation(fixture.input), message);
+  }
 });
 
 test("delegation prefers one bounded native provisional-thread resolver when available", async () => {
@@ -673,12 +689,14 @@ test("delegation does not verify or persist a native result returned after the d
   assert.deepEqual(fixture.resolved, []);
 });
 
-test("delegation does not start a second fallback snapshot after the deadline", async () => {
+test("delegation starts the second fallback snapshot after a slow first attempt", async () => {
   let snapshots = 0;
+  const snapshotStartedAt = [];
   const waitDelays = [];
   const fixture = delegationFixture({
     listThreads: async () => {
       snapshots += 1;
+      snapshotStartedAt.push(fixture.clock.value);
       fixture.clock.value += 25_000;
       return threadList();
     },
@@ -692,26 +710,27 @@ test("delegation does not start a second fallback snapshot after the deadline", 
 
   const result = await createAndRecordDelegation(fixture.input);
   assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.attempts, 1);
-  assert.equal(snapshots, 1);
+  assert.equal(result.attempts, 2);
+  assert.equal(snapshots, 2);
   assert.deepEqual(waitDelays, [10_000]);
+  assert.equal(snapshotStartedAt[1] - snapshotStartedAt[0], 25_000);
 });
 
-test("delegation does not start a snapshot after a wait overshoots the deadline", async () => {
+test("delegation catches up immediately when a wait overshoots its nominal checkpoint", async () => {
   let snapshots = 0;
   const fixture = delegationFixture({
     checkpointsMs: [29_999],
     timeoutMs: 30_000,
     createThread: async () => ({ clientThreadId: "local:timer-overshoot" }),
     listThreads: async () => { snapshots += 1; return threadList(); },
-    readThread: async () => assert.fail("no snapshot should start after the deadline"),
+    readThread: async () => assert.fail("there are no candidates to read"),
     waitImpl: async (delayMs) => { fixture.clock.value += delayMs + 2; },
   });
 
   const result = await createAndRecordDelegation(fixture.input);
   assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.attempts, 0);
-  assert.equal(snapshots, 0);
+  assert.equal(result.attempts, 1);
+  assert.equal(snapshots, 1);
 });
 
 test("delegation counts nullable-recording latency against native resolution", async () => {
@@ -734,7 +753,37 @@ test("delegation counts nullable-recording latency against native resolution", a
   assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
 });
 
-test("delegation leaves a provisional creation unresolved after the bounded no-match window", async () => {
+test("delegation catches up after delayed recording and keeps snapshots 20 seconds apart", async () => {
+  const snapshotStartedAt = [];
+  const waitDelays = [];
+  const fixture = delegationFixture({
+    createThread: async () => ({ clientThreadId: "local:delayed-record" }),
+    recordTask: async (value) => {
+      fixture.recorded.push(value);
+      fixture.clock.value += 20_658;
+    },
+    listThreads: async () => {
+      snapshotStartedAt.push(fixture.clock.value);
+      return threadList();
+    },
+    readThread: async () => assert.fail("there are no candidates to read"),
+    waitImpl: async (delayMs) => {
+      waitDelays.push(delayMs);
+      fixture.clock.value += delayMs;
+    },
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.status, "recorded-unresolved");
+  assert.equal(result.attempts, 2);
+  assert.deepEqual(waitDelays, [20_000]);
+  assert.deepEqual(
+    snapshotStartedAt.map((startedAt) => startedAt - 1_786_459_054_000),
+    [20_658, 40_658],
+  );
+});
+
+test("delegation leaves a provisional creation unresolved after two no-match snapshots", async () => {
   let snapshots = 0;
   const waitDelays = [];
   const fixture = delegationFixture({
@@ -757,7 +806,7 @@ test("delegation leaves a provisional creation unresolved after the bounded no-m
   assert.equal(result.provisional, "local:pending-only");
   assert.equal(result.attempts, 2);
   assert.equal(snapshots, 2);
-  assert.deepEqual(waitDelays, [10_000, 19_000]);
+  assert.deepEqual(waitDelays, [10_000, 20_000]);
   assert.equal(fixture.recorded.length, 1);
   assert.equal(fixture.recorded[0].threadId, null);
   assert.equal(parseTaskChefMarker(fixture.recorded[0].instruction), TASK_ID);
@@ -874,23 +923,27 @@ test("delegation excludes a provisional ID from fallback candidates", async () =
   assert.deepEqual(fixture.resolved, []);
 });
 
-test("delegation stops after a fallback snapshot crosses the deadline", async () => {
+test("delegation still takes a second snapshot when the first crosses 30 seconds", async () => {
+  let snapshots = 0;
   const fixture = delegationFixture({
     createThread: async () => ({ clientThreadId: "local:slow-snapshot" }),
     listThreads: async () => {
+      snapshots += 1;
       fixture.clock.value += 21_000;
-      return "late snapshot must not be parsed as JSON";
+      return threadList();
     },
-    readThread: async () => assert.fail("late snapshots must not start candidate reads"),
+    readThread: async () => assert.fail("there are no candidates to read"),
   });
 
   const result = await createAndRecordDelegation(fixture.input);
   assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "resolution-deadline-exhausted");
+  assert.equal(result.reason, "no-exact-marker-match");
+  assert.equal(result.attempts, 2);
+  assert.equal(snapshots, 2);
   assert.deepEqual(fixture.resolved, []);
 });
 
-test("delegation does not persist a marker read that completes after the deadline", async () => {
+test("delegation persists an exact marker read that completes after 30 seconds", async () => {
   let markerAccesses = 0;
   const fixture = delegationFixture({
     createThread: async () => ({ clientThreadId: "local:slow-read" }),
@@ -919,10 +972,10 @@ test("delegation does not persist a marker read that completes after the deadlin
   });
 
   const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "resolution-deadline-exhausted");
-  assert.deepEqual(fixture.resolved, []);
-  assert.equal(markerAccesses, 0);
+  assert.equal(result.status, "recorded");
+  assert.equal(result.resolution, "discovered");
+  assert.deepEqual(fixture.resolved, [{ id: TASK_ID, threadId: "late-read-thread" }]);
+  assert.equal(markerAccesses, 2);
 });
 
 test("delegation still records a provisional task without a resolution adapter", async () => {
@@ -942,8 +995,8 @@ test("delegation still records a provisional task without a resolution adapter",
 
 test("delegation preserves the marked task when thread snapshots fail", async () => {
   const fixture = delegationFixture({
-    checkpointsMs: [1, 2],
-    timeoutMs: 3,
+    checkpointsMs: [1, 20_001],
+    timeoutMs: 20_002,
     listThreads: async () => { throw new Error("snapshot unavailable"); },
     createThread: async () => ({ clientThreadId: "local:pending" }),
     readThread: async () => assert.fail("failed snapshots have no candidates"),
@@ -963,8 +1016,8 @@ test("delegation preserves the marked task when thread snapshots fail", async ()
 test("delegation does not resolve after an earlier discovery error", async () => {
   let snapshots = 0;
   const fixture = delegationFixture({
-    checkpointsMs: [1, 2],
-    timeoutMs: 3,
+    checkpointsMs: [1, 20_001],
+    timeoutMs: 20_002,
     listThreads: async () => {
       snapshots += 1;
       if (snapshots === 1) throw new Error("first snapshot unavailable");
@@ -1346,7 +1399,10 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.match(body, /request permission for that exact write on the first attempt/);
   assert.match(body, /call it exactly once with a timeout of at most 30 seconds/);
   assert.match(body, /at most two `list_threads`\s+snapshots with limit 50/);
-  assert.match(body, /near 10 and 30 seconds/);
+  assert.match(body, /nominal schedule is 10 and 30 seconds/);
+  assert.match(body, /first checkpoint as due, not expired/);
+  assert.match(body, /second snapshot no sooner than\s+20 seconds after the first snapshot actually started/);
+  assert.match(body, /never take a third snapshot/i);
   assert.match(body, /Immediately record the marked instruction with `threadId: null`/);
   assert.match(body, /structured\s+`userMessage\.content\[\]\.codexDelegation\.input`/);
   assert.match(body, /Never persist a provisional `clientThreadId`/);
