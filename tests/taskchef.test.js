@@ -1622,6 +1622,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
   assert.equal(packageJson.files.includes(".mcp.json"), true);
+  assert.equal(packageJson.files.includes("docs/delegation-design.md"), true);
   assert.equal(packageJson.files.includes("mcp"), true);
   assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
   assert.equal(packageJson.files.includes("scripts/e2e-benchmark.js"), true);
