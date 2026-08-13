@@ -95,7 +95,7 @@ TaskChef replies with a link to the new Codex task. Open it to follow progress
 or give the executor more instructions. The dispatcher is ready for another
 request immediately.
 
-The plugin's focused local tools prepare and record delegations directly in the
+The plugin's focused MCP tools prepare and record delegations directly in the
 canonical workspace. They preserve TaskChef's lock and atomic-write guarantees
 without shell quoting, stdin handling, temporary record files, or a separate
 command-sandbox permission round trip.
@@ -205,8 +205,11 @@ The plugin has three skills:
 - `$taskchef-delegate` routes requests and creates executor tasks
 - `$taskchef-report` reads the task history and reports live executor state once
 
-The CLI underneath these skills manages workspace data. Run it once with `npx`
-if you do not want a global installation:
+Normal delegation uses the plugin's bundled MCP tools. The bootstrap and report
+skills continue to call the CLI for deterministic workspace administration,
+task-history reads, and later recovery. The same CLI is also available for
+direct inspection, benchmarking, and manual operations over the shared
+workspace logic. Run it once with `npx` if you do not want a global installation:
 
 ```sh
 npx taskchef help
@@ -218,9 +221,9 @@ For the shorter command used below, install it globally:
 npm install --global taskchef
 ```
 
-The npm package provides the data CLI. The Codex plugin provides the skills
-that create and inspect executor tasks. From a source checkout, use
-`node bin/taskchef.js`.
+The npm package provides the data CLI. The Codex plugin provides the skills and
+focused MCP tools used during delegation; native Codex tools still create and
+inspect executor tasks. From a source checkout, use `node bin/taskchef.js`.
 
 ```text
 taskchef help
@@ -244,11 +247,14 @@ Workspace resolution is deterministic: `--workspace <path>`, then the
 current directory is never an implicit workspace. Data commands accept
 `--json` for machine-readable output. Run `taskchef help` for every option.
 
-`taskchef dispatch prepare --json` performs the read-only preparation used by
-the delegation skill in one process: it resolves the canonical workspace,
-loads and validates configured projects, and returns a generated task UUID,
-preparation timestamp, and exact correlation marker. `task record` accepts one
-JSON value only from closed, non-interactive standard input.
+`taskchef dispatch prepare --json` is the CLI equivalent of the MCP
+`prepare_dispatch` operation: it resolves the canonical workspace, loads and
+validates configured projects, and returns a generated task UUID, preparation
+timestamp, and exact correlation marker. Normal delegation calls the MCP tool;
+the CLI command remains useful for diagnostics and benchmarks. `task record`
+accepts one JSON value only from closed, non-interactive standard input and is
+intended for manual recovery or direct CLI use, not the skill's normal
+recording path.
 
 For repeatable live delegation measurements, run
 `npm run benchmark:e2e -- write`. It reads one non-interactive JSON value,
@@ -349,8 +355,11 @@ printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspac
   taskchef task record --json
 ```
 
-If a task has `threadId: null`, Codex can later find its exact marker and pass
-the verified durable ID to the CLI. Resolution is atomic and only permits the
+If a task has `threadId: null`, a later Codex workflow can find its exact
+marker and pass the verified durable ID through its prescribed interface. The
+delegate skill uses the MCP `resolve_task` tool during bounded post-creation
+recovery; the report skill and direct manual recovery use the equivalent CLI
+operation below. Both reach the same atomic logic, which permits only the
 one-way transition from null to one unique thread ID:
 
 ```sh
