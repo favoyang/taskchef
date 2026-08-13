@@ -10,6 +10,7 @@ export {
   importProjects,
   initializeWorkspace,
   listProjects,
+  prepareDispatch,
   readConfig,
   listTasks,
   readTask,

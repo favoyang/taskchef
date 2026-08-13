@@ -24,6 +24,7 @@
     "bin",
     "index.js",
     "SPEC.md",
+    "scripts/benchmark-dispatch-prepare.js",
     "src",
     "skills/taskchef-bootstrap",
     "skills/taskchef-delegate",
@@ -37,6 +38,7 @@
     "yaml": "^2.9.0"
   },
   "scripts": {
+    "benchmark:dispatch": "node scripts/benchmark-dispatch-prepare.js",
     "test": "node --test tests/taskchef.test.js"
   },
   "dependencies": {

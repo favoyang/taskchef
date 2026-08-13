@@ -19,7 +19,11 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
-import { normalizeDurableThreadId, parseTaskChefMarker } from "./delegation.js";
+import {
+  normalizeDurableThreadId,
+  parseTaskChefMarker,
+  taskChefMarker,
+} from "./delegation.js";
 import {
   canonicalGithubRepository,
   normalizeGithubRepositories,
@@ -157,15 +161,30 @@ function assertWorkspaceOutsideProject(workspaceRoot, projectPath) {
   }
 }
 
-async function withWorkspaceLock(workspaceRoot, operation) {
+export async function acquireWorkspaceLock(workspaceRoot, {
+  lock = lockfile.lock,
+  waitImpl = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+} = {}) {
   const lockPath = path.join(workspaceRoot, WORKSPACE_LOCK_NAME);
-  const release = await lockfile.lock(workspaceRoot, {
-    realpath: false,
-    lockfilePath: lockPath,
-    stale: 600_000,
-    update: 10_000,
-    retries: { retries: 70, factor: 1, minTimeout: 100, maxTimeout: 100 },
-  });
+  for (let attempt = 0; attempt <= 70; attempt += 1) {
+    try {
+      return await lock(workspaceRoot, {
+        realpath: false,
+        lockfilePath: lockPath,
+        stale: 600_000,
+        update: 10_000,
+        retries: 0,
+      });
+    } catch (error) {
+      if (error.code !== "ELOCKED" || attempt === 70) throw error;
+      await waitImpl(100);
+    }
+  }
+  throw new Error("workspace lock retry loop ended unexpectedly");
+}
+
+async function withWorkspaceLock(workspaceRoot, operation) {
+  const release = await acquireWorkspaceLock(workspaceRoot);
   try {
     return await operation();
   } finally {
@@ -626,6 +645,25 @@ export async function readConfig(workspaceRoot, { checkPaths = true } = {}) {
 export async function listProjects(workspaceRoot) {
   const config = await readConfig(workspaceRoot);
   return [...config.projects].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function prepareDispatch(workspaceRoot, {
+  taskId = randomUUID(),
+  now = () => new Date().toISOString(),
+} = {}) {
+  const workspace = await realpath(path.resolve(workspaceRoot));
+  const projects = await listProjects(workspace);
+  const marker = taskChefMarker(taskId);
+  const preparedAt = requireTimestamp(now(), "preparedAt");
+  return {
+    schemaVersion: 1,
+    workspace,
+    taskId,
+    preparedAt,
+    marker,
+    projectCount: projects.length,
+    projects,
+  };
 }
 
 export async function addProject(workspaceRoot, input) {

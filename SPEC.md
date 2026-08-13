@@ -178,13 +178,20 @@ cases.
 
 For each assignment, `$taskchef-delegate`:
 
-1. loads and validates configured projects
-2. selects one unambiguous target
-3. generates a full UUID and prefixes the instruction with its exact
+1. runs `dispatch prepare` and native Codex project discovery concurrently;
+   the preparation command resolves the canonical workspace, loads and
+   validates configured projects, and generates the full UUID, preparation
+   timestamp, and exact marker in one process
+2. selects one unambiguous configured target and matches its exact path against
+   the already-loaded native projects
+3. prefixes the instruction with the prepared exact
    `<!-- taskchef_id=<UUID> -->` marker as the first line, followed by a blank
    line
 4. creates a real Codex task at the exact configured path
-5. appends a task entry immediately when creation returns a durable thread ID
+5. appends a task entry immediately through closed, non-interactive stdin when
+   creation returns a durable thread ID; it never opens a TTY or writes a
+   temporary record file, and requests canonical-workspace write permission on
+   the first attempt when the command sandbox does not allow that path
 6. when creation returns only a provisional client ID, immediately appends the
    marked entry with `threadId: null`, then prefers one native client-ID wait or
    resolution call with a 30-second timeout when Codex exposes one
@@ -216,6 +223,12 @@ Node CLI. The package therefore exposes testable marker/filter/orchestration
 helpers with injected thread-tool callbacks, while the skill owns the actual
 desktop-tool calls and the CLI remains responsible only for validated data
 operations.
+
+`task record` rejects an interactive TTY before reading because its protocol is
+exactly one JSON value followed by EOF. Workspace-lock contention is retried for
+up to seven seconds, while permanent permission failures such as `EPERM` or
+`EACCES` fail immediately so the caller can request the required permission
+without paying the contention retry budget.
 
 A failed executor creation produces no entry. If executor creation succeeds but
 the append fails, the executor remains valid and TaskChef tells the user that

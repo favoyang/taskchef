@@ -27,9 +27,11 @@ for all deterministic workspace and task-record operations.
 
 ## Dispatch
 
-1. Run `<plugin-root>/bin/taskchef.js workspace path --json`, then run
-   `<plugin-root>/bin/taskchef.js project list --json`
-   to load and validate the configured routing targets. Use
+1. In parallel, run `<plugin-root>/bin/taskchef.js dispatch prepare --json`
+   and list the native Codex projects once. The prepare command resolves the
+   canonical workspace, loads and validates the configured routing targets,
+   generates the lowercase full UUID task ID, and returns `preparedAt` plus the
+   exact first-line marker. Use
    `$taskchef-bootstrap` if the workspace is missing or unhealthy.
    The CLI resolves `--workspace`, then `TASKCHEF_WORKSPACE`, then
    `~/.agents/taskchef`; do not substitute the current project. Reject the
@@ -45,20 +47,28 @@ for all deterministic workspace and task-record operations.
    suffix. Check that identity against every repository URL of every configured
    project. Route on this evidence only when exactly one configured project
    matches. Ask instead of guessing when no project or several projects match.
-4. Resolve native projects once and require the exact configured path.
-5. Generate a lowercase full UUID task ID before creation. Prefix the complete
-   executor instruction with exactly `<!-- taskchef_id=<full UUID> -->` as the
-   first line, followed by a blank line and the instruction body. Preserve this
+4. Resolve the selected configured path against the already-loaded native
+   projects and require an exact match. Do not list native projects again.
+5. Use the task ID, preparation time, and marker returned by the preparation
+   command.
+   Prefix the complete executor instruction with
+   exactly `<!-- taskchef_id=<full UUID> -->` as the first line, followed by a
+   blank line and the instruction body. Preserve this
    marked instruction for recording, and note the creation time.
    Do not take a pre-creation thread snapshot; the exact random marker is the
    correlation key.
 6. Create one real Codex task using the exact configured project, a local
    environment on its executor host, the marked instruction, and a short title.
 7. When `create_thread` returns a durable `threadId`, immediately run
-   `<plugin-root>/bin/taskchef.js task record --json`.
-   Send exactly `id`, `project`, `title`, `instruction`, and `threadId` as JSON
-   on stdin. Use the configured project path for `project`, and send the marked
-   instruction unchanged. Never persist a provisional `clientThreadId` or
+   `<plugin-root>/bin/taskchef.js task record --json` in one non-interactive
+   invocation whose stdin contains exactly one JSON value and is closed at
+   launch. Never open an interactive TTY and never create a temporary record
+   file. When the canonical workspace is outside the command sandbox's writable
+   roots, request permission for that exact write on the first attempt; never
+   use a failed sandbox write as a permission probe. Send exactly `id`,
+   `project`, `title`, `instruction`, and `threadId`. Use the configured project
+   path for `project`, and send the marked instruction unchanged.
+   Never persist a provisional `clientThreadId` or
    `pendingWorktreeId` as `threadId`. Never persist `hostId`, status, results,
    transcripts, or hidden reasoning.
 8. When creation returns only `clientThreadId` or `pendingWorktreeId`, keep it
