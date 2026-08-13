@@ -2334,7 +2334,7 @@ test("CLI project list groups repositories without repeating project details", a
   });
 });
 
-test("CLI task list uses TITLE PROJECT CREATED ID order, filters, sorts, and preserves JSON", async () => {
+test("CLI task list uses TITLE PROJECT CREATED ID THREAD ID order, filters, sorts, and preserves JSON", async () => {
   const { workspace, projects } = await fixture(2);
   const longTitle = "Investigate and document a deliberately long retry-handling failure title";
   const first = await recordTask(workspace, {
@@ -2359,16 +2359,16 @@ test("CLI task list uses TITLE PROJECT CREATED ID order, filters, sorts, and pre
     "task", "list", "--project", "project-1", "--workspace", workspace,
   ]);
   const createdWidth = "2026-08-08T12:00:00.000+05:00".length;
-  const header = `${"TITLE".padEnd(longTitle.length)}  PROJECT    ${"CREATED".padEnd(createdWidth)}  ID`;
+  const header = `${"TITLE".padEnd(longTitle.length)}  PROJECT    ${"CREATED".padEnd(createdWidth)}  ${"ID".padEnd("task-newest".length)}  THREAD ID`;
   assert.equal(human.stdout, [
     header,
-    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  task-first`,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  task-latest`,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest`,
+    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  ${"task-first".padEnd("task-newest".length)}  thread-first`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  ${"task-latest".padEnd("task-newest".length)}  thread-latest`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest  thread-newest`,
     "",
   ].join("\n"));
   assert.deepEqual(human.stdout.trimEnd().split("\n")[0].trim().split(/\s{2,}/), [
-    "TITLE", "PROJECT", "CREATED", "ID",
+    "TITLE", "PROJECT", "CREATED", "ID", "THREAD ID",
   ]);
   assert.doesNotMatch(human.stdout, /task-second/);
 
@@ -2384,9 +2384,9 @@ test("CLI task list uses TITLE PROJECT CREATED ID order, filters, sorts, and pre
   ]);
   assert.equal(ascendingHuman.stdout, [
     header,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest`,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  task-latest`,
-    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  task-first`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest  thread-newest`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  ${"task-latest".padEnd("task-newest".length)}  thread-latest`,
+    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  ${"task-first".padEnd("task-newest".length)}  thread-first`,
     "",
   ].join("\n"));
   const ascendingJson = await runCli([
@@ -2396,6 +2396,47 @@ test("CLI task list uses TITLE PROJECT CREATED ID order, filters, sorts, and pre
   assert.deepEqual(JSON.parse(ascendingJson.stdout), {
     taskCount: 3,
     tasks: [newest, latest, first],
+  });
+});
+
+test("CLI task list abbreviates UUIDs, shows null thread IDs, and supports --full-id", async () => {
+  const { workspace, projects } = await fixture(1);
+  const threadId = "019ff141-e290-74d0-bc4b-646e83d14bea";
+  const resolved = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, threadId),
+    title: "Resolved",
+  }, { now: FIXED_TIME });
+  const prepared = prepareDelegation("Recover this task later.", { taskId: SECOND_TASK_ID });
+  const unresolved = await recordTask(workspace, {
+    ...dispatchInput(projects[0], SECOND_TASK_ID, null),
+    title: "Unresolved",
+    instruction: prepared.instruction,
+  }, { now: "2026-08-08T11:00:00.000Z" });
+
+  const abbreviated = await runCli(["task", "list", "--workspace", workspace]);
+  const abbreviatedRows = abbreviated.stdout.trimEnd().split("\n")
+    .map((line) => line.trim().split(/\s{2,}/));
+  assert.deepEqual(abbreviatedRows, [
+    ["TITLE", "PROJECT", "CREATED", "ID", "THREAD ID"],
+    ["Unresolved", "project-1", "2026-08-08T11:00:00.000Z", "ea896202", "-"],
+    ["Resolved", "project-1", FIXED_TIME, "c0f010ff", "019ff141"],
+  ]);
+
+  const full = await runCli(["task", "list", "--full-id", "--workspace", workspace]);
+  const fullRows = full.stdout.trimEnd().split("\n")
+    .map((line) => line.trim().split(/\s{2,}/));
+  assert.deepEqual(fullRows, [
+    ["TITLE", "PROJECT", "CREATED", "ID", "THREAD ID"],
+    ["Unresolved", "project-1", "2026-08-08T11:00:00.000Z", SECOND_TASK_ID, "-"],
+    ["Resolved", "project-1", FIXED_TIME, TASK_ID, threadId],
+  ]);
+
+  const json = await runCli([
+    "task", "list", "--full-id", "--json", "--workspace", workspace,
+  ]);
+  assert.deepEqual(JSON.parse(json.stdout), {
+    taskCount: 2,
+    tasks: [unresolved, resolved],
   });
 });
 

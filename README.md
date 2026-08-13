@@ -345,17 +345,21 @@ taskchef task show t1
 taskchef task list
 taskchef task list --project payments
 taskchef task list --ascending
+taskchef task list --full-id
 taskchef task summary
 ```
 
-Human-readable task listings put the scannable fields first and the durable ID
-last. Values are kept in full and aligned in columns. Tasks are newest-first by
-default; pass `--ascending` to list them from oldest to newest. The same order
-applies to the `tasks` array in `--json` output.
+Human-readable task listings include both the task ID and Codex thread ID.
+UUID-shaped IDs use their first eight-character section by default; pass
+`--full-id` to show both IDs in full. Null thread IDs appear as `-`, consistent
+with other empty table cells. Tasks are newest-first by default; pass
+`--ascending` to list them from oldest to newest. ID formatting does not alter
+the complete values in `--json` output, and the selected order applies to its
+`tasks` array.
 
 ```text
-TITLE           PROJECT   CREATED                   ID
-Add retry logs  payments  2026-08-12T10:00:00.000Z  c0f010ff-84f2-4838-a69d-0ff1f5d721d7
+TITLE           PROJECT   CREATED                   ID        THREAD ID
+Add retry logs  payments  2026-08-12T10:00:00.000Z  c0f010ff  019f9d46
 ```
 
 The complete data contract is in [SPEC.md](SPEC.md). Deferred ideas are in
