@@ -1,6 +1,6 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project or explicit delegation from any project. Forward one request as one task by default; split only when the user asks for standalone tasks or requirements clearly belong to different projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
+description: "Dispatch actionable project work from the per-user TaskChef dispatcher workspace into independently openable Codex project tasks. Trigger automatically for project work requests submitted inside that dispatcher workspace. Do not trigger for TaskChef setup, configuration, or diagnosis, or for status, outcomes, or live reports about delegated work. Outside the dispatcher workspace, trigger only when the user explicitly invokes this delegation skill. Forward one request as one task by default; split only when the user asks for standalone tasks or requirements clearly belong to different projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
 ---
 
 # TaskChef Delegate
