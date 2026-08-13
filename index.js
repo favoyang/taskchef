@@ -54,3 +54,5 @@ export {
   discoverCodexCli,
   openWorkspaceInCodex,
 } from "./src/codex-app.js";
+
+export { createTaskChefMcpServer } from "./src/mcp.js";

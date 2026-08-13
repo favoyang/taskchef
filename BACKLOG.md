@@ -54,28 +54,3 @@ clear data model before implementation.
   one of these APIs. Keep exact marker verification before persisting the
   returned durable ID unless the official contract provides equivalent
   correlation guarantees.
-
-## Structured task recording tool
-
-- Investigate bundling a local stdio MCP server in the TaskChef plugin so Codex
-  can call focused `prepare_dispatch`, `record_task`, and `resolve_task` tools
-  with structured inputs instead of invoking the data CLI through a shell.
-- Reuse the existing `prepareDispatch`, `recordTask`, and `resolveTask` APIs so
-  the MCP layer cannot bypass canonical workspace resolution, exact-field
-  validation, locking, atomic replacement, unique durable-thread correlation,
-  or one-way nullable resolution.
-- Prototype canonical `~/.agents/taskchef` access before committing to this
-  design. Verify how bundled MCP processes interact with Codex filesystem
-  sandboxing and plugin-scoped tool approval on every supported local surface.
-- Keep native Codex task creation outside the MCP server unless Codex exposes a
-  supported task-creation API to plugins. The intended sequence is structured
-  TaskChef preparation, native `create_thread`, then structured TaskChef record
-  and optional resolution.
-- Evaluate tool schemas, approval annotations, failure reporting, installation
-  and upgrade behavior, process lifetime, and latency against the Phase 1 CLI
-  baseline before replacing the CLI path.
-- Relevant official documentation:
-  <https://developers.openai.com/plugins/concepts/plugins>,
-  <https://developers.openai.com/plugins/concepts/mcp-server>,
-  <https://developers.openai.com/plugins/build/mcp-server>, and
-  <https://developers.openai.com/plugins/build/plugins>.

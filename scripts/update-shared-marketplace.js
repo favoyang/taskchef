@@ -24,9 +24,14 @@ const SKILL_NAMES = [
 ];
 const REQUIRED_PLUGIN_FILES = [
   ".codex-plugin/plugin.json",
+  ".mcp.json",
   "bin/taskchef.js",
+  "mcp/server.js",
+  "node_modules/@modelcontextprotocol/sdk/package.json",
   "node_modules/proper-lockfile/package.json",
+  "node_modules/zod/package.json",
   "src/cli.js",
+  "src/mcp.js",
   "src/workspace.js",
   ...SKILL_NAMES.map((name) => `skills/${name}/SKILL.md`),
 ];
@@ -126,6 +131,13 @@ export async function validateExtractedPlugin(pluginRoot, version, execFileImpl 
   if (manifest.skills !== "./skills/") {
     throw new Error(`published plugin skills path is ${manifest.skills}, expected ./skills/`);
   }
+  if (manifest.mcpServers !== "./.mcp.json") {
+    throw new Error(
+      `published plugin MCP path is ${manifest.mcpServers}, expected ./.mcp.json`,
+    );
+  }
+  const mcpConfig = JSON.parse(await readFile(path.join(pluginRoot, ".mcp.json"), "utf8"));
+  assertTaskChefMcpConfig(mcpConfig);
   for (const skillName of SKILL_NAMES) {
     const skill = await readFile(path.join(pluginRoot, "skills", skillName, "SKILL.md"), "utf8");
     validateSkillFrontmatter(skill, skillName);
@@ -139,6 +151,15 @@ export async function validateExtractedPlugin(pluginRoot, version, execFileImpl 
     throw new Error("published TaskChef CLI help smoke test failed");
   }
   return manifest;
+}
+
+function assertTaskChefMcpConfig(config) {
+  const server = config?.mcpServers?.taskchef;
+  if (server?.command !== "node") throw new Error("published TaskChef MCP command is not node");
+  if (JSON.stringify(server.args) !== JSON.stringify(["./mcp/server.js"])) {
+    throw new Error("published TaskChef MCP server path is invalid");
+  }
+  if (server.cwd !== ".") throw new Error("published TaskChef MCP cwd is not plugin-relative");
 }
 
 export async function verifyPublishedPluginArchive(version, execFileImpl = execFile) {

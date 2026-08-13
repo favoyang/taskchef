@@ -91,6 +91,11 @@ TaskChef replies with a link to the new Codex task. Open it to follow progress
 or give the executor more instructions. The dispatcher is ready for another
 request immediately.
 
+The plugin's focused local tools prepare and record delegations directly in the
+canonical workspace. They preserve TaskChef's lock and atomic-write guarantees
+without shell quoting, stdin handling, temporary record files, or a separate
+command-sandbox permission round trip.
+
 ## Everyday workflows
 
 ### Route work across projects
