@@ -938,6 +938,44 @@ test("delegation resolves one delayed marker match after bounded discovery", asy
   assert.deepEqual(fixture.resolved, [{ id: TASK_ID, threadId: "durable-thread" }]);
 });
 
+test("delegation excludes pre-creation baseline IDs before marker reads", async () => {
+  const readIds = [];
+  const fixture = delegationFixture({
+    baselineThreadIds: new Set(["preexisting-thread"]),
+    checkpointsMs: [1],
+    timeoutMs: 2,
+    listThreads: async () => threadList([
+      {
+        id: "preexisting-thread",
+        kind: "codex",
+        hostId: "local",
+        projectId: "project-example",
+        createdAt: 1_786_459_054,
+        environment: { type: "worktree" },
+      },
+      {
+        id: "new-thread",
+        kind: "codex",
+        hostId: "local",
+        projectId: "project-example",
+        createdAt: 1_786_459_054,
+        environment: { type: "worktree" },
+      },
+    ]),
+    createThread: async () => ({ clientThreadId: "local:pending" }),
+    readThread: async ({ threadId }) => {
+      readIds.push(threadId);
+      return delegatedThreadRead(
+        `<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`,
+      );
+    },
+  });
+
+  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(result.threadId, "new-thread");
+  assert.deepEqual(readIds, ["new-thread"]);
+});
+
 test("delegation rejects schedules that exceed two snapshots or 20-second spacing", async () => {
   for (const [checkpointsMs, timeoutMs, message] of [
     [[1, 20_001, 40_001], 40_001, /at most two checkpoints/],
@@ -1774,12 +1812,17 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.match(body, /exactly `<!-- taskchef_id=<full UUID> -->` as the\s+first line/);
   assert.match(body, /Require an immediately following blank line/);
   assert.doesNotMatch(body, /`# taskchef_id=/);
-  assert.match(body, /Do not take a pre-creation thread\s+snapshot/);
-  assert.match(body, /In parallel, run .*dispatch prepare --json.*native Codex projects once/s);
+  assert.match(body, /In parallel, run .*dispatch prepare --json.*native Codex projects once.*pre-creation `list_threads`/s);
+  assert.match(body, /only when neither a dedicated\s+provisional-ID resolver nor programmatic tool orchestration is available/);
+  assert.match(body, /Do not add this\s+snapshot when candidate reads can be issued in one programmatic batch/);
+  assert.match(body, /retain only durable Codex thread IDs as a candidate-elimination baseline/);
+  assert.match(body, /exact\s+random marker remains the sole correlation proof/i);
+  assert.match(body, /Snapshot failure must not block creation/);
   assert.match(body, /Never open an interactive TTY and never create a temporary record\s+file/);
   assert.match(body, /request permission for that exact write on the first attempt/);
   assert.match(body, /call it exactly once with a timeout of at most 30 seconds/);
-  assert.match(body, /at most two `list_threads`\s+snapshots with limit 50/);
+  assert.match(body, /at most two post-creation\s+`list_threads` snapshots with limit 50/);
+  assert.match(body, /programmatic tool orchestration.*one programmatic batch/s);
   assert.match(body, /nominal schedule is 10 and 30 seconds/);
   assert.match(body, /first checkpoint as due, not expired/);
   assert.match(body, /second snapshot no sooner than\s+20 seconds after the first snapshot actually started/);
