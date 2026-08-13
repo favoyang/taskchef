@@ -12,6 +12,7 @@ import {
   importProjects,
   initializeWorkspace,
   listProjects,
+  prepareDispatch,
   readTask,
   recordTask,
   removeProject,
@@ -27,7 +28,16 @@ async function readStdin() {
   return input;
 }
 
+export function assertTaskRecordStdin(stdin = process.stdin) {
+  if (stdin.isTTY) {
+    throw new Error(
+      "task record requires non-interactive JSON on standard input; pipe one JSON value and close stdin",
+    );
+  }
+}
+
 async function readJsonStdin() {
+  assertTaskRecordStdin();
   const input = await readStdin();
   if (input.trim().length === 0) throw new Error("expected JSON on standard input");
   return JSON.parse(input);
@@ -248,6 +258,20 @@ async function projectList(args) {
   return 0;
 }
 
+async function dispatchPrepare(args) {
+  validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
+  const resolution = workspaceSelection(args);
+  const prepared = await prepareDispatch(resolution.workspace);
+  prepared.workspaceSource = resolution.source;
+  print(prepared, args, (value) => [
+    `Workspace: ${value.workspace}`,
+    `Task ID: ${value.taskId}`,
+    `Prepared: ${value.preparedAt}`,
+    `Projects: ${value.projectCount}`,
+  ].join("\n"));
+  return 0;
+}
+
 async function projectRemove(args) {
   if (!args[2] || args[2].startsWith("--")) throw new Error("project remove requires a name");
   validateCommandArgs(args, 3, {
@@ -332,13 +356,15 @@ Usage:
   taskchef project import [<file> | -] [--replace] [--json] [--workspace <path>]
   taskchef project list [--json] [--workspace <path>]
   taskchef project remove <name> [--json] [--workspace <path>]
+  taskchef dispatch prepare [--json] [--workspace <path>]
   taskchef task record [--json] [--workspace <path>]
   taskchef task resolve <task-id> --thread-id <thread-id> [--json] [--workspace <path>]
   taskchef task show <task-id> [--json] [--workspace <path>]
   taskchef task list [--project <name-or-path>] [--ascending] [--json] [--workspace <path>]
   taskchef task summary [--json] [--workspace <path>]
 
-Task record reads JSON from standard input. Project import reads a JSON
+Task record reads one JSON value from closed, non-interactive standard input.
+Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
 Workspace resolution precedence is --workspace, TASKCHEF_WORKSPACE, then
 ~/.agents/taskchef.
@@ -357,6 +383,7 @@ export async function runCli(args) {
   if (args[0] === "project" && args[1] === "import") return projectImport(args);
   if (args[0] === "project" && args[1] === "list") return projectList(args);
   if (args[0] === "project" && args[1] === "remove") return projectRemove(args);
+  if (args[0] === "dispatch" && args[1] === "prepare") return dispatchPrepare(args);
   if (args[0] === "task" && args[1] === "record") return taskRecord(args);
   if (args[0] === "task" && args[1] === "resolve") return taskResolve(args);
   if (args[0] === "task" && args[1] === "show" && args[2]) return taskShow(args);

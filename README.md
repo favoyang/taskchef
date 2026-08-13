@@ -222,6 +222,7 @@ taskchef project add <path>
 taskchef project import [<file> | -]
 taskchef project list
 taskchef project remove <name>
+taskchef dispatch prepare
 taskchef task record
 taskchef task resolve <task-id> --thread-id <thread-id>
 taskchef task show <task-id>
@@ -233,6 +234,12 @@ Workspace resolution is deterministic: `--workspace <path>`, then the
 `TASKCHEF_WORKSPACE` environment variable, then `~/.agents/taskchef`. The
 current directory is never an implicit workspace. Data commands accept
 `--json` for machine-readable output. Run `taskchef help` for every option.
+
+`taskchef dispatch prepare --json` performs the read-only preparation used by
+the delegation skill in one process: it resolves the canonical workspace,
+loads and validates configured projects, and returns a generated task UUID,
+preparation timestamp, and exact correlation marker. `task record` accepts one
+JSON value only from closed, non-interactive standard input.
 
 ### One-time upgrade from an older workspace
 

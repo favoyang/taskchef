@@ -26,6 +26,7 @@ import {
   THREAD_RESOLUTION_CHECKPOINTS_MS,
   THREAD_RESOLUTION_TIMEOUT_MS,
   createAndRecordDelegation,
+  prepareDispatch,
   addProject,
   buildTaskSummary,
   canonicalGithubRepository,
@@ -53,6 +54,8 @@ import {
   resolveWorkspacePath,
   validateConfig,
 } from "../index.js";
+import { assertTaskRecordStdin } from "../src/cli.js";
+import { acquireWorkspaceLock } from "../src/workspace.js";
 import {
   pinTaskChefNpmSource,
   preserveSharedMarketplaceFile,
@@ -341,7 +344,8 @@ test("Codex opening failure leaves an initialized workspace and returns structur
 
 test("public task history API uses task terminology", () => {
   for (const name of [
-    "buildTaskSummary", "filterTasks", "listTasks", "readTask", "recordTask", "resolveTask",
+    "buildTaskSummary", "filterTasks", "listTasks", "prepareDispatch", "readTask", "recordTask",
+    "resolveTask",
   ]) {
     assert.equal(typeof taskchef[name], "function");
   }
@@ -352,6 +356,71 @@ test("public task history API uses task terminology", () => {
   }
   assert.deepEqual(THREAD_RESOLUTION_CHECKPOINTS_MS, [10_000, 29_000]);
   assert.equal(THREAD_RESOLUTION_TIMEOUT_MS, 30_000);
+});
+
+test("dispatch preparation combines canonical routing data and correlation values", async () => {
+  const { workspace, projects } = await fixture(2);
+  const prepared = await prepareDispatch(workspace, {
+    taskId: TASK_ID,
+    now: () => FIXED_TIME,
+  });
+
+  assert.equal(prepared.schemaVersion, 1);
+  assert.equal(prepared.workspace, await realpath(workspace));
+  assert.equal(prepared.taskId, TASK_ID);
+  assert.equal(prepared.preparedAt, FIXED_TIME);
+  assert.equal(prepared.marker, `<!-- taskchef_id=${TASK_ID} -->`);
+  assert.equal(prepared.projectCount, 2);
+  assert.deepEqual(prepared.projects.map((project) => project.path), projects);
+  await assert.rejects(
+    prepareDispatch(workspace, { taskId: "not-a-uuid" }),
+    /lowercase full UUID/,
+  );
+  await assert.rejects(
+    prepareDispatch(workspace, { taskId: TASK_ID, now: () => "not-a-time" }),
+    /preparedAt must be an ISO 8601 timestamp/,
+  );
+});
+
+test("task recording rejects interactive stdin before waiting for EOF", () => {
+  assert.doesNotThrow(() => assertTaskRecordStdin({ isTTY: false }));
+  assert.throws(
+    () => assertTaskRecordStdin({ isTTY: true }),
+    /requires non-interactive JSON on standard input/,
+  );
+});
+
+test("workspace lock retries contention but fails permanent permission errors immediately", async () => {
+  for (const code of ["EPERM", "EACCES"]) {
+    const permissionError = Object.assign(new Error("denied"), { code });
+    let permissionAttempts = 0;
+    await assert.rejects(
+      acquireWorkspaceLock("/workspace", {
+        lock: async () => {
+          permissionAttempts += 1;
+          throw permissionError;
+        },
+        waitImpl: async () => assert.fail("permanent errors must not wait"),
+      }),
+      (error) => error === permissionError,
+    );
+    assert.equal(permissionAttempts, 1);
+  }
+
+  const contentionError = Object.assign(new Error("busy"), { code: "ELOCKED" });
+  let contentionAttempts = 0;
+  const waits = [];
+  const release = async () => {};
+  assert.equal(await acquireWorkspaceLock("/workspace", {
+    lock: async () => {
+      contentionAttempts += 1;
+      if (contentionAttempts < 3) throw contentionError;
+      return release;
+    },
+    waitImpl: async (delayMs) => waits.push(delayMs),
+  }), release);
+  assert.equal(contentionAttempts, 3);
+  assert.deepEqual(waits, [100, 100]);
 });
 
 test("delegation marker parsing requires the exact first-line full UUID marker", () => {
@@ -1028,6 +1097,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
+  assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
   assert.deepEqual(packageJson.bundleDependencies, ["proper-lockfile"]);
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
   const releasePluginNames = releaseConfig.plugins.map((plugin) =>
@@ -1261,8 +1331,7 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.deepEqual(
     literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)),
     [
-      "<plugin-root>/bin/taskchef.js workspace path --json",
-      "<plugin-root>/bin/taskchef.js project list --json",
+      "<plugin-root>/bin/taskchef.js dispatch prepare --json",
       "<plugin-root>/bin/taskchef.js task record --json",
       "<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json",
     ],
@@ -1272,6 +1341,9 @@ test("delegate skill isolates trigger metadata and uses complete CLI commands", 
   assert.match(body, /Require an immediately following blank line/);
   assert.doesNotMatch(body, /`# taskchef_id=/);
   assert.match(body, /Do not take a pre-creation thread\s+snapshot/);
+  assert.match(body, /In parallel, run .*dispatch prepare --json.*native Codex projects once/s);
+  assert.match(body, /Never open an interactive TTY and never create a temporary record\s+file/);
+  assert.match(body, /request permission for that exact write on the first attempt/);
   assert.match(body, /call it exactly once with a timeout of at most 30 seconds/);
   assert.match(body, /at most two `list_threads`\s+snapshots with limit 50/);
   assert.match(body, /near 10 and 30 seconds/);
@@ -2094,6 +2166,15 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   assert.equal(JSON.parse(imported.stdout).projectCount, 2);
   const projects = await runCli(["project", "list", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(projects.stdout).projectCount, 2);
+  const preparedDispatch = JSON.parse((await runCli([
+    "dispatch", "prepare", "--json", "--workspace", workspace,
+  ])).stdout);
+  assert.equal(preparedDispatch.workspace, await realpath(workspace));
+  assert.equal(preparedDispatch.workspaceSource, "explicit");
+  assert.equal(preparedDispatch.projectCount, 2);
+  assert.match(preparedDispatch.taskId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.equal(preparedDispatch.marker, `<!-- taskchef_id=${preparedDispatch.taskId} -->`);
+  assert.ok(Date.parse(preparedDispatch.preparedAt));
 
   await runCli(["task", "record", "--json", "--workspace", workspace], {
     input: JSON.stringify(dispatchInput(first)),
