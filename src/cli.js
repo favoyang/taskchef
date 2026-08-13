@@ -154,6 +154,12 @@ function sortTasksByCreatedAt(tasks, ascending) {
     .map(({ task }) => task);
 }
 
+function displayId(value, fullId) {
+  if (fullId || value === null || value === undefined) return value;
+  const uuidSection = String(value).match(/^[0-9a-fA-F]{8}(?=-)/);
+  return uuidSection ? uuidSection[0] : value;
+}
+
 async function initialize(args) {
   validateCommandArgs(args, 2, {
     values: ["--workspace", "--codex-cli"],
@@ -315,20 +321,22 @@ async function taskShow(args) {
 async function taskList(args) {
   validateCommandArgs(args, 2, {
     values: ["--workspace", "--project"],
-    switches: ["--ascending", "--json"],
+    switches: ["--ascending", "--full-id", "--json"],
   });
   const filtered = await filterTasks(workspaceRoot(args), {
     project: option(args, "--project", null),
   });
   const dispatches = sortTasksByCreatedAt(filtered, args.includes("--ascending"));
   const result = { taskCount: dispatches.length, tasks: dispatches };
+  const fullId = args.includes("--full-id");
   print(result, args, (value) => table(
-    ["TITLE", "PROJECT", "CREATED", "ID"],
+    ["TITLE", "PROJECT", "CREATED", "ID", "THREAD ID"],
     value.tasks.map((dispatch) => [
       dispatch.title,
       dispatch.project?.name,
       dispatch.createdAt,
-      dispatch.id,
+      displayId(dispatch.id, fullId),
+      displayId(dispatch.threadId, fullId),
     ]),
   ));
   return 0;
@@ -360,7 +368,7 @@ Usage:
   taskchef task record [--json] [--workspace <path>]
   taskchef task resolve <task-id> --thread-id <thread-id> [--json] [--workspace <path>]
   taskchef task show <task-id> [--json] [--workspace <path>]
-  taskchef task list [--project <name-or-path>] [--ascending] [--json] [--workspace <path>]
+  taskchef task list [--project <name-or-path>] [--ascending] [--full-id] [--json] [--workspace <path>]
   taskchef task summary [--json] [--workspace <path>]
 
 Task record reads one JSON value from closed, non-interactive standard input.
