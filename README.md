@@ -123,10 +123,10 @@ Every delegated instruction begins with a unique
 `<!-- taskchef_id=<UUID> -->` marker followed by a blank line. The valid HTML
 comment stays invisible in rendered Markdown.
 If worktree creation does not return a thread ID immediately, TaskChef records
-the marked delegation as unresolved, then waits briefly for the durable task.
-It prefers a native Codex client-ID resolver when available and otherwise makes
-two exact-marker checks during a short bounded window. If it still cannot
-identify exactly one task, the recorded marker remains available for recovery.
+the marked delegation as unresolved, then makes at most two exact-marker checks
+during a short bounded window. Candidate reads use one programmatic batch per
+check. If the batch cannot execute or TaskChef cannot identify exactly one
+task, the recorded marker remains available for recovery.
 
 ### Ask for a live report
 

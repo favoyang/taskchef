@@ -250,7 +250,6 @@ export async function createAndRecordDelegation({
   recordTask,
   resolveRecordedTask = null,
   resolveProvisionalThread = null,
-  baselineThreadIds = new Set(),
   taskId = randomUUID(),
   checkpointsMs = THREAD_RESOLUTION_CHECKPOINTS_MS,
   timeoutMs = THREAD_RESOLUTION_TIMEOUT_MS,
@@ -274,9 +273,6 @@ export async function createAndRecordDelegation({
   }
   if (resolveRecordedTask !== null && typeof resolveRecordedTask !== "function") {
     throw new Error("resolveRecordedTask must be a function or null");
-  }
-  if (!(baselineThreadIds instanceof Set)) {
-    throw new Error("baselineThreadIds must be a Set");
   }
   validateResolutionSchedule(checkpointsMs, timeoutMs);
 
@@ -511,7 +507,6 @@ export async function createAndRecordDelegation({
     try {
       const snapshot = await listThreads({ limit: recentLimit });
       candidates = filterThreadCandidates(snapshot, {
-        baselineThreadIds,
         excludedThreadIds: provisionalIds,
         hostId: expected.hostId ?? null,
         projectId: expected.projectId ?? target.projectId ?? null,
