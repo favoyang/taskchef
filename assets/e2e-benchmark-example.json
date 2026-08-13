@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "taskchef-delegate-e2e",
+  "runId": "replace-with-run-id",
+  "startedAt": "2026-08-13T06:30:00.000Z",
+  "completedAt": "2026-08-13T06:30:05.000Z",
+  "workload": {
+    "project": "example-project",
+    "title": "Example workload",
+    "prompt": "Return the requested example output."
+  },
+  "task": {
+    "taskId": "00000000-0000-4000-8000-000000000000",
+    "threadId": "00000000-0000-7000-8000-000000000000",
+    "clientThreadId": null,
+    "recorded": true,
+    "resolution": "immediate",
+    "resolutionAttempts": 0
+  },
+  "stages": [
+    {
+      "name": "prepare-and-list-projects",
+      "startedAt": "2026-08-13T06:30:00.000Z",
+      "completedAt": "2026-08-13T06:30:00.200Z",
+      "outcome": "success"
+    },
+    {
+      "name": "create-thread",
+      "startedAt": "2026-08-13T06:30:01.000Z",
+      "completedAt": "2026-08-13T06:30:01.100Z",
+      "outcome": "durable"
+    },
+    {
+      "name": "record-task",
+      "startedAt": "2026-08-13T06:30:02.000Z",
+      "completedAt": "2026-08-13T06:30:04.000Z",
+      "outcome": "recorded"
+    }
+  ],
+  "validation": {
+    "recordVerified": true,
+    "markerVerified": true,
+    "outputVerified": false,
+    "candidateFilterEffective": false
+  }
+}

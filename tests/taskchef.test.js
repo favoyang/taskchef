@@ -57,6 +57,11 @@ import {
 import { assertTaskRecordStdin } from "../src/cli.js";
 import { acquireWorkspaceLock } from "../src/workspace.js";
 import {
+  cleanBenchmarkResults,
+  normalizeBenchmarkResult,
+  writeBenchmarkResult,
+} from "../scripts/e2e-benchmark.js";
+import {
   pinTaskChefNpmSource,
   preserveSharedMarketplaceFile,
   resolveExpectedPublishedPlugin,
@@ -70,6 +75,57 @@ const execFile = promisify(execFileCallback);
 const FIXED_TIME = "2026-08-08T10:00:00.000Z";
 const TASK_ID = "c0f010ff-84f2-4838-a69d-0ff1f5d721d7";
 const SECOND_TASK_ID = "ea896202-04fc-4a46-a6a1-4c9f5d63edfe";
+const BENCHMARK_THREAD_ID = "00000000-0000-7000-8000-000000000000";
+
+function e2eBenchmarkInput() {
+  return {
+    schemaVersion: 1,
+    benchmark: "taskchef-delegate-e2e",
+    taskchefVersion: "5.1.1",
+    runId: "baseline-t2-count",
+    startedAt: "2026-08-13T06:30:00.000Z",
+    completedAt: "2026-08-13T06:30:05.000Z",
+    workload: {
+      project: "t2",
+      title: "Count from 1 to 10",
+      prompt: "Print the integers from 1 through 10.",
+    },
+    task: {
+      taskId: TASK_ID,
+      threadId: BENCHMARK_THREAD_ID,
+      clientThreadId: null,
+      recorded: true,
+      resolution: "immediate",
+      resolutionAttempts: 0,
+    },
+    stages: [
+      {
+        name: "prepare-and-list-projects",
+        startedAt: "2026-08-13T06:30:00.000Z",
+        completedAt: "2026-08-13T06:30:00.200Z",
+        outcome: "success",
+      },
+      {
+        name: "create-thread",
+        startedAt: "2026-08-13T06:30:01.000Z",
+        completedAt: "2026-08-13T06:30:01.100Z",
+        outcome: "durable",
+      },
+      {
+        name: "record-task",
+        startedAt: "2026-08-13T06:30:02.000Z",
+        completedAt: "2026-08-13T06:30:04.000Z",
+        outcome: "recorded",
+      },
+    ],
+    validation: {
+      recordVerified: true,
+      markerVerified: true,
+      outputVerified: false,
+      candidateFilterEffective: false,
+    },
+  };
+}
 
 function threadList(threads = []) {
   return { schemaVersion: 4, pinnedThreads: [], threads };
@@ -421,6 +477,330 @@ test("workspace lock retries contention but fails permanent permission errors im
   }), release);
   assert.equal(contentionAttempts, 3);
   assert.deepEqual(waits, [100, 100]);
+});
+
+test("end-to-end benchmark results use a stable derived summary and timestamped filename", async () => {
+  const input = e2eBenchmarkInput();
+  const normalized = normalizeBenchmarkResult(input);
+  assert.deepEqual(normalized.summary, {
+    totalWallMs: 5_000,
+    measuredStageMs: 2_300,
+    orchestrationOverheadMs: 2_700,
+    resolved: true,
+    resolutionAttempts: 0,
+  });
+  assert.deepEqual(normalized.stages.map((stage) => stage.durationMs), [200, 100, 2_000]);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-benchmark-"));
+  const staleVersionInput = structuredClone(input);
+  staleVersionInput.taskchefVersion = "0.0.0";
+  const { outputPath } = await writeBenchmarkResult(staleVersionInput, root);
+  assert.equal(
+    path.basename(outputPath),
+    "2026-08-13T06-30-00.000Z-taskchef-delegate-e2e.json",
+  );
+  const saved = JSON.parse(await readFile(outputPath, "utf8"));
+  const currentVersion = JSON.parse(await readFile("package.json", "utf8")).version;
+  assert.deepEqual(saved.summary, normalized.summary);
+  assert.equal(saved.taskchefVersion, currentVersion);
+  await assert.rejects(writeBenchmarkResult(staleVersionInput, root), /EEXIST/);
+
+  const example = JSON.parse(await readFile("assets/e2e-benchmark-example.json", "utf8"));
+  const exampleRoot = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-example-"));
+  const exampleWrite = await writeBenchmarkResult(example, exampleRoot);
+  assert.equal(exampleWrite.result.taskchefVersion, currentVersion);
+});
+
+test("end-to-end benchmark cleanup removes only matching result files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-clean-"));
+  const matching = "2026-08-13T06-30-00.000Z-taskchef-delegate-e2e.json";
+  await writeFile(path.join(root, matching), "{}\n");
+  await writeFile(path.join(root, "keep.json"), "{}\n");
+  await writeFile(path.join(root, "customer-notes-taskchef-delegate-e2e.json"), "{}\n");
+  await writeFile(path.join(root, "2026-99-99T99-99-99.999Z-taskchef-delegate-e2e.json"), "{}\n");
+  assert.deepEqual(await cleanBenchmarkResults(root), [matching]);
+  assert.deepEqual(
+    (await readdir(root)).sort(),
+    [
+      "2026-99-99T99-99-99.999Z-taskchef-delegate-e2e.json",
+      "customer-notes-taskchef-delegate-e2e.json",
+      "keep.json",
+    ],
+  );
+});
+
+test("end-to-end benchmark validation rejects incomplete and inconsistent results", () => {
+  const missingStage = e2eBenchmarkInput();
+  missingStage.stages.pop();
+  assert.throws(() => normalizeBenchmarkResult(missingStage), /requires a record-task stage/);
+  const invalidTime = e2eBenchmarkInput();
+  invalidTime.completedAt = "2026-08-13T06:29:59.000Z";
+  assert.throws(() => normalizeBenchmarkResult(invalidTime), /must not precede/);
+  const missingValidation = e2eBenchmarkInput();
+  delete missingValidation.validation.candidateFilterEffective;
+  assert.throws(
+    () => normalizeBenchmarkResult(missingValidation),
+    /candidateFilterEffective must be boolean/,
+  );
+  for (const invalidAttempts of [undefined, -1, 0.5]) {
+    const invalid = e2eBenchmarkInput();
+    invalid.task.resolutionAttempts = invalidAttempts;
+    assert.throws(() => normalizeBenchmarkResult(invalid), /nonnegative integer/);
+  }
+  const inconsistentAttempts = e2eBenchmarkInput();
+  inconsistentAttempts.task.resolutionAttempts = 1;
+  assert.throws(() => normalizeBenchmarkResult(inconsistentAttempts), /must agree/);
+  const outOfBoundsStage = e2eBenchmarkInput();
+  outOfBoundsStage.stages[0].startedAt = "2026-08-13T06:29:59.999Z";
+  assert.throws(() => normalizeBenchmarkResult(outOfBoundsStage), /within the benchmark run/);
+  for (const noncanonical of ["2026/08/13", "2026-08-13", "2026-08-13T06:30:00Z"]) {
+    const invalid = e2eBenchmarkInput();
+    invalid.startedAt = noncanonical;
+    assert.throws(() => normalizeBenchmarkResult(invalid), /canonical UTC ISO timestamp|four-digit UTC year/);
+  }
+  const invalidOutcome = e2eBenchmarkInput();
+  invalidOutcome.stages[0].outcome = "okay";
+  assert.throws(() => normalizeBenchmarkResult(invalidOutcome), /outcome is invalid/);
+  for (const invalidVersion of ["01.2.3", "1.02.3", "1.2.03", "1.2.3-..", "1.2.3+build..1"]) {
+    const invalid = e2eBenchmarkInput();
+    invalid.taskchefVersion = invalidVersion;
+    assert.throws(() => normalizeBenchmarkResult(invalid), /must be a semantic version/);
+  }
+  for (const makeWhitespaceOnly of [
+    (input) => { input.runId = "   "; },
+    (input) => { input.workload.project = "\t"; },
+    (input) => { input.workload.title = "\n"; },
+    (input) => { input.workload.prompt = "  "; },
+  ]) {
+    const invalid = e2eBenchmarkInput();
+    makeWhitespaceOnly(invalid);
+    assert.throws(() => normalizeBenchmarkResult(invalid), /must be a non-empty string/);
+  }
+  const invalidTaskId = e2eBenchmarkInput();
+  invalidTaskId.task.taskId = "replace-with-task-id";
+  assert.throws(() => normalizeBenchmarkResult(invalidTaskId), /lowercase UUID/);
+  const provisionalThreadId = e2eBenchmarkInput();
+  provisionalThreadId.task.threadId = "local:pending";
+  assert.throws(() => normalizeBenchmarkResult(provisionalThreadId), /provisional local: namespace/);
+  const opaqueDurableThreadId = e2eBenchmarkInput();
+  opaqueDurableThreadId.task.threadId = "durable-thread";
+  assert.equal(normalizeBenchmarkResult(opaqueDurableThreadId).task.threadId, "durable-thread");
+  const echoedClientId = e2eBenchmarkInput();
+  echoedClientId.task.clientThreadId = BENCHMARK_THREAD_ID;
+  assert.throws(() => normalizeBenchmarkResult(echoedClientId), /must differ/);
+  const distinctClientId = e2eBenchmarkInput();
+  distinctClientId.task.clientThreadId = "client-new-thread:diagnostic";
+  assert.equal(normalizeBenchmarkResult(distinctClientId).task.clientThreadId, "client-new-thread:diagnostic");
+  const markedPrompt = e2eBenchmarkInput();
+  markedPrompt.workload.prompt = `<!-- taskchef_id=${TASK_ID} -->\n\nDo work.`;
+  assert.throws(() => normalizeBenchmarkResult(markedPrompt), /must not contain a TaskChef marker/);
+  const tooManyAttempts = e2eBenchmarkInput();
+  tooManyAttempts.task.resolutionAttempts = 99;
+  assert.throws(() => normalizeBenchmarkResult(tooManyAttempts), /must not exceed 2/);
+
+  for (const addUnknown of [
+    (input) => { input.hiddenReasoning = "do not persist"; },
+    (input) => { input.workload.transcript = "do not persist"; },
+    (input) => { input.stages[0].details = {}; },
+    (input) => { input.observations = { executorOutput: "sensitive output" }; },
+  ]) {
+    const invalid = e2eBenchmarkInput();
+    addUnknown(invalid);
+    assert.throws(() => normalizeBenchmarkResult(invalid), /unknown field/);
+  }
+
+  const overlapping = e2eBenchmarkInput();
+  overlapping.stages[1].startedAt = "2026-08-13T06:30:00.100Z";
+  assert.throws(() => normalizeBenchmarkResult(overlapping), /ordered and non-overlapping/);
+
+  const unresolvedImmediate = e2eBenchmarkInput();
+  unresolvedImmediate.task.threadId = null;
+  assert.throws(() => normalizeBenchmarkResult(unresolvedImmediate), /immediate durable resolution/);
+  const unrecorded = e2eBenchmarkInput();
+  unrecorded.task.recorded = false;
+  assert.throws(() => normalizeBenchmarkResult(unrecorded), /must agree with task.recorded/);
+  const falseRecordVerification = e2eBenchmarkInput();
+  falseRecordVerification.validation.recordVerified = false;
+  assert.equal(normalizeBenchmarkResult(falseRecordVerification).validation.recordVerified, false);
+  const falseMarkerVerification = e2eBenchmarkInput();
+  falseMarkerVerification.validation.markerVerified = false;
+  assert.equal(normalizeBenchmarkResult(falseMarkerVerification).validation.markerVerified, false);
+
+  const contradictoryResolution = e2eBenchmarkInput();
+  contradictoryResolution.task.clientThreadId = "client-thread";
+  contradictoryResolution.task.resolution = "native";
+  contradictoryResolution.task.resolutionAttempts = 1;
+  contradictoryResolution.stages[1].outcome = "provisional";
+  contradictoryResolution.stages.push({
+    name: "resolve-provisional",
+    startedAt: "2026-08-13T06:30:04.100Z",
+    completedAt: "2026-08-13T06:30:04.200Z",
+    outcome: "unresolved",
+  });
+  assert.throws(() => normalizeBenchmarkResult(contradictoryResolution), /agree with its resolution stage/);
+
+  const impossibleSnapshot = structuredClone(contradictoryResolution);
+  impossibleSnapshot.completedAt = "2026-08-13T06:30:40.000Z";
+  impossibleSnapshot.task.resolution = "unresolved";
+  impossibleSnapshot.task.threadId = null;
+  impossibleSnapshot.stages[3].startedAt = "2026-08-13T06:30:12.000Z";
+  impossibleSnapshot.stages[3].completedAt = "2026-08-13T06:30:13.000Z";
+  impossibleSnapshot.stages[3].outcome = "unresolved";
+  impossibleSnapshot.observations = {
+    resolutionSnapshots: [{
+      attempt: 1,
+      startedAt: "2026-08-13T06:30:12.000Z",
+      completedAt: "2026-08-13T06:30:13.000Z",
+      recentTaskCount: 2,
+      candidateCount: 1,
+      exactMatchCount: 2,
+      resolveWriteMs: 0,
+      resolveWriteOutcome: "not-attempted",
+    }],
+  };
+  impossibleSnapshot.validation.markerVerified = false;
+  impossibleSnapshot.validation.candidateFilterEffective = true;
+  assert.throws(() => normalizeBenchmarkResult(impossibleSnapshot), /counts are inconsistent/);
+
+  const mismatchedFilter = structuredClone(impossibleSnapshot);
+  mismatchedFilter.task.resolutionAttempts = 2;
+  mismatchedFilter.observations.resolutionSnapshots[0].exactMatchCount = 0;
+  mismatchedFilter.stages[3].outcome = "failed";
+  mismatchedFilter.validation.candidateFilterEffective = false;
+  assert.throws(() => normalizeBenchmarkResult(mismatchedFilter), /must match resolution snapshot counts/);
+
+  const failedPreparation = e2eBenchmarkInput();
+  failedPreparation.task = {
+    taskId: null,
+    threadId: null,
+    clientThreadId: null,
+    recorded: false,
+    resolution: "unresolved",
+    resolutionAttempts: 0,
+  };
+  failedPreparation.stages = [{ ...failedPreparation.stages[0], outcome: "failed" }];
+  failedPreparation.validation = {
+    recordVerified: false,
+    markerVerified: false,
+    outputVerified: false,
+    candidateFilterEffective: false,
+  };
+  assert.equal(normalizeBenchmarkResult(failedPreparation).stages.length, 1);
+
+  const failedCreation = structuredClone(failedPreparation);
+  failedCreation.task.taskId = TASK_ID;
+  failedCreation.stages[0].outcome = "success";
+  failedCreation.stages.push({ ...e2eBenchmarkInput().stages[1], outcome: "failed" });
+  assert.equal(normalizeBenchmarkResult(failedCreation).stages.length, 2);
+
+  const zeroAttemptProvisional = e2eBenchmarkInput();
+  zeroAttemptProvisional.task.threadId = null;
+  zeroAttemptProvisional.task.clientThreadId = "client-thread";
+  zeroAttemptProvisional.task.resolution = "unresolved";
+  zeroAttemptProvisional.stages[1].outcome = "provisional";
+  zeroAttemptProvisional.validation.markerVerified = false;
+  assert.equal(normalizeBenchmarkResult(zeroAttemptProvisional).task.resolutionAttempts, 0);
+
+  const missingFallbackEvidence = structuredClone(zeroAttemptProvisional);
+  missingFallbackEvidence.task.resolutionAttempts = 2;
+  missingFallbackEvidence.stages.push({
+    name: "resolve-provisional",
+    startedAt: "2026-08-13T06:30:04.100Z",
+    completedAt: "2026-08-13T06:30:04.200Z",
+    outcome: "unresolved",
+  });
+  assert.throws(() => normalizeBenchmarkResult(missingFallbackEvidence), /require two fallback snapshots/);
+
+  const invalidSpacing = structuredClone(missingFallbackEvidence);
+  invalidSpacing.completedAt = "2026-08-13T06:30:40.000Z";
+  invalidSpacing.stages[3].startedAt = "2026-08-13T06:30:12.000Z";
+  invalidSpacing.stages[3].completedAt = "2026-08-13T06:30:35.000Z";
+  invalidSpacing.observations = {
+    resolutionSnapshots: [
+      {
+        attempt: 1,
+        startedAt: "2026-08-13T06:30:12.000Z",
+        completedAt: "2026-08-13T06:30:13.000Z",
+        recentTaskCount: 2,
+        candidateCount: 2,
+        exactMatchCount: 0,
+        resolveWriteMs: 0,
+        resolveWriteOutcome: "not-attempted",
+      },
+      {
+        attempt: 2,
+        startedAt: "2026-08-13T06:30:14.000Z",
+        completedAt: "2026-08-13T06:30:15.000Z",
+        recentTaskCount: 2,
+        candidateCount: 2,
+        exactMatchCount: 0,
+        resolveWriteMs: 0,
+        resolveWriteOutcome: "not-attempted",
+      },
+    ],
+  };
+  assert.throws(() => normalizeBenchmarkResult(invalidSpacing), /at least 20 seconds apart/);
+
+  const continuedAfterMatch = structuredClone(invalidSpacing);
+  continuedAfterMatch.observations.resolutionSnapshots[1].startedAt = "2026-08-13T06:30:32.000Z";
+  continuedAfterMatch.observations.resolutionSnapshots[1].completedAt = "2026-08-13T06:30:33.000Z";
+  continuedAfterMatch.observations.resolutionSnapshots[0].exactMatchCount = 1;
+  continuedAfterMatch.observations.resolutionSnapshots[0].resolveWriteOutcome = "failed";
+  assert.throws(() => normalizeBenchmarkResult(continuedAfterMatch), /must terminate fallback resolution/);
+  continuedAfterMatch.observations.resolutionSnapshots[0].exactMatchCount = 2;
+  continuedAfterMatch.observations.resolutionSnapshots[0].resolveWriteOutcome = "not-attempted";
+  assert.throws(() => normalizeBenchmarkResult(continuedAfterMatch), /must terminate fallback resolution/);
+
+  const failedResolveWrite = structuredClone(mismatchedFilter);
+  failedResolveWrite.task.resolutionAttempts = 1;
+  failedResolveWrite.observations.resolutionSnapshots[0].exactMatchCount = 1;
+  failedResolveWrite.observations.resolutionSnapshots[0].resolveWriteOutcome = "failed";
+  failedResolveWrite.validation.candidateFilterEffective = true;
+  assert.equal(normalizeBenchmarkResult(failedResolveWrite).task.resolution, "unresolved");
+  const impossibleWriteDuration = structuredClone(mismatchedFilter);
+  impossibleWriteDuration.observations.resolutionSnapshots[0].resolveWriteMs = 1;
+  assert.throws(() => normalizeBenchmarkResult(impossibleWriteDuration), /must be zero when no write was attempted/);
+  const mislabeledResolveWriteFailure = structuredClone(failedResolveWrite);
+  mislabeledResolveWriteFailure.stages[3].outcome = "unresolved";
+  assert.throws(() => normalizeBenchmarkResult(mislabeledResolveWriteFailure), /requires a failed resolution stage/);
+
+  const incompleteFallback = structuredClone(mismatchedFilter);
+  incompleteFallback.task.resolutionAttempts = 1;
+  incompleteFallback.stages[3].outcome = "unresolved";
+  incompleteFallback.validation.candidateFilterEffective = true;
+  assert.throws(() => normalizeBenchmarkResult(incompleteFallback), /requires the second fallback attempt/);
+  incompleteFallback.stages[3].outcome = "failed";
+  assert.throws(() => normalizeBenchmarkResult(incompleteFallback), /requires the second fallback attempt/);
+
+  const failedSecondAttempt = structuredClone(incompleteFallback);
+  failedSecondAttempt.task.resolutionAttempts = 2;
+  assert.equal(normalizeBenchmarkResult(failedSecondAttempt).task.resolutionAttempts, 2);
+  failedSecondAttempt.observations.resolutionSnapshots[0].candidateCount = 2;
+  failedSecondAttempt.observations.resolutionSnapshots[0].exactMatchCount = 2;
+  assert.throws(() => normalizeBenchmarkResult(failedSecondAttempt), /must terminate fallback resolution/);
+
+  const missingDerived = normalizeBenchmarkResult(e2eBenchmarkInput());
+  delete missingDerived.summary;
+  delete missingDerived.stages[0].durationMs;
+  assert.throws(
+    () => normalizeBenchmarkResult(missingDerived, { requireDerived: true }),
+    /durationMs is required in a saved result/,
+  );
+
+  const impossiblePreparationDuration = e2eBenchmarkInput();
+  impossiblePreparationDuration.observations = {
+    preparation: { dispatchPrepareMs: 201, nativeProjectListMs: 200 },
+  };
+  assert.throws(() => normalizeBenchmarkResult(impossiblePreparationDuration), /fit within the preparation stage/);
+  const impossibleValidationDuration = e2eBenchmarkInput();
+  impossibleValidationDuration.observations = { validationDurationMs: 1_001 };
+  assert.throws(() => normalizeBenchmarkResult(impossibleValidationDuration), /fit after the workflow stages/);
+  const excessiveRecentWindow = structuredClone(impossibleSnapshot);
+  excessiveRecentWindow.observations.resolutionSnapshots[0].recentTaskCount = 51;
+  assert.throws(() => normalizeBenchmarkResult(excessiveRecentWindow), /must not exceed 50/);
+  const extendedYear = e2eBenchmarkInput();
+  extendedYear.startedAt = "+010000-01-01T00:00:00.000Z";
+  assert.throws(() => normalizeBenchmarkResult(extendedYear), /four-digit UTC year/);
 });
 
 test("delegation marker parsing requires the exact first-line full UUID marker", () => {
@@ -1151,6 +1531,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.skills, "./skills/");
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
   assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
+  assert.equal(packageJson.files.includes("scripts/e2e-benchmark.js"), true);
   assert.deepEqual(packageJson.bundleDependencies, ["proper-lockfile"]);
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
   const releasePluginNames = releaseConfig.plugins.map((plugin) =>

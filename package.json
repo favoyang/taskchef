@@ -25,6 +25,7 @@
     "index.js",
     "SPEC.md",
     "scripts/benchmark-dispatch-prepare.js",
+    "scripts/e2e-benchmark.js",
     "src",
     "skills/taskchef-bootstrap",
     "skills/taskchef-delegate",
@@ -39,6 +40,7 @@
   },
   "scripts": {
     "benchmark:dispatch": "node scripts/benchmark-dispatch-prepare.js",
+    "benchmark:e2e": "node scripts/e2e-benchmark.js",
     "test": "node --test tests/taskchef.test.js"
   },
   "dependencies": {

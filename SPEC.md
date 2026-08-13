@@ -228,6 +228,51 @@ helpers with injected thread-tool callbacks, while the skill owns the actual
 desktop-tool calls and the CLI remains responsible only for validated data
 operations.
 
+### End-to-end benchmark results
+
+An explicitly requested live benchmark writes one ignored, timestamped JSON
+artifact through `scripts/e2e-benchmark.js`. Schema version 1 contains:
+
+- benchmark name, TaskChef version, run ID, and wall-clock start/end
+- project, title, and exact unmarked workload prompt
+- TaskChef task ID, nullable durable/client IDs, recording state, resolution,
+  and attempt count
+- ISO start/end, derived duration, and outcome for preparation/project listing,
+  task creation, recording, and optional provisional resolution
+- boolean record, marker, executor-output, and candidate-filter-effectiveness
+  validation results
+- derived total wall time, measured stage time, orchestration overhead,
+  resolution state, and attempt count
+
+Stage outcomes are `success|failed` for preparation,
+`durable|provisional|failed` for creation, `recorded|failed` for recording, and
+`native|discovered|unresolved|failed` for provisional resolution. `failed`
+distinguishes a terminal resolver error from a completed no-match checkpoint,
+which must proceed to the second fallback attempt. Task resolution is
+`immediate|native|discovered|unresolved`. Preparation failure has only the
+preparation stage and a null task ID; creation failure stops after creation;
+recording failure stops before provisional resolution. The committed example
+shows the durable success shape, while these transition rules define the
+shorter failure and longer provisional shapes.
+The writer derives `taskchefVersion` from the running package instead of
+trusting template input. Raw executor output and transcripts are never stored;
+`outputVerified` records only whether the requested output was verified.
+
+The writer rejects missing required stages, duplicate or unknown stages,
+invalid timestamps, contradictory workflow outcomes, overlapping stages,
+unknown fields, and overwriting an existing run. Later stages are omitted when
+preparation or creation fails, and provisional resolution is omitted when task
+recording fails. Fallback snapshot observations include the complete recent
+task count plus the filtered candidate and exact-match counts, from which
+candidate-filter effectiveness is checked. Each snapshot records
+`resolveWriteOutcome` as `not-attempted`, `succeeded`, or `failed`, so a unique
+match followed by an atomic write failure remains an honest unresolved result.
+A compact valid starting document is committed as
+`assets/e2e-benchmark-example.json`. Filenames use
+`<startedAt-with-colons-replaced>-taskchef-delegate-e2e.json`. Its cleanup
+operation removes only files matching the full generated filename grammar in
+the selected results directory.
+
 `task record` rejects an interactive TTY before reading because its protocol is
 exactly one JSON value followed by EOF. Workspace-lock contention is retried for
 up to seven seconds, while permanent permission failures such as `EPERM` or

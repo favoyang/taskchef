@@ -241,6 +241,17 @@ loads and validates configured projects, and returns a generated task UUID,
 preparation timestamp, and exact correlation marker. `task record` accepts one
 JSON value only from closed, non-interactive standard input.
 
+For repeatable live delegation measurements, run
+`npm run benchmark:e2e -- write`. It reads one non-interactive JSON value,
+validates a stable schema, derives durations and summary totals, and writes a
+timestamped result under the supplied output directory (default:
+`reports/e2e-benchmarks`). Use `validate <file>` to verify a saved result and
+`clean [directory]` to remove only prior TaskChef end-to-end result JSON files.
+Start from `assets/e2e-benchmark-example.json`; the writer accepts strict
+schema fields only and supports stopped workflows after preparation, creation,
+or recording failures. The writer stamps `taskchefVersion` from its own package;
+saved files retain that version for historical validation.
+
 ### One-time upgrade from an older workspace
 
 TaskChef 5 does not include a general migration command. For a one-time upgrade,
