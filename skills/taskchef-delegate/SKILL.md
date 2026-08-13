@@ -139,3 +139,28 @@ delegated input contains an unresolved task's exact marker, run
 `<plugin-root>/bin/taskchef.js task resolve <task-id> --thread-id <thread-id> --json`.
 Never edit `tasks.jsonl` directly. The CLI permits only an idempotent one-way
 transition from `threadId: null` to one unique durable thread ID.
+
+## End-to-end evaluation
+
+When explicitly asked to benchmark delegation, measure one real task without
+waiting for executor completion. Start from
+`<plugin-root>/assets/e2e-benchmark-example.json`. Capture one ISO start/end
+interval for the parallel preparation/project-list operation, followed by
+sequential non-overlapping creation, recording, and optional provisional
+resolution stages. Follow the complete schema and workflow transitions in
+`<plugin-root>/SPEC.md`; the example is the durable-success starting shape.
+Omit later stages when an earlier operation stops the workflow.
+Fallback snapshot observations additionally require `recentTaskCount`,
+`candidateCount`, `exactMatchCount`, and `resolveWriteMs`. For each snapshot,
+also record `resolveWriteOutcome` as `not-attempted`, `succeeded`, or `failed`;
+a unique match whose atomic write fails remains unresolved. After the bounded
+workflow ends, verify the canonical task record once and, when resolved, read
+the task once to verify the requested output. A failed verification remains a
+false validation flag even when the corresponding operation succeeded. Feed
+one exact JSON value to
+`node <plugin-root>/scripts/e2e-benchmark.js write <output-directory>` on closed,
+non-interactive stdin. Keep timestamped results in the TaskChef source
+repository's ignored `reports/e2e-benchmarks/` directory. Never include hidden
+reasoning or transcripts. Use the script's `clean` command before establishing
+a replacement baseline. Mark candidate filtering effective only when the
+fallback snapshot narrows reads below the complete recent-task window.
