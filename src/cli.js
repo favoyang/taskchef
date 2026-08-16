@@ -161,6 +161,19 @@ function displayId(value, fullId) {
   return uuidSection ? uuidSection[0] : value;
 }
 
+function taskDetails(task) {
+  return [
+    `Title: ${task.title}`,
+    `Project: ${task.project.name}`,
+    `Project path: ${task.project.path}`,
+    `Created: ${task.createdAt}`,
+    `Task ID: ${task.id}`,
+    `Thread ID: ${task.threadId ?? "-"}`,
+    "Instruction:",
+    task.instruction,
+  ].join("\n");
+}
+
 async function readTaskForShow(workspace, taskId) {
   const id = requireSafeId(taskId, "taskId");
   const tasks = await listTasks(workspace);
@@ -348,7 +361,7 @@ async function taskResolve(args) {
 
 async function taskShow(args) {
   validateCommandArgs(args, 3, { values: ["--workspace"], switches: ["--json"] });
-  print(await readTaskForShow(workspaceRoot(args), args[2]), args);
+  print(await readTaskForShow(workspaceRoot(args), args[2]), args, taskDetails);
   return 0;
 }
 
@@ -407,6 +420,7 @@ Usage:
 
 Task record reads one JSON value from closed, non-interactive standard input.
 Task show accepts a full task ID or the exact 8-character ID printed by task list.
+Task show prints human-readable details by default; --json prints the complete task object.
 Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
 Workspace resolution precedence is --workspace, TASKCHEF_WORKSPACE, then
