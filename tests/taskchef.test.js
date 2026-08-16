@@ -2927,6 +2927,47 @@ test("CLI task list abbreviates UUIDs, shows null thread IDs, and supports --ful
   });
 });
 
+test("CLI task show accepts full UUIDs and unique IDs exactly as task list displays them", async () => {
+  const { workspace, projects } = await fixture(1);
+  const recorded = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, "show-thread"),
+    title: "Show by short ID",
+  }, { now: FIXED_TIME });
+
+  const listed = await runCli(["task", "list", "--workspace", workspace]);
+  assert.match(listed.stdout, /\bc0f010ff\b/);
+
+  const fullHuman = await runCli(["task", "show", TASK_ID, "--workspace", workspace]);
+  assert.deepEqual(JSON.parse(fullHuman.stdout), recorded);
+  const shortHuman = await runCli(["task", "show", "c0f010ff", "--workspace", workspace]);
+  assert.deepEqual(JSON.parse(shortHuman.stdout), recorded);
+  const shortJson = await runCli([
+    "task", "show", "c0f010ff", "--json", "--workspace", workspace,
+  ]);
+  assert.deepEqual(JSON.parse(shortJson.stdout), recorded);
+});
+
+test("CLI task show rejects missing, ambiguous, malformed, short, and wrong-case prefixes", async () => {
+  const { workspace, projects } = await fixture(1);
+  const collision = "c0f010ff-1111-4111-8111-111111111111";
+  await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "first-thread"));
+  await recordTask(workspace, dispatchInput(projects[0], collision, "second-thread"));
+
+  for (const [taskId, pattern] of [
+    ["deadbeef", /task not found for ID prefix: deadbeef.*task list --full-id/],
+    ["c0f010ff", /task ID prefix is ambiguous: c0f010ff.*pass the full task ID/],
+    ["nothexid", /malformed task ID prefix: nothexid.*8 hexadecimal characters/],
+    ["c0f010f", /task ID prefix is too short: c0f010f.*all 8 characters/],
+    ["C0F010FF", /task not found for ID prefix: C0F010FF/],
+    ["bad/id!!", /taskId contains unsupported characters/],
+  ]) {
+    await assert.rejects(
+      runCli(["task", "show", taskId, "--json", "--workspace", workspace]),
+      (error) => error.code === 1 && pattern.test(error.stderr),
+    );
+  }
+});
+
 test("CLI rejects removed legacy commands", async () => {
   for (const args of [
     ["workspace", "ensure-instructions", "--json"],

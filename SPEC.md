@@ -296,7 +296,10 @@ it was not recorded.
 
 The CLI reads persisted history without contacting Codex:
 
-- `task show <id>` returns one entry.
+- `task show <id-or-8-character-prefix>` returns one entry. The short form is
+  the exact ID text printed by the default human-readable `task list` output
+  and succeeds only when it identifies exactly one recorded task. Missing,
+  ambiguous, malformed, and shorter prefixes fail without selecting a task.
 - `task list` returns entries newest-first by creation time, optionally filtered
   by historical project name or exact path. `--ascending` returns oldest-first.
   Human rows include task and thread ID columns, abbreviating UUID-shaped IDs
