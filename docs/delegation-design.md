@@ -130,6 +130,8 @@ The exact executor instruction becomes:
 ```text
 <!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
 
+This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
+
 Return exactly the integers 1 through 10, one per line.
 Do not modify files.
 ```
@@ -184,7 +186,7 @@ with `threadId: null`:
   "id": "c0f010ff-84f2-4838-a69d-0ff1f5d721d7",
   "project": "/projects/t2",
   "title": "Count from 1 to 10",
-  "instruction": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nReturn exactly the integers 1 through 10, one per line.\nDo not modify files.",
+  "instruction": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nReturn exactly the integers 1 through 10, one per line.\nDo not modify files.",
   "threadId": null
 }
 ```
@@ -197,7 +199,7 @@ A later candidate read might contain this structured delegated input:
     "content": [
       {
         "codexDelegation": {
-          "input": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nReturn exactly the integers 1 through 10, one per line.\nDo not modify files."
+          "input": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nReturn exactly the integers 1 through 10, one per line.\nDo not modify files."
         }
       }
     ]

@@ -26,6 +26,7 @@ import lockfile from "proper-lockfile";
 import * as taskchef from "../index.js";
 
 import {
+  EXECUTOR_OWNERSHIP_PARAGRAPH,
   THREAD_RESOLUTION_CHECKPOINTS_MS,
   THREAD_RESOLUTION_TIMEOUT_MS,
   createAndRecordDelegation,
@@ -896,7 +897,10 @@ test("end-to-end benchmark validation rejects incomplete and inconsistent result
 test("delegation marker parsing requires the exact first-line full UUID marker", () => {
   const prepared = prepareDelegation("Do the work.", { taskId: TASK_ID });
   assert.equal(prepared.id, TASK_ID);
-  assert.equal(prepared.instruction, `<!-- taskchef_id=${TASK_ID} -->\n\nDo the work.`);
+  assert.equal(
+    prepared.instruction,
+    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\nDo the work.`,
+  );
   const [marker, blankLine] = prepared.instruction.split("\n", 2);
   assert.equal(marker, `<!-- taskchef_id=${TASK_ID} -->`);
   assert.equal(blankLine, "");
@@ -1858,8 +1862,9 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project, explicit delegation from any project, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
+    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
   );
+  assert.doesNotMatch(frontmatter, /ordinary work requests in the TaskChef project/i);
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
   assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|report)\b/);
 
@@ -1871,7 +1876,19 @@ test("delegate skill isolates trigger metadata and requires structured workspace
     assert.ok(literals.includes(toolName));
   }
   assert.match(body, /never probe for them or fall back to shell CLI writes/i);
+  assert.match(
+    body,
+    /initial structured `codexDelegation\.input` starts with an exact[\s\S]+already owns that delegated\s+assignment/i,
+  );
+  assert.match(body, /Do not re-dispatch it\s+merely because it concerns TaskChef or a configured project/i);
+  assert.match(
+    body,
+    /does not prevent the task from using TaskChef later[\s\S]+initial assignment explicitly asks to delegate separate\s+work[\s\S]+user later explicitly requests a new\s+delegation/i,
+  );
   assert.match(body, /exactly `<!-- taskchef_id=<full UUID> -->` as the\s+first line/);
+  assert.match(body, /blank line, this executor-role paragraph, another blank line/);
+  assert.match(body, /This task owns the delegated assignment\. Execute it in this task/);
+  assert.match(body, /Explicit requests to delegate separate work remain valid/);
   assert.match(body, /Require an immediately following blank line/);
   assert.doesNotMatch(body, /`# taskchef_id=/);
   assert.match(body, /In parallel, call `prepare_dispatch` and list the native Codex projects\s+once/);
@@ -1894,6 +1911,11 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.match(body, /structured\s+`userMessage\.content\[\]\.codexDelegation\.input`/);
   assert.match(body, /Never persist a provisional `clientThreadId`/);
   assert.match(body, /If executor creation fails, do not record a task/);
+
+  for (const file of ["SPEC.md", "README.md", "docs/delegation-design.md"]) {
+    const documented = await readFile(path.resolve(file), "utf8");
+    assert.match(documented, new RegExp(EXECUTOR_OWNERSHIP_PARAGRAPH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
 
   const backlog = await readFile(path.resolve("BACKLOG.md"), "utf8");
   assert.match(backlog, /openai\/codex#26861/);
