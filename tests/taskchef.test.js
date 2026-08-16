@@ -2927,7 +2927,7 @@ test("CLI task list abbreviates UUIDs, shows null thread IDs, and supports --ful
   });
 });
 
-test("CLI task show accepts full UUIDs and unique IDs exactly as task list displays them", async () => {
+test("CLI task show prints human details for full and unique short IDs", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, {
     ...dispatchInput(projects[0], TASK_ID, "show-thread"),
@@ -2937,14 +2937,68 @@ test("CLI task show accepts full UUIDs and unique IDs exactly as task list displ
   const listed = await runCli(["task", "list", "--workspace", workspace]);
   assert.match(listed.stdout, /\bc0f010ff\b/);
 
+  const expected = [
+    "Title: Show by short ID",
+    "Project: project-1",
+    `Project path: ${projects[0]}`,
+    `Created: ${FIXED_TIME}`,
+    `Task ID: ${TASK_ID}`,
+    "Thread ID: show-thread",
+    "Instruction:",
+    recorded.instruction,
+    "",
+  ].join("\n");
   const fullHuman = await runCli(["task", "show", TASK_ID, "--workspace", workspace]);
-  assert.deepEqual(JSON.parse(fullHuman.stdout), recorded);
+  assert.equal(fullHuman.stdout, expected);
   const shortHuman = await runCli(["task", "show", "c0f010ff", "--workspace", workspace]);
-  assert.deepEqual(JSON.parse(shortHuman.stdout), recorded);
+  assert.equal(shortHuman.stdout, expected);
+});
+
+test("CLI task show preserves complete JSON for full and unique short IDs", async () => {
+  const { workspace, projects } = await fixture(1);
+  const recorded = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, "show-thread"),
+    title: "Show as JSON",
+  }, { now: FIXED_TIME });
+
+  const fullJson = await runCli([
+    "task", "show", TASK_ID, "--json", "--workspace", workspace,
+  ]);
+  assert.deepEqual(JSON.parse(fullJson.stdout), recorded);
   const shortJson = await runCli([
     "task", "show", "c0f010ff", "--json", "--workspace", workspace,
   ]);
   assert.deepEqual(JSON.parse(shortJson.stdout), recorded);
+});
+
+test("CLI task show preserves multiline instructions and renders a null thread ID clearly", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("First line.\n\n- Keep this list.\n  - Keep its indentation.", {
+    taskId: TASK_ID,
+  });
+  const recorded = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    title: "Unresolved multiline task",
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+
+  const human = await runCli(["task", "show", "c0f010ff", "--workspace", workspace]);
+  const instruction = human.stdout.slice(human.stdout.indexOf("Instruction:\n") + 13, -1);
+  assert.equal(instruction, recorded.instruction);
+  assert.match(human.stdout, /^Thread ID: -$/m);
+
+  const json = await runCli([
+    "task", "show", TASK_ID, "--json", "--workspace", workspace,
+  ]);
+  assert.deepEqual(JSON.parse(json.stdout), recorded);
+});
+
+test("CLI help distinguishes human task show output from complete JSON", async () => {
+  const help = await runCli(["help"]);
+  assert.match(
+    help.stdout,
+    /Task show prints human-readable details by default; --json prints the complete task object\./,
+  );
 });
 
 test("CLI task show rejects missing, ambiguous, malformed, short, and wrong-case prefixes", async () => {
@@ -2961,10 +3015,14 @@ test("CLI task show rejects missing, ambiguous, malformed, short, and wrong-case
     ["C0F010FF", /task not found for ID prefix: C0F010FF/],
     ["bad/id!!", /taskId contains unsupported characters/],
   ]) {
-    await assert.rejects(
-      runCli(["task", "show", taskId, "--json", "--workspace", workspace]),
-      (error) => error.code === 1 && pattern.test(error.stderr),
-    );
+    for (const outputArgs of [[], ["--json"]]) {
+      await assert.rejects(
+        runCli([
+          "task", "show", taskId, ...outputArgs, "--workspace", workspace,
+        ]),
+        (error) => error.code === 1 && error.stdout === "" && pattern.test(error.stderr),
+      );
+    }
   }
 });
 

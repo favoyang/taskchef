@@ -244,8 +244,9 @@ taskchef task summary
 
 Workspace resolution is deterministic: `--workspace <path>`, then the
 `TASKCHEF_WORKSPACE` environment variable, then `~/.agents/taskchef`. The
-current directory is never an implicit workspace. Data commands accept
-`--json` for machine-readable output. Run `taskchef help` for every option.
+current directory is never an implicit workspace. Data commands use concise
+human-readable output by default and accept `--json` for machine-readable
+output. Run `taskchef help` for every option.
 
 `taskchef dispatch prepare --json` is the CLI equivalent of the MCP
 `prepare_dispatch` operation: it resolves the canonical workspace, loads and
@@ -371,6 +372,7 @@ Inspect the task history without querying Codex tasks:
 
 ```sh
 taskchef task show c0f010ff
+taskchef task show c0f010ff --json
 taskchef task list
 taskchef task list --project payments
 taskchef task list --ascending
@@ -384,10 +386,30 @@ UUID-shaped IDs use their first eight-character section by default; pass
 with other empty table cells. Tasks are newest-first by default; pass
 `--ascending` to list them from oldest to newest. ID formatting does not alter
 the complete values in `--json` output, and the selected order applies to its
-`tasks` array. `task show` accepts either the full task ID or the exact
-eight-character task ID printed by the default human-readable list. A short ID
-must identify exactly one recorded task; use `task list --full-id` when a short
-ID is missing or ambiguous.
+`tasks` array.
+
+`task show` accepts either the full task ID or the exact eight-character task
+ID printed by the default human-readable list. A short ID must identify exactly
+one recorded task; use `task list --full-id` when a short ID is missing or
+ambiguous. Its default output labels the title, project name and path, creation
+time, full task and thread IDs, and instruction. A null thread ID appears as
+`-`, and multiline instructions retain their original line breaks and
+indentation. Pass `--json` to receive the unchanged complete task object.
+
+```text
+Title: Add retry logs
+Project: payments
+Project path: /workspace/payments
+Created: 2026-08-12T10:00:00.000Z
+Task ID: c0f010ff-84f2-4838-a69d-0ff1f5d721d7
+Thread ID: 019f9d46-f42c-7482-9707-3c107bf241ee
+Instruction:
+<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
+
+Add structured logs for failed payment retries and test them.
+```
+
+The list remains a compact table:
 
 ```text
 TITLE           PROJECT   CREATED                   ID        THREAD ID
