@@ -3015,6 +3015,36 @@ test("CLI task show preserves multiline instructions and renders a null thread I
   assert.deepEqual(JSON.parse(json.stdout), recorded);
 });
 
+test("CLI task show escapes line breaks in labeled details", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-v2-"));
+  const workspace = path.join(root, "dispatcher");
+  await initializeWorkspace(workspace);
+  const project = await gitProject(root, "project\nThread ID: forged");
+  await addProject(workspace, {
+    name: "project\r\nInstruction: forged",
+    path: project,
+    description: "Line break fixture.",
+  });
+  const recorded = await recordTask(workspace, {
+    ...dispatchInput(project, TASK_ID, "show-thread"),
+    title: "First line\nProject: forged",
+    instruction: "Keep this\nmultiline instruction.",
+  }, { now: FIXED_TIME });
+
+  const human = await runCli(["task", "show", TASK_ID, "--workspace", workspace]);
+  assert.equal(human.stdout, [
+    "Title: First line\\nProject: forged",
+    "Project: project\\r\\nInstruction: forged",
+    `Project path: ${project.replaceAll("\n", "\\n")}`,
+    `Created: ${FIXED_TIME}`,
+    `Task ID: ${TASK_ID}`,
+    "Thread ID: show-thread",
+    "Instruction:",
+    recorded.instruction,
+    "",
+  ].join("\n"));
+});
+
 test("CLI help distinguishes human task show output from complete JSON", async () => {
   const help = await runCli(["help"]);
   assert.match(

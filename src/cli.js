@@ -161,14 +161,18 @@ function displayId(value, fullId) {
   return uuidSection ? uuidSection[0] : value;
 }
 
+function singleLineDetail(value) {
+  return String(value).replaceAll("\r", "\\r").replaceAll("\n", "\\n");
+}
+
 function taskDetails(task) {
   return [
-    `Title: ${task.title}`,
-    `Project: ${task.project.name}`,
-    `Project path: ${task.project.path}`,
-    `Created: ${task.createdAt}`,
-    `Task ID: ${task.id}`,
-    `Thread ID: ${task.threadId ?? "-"}`,
+    `Title: ${singleLineDetail(task.title)}`,
+    `Project: ${singleLineDetail(task.project.name)}`,
+    `Project path: ${singleLineDetail(task.project.path)}`,
+    `Created: ${singleLineDetail(task.createdAt)}`,
+    `Task ID: ${singleLineDetail(task.id)}`,
+    `Thread ID: ${singleLineDetail(task.threadId ?? "-")}`,
     "Instruction:",
     task.instruction,
   ].join("\n");
