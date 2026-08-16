@@ -237,7 +237,7 @@ taskchef project remove <name>
 taskchef dispatch prepare
 taskchef task record
 taskchef task resolve <task-id> --thread-id <thread-id>
-taskchef task show <task-id>
+taskchef task show <task-id-or-8-character-prefix>
 taskchef task list
 taskchef task summary
 ```
@@ -370,7 +370,7 @@ taskchef task resolve c0f010ff-84f2-4838-a69d-0ff1f5d721d7 \
 Inspect the task history without querying Codex tasks:
 
 ```sh
-taskchef task show t1
+taskchef task show c0f010ff
 taskchef task list
 taskchef task list --project payments
 taskchef task list --ascending
@@ -384,7 +384,10 @@ UUID-shaped IDs use their first eight-character section by default; pass
 with other empty table cells. Tasks are newest-first by default; pass
 `--ascending` to list them from oldest to newest. ID formatting does not alter
 the complete values in `--json` output, and the selected order applies to its
-`tasks` array.
+`tasks` array. `task show` accepts either the full task ID or the exact
+eight-character task ID printed by the default human-readable list. A short ID
+must identify exactly one recorded task; use `task list --full-id` when a short
+ID is missing or ambiguous.
 
 ```text
 TITLE           PROJECT   CREATED                   ID        THREAD ID

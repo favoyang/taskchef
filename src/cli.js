@@ -12,10 +12,11 @@ import {
   importProjects,
   initializeWorkspace,
   listProjects,
+  listTasks,
   prepareDispatch,
-  readTask,
   recordTask,
   removeProject,
+  requireSafeId,
   resolveTask,
 } from "./workspace.js";
 
@@ -158,6 +159,39 @@ function displayId(value, fullId) {
   if (fullId || value === null || value === undefined) return value;
   const uuidSection = String(value).match(/^[0-9a-fA-F]{8}(?=-)/);
   return uuidSection ? uuidSection[0] : value;
+}
+
+async function readTaskForShow(workspace, taskId) {
+  const id = requireSafeId(taskId, "taskId");
+  const tasks = await listTasks(workspace);
+  if (!/^[0-9a-fA-F]{8}$/.test(id)) {
+    const exact = tasks.find((task) => task.id === id);
+    if (exact) return exact;
+    if (id.length < 8) {
+      throw new Error(
+        `task ID prefix is too short: ${id}; use all 8 characters shown by taskchef task list`,
+      );
+    }
+    if (id.length === 8) {
+      throw new Error(
+        `malformed task ID prefix: ${id}; use the 8 hexadecimal characters shown by taskchef task list`,
+      );
+    }
+    throw new Error(`task not found: ${id}`);
+  }
+
+  const matches = tasks.filter((task) => displayId(task.id, false) === id);
+  if (matches.length === 0) {
+    throw new Error(
+      `task not found for ID prefix: ${id}; run taskchef task list --full-id to verify the task ID`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `task ID prefix is ambiguous: ${id}; run taskchef task list --full-id and pass the full task ID`,
+    );
+  }
+  return matches[0];
 }
 
 async function initialize(args) {
@@ -314,7 +348,7 @@ async function taskResolve(args) {
 
 async function taskShow(args) {
   validateCommandArgs(args, 3, { values: ["--workspace"], switches: ["--json"] });
-  print(await readTask(workspaceRoot(args), args[2]), args);
+  print(await readTaskForShow(workspaceRoot(args), args[2]), args);
   return 0;
 }
 
@@ -367,11 +401,12 @@ Usage:
   taskchef dispatch prepare [--json] [--workspace <path>]
   taskchef task record [--json] [--workspace <path>]
   taskchef task resolve <task-id> --thread-id <thread-id> [--json] [--workspace <path>]
-  taskchef task show <task-id> [--json] [--workspace <path>]
+  taskchef task show <task-id-or-8-character-prefix> [--json] [--workspace <path>]
   taskchef task list [--project <name-or-path>] [--ascending] [--full-id] [--json] [--workspace <path>]
   taskchef task summary [--json] [--workspace <path>]
 
 Task record reads one JSON value from closed, non-interactive standard input.
+Task show accepts a full task ID or the exact 8-character ID printed by task list.
 Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
 Workspace resolution precedence is --workspace, TASKCHEF_WORKSPACE, then
