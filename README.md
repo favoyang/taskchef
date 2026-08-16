@@ -129,8 +129,9 @@ when it sent it, which project it selected, and which Codex task received the
 work.
 
 Every delegated instruction begins with a unique
-`<!-- taskchef_id=<UUID> -->` marker followed by a blank line. The valid HTML
-comment stays invisible in rendered Markdown.
+`<!-- taskchef_id=<UUID> -->` marker followed by a blank line, an
+executor-ownership paragraph, another blank line, and the assignment. The
+valid HTML comment stays invisible in rendered Markdown.
 If worktree creation does not return a thread ID immediately, TaskChef records
 the marked delegation as unresolved, then makes at most two exact-marker checks
 during a short bounded window. Candidate reads use one programmatic batch per
@@ -352,7 +353,7 @@ task lines remain readable without an eager rewrite of the append-only history.
 `project` value is the exact configured project path:
 
 ```sh
-printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
+printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
   taskchef task record --json
 ```
 
@@ -405,6 +406,8 @@ Task ID: c0f010ff-84f2-4838-a69d-0ff1f5d721d7
 Thread ID: 019f9d46-f42c-7482-9707-3c107bf241ee
 Instruction:
 <!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
+
+This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
 
 Add structured logs for failed payment retries and test them.
 ```

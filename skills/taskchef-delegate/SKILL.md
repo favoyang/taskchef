@@ -1,12 +1,23 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use for ordinary work requests in the TaskChef project, explicit delegation from any project, or splitting independent work across projects. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
+description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."
 ---
 
 # TaskChef Delegate
 
 Create real Codex tasks through the canonical per-user TaskChef data workspace
 and return immediately.
+
+## Invocation boundary
+
+A task whose initial structured `codexDelegation.input` starts with an exact
+`<!-- taskchef_id=<full UUID> -->` marker already owns that delegated
+assignment. Execute the assignment in the current task. Do not re-dispatch it
+merely because it concerns TaskChef or a configured project.
+
+This does not prevent the task from using TaskChef later. Use this skill
+normally when the initial assignment explicitly asks to delegate separate
+work, or when the user later explicitly requests a new delegation.
 
 Use the bundled TaskChef `prepare_dispatch`, `record_task`, and `resolve_task`
 tools for deterministic workspace and task-record operations. Call them
@@ -57,7 +68,12 @@ explicitly requested benchmark artifact.
    tool.
    Prefix the complete executor instruction with
    exactly `<!-- taskchef_id=<full UUID> -->` as the first line, followed by a
-   blank line and the instruction body. Preserve this
+   blank line, this executor-role paragraph, another blank line, and the
+   instruction body. Add the paragraph as one line in the created input:
+
+   > This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
+
+   Preserve this
    marked instruction for recording, and note the creation time. The exact
    random marker is the sole correlation proof.
 6. Create one real Codex task using the exact configured project, a local

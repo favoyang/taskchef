@@ -13,17 +13,26 @@ not maintain a second lifecycle database.
 ## Core behavior
 
 1. The user submits a request in the dispatcher workspace or explicitly invokes
-   the delegation skill from another Codex project.
+   the delegation skill from another Codex project. Work merely concerning the
+   TaskChef source code does not implicitly invoke delegation outside the
+   dispatcher workspace.
 2. TaskChef separates only outcomes that can proceed independently.
 3. It selects each target using configured project metadata and validates the
    selected local path.
 4. It creates an independently openable Codex task in that project.
 5. It embeds a generated TaskChef UUID marker in the initial instruction before
-   creation. It appends one task entry as soon as creation returns, using
-   `threadId: null` while a provisional client ID is briefly resolved.
+   creation, followed by an executor-ownership sentence and the assignment. It
+   appends one task entry as soon as creation returns, using `threadId: null`
+   while a provisional client ID is briefly resolved.
 6. It returns without waiting for executor work to complete.
 7. When requested, TaskChef can read task entries, query the relevant Codex
    tasks once, and present a live report without persisting the fetched state.
+
+A task created by TaskChef owns its delegated initial assignment. It executes
+that assignment in the current task and does not re-dispatch it merely because
+the subject is TaskChef or another configured project. The task may still use
+TaskChef when the initial assignment explicitly requests delegation of separate
+work or when the user later explicitly requests a new delegation.
 
 Several active executors may target the same project.
 
@@ -134,7 +143,7 @@ schedules, task status, results, host information, or the workspace path.
 `tasks.jsonl` contains one compact JSON object per line, in append order:
 
 ```json
-{"schemaVersion":2,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
+{"schemaVersion":2,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
 ```
 
 - `schemaVersion` identifies the task entry format.
@@ -142,8 +151,8 @@ schedules, task status, results, host information, or the workspace path.
 - `project` is the complete configured project snapshot used for routing.
 - `title` is a short task name.
 - `instruction` is the complete executor instruction, including its first-line
-  `<!-- taskchef_id=<full UUID> -->` correlation marker and the blank line that
-  follows it.
+  `<!-- taskchef_id=<full UUID> -->` correlation marker, executor-ownership
+  paragraph, and assignment body.
 - `threadId` identifies the created Codex task, or is `null` when creation was
   accepted but bounded marker resolution did not find one durable task ID.
 - `createdAt` is the dispatch time as an ISO 8601 timestamp.
@@ -188,7 +197,8 @@ For each assignment, `$taskchef-delegate`:
    the already-loaded native projects
 3. prefixes the instruction with the prepared exact
    `<!-- taskchef_id=<UUID> -->` marker as the first line, followed by a blank
-   line
+   line, the executor-ownership sentence, another blank line, and the
+   assignment body
 4. creates a real Codex task at the exact configured path
 5. appends a task entry immediately through the structured `record_task` tool
    when creation returns a durable thread ID; it never opens a shell, parses

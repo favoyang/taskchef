@@ -4,6 +4,7 @@ export const THREAD_RESOLUTION_CHECKPOINTS_MS = Object.freeze([10_000, 30_000]);
 export const THREAD_RESOLUTION_TIMEOUT_MS = 30_000;
 export const THREAD_RESOLUTION_RECENT_LIMIT = 50;
 export const THREAD_RESOLUTION_CLOCK_SKEW_MS = 5_000;
+export const EXECUTOR_OWNERSHIP_PARAGRAPH = "This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.";
 
 const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
@@ -93,7 +94,7 @@ export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${taskChefMarker(id)}\n\n${instruction}`,
+    instruction: `${taskChefMarker(id)}\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${instruction}`,
   };
 }
 
