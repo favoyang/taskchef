@@ -309,9 +309,10 @@ The CLI reads persisted history without contacting Codex:
 - `task show <id-or-8-character-prefix>` returns one entry. By default it emits
   labeled human-readable lines for title, project name and path, creation time,
   full task ID, thread ID, and instruction. A null thread ID renders as `-`.
-  The instruction starts on the line after `Instruction:` and retains its
-  stored line breaks and indentation. `--json` returns the unchanged complete
-  task object. The short form is the exact ID text printed by the default
+  Carriage returns and newlines in labeled values render as `\\r` and `\\n`.
+  The instruction starts on the line after `Instruction:` and retains its stored
+  line breaks and indentation. `--json` returns the unchanged complete task
+  object. The short form is the exact ID text printed by the default
   human-readable `task list` output and succeeds only when it identifies
   exactly one recorded task. Missing, ambiguous, malformed, shorter, and
   wrong-case prefixes fail without selecting a task.

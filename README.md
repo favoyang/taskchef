@@ -394,8 +394,9 @@ ID printed by the default human-readable list. A short ID must identify exactly
 one recorded task; use `task list --full-id` when a short ID is missing or
 ambiguous. Its default output labels the title, project name and path, creation
 time, full task and thread IDs, and instruction. A null thread ID appears as
-`-`, and multiline instructions retain their original line breaks and
-indentation. Pass `--json` to receive the unchanged complete task object.
+`-`. Line breaks in labeled values are escaped as `\\r` and `\\n`, while
+multiline instructions retain their original line breaks and indentation. Pass
+`--json` to receive the unchanged complete task object.
 
 ```text
 Title: Add retry logs
