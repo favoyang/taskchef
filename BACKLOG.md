@@ -50,7 +50,7 @@ clear data model before implementation.
   `resolve_client_thread(clientThreadId) -> { status, threadId? }`. Returning a
   reserved durable ID from `create_thread`, or emitting a materialization event
   containing it, would also close the lifecycle gap.
-- Re-evaluate TaskChef's sparse marker-discovery fallback when Codex exposes
-  one of these APIs. Keep exact marker verification before persisting the
-  returned durable ID unless the official contract provides equivalent
-  correlation guarantees.
+- Re-evaluate whether the initial-hook identity link and exact-marker manual
+  recovery can be simplified when Codex exposes one of these APIs. Keep exact
+  correlation verification before persisting the returned durable ID unless
+  the official contract provides equivalent guarantees.

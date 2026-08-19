@@ -46,8 +46,10 @@ const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url))
 const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_CONFIG_SCHEMA_VERSION = 2;
+const CURRENT_TASK_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 1;
+const PREVIOUS_SCHEMA_VERSION = 2;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
   "name",
@@ -66,6 +68,20 @@ const DISPATCH_FIELDS = new Set([
   "instruction",
   "threadId",
   "createdAt",
+  "status",
+  "summary",
+  "turnId",
+  "updatedAt",
+  "updatedBy",
+]);
+const LEGACY_DISPATCH_FIELDS = new Set([
+  "schemaVersion",
+  "id",
+  "project",
+  "title",
+  "instruction",
+  "threadId",
+  "createdAt",
 ]);
 const RECORD_DISPATCH_FIELDS = new Set([
   "id",
@@ -74,6 +90,10 @@ const RECORD_DISPATCH_FIELDS = new Set([
   "instruction",
   "threadId",
 ]);
+const RESULT_STATUSES = new Set(["needs_input", "completed", "failed"]);
+const TASK_STATUSES = new Set(["working", ...RESULT_STATUSES]);
+const TASK_UPDATE_SOURCES = new Set(["dispatcher", "hook", "mcp"]);
+const MAX_RESULT_SUMMARY_LENGTH = 2_000;
 
 function requireExactFields(value, fields, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -97,6 +117,22 @@ function requireTimestamp(value, name) {
   requireString(value, name);
   if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || Number.isNaN(Date.parse(value))) {
     throw new Error(`${name} must be an ISO 8601 timestamp`);
+  }
+  return value;
+}
+
+function optionalString(value, name, { maxLength = null } = {}) {
+  if (value === null) return null;
+  const normalized = requireString(value, name).trim();
+  if (maxLength !== null && normalized.length > maxLength) {
+    throw new Error(`${name} must be at most ${maxLength} characters`);
+  }
+  return normalized;
+}
+
+function requireEnum(value, allowed, name) {
+  if (!allowed.has(value)) {
+    throw new Error(`${name} must be one of: ${[...allowed].join(", ")}`);
   }
   return value;
 }
@@ -556,11 +592,11 @@ async function inspectProject(input, index = 0) {
 
 export async function validateConfig(config, { checkPaths = true } = {}) {
   requireExactFields(config, CONFIG_FIELDS, "taskchef.json");
-  if (![LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION].includes(config.schemaVersion)) {
+  if (![LEGACY_SCHEMA_VERSION, CURRENT_CONFIG_SCHEMA_VERSION].includes(config.schemaVersion)) {
     throw new Error("unsupported configuration schemaVersion");
   }
   return {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
+    schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
     projects: await normalizeProjects(config.projects, {
       checkPaths,
       allowLegacyGithubRepo: config.schemaVersion === LEGACY_SCHEMA_VERSION,
@@ -597,14 +633,14 @@ export async function initializeWorkspace(workspaceRoot) {
       : null;
     const config = configExists
       ? await readConfig(root, { checkPaths: false })
-      : { schemaVersion: CURRENT_SCHEMA_VERSION, projects: [] };
+      : { schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION, projects: [] };
     const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
     if (configExists && (await managedRegularFileExists(dispatchPath))) {
       await readDispatchesUnlocked(root);
     }
     const { legacySkills } = await ensureWorkspaceSkills(root);
     if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
-    else if (storedConfigVersion !== CURRENT_SCHEMA_VERSION) {
+    else if (storedConfigVersion !== CURRENT_CONFIG_SCHEMA_VERSION) {
       await writeJsonAtomic(configPath, config);
     }
     const tasks = await ensureDispatchFile(root);
@@ -620,7 +656,7 @@ export async function initializeWorkspace(workspaceRoot) {
         path: configPath,
         action: !configExists
           ? "created"
-          : storedConfigVersion === CURRENT_SCHEMA_VERSION ? "unchanged" : "migrated",
+          : storedConfigVersion === CURRENT_CONFIG_SCHEMA_VERSION ? "unchanged" : "migrated",
         value: config,
       },
       tasks,
@@ -673,7 +709,7 @@ export async function addProject(workspaceRoot, input) {
     const project = await inspectProject(input);
     assertWorkspaceOutsideProject(root, project.path);
     const updated = await validateConfig({
-      schemaVersion: CURRENT_SCHEMA_VERSION,
+      schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
       projects: [...config.projects, project],
     });
     await writeJsonAtomic(path.join(root, "taskchef.json"), updated);
@@ -710,7 +746,10 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
       if (index === -1) projects.push(project);
       else projects[index] = project;
     }
-    const config = await validateConfig({ schemaVersion: CURRENT_SCHEMA_VERSION, projects });
+    const config = await validateConfig({
+      schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
+      projects,
+    });
     await writeJsonAtomic(path.join(root, "taskchef.json"), config);
     return {
       mode: replace ? "replace" : "merge",
@@ -732,7 +771,7 @@ export async function removeProject(workspaceRoot, name) {
     const [project] = config.projects.slice(index, index + 1);
     const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
     await writeJsonAtomic(path.join(root, "taskchef.json"), {
-      schemaVersion: CURRENT_SCHEMA_VERSION,
+      schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
       projects,
     });
     return { project };
@@ -744,17 +783,28 @@ async function validateDispatchShape(
   name = "task",
   { allowLegacyHeading = false } = {},
 ) {
-  requireExactFields(dispatch, DISPATCH_FIELDS, name);
-  if (![LEGACY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION].includes(dispatch.schemaVersion)) {
+  const supportedVersions = [
+    LEGACY_SCHEMA_VERSION,
+    PREVIOUS_SCHEMA_VERSION,
+    CURRENT_TASK_SCHEMA_VERSION,
+  ];
+  if (!supportedVersions.includes(dispatch?.schemaVersion)) {
     throw new Error(`unsupported ${name} schemaVersion`);
   }
+  requireExactFields(
+    dispatch,
+    dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? DISPATCH_FIELDS
+      : LEGACY_DISPATCH_FIELDS,
+    name,
+  );
   const id = requireSafeId(dispatch.id, `${name}.id`);
   const project = await normalizeProject(dispatch.project, 0, {
     checkPath: false,
     allowLegacyGithubRepo: dispatch.schemaVersion === LEGACY_SCHEMA_VERSION,
   });
   const normalized = {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
+    schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
     id,
     project,
     title: requireString(dispatch.title, `${name}.title`).trim(),
@@ -763,7 +813,36 @@ async function validateDispatchShape(
       ? null
       : normalizeDurableThreadId(dispatch.threadId, `${name}.threadId`),
     createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
+    status: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? requireEnum(dispatch.status, TASK_STATUSES, `${name}.status`)
+      : null,
+    summary: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? optionalString(dispatch.summary, `${name}.summary`, {
+        maxLength: MAX_RESULT_SUMMARY_LENGTH,
+      })
+      : null,
+    turnId: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? optionalString(dispatch.turnId, `${name}.turnId`, { maxLength: 256 })
+      : null,
+    updatedAt: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? requireTimestamp(dispatch.updatedAt, `${name}.updatedAt`)
+      : null,
+    updatedBy: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? requireEnum(dispatch.updatedBy, TASK_UPDATE_SOURCES, `${name}.updatedBy`)
+      : null,
   };
+  if (normalized.status === "working" && normalized.summary !== null) {
+    throw new Error(`${name}.summary must be null while status is working`);
+  }
+  if (RESULT_STATUSES.has(normalized.status) && normalized.summary === null) {
+    throw new Error(`${name}.summary is required for status ${normalized.status}`);
+  }
+  if (
+    normalized.updatedAt !== null
+    && Date.parse(normalized.updatedAt) < Date.parse(normalized.createdAt)
+  ) {
+    throw new Error(`${name}.updatedAt must not be earlier than createdAt`);
+  }
   if (
     normalized.threadId === null &&
     parseTaskChefMarker(normalized.instruction, { allowLegacyHeading }) !== normalized.id
@@ -833,14 +912,20 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
     const projectPath = await canonicalDirectory(input.project);
     const project = config.projects.find((candidate) => candidate.path === projectPath);
     if (!project) throw new Error(`project is not configured in taskchef.json: ${projectPath}`);
+    const createdAt = now ?? new Date().toISOString();
     const dispatch = await validateDispatchShape({
-      schemaVersion: CURRENT_SCHEMA_VERSION,
+      schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
       id: input.id,
       project,
       title: input.title,
       instruction: input.instruction,
       threadId: input.threadId,
-      createdAt: now ?? new Date().toISOString(),
+      createdAt,
+      status: "working",
+      summary: null,
+      turnId: null,
+      updatedAt: createdAt,
+      updatedBy: "dispatcher",
     });
     const existing = await readDispatchesUnlocked(root);
     if (existing.some((item) => item.id === dispatch.id)) {
@@ -883,6 +968,118 @@ export async function resolveTask(workspaceRoot, taskId, threadId) {
       : record.line);
     await writeDispatchLinesAtomic(root, lines);
     return resolved;
+  });
+}
+
+function dispatchLineWithState(dispatch, patch) {
+  return JSON.stringify({
+    ...dispatch,
+    schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+    ...patch,
+  });
+}
+
+export async function startTaskFromHook(
+  workspaceRoot,
+  taskId,
+  threadId,
+  turnId,
+  { now } = {},
+) {
+  const id = requireSafeId(taskId, "taskId");
+  const durableThreadId = normalizeDurableThreadId(threadId);
+  const currentTurnId = optionalString(turnId, "turnId", { maxLength: 256 });
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const records = await readDispatchRecordsUnlocked(root);
+    const dispatches = records.map((record) => record.normalized);
+    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
+    if (index === -1) throw new Error(`task not found: ${id}`);
+    const dispatch = dispatches[index];
+    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
+      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
+    }
+    if (dispatch.threadId !== null && dispatch.threadId !== durableThreadId) {
+      throw new Error(`task already has a different threadId: ${id}`);
+    }
+    if (
+      dispatch.threadId === null
+      && dispatches.some((item) => item.id !== id && item.threadId === durableThreadId)
+    ) {
+      throw new Error(`threadId is already recorded: ${durableThreadId}`);
+    }
+    if (dispatch.threadId === durableThreadId && dispatch.updatedBy === "mcp") {
+      return dispatch;
+    }
+    if (dispatch.threadId === durableThreadId && dispatch.updatedBy === "hook") {
+      return dispatch;
+    }
+    const updatedAt = now ?? new Date().toISOString();
+    const started = await validateDispatchShape({
+      ...dispatch,
+      threadId: durableThreadId,
+      status: "working",
+      summary: null,
+      turnId: currentTurnId,
+      updatedAt,
+      updatedBy: "hook",
+    });
+    const lines = records.map((record, recordIndex) => recordIndex === index
+      ? dispatchLineWithState(started, {})
+      : record.line);
+    await writeDispatchLinesAtomic(root, lines);
+    return started;
+  });
+}
+
+export async function reportTaskResult(workspaceRoot, input, { now } = {}) {
+  requireExactFields(
+    input,
+    new Set(["taskId", "threadId", "turnId", "status", "summary"]),
+    "task result",
+  );
+  const id = requireSafeId(input.taskId, "taskId");
+  const threadId = input.threadId === null
+    ? null
+    : normalizeDurableThreadId(input.threadId, "threadId");
+  const turnId = optionalString(input.turnId, "turnId", { maxLength: 256 });
+  const status = requireEnum(input.status, RESULT_STATUSES, "status");
+  const summary = optionalString(input.summary, "summary", {
+    maxLength: MAX_RESULT_SUMMARY_LENGTH,
+  });
+  if (summary === null) throw new Error("summary must be a non-empty string");
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const records = await readDispatchRecordsUnlocked(root);
+    const dispatches = records.map((record) => record.normalized);
+    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
+    if (index === -1) throw new Error(`task not found: ${id}`);
+    const dispatch = dispatches[index];
+    if (dispatch.threadId === null) {
+      if (threadId !== null || turnId !== null || status !== "failed") {
+        throw new Error(`task without a durable threadId accepts only failed with null thread/turn IDs: ${id}`);
+      }
+    } else {
+      if (threadId !== dispatch.threadId) {
+        throw new Error(`task result threadId does not match recorded threadId: ${id}`);
+      }
+      if (turnId === null) {
+        throw new Error(`task result turnId is required for a linked task: ${id}`);
+      }
+    }
+    const updated = await validateDispatchShape({
+      ...dispatch,
+      status,
+      summary,
+      turnId,
+      updatedAt: now ?? new Date().toISOString(),
+      updatedBy: "mcp",
+    });
+    const lines = records.map((record, recordIndex) => recordIndex === index
+      ? dispatchLineWithState(updated, {})
+      : record.line);
+    await writeDispatchLinesAtomic(root, lines);
+    return updated;
   });
 }
 

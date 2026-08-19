@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   prepareDispatch,
   recordTask,
+  reportTaskResult,
   resolveTask,
 } from "./workspace.js";
 import { parseTaskChefMarker } from "./delegation.js";
@@ -24,6 +25,11 @@ const taskSchema = z.object({
   instruction: z.string(),
   threadId: z.string().nullable(),
   createdAt: z.string(),
+  status: z.enum(["working", "needs_input", "completed", "failed"]).nullable(),
+  summary: z.string().nullable(),
+  turnId: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  updatedBy: z.enum(["dispatcher", "hook", "mcp"]).nullable(),
 });
 
 const preparationSchema = z.object({
@@ -47,13 +53,14 @@ export function createTaskChefMcpServer({
   workspace = resolveWorkspacePath().workspace,
   prepare = prepareDispatch,
   record = recordTask,
+  reportResult = reportTaskResult,
   resolve = resolveTask,
 } = {}) {
   const server = new McpServer(
     { name: "taskchef", version: "1.0.0" },
     {
       instructions:
-        "Prepare with prepare_dispatch, create the Codex task natively, then call record_task exactly once. Use resolve_task only after one exact structured marker match.",
+        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively. Use resolve_task for a durable root thread ID. Executors must call report_result before ending with completed, needs_input, or failed.",
     },
   );
 
@@ -82,7 +89,7 @@ export function createTaskChefMcpServer({
     {
       title: "Record TaskChef task",
       description:
-        "Atomically append one created Codex task to the canonical TaskChef history. Pass the exact marked instruction returned by preparation and never pass a provisional ID as threadId.",
+        "Atomically append one prepared TaskChef task before creating its Codex executor. Pass the exact marked instruction and use null for threadId until a durable root ID is known.",
       inputSchema: {
         id: z.string().min(1),
         project: z.string().min(1),
@@ -126,6 +133,32 @@ export function createTaskChefMcpServer({
     async ({ taskId, threadId }) => {
       const task = await resolve(workspace, taskId, threadId);
       return toolResult("task", task, `Resolved TaskChef task ${task.id}.`);
+    },
+  );
+
+  server.registerTool(
+    "report_result",
+    {
+      title: "Report TaskChef result",
+      description:
+        "Store the executor's latest semantic outcome for one recorded TaskChef task. A linked executor must supply its matching durable thread ID and current turn ID. Null IDs are accepted only for a failed executor creation before a thread exists. Use needs_input only for a semantic user decision, not a transient native approval prompt. Summaries must omit secrets, transcripts, and raw command output.",
+      inputSchema: {
+        taskId: z.string().min(1),
+        threadId: z.string().min(1).nullable(),
+        turnId: z.string().min(1).max(256).nullable(),
+        status: z.enum(["needs_input", "completed", "failed"]),
+        summary: z.string().min(1).max(2_000),
+      },
+      outputSchema: { task: taskSchema },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const task = await reportResult(workspace, input);
+      return toolResult("task", task, `Recorded ${task.status} result for TaskChef task ${task.id}.`);
     },
   );
 

@@ -1,0 +1,18 @@
+{
+  "description": "Link TaskChef executor identity and provide the current callback turn.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/hooks/taskchef-initial-prompt.js\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks\\taskchef-initial-prompt.js\"",
+            "timeout": 10,
+            "statusMessage": "Linking TaskChef task"
+          }
+        ]
+      }
+    ]
+  }
+}

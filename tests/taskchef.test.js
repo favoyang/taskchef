@@ -27,8 +27,7 @@ import * as taskchef from "../index.js";
 
 import {
   EXECUTOR_OWNERSHIP_PARAGRAPH,
-  THREAD_RESOLUTION_CHECKPOINTS_MS,
-  THREAD_RESOLUTION_TIMEOUT_MS,
+  EXECUTOR_RESULT_PARAGRAPH,
   createAndRecordDelegation,
   createTaskChefMcpServer,
   prepareDispatch,
@@ -42,7 +41,7 @@ import {
   ensureWorkspaceInstructions,
   ensureWorkspaceSkills,
   filterTasks,
-  hasExactTaskChefMarker,
+  handleInitialPromptHook,
   importProjects,
   initializeWorkspace,
   listProjects,
@@ -51,6 +50,7 @@ import {
   matchProjectForGithubUrl,
   readTask,
   recordTask,
+  reportTaskResult,
   removeProject,
   resolveTask,
   requireSafeId,
@@ -129,53 +129,6 @@ function e2eBenchmarkInput() {
       outputVerified: false,
       candidateFilterEffective: false,
     },
-  };
-}
-
-function threadList(threads = []) {
-  return { schemaVersion: 4, pinnedThreads: [], threads };
-}
-
-function delegatedThreadRead(instruction) {
-  return {
-    schemaVersion: 1,
-    turns: [{
-      items: [{
-        type: "userMessage",
-        content: [{
-          type: "text",
-          text: `<codex_delegation><input>${instruction}</input></codex_delegation>`,
-          codexDelegation: { sourceThreadId: "source", input: instruction },
-        }],
-      }],
-    }],
-  };
-}
-
-function delegationFixture(overrides = {}) {
-  const recorded = [];
-  const resolved = [];
-  const clock = { value: 1_786_459_054_000 };
-  return {
-    input: {
-      project: "/projects/example",
-      title: "Fix retries",
-      instruction: "Fix retry handling and test it.",
-      target: {
-        type: "project",
-        projectId: "project-example",
-        environment: { type: "worktree" },
-      },
-      taskId: TASK_ID,
-      now: () => clock.value,
-      waitImpl: async (delayMs) => { clock.value += delayMs; },
-      recordTask: async (value) => recorded.push(value),
-      resolveRecordedTask: async (value) => resolved.push(value),
-      ...overrides,
-    },
-    recorded,
-    resolved,
-    clock,
   };
 }
 
@@ -286,6 +239,10 @@ test("workspace resolution prefers explicit, environment, then the per-user defa
   assert.throws(
     () => resolveWorkspacePath({ homedir, env: { TASKCHEF_WORKSPACE: "" } }),
     /must be a non-empty path/,
+  );
+  assert.throws(
+    () => resolveWorkspacePath({ homedir, cwd: "/tmp", env: { TASKCHEF_WORKSPACE: "relative" } }),
+    /must be an absolute path or start with ~\//,
   );
 });
 
@@ -406,7 +363,7 @@ test("Codex opening failure leaves an initialized workspace and returns structur
 test("public task history API uses task terminology", () => {
   for (const name of [
     "buildTaskSummary", "filterTasks", "listTasks", "prepareDispatch", "readTask", "recordTask",
-    "resolveTask",
+    "resolveTask", "reportTaskResult", "startTaskFromHook",
   ]) {
     assert.equal(typeof taskchef[name], "function");
   }
@@ -415,8 +372,18 @@ test("public task history API uses task terminology", () => {
   ]) {
     assert.equal(name in taskchef, false);
   }
-  assert.deepEqual(THREAD_RESOLUTION_CHECKPOINTS_MS, [10_000, 30_000]);
-  assert.equal(THREAD_RESOLUTION_TIMEOUT_MS, 30_000);
+  for (const name of [
+    "filterThreadCandidates", "hasExactTaskChefMarker", "listThreadEntries",
+    "structuredDelegatedInputs",
+  ]) {
+    assert.equal(typeof taskchef[name], "function");
+  }
+  for (const name of [
+    "THREAD_RESOLUTION_CHECKPOINTS_MS", "THREAD_RESOLUTION_CLOCK_SKEW_MS",
+    "THREAD_RESOLUTION_RECENT_LIMIT", "THREAD_RESOLUTION_TIMEOUT_MS",
+  ]) {
+    assert.ok(name in taskchef);
+  }
 });
 
 test("dispatch preparation combines canonical routing data and correlation values", async () => {
@@ -457,11 +424,16 @@ test("structured MCP tools prepare, record, and resolve through canonical worksp
       "prepare_dispatch",
       "record_task",
       "resolve_task",
+      "report_result",
     ]);
     assert.equal(listed.tools[0].annotations.readOnlyHint, true);
     assert.equal(listed.tools[1].annotations.readOnlyHint, false);
     assert.equal(listed.tools[1].annotations.destructiveHint, false);
     assert.equal(listed.tools[1].annotations.openWorldHint, false);
+    assert.equal(listed.tools[3].annotations.destructiveHint, true);
+    assert.deepEqual(Object.keys(listed.tools[3].inputSchema.properties).sort(), [
+      "status", "summary", "taskId", "threadId", "turnId",
+    ]);
     for (const tool of listed.tools) {
       assert.equal("workspace" in (tool.inputSchema.properties ?? {}), false);
     }
@@ -504,7 +476,30 @@ test("structured MCP tools prepare, record, and resolve through canonical worksp
       arguments: { taskId: prepared.taskId, threadId: "durable-mcp-thread" },
     });
     assert.equal(resolvedResult.structuredContent.task.threadId, "durable-mcp-thread");
-    assert.equal((await readTask(workspace, prepared.taskId)).threadId, "durable-mcp-thread");
+    const completedResult = await client.callTool({
+      name: "report_result",
+      arguments: {
+        taskId: prepared.taskId,
+        threadId: "durable-mcp-thread",
+        turnId: "turn-complete",
+        status: "completed",
+        summary: "Implemented and verified the change.",
+      },
+    });
+    assert.equal(completedResult.structuredContent.task.status, "completed");
+    assert.equal((await readTask(workspace, prepared.taskId)).summary,
+      "Implemented and verified the change.");
+    const missingTurnResult = await client.callTool({
+      name: "report_result",
+      arguments: {
+        taskId: prepared.taskId,
+        threadId: "durable-mcp-thread",
+        turnId: null,
+        status: "completed",
+        summary: "This linked result lacks turn evidence.",
+      },
+    });
+    assert.equal(missingTurnResult.isError, true);
   } finally {
     await client.close();
     await server.close();
@@ -899,7 +894,7 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\nDo the work.`,
+    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\nDo the work.`,
   );
   const [marker, blankLine] = prepared.instruction.split("\n", 2);
   assert.equal(marker, `<!-- taskchef_id=${TASK_ID} -->`);
@@ -937,612 +932,336 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   );
 });
 
-test("marker verification ignores top-level delegation metadata", () => {
-  assert.equal(hasExactTaskChefMarker({
-    turns: [{
-      items: [{
-        type: "userMessage",
-        codexDelegation: { input: `<!-- taskchef_id=${TASK_ID} -->\n\nUntrusted location.` },
-        content: [],
-      }],
-    }],
-  }, TASK_ID), false);
-});
-
-test("candidate verification rejects old-style and malformed marker comments", () => {
-  for (const instruction of [
-    `# taskchef_id=${TASK_ID}\n\nOld heading marker.`,
-    `<!-- taskchef_id=${TASK_ID} -->\nMissing blank line.`,
-    `<!-- taskchef_id=${TASK_ID}-->\n\nMissing required space.`,
-    `<!-- taskchef_id=${TASK_ID} --> trailing\n\nTrailing text.`,
-  ]) {
-    assert.equal(hasExactTaskChefMarker(delegatedThreadRead(instruction), TASK_ID), false);
-  }
-  assert.equal(hasExactTaskChefMarker(
-    delegatedThreadRead(`<!-- taskchef_id=${TASK_ID} -->\n\nExact marker.`),
-    TASK_ID,
-  ), true);
-});
-
-test("delegation records an immediate durable thread ID and preserves its marker", async () => {
-  const fixture = delegationFixture({
-    resolveRecordedTask: undefined,
-    listThreads: async () => assert.fail("immediate resolution must not list threads"),
-    createThread: async ({ prompt }) => {
-      assert.equal(parseTaskChefMarker(prompt), TASK_ID);
-      return JSON.stringify({
-        threadId: "019ff141-e290-74d0-bc4b-646e83d14bea",
-        clientThreadId: "local:provisional-diagnostic",
-        hostId: "local",
-      });
+test("minimal delegation records before creation and resolves only an immediate durable ID", async () => {
+  const order = [];
+  const recorded = [];
+  const resolved = [];
+  const result = await createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Minimal dispatch",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async (task) => { order.push("record"); recorded.push(task); },
+    createThread: async () => {
+      order.push("create");
+      return { threadId: "durable-thread", hostId: "local" };
     },
-    readThread: async () => assert.fail("immediate resolution must not read threads"),
+    resolveRecordedTask: async (task) => { order.push("resolve"); resolved.push(task); },
   });
 
-  const result = await createAndRecordDelegation(fixture.input);
+  assert.deepEqual(order, ["record", "create", "resolve"]);
+  assert.equal(recorded[0].threadId, null);
   assert.equal(result.status, "recorded");
-  assert.equal(result.resolution, "immediate");
-  assert.equal(result.threadId, "019ff141-e290-74d0-bc4b-646e83d14bea");
-  assert.equal(result.provisional, "local:provisional-diagnostic");
-  assert.equal(fixture.recorded.length, 1);
-  assert.equal(fixture.resolved.length, 0);
-  assert.equal(fixture.recorded[0].threadId, result.threadId);
-  assert.equal(parseTaskChefMarker(fixture.recorded[0].instruction), TASK_ID);
-  assert.notEqual(fixture.recorded[0].threadId, result.provisional);
-});
-
-test("delegation resolves one delayed marker match after bounded discovery", async () => {
-  let listCalls = 0;
-  const waitDelays = [];
-  const fixture = delegationFixture({
-    listThreads: async () => {
-      listCalls += 1;
-      if (listCalls === 1) return JSON.stringify(threadList());
-      return JSON.stringify(threadList([{
-        id: "durable-thread",
-        kind: "codex",
-        hostId: "local",
-        projectId: "project-example",
-        title: "Fix retries…",
-        createdAt: 1_786_459_054,
-        environment: { type: "worktree" },
-      }]));
-    },
-    createThread: async () => ({ clientThreadId: "local:pending" }),
-    readThread: async ({ threadId }) => {
-      assert.equal(threadId, "durable-thread");
-      return JSON.stringify(
-        delegatedThreadRead(`<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`),
-      );
-    },
-    waitImpl: async (delayMs) => {
-      assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-      waitDelays.push(delayMs);
-      fixture.clock.value += delayMs;
-    },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded");
-  assert.equal(result.resolution, "discovered");
   assert.equal(result.threadId, "durable-thread");
-  assert.equal(result.attempts, 2);
-  assert.deepEqual(waitDelays, [10_000, 20_000]);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-  assert.deepEqual(fixture.resolved, [{ id: TASK_ID, threadId: "durable-thread" }]);
+  assert.deepEqual(resolved, [{ id: TASK_ID, threadId: "durable-thread" }]);
+  assert.match(recorded[0].instruction, /report_result MCP tool/);
 });
 
-test("delegation rejects schedules that exceed two snapshots or 20-second spacing", async () => {
-  for (const [checkpointsMs, timeoutMs, message] of [
-    [[1, 20_001, 40_001], 40_001, /at most two checkpoints/],
-    [[1, 20_000], 20_000, /at least 20000ms apart/],
-  ]) {
-    const fixture = delegationFixture({
-      checkpointsMs,
-      timeoutMs,
-      createThread: async () => assert.fail("invalid schedules must fail before creation"),
-      listThreads: async () => assert.fail("invalid schedules must fail before discovery"),
-      readThread: async () => assert.fail("invalid schedules must fail before candidate reads"),
-    });
-    await assert.rejects(createAndRecordDelegation(fixture.input), message);
-  }
-});
-
-test("delegation prefers one bounded native provisional-thread resolver when available", async () => {
-  let nativeCalls = 0;
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:pending-native" }),
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    resolveProvisionalThread: async (input) => {
-      nativeCalls += 1;
-      assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-      assert.deepEqual(input, {
-        provisionalId: "local:pending-native",
-        clientThreadId: "local:pending-native",
-        timeoutMs: 30_000,
-      });
-      return { threadId: "native-durable", hostId: "local" };
-    },
-    readThread: async ({ threadId }) => {
-      assert.equal(threadId, "native-durable");
-      return delegatedThreadRead(`<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`);
+test("minimal delegation leaves provisional identity for the initial hook without polling", async () => {
+  let createCalls = 0;
+  const result = await createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Hook resolution",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async () => {},
+    createThread: async () => {
+      createCalls += 1;
+      return { clientThreadId: "local:pending" };
     },
   });
 
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded");
-  assert.equal(result.resolution, "native");
-  assert.equal(result.threadId, "native-durable");
-  assert.equal(nativeCalls, 1);
-  assert.deepEqual(fixture.resolved, [{ id: TASK_ID, threadId: "native-durable" }]);
-});
-
-test("delegation keeps the nullable record when native resolution times out", async () => {
-  let nativeCalls = 0;
-  const fixture = delegationFixture({
-    createThread: async () => ({ pendingWorktreeId: "local:pending-native" }),
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    readThread: async () => assert.fail("an unresolved native result has no thread to read"),
-    resolveProvisionalThread: async (input) => {
-      nativeCalls += 1;
-      assert.equal(input.pendingWorktreeId, "local:pending-native");
-      return { status: "timeout" };
-    },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(createCalls, 1);
   assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "native-resolution-unresolved");
+  assert.equal(result.reason, "awaiting-initial-hook");
   assert.equal(result.threadId, null);
-  assert.equal(nativeCalls, 1);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-  assert.deepEqual(fixture.resolved, []);
+  assert.equal(result.provisional, "local:pending");
 });
 
-test("delegation verifies a native resolver result against the exact structured marker", async () => {
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:pending-native" }),
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    resolveProvisionalThread: async () => ({ threadId: "wrong-native-thread" }),
-    readThread: async () => delegatedThreadRead(
-      `<!-- taskchef_id=${SECOND_TASK_ID} -->\n\nA different delegation.`,
-    ),
-  });
+test("split delegation records and creates one distinct task per outcome", async () => {
+  const { workspace, projects } = await fixture(1);
+  const created = [];
+  const outcomes = [
+    { id: TASK_ID, title: "First outcome", instruction: "Implement the first outcome." },
+    { id: SECOND_TASK_ID, title: "Second outcome", instruction: "Implement the second outcome." },
+  ];
 
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "native-resolution-unresolved");
-  assert.equal(result.threadId, null);
-  assert.deepEqual(fixture.resolved, []);
+  const results = await Promise.all(outcomes.map((outcome, index) =>
+    createAndRecordDelegation({
+      project: projects[0],
+      title: outcome.title,
+      instruction: outcome.instruction,
+      target: { type: "project", projectId: "project-example" },
+      taskId: outcome.id,
+      recordTask: ({ project: _projectPath, ...task }) => recordTask(workspace, {
+        ...task,
+        project: projects[0],
+      }),
+      createThread: async ({ prompt }) => {
+        created.push(prompt);
+        return { threadId: `durable-split-${index}` };
+      },
+      resolveRecordedTask: ({ id, threadId }) => resolveTask(workspace, id, threadId),
+    })));
+
+  assert.deepEqual(results.map((result) => result.threadId).sort(), [
+    "durable-split-0",
+    "durable-split-1",
+  ]);
+  assert.equal(new Set(created.map((prompt) => parseTaskChefMarker(prompt))).size, 2);
+  assert.deepEqual((await listTasks(workspace)).map((task) => task.id).sort(), [
+    TASK_ID,
+    SECOND_TASK_ID,
+  ].sort());
 });
 
-test("delegation rejects a native resolver that echoes the provisional ID", async () => {
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:native-echo" }),
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    resolveProvisionalThread: async () => ({ threadId: " local:native-echo " }),
-    readThread: async () => assert.fail("a provisional ID must be rejected before reading"),
+test("minimal delegation preserves a created durable ID when record resolution is unavailable", async () => {
+  const result = await createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Durable recovery",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async () => {},
+    createThread: async () => ({ threadId: "durable-created-thread" }),
   });
 
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "thread-discovery-error");
-  assert.deepEqual(fixture.resolved, []);
-  assert.equal(result.discoveryErrors[0].operation, "validateThreadId");
-});
-
-test("delegation rejects a different local native-resolver ID before reading", async () => {
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "client-without-local-prefix" }),
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    resolveProvisionalThread: async () => ({ threadId: "local:different-provisional" }),
-    readThread: async () => assert.fail("local IDs must be rejected before reading"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "thread-discovery-error");
-  assert.deepEqual(fixture.resolved, []);
-  assert.equal(result.discoveryErrors[0].operation, "validateThreadId");
-});
-
-test("delegation does not verify or persist a native result returned after the deadline", async () => {
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:slow-native" }),
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    resolveProvisionalThread: async () => {
-      fixture.clock.value += 30_001;
-      return "late response must not be parsed as JSON";
-    },
-    readThread: async () => assert.fail("late native results must not start marker reads"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "resolution-deadline-exhausted");
-  assert.deepEqual(fixture.resolved, []);
-});
-
-test("delegation starts the second fallback snapshot after a slow first attempt", async () => {
-  let snapshots = 0;
-  const snapshotStartedAt = [];
-  const waitDelays = [];
-  const fixture = delegationFixture({
-    listThreads: async () => {
-      snapshots += 1;
-      snapshotStartedAt.push(fixture.clock.value);
-      fixture.clock.value += 25_000;
-      return threadList();
-    },
-    createThread: async () => ({ clientThreadId: "local:slow-tools" }),
-    readThread: async () => assert.fail("there are no candidates to read"),
-    waitImpl: async (delayMs) => {
-      waitDelays.push(delayMs);
-      fixture.clock.value += delayMs;
-    },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.attempts, 2);
-  assert.equal(snapshots, 2);
-  assert.deepEqual(waitDelays, [10_000]);
-  assert.equal(snapshotStartedAt[1] - snapshotStartedAt[0], 25_000);
-});
-
-test("delegation catches up immediately when a wait overshoots its nominal checkpoint", async () => {
-  let snapshots = 0;
-  const fixture = delegationFixture({
-    checkpointsMs: [29_999],
-    timeoutMs: 30_000,
-    createThread: async () => ({ clientThreadId: "local:timer-overshoot" }),
-    listThreads: async () => { snapshots += 1; return threadList(); },
-    readThread: async () => assert.fail("there are no candidates to read"),
-    waitImpl: async (delayMs) => { fixture.clock.value += delayMs + 2; },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.attempts, 1);
-  assert.equal(snapshots, 1);
-});
-
-test("delegation counts nullable-recording latency against native resolution", async () => {
-  let nativeCalls = 0;
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:recording-delay" }),
-    recordTask: async (value) => {
-      fixture.recorded.push(value);
-      fixture.clock.value += 30_000;
-    },
-    resolveProvisionalThread: async () => { nativeCalls += 1; },
-    listThreads: async () => assert.fail("native resolution must not list threads"),
-    readThread: async () => assert.fail("the deadline expired before native resolution"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "resolution-deadline-exhausted");
-  assert.equal(nativeCalls, 0);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-});
-
-test("delegation catches up after delayed recording and keeps snapshots 20 seconds apart", async () => {
-  const snapshotStartedAt = [];
-  const waitDelays = [];
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:delayed-record" }),
-    recordTask: async (value) => {
-      fixture.recorded.push(value);
-      fixture.clock.value += 20_658;
-    },
-    listThreads: async () => {
-      snapshotStartedAt.push(fixture.clock.value);
-      return threadList();
-    },
-    readThread: async () => assert.fail("there are no candidates to read"),
-    waitImpl: async (delayMs) => {
-      waitDelays.push(delayMs);
-      fixture.clock.value += delayMs;
-    },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.attempts, 2);
-  assert.deepEqual(waitDelays, [20_000]);
-  assert.deepEqual(
-    snapshotStartedAt.map((startedAt) => startedAt - 1_786_459_054_000),
-    [20_658, 40_658],
-  );
-});
-
-test("delegation leaves a provisional creation unresolved after two no-match snapshots", async () => {
-  let snapshots = 0;
-  const waitDelays = [];
-  const fixture = delegationFixture({
-    listThreads: async () => {
-      snapshots += 1;
-      return threadList();
-    },
-    createThread: async () => ({ clientThreadId: "local:pending-only" }),
-    readThread: async () => assert.fail("there are no candidates to read"),
-    waitImpl: async (delayMs) => {
-      waitDelays.push(delayMs);
-      fixture.clock.value += delayMs;
-    },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "no-exact-marker-match");
-  assert.equal(result.threadId, null);
-  assert.equal(result.provisional, "local:pending-only");
-  assert.equal(result.attempts, 2);
-  assert.equal(snapshots, 2);
-  assert.deepEqual(waitDelays, [10_000, 20_000]);
-  assert.equal(fixture.recorded.length, 1);
-  assert.equal(fixture.recorded[0].threadId, null);
-  assert.equal(parseTaskChefMarker(fixture.recorded[0].instruction), TASK_ID);
-});
-
-test("delegation refuses multiple exact marker matches without recording either thread", async () => {
-  const candidates = ["durable-a", "durable-b"].map((id) => ({
-    id,
-    kind: "codex",
-    projectId: "project-example",
-    title: "Fix retries",
-    createdAt: 1_786_459_054,
-    environment: { type: "worktree" },
-  }));
-  const fixture = delegationFixture({
-    checkpointsMs: [1],
-    timeoutMs: 2,
-    listThreads: async () => threadList(candidates),
-    createThread: async () => ({ pendingWorktreeId: "local:pending" }),
-    readThread: async () => delegatedThreadRead(
-      `<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`,
-    ),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "multiple-exact-marker-matches");
-  assert.deepEqual(result.matchingThreadIds, ["durable-a", "durable-b"]);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-  assert.deepEqual(fixture.resolved, []);
-});
-
-test("delegation ignores plain-text marker echoes and records null instead of clientThreadId", async () => {
-  const fixture = delegationFixture({
-    checkpointsMs: [1],
-    timeoutMs: 2,
-    listThreads: async () => threadList([{
-      id: "unverified-thread",
-      kind: "codex",
-      projectId: "project-example",
-      title: "Fix retries",
-      createdAt: 1_786_459_054,
-    }]),
-    createThread: async () => ({ clientThreadId: "client-only-id" }),
-    readThread: async () => ({
-      turns: [{
-        items: [{
-          type: "userMessage",
-          content: [{ type: "text", text: `# taskchef_id=${TASK_ID}` }],
-        }],
-      }],
-    }),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.provisional, "client-only-id");
-  assert.equal(result.threadId, null);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-  assert.notEqual(fixture.recorded[0].threadId, result.provisional);
-});
-
-test("delegation never persists a provisional ID echoed in the threadId field", async () => {
-  const fixture = delegationFixture({
-    checkpointsMs: [1],
-    timeoutMs: 2,
-    createThread: async () => ({
-      threadId: " local:echoed-client-id ",
-      clientThreadId: "local:echoed-client-id",
-    }),
-    listThreads: async () => threadList(),
-    readThread: async () => assert.fail("there are no candidates to read"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.provisional, "local:echoed-client-id");
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-  assert.notEqual(fixture.recorded[0].threadId, result.provisional);
-});
-
-test("delegation treats a provisional-only threadId result as unresolved", async () => {
-  const fixture = delegationFixture({
-    checkpointsMs: [1],
-    timeoutMs: 2,
-    createThread: async () => ({ threadId: " local:provisional-only " }),
-    listThreads: async () => threadList(),
-    readThread: async () => assert.fail("there are no durable candidates to read"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.provisional, "local:provisional-only");
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-});
-
-test("delegation excludes a provisional ID from fallback candidates", async () => {
-  const fixture = delegationFixture({
-    checkpointsMs: [1],
-    timeoutMs: 2,
-    createThread: async () => ({ clientThreadId: "local:fallback-echo" }),
-    listThreads: async () => threadList([{
-      id: "local:fallback-echo",
-      kind: "codex",
-      projectId: "project-example",
-      createdAt: 1_786_459_054,
-    }]),
-    readThread: async () => assert.fail("a provisional ID must be filtered before reading"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.threadId, null);
-  assert.deepEqual(fixture.resolved, []);
-});
-
-test("delegation still takes a second snapshot when the first crosses 30 seconds", async () => {
-  let snapshots = 0;
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:slow-snapshot" }),
-    listThreads: async () => {
-      snapshots += 1;
-      fixture.clock.value += 21_000;
-      return threadList();
-    },
-    readThread: async () => assert.fail("there are no candidates to read"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "no-exact-marker-match");
-  assert.equal(result.attempts, 2);
-  assert.equal(snapshots, 2);
-  assert.deepEqual(fixture.resolved, []);
-});
-
-test("delegation persists an exact marker read that completes after 30 seconds", async () => {
-  let markerAccesses = 0;
-  const fixture = delegationFixture({
-    createThread: async () => ({ clientThreadId: "local:slow-read" }),
-    listThreads: async () => threadList([{
-      id: "late-read-thread",
-      kind: "codex",
-      projectId: "project-example",
-      createdAt: 1_786_459_054,
-    }]),
-    readThread: async () => {
-      fixture.clock.value += 21_000;
-      return {
-        turns: [{
-          items: [{
-            type: "userMessage",
-            content: [{
-              get codexDelegation() {
-                markerAccesses += 1;
-                return { input: `<!-- taskchef_id=${TASK_ID} -->\n\nLate marker read.` };
-              },
-            }],
-          }],
-        }],
-      };
-    },
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded");
-  assert.equal(result.resolution, "discovered");
-  assert.deepEqual(fixture.resolved, [{ id: TASK_ID, threadId: "late-read-thread" }]);
-  assert.equal(markerAccesses, 2);
-});
-
-test("delegation still records a provisional task without a resolution adapter", async () => {
-  const fixture = delegationFixture({
-    resolveRecordedTask: undefined,
-    createThread: async () => ({ clientThreadId: "local:no-resolution-adapter" }),
-    listThreads: async () => assert.fail("resolution cannot run without its persistence adapter"),
-    readThread: async () => assert.fail("resolution cannot run without its persistence adapter"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
   assert.equal(result.status, "recorded-unresolved");
   assert.equal(result.reason, "task-resolution-unavailable");
-  assert.equal(result.attempts, 0);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
+  assert.equal(result.threadId, null);
+  assert.equal(result.createdThreadId, "durable-created-thread");
 });
 
-test("delegation preserves the marked task when thread snapshots fail", async () => {
-  const fixture = delegationFixture({
-    checkpointsMs: [1, 20_001],
-    timeoutMs: 20_002,
-    listThreads: async () => { throw new Error("snapshot unavailable"); },
-    createThread: async () => ({ clientThreadId: "local:pending" }),
-    readThread: async () => assert.fail("failed snapshots have no candidates"),
-  });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "thread-discovery-error");
-  assert.equal(result.attempts, 2);
-  assert.deepEqual(
-    result.discoveryErrors.map((error) => error.operation),
-    ["listThreads", "listThreads"],
-  );
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
-});
-
-test("delegation does not resolve after an earlier discovery error", async () => {
-  let snapshots = 0;
-  const fixture = delegationFixture({
-    checkpointsMs: [1, 20_001],
-    timeoutMs: 20_002,
-    listThreads: async () => {
-      snapshots += 1;
-      if (snapshots === 1) throw new Error("first snapshot unavailable");
-      return threadList([{
-        id: "later-match",
-        kind: "codex",
-        projectId: "project-example",
-        createdAt: 1_786_459_054,
-        environment: { type: "worktree" },
-      }]);
+test("minimal delegation does not retry creation when immediate record resolution fails", async () => {
+  let createCalls = 0;
+  const result = await createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Resolution recovery",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async () => {},
+    createThread: async () => {
+      createCalls += 1;
+      return { threadId: "durable-created-thread" };
     },
-    createThread: async () => ({ clientThreadId: "local:pending" }),
-    readThread: async () => delegatedThreadRead(
-      `<!-- taskchef_id=${TASK_ID} -->\n\nFix retry handling and test it.`,
-    ),
+    resolveRecordedTask: async () => { throw new Error("record lock unavailable"); },
   });
 
-  const result = await createAndRecordDelegation(fixture.input);
+  assert.equal(createCalls, 1);
   assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "thread-discovery-error");
-  assert.deepEqual(result.matchingThreadIds, ["later-match"]);
-  assert.deepEqual(fixture.resolved, []);
+  assert.equal(result.reason, "task-resolution-failed");
+  assert.equal(result.createdThreadId, "durable-created-thread");
+  assert.match(result.resolutionError, /record lock unavailable/);
 });
 
-test("delegation preserves the marked task when a candidate read fails", async () => {
-  const fixture = delegationFixture({
-    checkpointsMs: [1],
-    timeoutMs: 2,
-    listThreads: async () => threadList([{
-      id: "unreadable-thread",
-      kind: "codex",
-      projectId: "project-example",
-      title: "Fix retries",
-      createdAt: 1_786_459_054,
-    }]),
-    createThread: async () => ({ clientThreadId: "local:pending" }),
-    readThread: async () => {
-      throw new Error("thread unavailable");
-    },
+test("minimal delegation preserves and marks the task failed when executor creation fails", async () => {
+  const reported = [];
+  await assert.rejects(createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Failed creation",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async () => {},
+    createThread: async () => { throw new Error("host unavailable"); },
+    reportRecordedResult: async (result) => reported.push(result),
+  }), (error) => {
+    assert.match(error.message, /host unavailable/);
+    assert.equal(error.taskChefTaskId, TASK_ID);
+    assert.equal(error.taskChefResultReporting, "recorded");
+    return true;
   });
-
-  const result = await createAndRecordDelegation(fixture.input);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "thread-discovery-error");
-  assert.deepEqual(result.discoveryErrors, [{
-    attempt: 1,
-    operation: "readThread",
-    threadId: "unreadable-thread",
-    message: "thread unavailable",
+  assert.deepEqual(reported, [{
+    taskId: TASK_ID,
+    threadId: null,
+    turnId: null,
+    status: "failed",
+    summary: "Executor creation failed before the executor started.",
   }]);
-  assert.deepEqual(fixture.recorded.map((entry) => entry.threadId), [null]);
+});
+
+test("creation failure reporting is bounded, redacted, and cannot mask the original error", async () => {
+  const sensitiveError = new Error(`token=secret-value ${"x".repeat(3_000)}`);
+  const reported = [];
+  await assert.rejects(createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Safe failed creation",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async () => {},
+    createThread: async () => { throw sensitiveError; },
+    reportRecordedResult: async (result) => {
+      reported.push(result);
+      throw new Error("result storage unavailable");
+    },
+  }), (error) => {
+    assert.equal(error, sensitiveError);
+    assert.equal(error.taskChefTaskId, TASK_ID);
+    assert.equal(error.taskChefResultReporting, "failed");
+    return true;
+  });
+  assert.equal(reported[0].summary, "Executor creation failed before the executor started.");
+  assert.doesNotMatch(reported[0].summary, /secret-value|xxx/);
+});
+
+test("creation errors expose recovery identity when result reporting is unavailable", async () => {
+  await assert.rejects(createAndRecordDelegation({
+    project: "/projects/example",
+    title: "Recover unreported creation",
+    instruction: "Implement and test it.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: async () => {},
+    createThread: async () => { throw new Error("host unavailable"); },
+  }), (error) => {
+    assert.equal(error.taskChefTaskId, TASK_ID);
+    assert.equal(error.taskChefResultReporting, "unavailable");
+    return true;
+  });
+});
+
+test("initial hook links identity and MCP callbacks replace the latest semantic result", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Wait for a decision, then finish.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await assert.rejects(reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: null,
+    turnId: "unexpected-turn",
+    status: "failed",
+    summary: "Creation failed.",
+  }), /accepts only failed with null thread\/turn IDs/);
+
+  const hookOutput = await handleInitialPromptHook({
+    hook_event_name: "UserPromptSubmit",
+    prompt: prepared.instruction,
+    session_id: "root-thread",
+    turn_id: "turn-1",
+  }, {
+    workspace,
+    startTask: (root, taskId, threadId, turnId) =>
+      taskchef.startTaskFromHook(root, taskId, threadId, turnId, {
+        now: "2026-08-19T01:00:00.000Z",
+      }),
+  });
+  assert.match(hookOutput.hookSpecificOutput.additionalContext, /report_result/);
+  let current = await readTask(workspace, TASK_ID);
+  assert.equal(current.threadId, "root-thread");
+  assert.equal(current.status, "working");
+  assert.equal(current.turnId, "turn-1");
+  assert.equal(current.updatedBy, "hook");
+
+  const replay = await handleInitialPromptHook({
+    hook_event_name: "UserPromptSubmit",
+    prompt: prepared.instruction,
+    session_id: "root-thread",
+    turn_id: "turn-replayed",
+  }, {
+    workspace,
+    startTask: (root, taskId, threadId, turnId) =>
+      taskchef.startTaskFromHook(root, taskId, threadId, turnId, {
+        now: "2026-08-19T01:00:30.000Z",
+      }),
+  });
+  assert.match(replay.hookSpecificOutput.additionalContext, /report_result/);
+  current = await readTask(workspace, TASK_ID);
+  assert.equal(current.turnId, "turn-1");
+  assert.equal(current.updatedAt, "2026-08-19T01:00:00.000Z");
+
+  current = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "root-thread",
+    turnId: "turn-1",
+    status: "needs_input",
+    summary: "Approve deployment to continue.",
+  }, { now: "2026-08-19T01:01:00.000Z" });
+  assert.equal(current.status, "needs_input");
+
+  const followUp = await handleInitialPromptHook({
+    hook_event_name: "UserPromptSubmit",
+    prompt: "Approved. Continue the deployment.",
+    session_id: "root-thread",
+    turn_id: "turn-2",
+  }, { workspace });
+  assert.match(followUp.hookSpecificOutput.additionalContext, new RegExp(TASK_ID));
+  assert.match(followUp.hookSpecificOutput.additionalContext, /current turn turn-2/);
+  assert.match(followUp.hookSpecificOutput.additionalContext, /Pass this exact task ID/);
+  current = await readTask(workspace, TASK_ID);
+  assert.equal(current.status, "needs_input");
+  assert.equal(current.turnId, "turn-1");
+  assert.equal(current.updatedBy, "mcp");
+
+  current = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "root-thread",
+    turnId: "turn-2",
+    status: "completed",
+    summary: "Deployment approved and completed successfully.",
+  }, { now: "2026-08-19T01:03:00.000Z" });
+  assert.equal(current.status, "completed");
+  assert.equal(current.turnId, "turn-2");
+  assert.equal(current.updatedBy, "mcp");
+  assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 1);
+});
+
+test("non-TaskChef prompts ignore workspace resolution failures", async () => {
+  const output = await handleInitialPromptHook({
+    hook_event_name: "UserPromptSubmit",
+    prompt: "Ordinary unrelated prompt",
+    session_id: "ordinary-thread",
+    turn_id: "ordinary-turn",
+  }, {
+    resolveWorkspace: () => { throw new Error("invalid TASKCHEF_WORKSPACE"); },
+  });
+  assert.deepEqual(output, { continue: true });
+});
+
+test("concurrent semantic callbacks update different tasks without duplicate lines or lost writes", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "thread-one"), {
+    now: FIXED_TIME,
+  });
+  await recordTask(workspace, dispatchInput(projects[0], SECOND_TASK_ID, "thread-two"), {
+    now: FIXED_TIME,
+  });
+
+  await Promise.all([
+    reportTaskResult(workspace, {
+      taskId: TASK_ID,
+      threadId: "thread-one",
+      turnId: "turn-one",
+      status: "completed",
+      summary: "First task completed.",
+    }, { now: "2026-08-19T02:00:00.000Z" }),
+    reportTaskResult(workspace, {
+      taskId: SECOND_TASK_ID,
+      threadId: "thread-two",
+      turnId: "turn-two",
+      status: "needs_input",
+      summary: "Second task needs a product decision.",
+    }, { now: "2026-08-19T02:00:01.000Z" }),
+  ]);
+
+  const tasks = await listTasks(workspace);
+  assert.deepEqual(tasks.map((task) => [task.id, task.status]), [
+    [TASK_ID, "completed"],
+    [SECOND_TASK_ID, "needs_input"],
+  ]);
+  assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 2);
+  await assert.rejects(reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "thread-two",
+    turnId: "wrong-thread-turn",
+    status: "failed",
+    summary: "Must not overwrite another task.",
+  }), /does not match recorded threadId/);
 });
 
 test("init removes legacy TaskChef skill links without deleting unrelated skills", async () => {
@@ -1731,12 +1450,17 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: ".codex-plugin/plugin.json" },
       { path: ".mcp.json" },
       { path: "bin/taskchef.js", mode: 0o755 },
+      { path: "hooks/hooks.json" },
+      { path: "hooks/taskchef-initial-prompt.js" },
       { path: "mcp/server.js" },
       { path: "node_modules/@modelcontextprotocol/sdk/package.json" },
       { path: "node_modules/proper-lockfile/package.json" },
       { path: "node_modules/zod/package.json" },
       { path: "src/cli.js" },
+      { path: "src/delegation.js" },
+      { path: "src/hook.js" },
       { path: "src/mcp.js" },
+      { path: "src/workspace-path.js" },
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
       { path: "skills/taskchef-delegate/SKILL.md" },
@@ -1749,6 +1473,13 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { ...packedRelease[0], files: packedRelease[0].files.slice(1) },
     ], "2.3.4"),
     /missing \.codex-plugin\/plugin\.json/,
+  );
+  assert.throws(
+    () => validatePublishedPluginPackage([{
+      ...packedRelease[0],
+      files: packedRelease[0].files.filter((file) => file.path !== "hooks/hooks.json"),
+    }], "2.3.4"),
+    /missing hooks\/hooks\.json/,
   );
   assert.throws(
     () => validatePublishedPluginPackage([{
@@ -1862,7 +1593,7 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Preserve unresolved delegations for later marker-based recovery, and never use subagents, hooks, schedules, daemons, or executor-completion waiting."',
+    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, rely on the initial TaskChef hook for provisional identity, and never wait for executor completion."',
   );
   assert.doesNotMatch(frontmatter, /ordinary work requests in the TaskChef project/i);
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
@@ -1872,7 +1603,7 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   const literals = [...body.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
   assert.deepEqual(literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)), []);
   assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
-  for (const toolName of ["prepare_dispatch", "record_task", "resolve_task"]) {
+  for (const toolName of ["prepare_dispatch", "record_task", "resolve_task", "report_result"]) {
     assert.ok(literals.includes(toolName));
   }
   assert.match(body, /never probe for them or fall back to shell CLI writes/i);
@@ -1886,31 +1617,20 @@ test("delegate skill isolates trigger metadata and requires structured workspace
     /does not prevent the task from using TaskChef later[\s\S]+initial assignment explicitly asks to delegate separate\s+work[\s\S]+user later explicitly requests a new\s+delegation/i,
   );
   assert.match(body, /exactly `<!-- taskchef_id=<full UUID> -->` as the\s+first line/);
-  assert.match(body, /blank line, this executor-role paragraph, another blank line/);
+  assert.match(body, /blank line, this executor-role paragraph, another blank line, the result/);
   assert.match(body, /This task owns the delegated assignment\. Execute it in this task/);
   assert.match(body, /Explicit requests to delegate separate work remain valid/);
-  assert.match(body, /Require an immediately following blank line/);
   assert.doesNotMatch(body, /`# taskchef_id=/);
-  assert.match(body, /In parallel, call `prepare_dispatch` and list the native Codex projects\s+once/);
+  assert.match(body, /list the native Codex projects once and call `prepare_dispatch`\s+exactly once for each outcome/);
+  assert.match(body, /never reuse either across executors/i);
   assert.match(body, /Never take a pre-creation thread\s+snapshot/);
   assert.match(body, /exact\s+random marker is the sole correlation proof/i);
-  assert.match(body, /immediately call\s+`record_task` once/i);
+  assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
   assert.match(body, /without shell parsing, stdin, or\s+per-command filesystem escalation/);
-  assert.match(body, /supported Codex surface has no provisional-ID resolver/);
-  assert.match(body, /Do not inspect\s+the tool surface for one after creation/);
-  assert.match(body, /at most two post-creation\s+`list_threads` snapshots with limit 50/);
-  assert.match(body, /exactly one\s+programmatic batch per snapshot/);
-  assert.match(body, /Do not probe for batching support/);
-  assert.match(body, /do\s+not fall back to serial tool-call round trips/i);
-  assert.doesNotMatch(body, /Prefer a native Codex wait or resolver/);
-  assert.match(body, /nominal schedule is 10 and 30 seconds/);
-  assert.match(body, /first checkpoint as due, not expired/);
-  assert.match(body, /second snapshot no sooner than\s+20 seconds after the first snapshot actually started/);
-  assert.match(body, /never take a third snapshot/i);
-  assert.match(body, /Immediately record the marked instruction with `threadId: null`/);
-  assert.match(body, /structured\s+`userMessage\.content\[\]\.codexDelegation\.input`/);
-  assert.match(body, /Never persist a provisional `clientThreadId`/);
-  assert.match(body, /If executor creation fails, do not record a task/);
+  assert.match(body, /closes the hook race/);
+  assert.match(body, /initial TaskChef hook will atomically fill the durable root thread ID/);
+  assert.match(body, /Never\s+list, read, wait for, or poll threads to resolve it/);
+  assert.match(body, /If executor creation fails, call `report_result`/);
 
   for (const file of ["SPEC.md", "README.md", "docs/delegation-design.md"]) {
     const documented = await readFile(path.resolve(file), "utf8");
@@ -1933,22 +1653,43 @@ test("bootstrap skill initializes and verifies the canonical Codex project witho
   assert.doesNotMatch(content, /\/Applications\/[^\s]+\.app\/Contents\/Resources\/codex/);
 });
 
-test("report skill resolves exact nullable matches and reads live state once", async () => {
+test("report skill keeps overviews cheap and reads newer focused tasks once", async () => {
   const content = await readFile(path.resolve("skills/taskchef-report/SKILL.md"), "utf8");
   assert.match(content, /^name: taskchef-report$/m);
   assert.match(content, /taskchef\.js workspace path --json/);
   assert.match(content, /taskchef\.js task show <task-id> --json/);
   assert.match(content, /taskchef\.js task list --project <name-or-path> --json/);
   assert.match(content, /Use the full list only when the user asks for an overview/);
-  assert.match(content, /`<!-- taskchef_id=<full lowercase UUID> -->`/);
-  assert.match(content, /an immediately following\s+blank line/);
   assert.doesNotMatch(content, /`# taskchef_id=/);
-  assert.match(content, /no more than\s+eight targets per call/);
+  assert.match(content, /no more than\s+eight targets\s+per call/);
   assert.match(content, /Never edit `tasks\.jsonl` directly/);
   assert.match(content, /Do not poll or wait/);
-  assert.match(content, /entries whose `threadId` is `null`/);
-  assert.match(content, /taskchef\.js task resolve <task-id> --thread-id <thread-id>/);
+  assert.match(content, /last seven\s+days/);
+  assert.match(content, /omit older terminal entries by default/);
+  assert.match(content, /one recent `list_threads` metadata snapshot/);
+  assert.match(content, /whole report/);
+  assert.match(content, /active\s+or awaiting native approval immediately overrides a cached result without a\s+detailed read/i);
+  assert.match(content, /trust the latest MCP result by default in a broad overview/i);
+  assert.match(content, /focused task, title, or project report/i);
+  assert.match(content, /later than the cached result `updatedAt`, by any amount/i);
+  assert.match(content, /If\s+focused metadata is not newer, trust the cache/i);
+  assert.doesNotMatch(content, /30-second|30 seconds newer/);
+  assert.match(content, /newer turn without a callback\s+makes the cache stale/i);
+  assert.match(content, /interrupted or cancelled callback turn\s+cannot prove completion/i);
+  assert.match(content, /only a\s+snapshot with\s+`updatedBy: mcp` is a cached semantic result/i);
+  assert.match(content, /hook-written `working` snapshot has no semantic callback and\s+requires one live task query/);
+  assert.match(content, /inactive and no\s+callback exists, report the outcome as unknown/);
+  assert.match(content, /null thread\/turn IDs as a fresh\s+executor-creation failure/);
+  assert.match(content, /No live read is possible or needed/);
+  assert.match(content, /no semantic callback/);
   assert.doesNotMatch(content, /task update|reconcile-candidates/);
+});
+
+test("bundled identity hook has portable plugin-root commands", async () => {
+  const config = JSON.parse(await readFile(path.resolve("hooks/hooks.json"), "utf8"));
+  const hook = config.hooks.UserPromptSubmit[0].hooks[0];
+  assert.match(hook.command, /\$PLUGIN_ROOT\/hooks\/taskchef-initial-prompt\.js/);
+  assert.match(hook.commandWindows, /%PLUGIN_ROOT%\\hooks\\taskchef-initial-prompt\.js/);
 });
 
 test("init fails safely on malformed managed instruction markers", async () => {
@@ -2308,16 +2049,19 @@ test("configuration and dispatch schemas remain strict", async () => {
   assert.throws(() => requireSafeId("../escape"), /unsupported characters/);
 });
 
-test("dispatch recording appends one immutable journey entry", async () => {
+test("dispatch recording appends one working task entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
-  assert.equal(recorded.schemaVersion, 2);
+  assert.equal(recorded.schemaVersion, 3);
   assert.equal(recorded.project.name, "project-1");
   assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [
     "schemaVersion", "id", "project", "title", "instruction", "threadId", "createdAt",
+    "status", "summary", "turnId", "updatedAt", "updatedBy",
   ]);
+  assert.equal(recorded.status, "working");
+  assert.equal(recorded.updatedBy, "dispatcher");
   const content = await readFile(path.join(workspace, "tasks.jsonl"), "utf8");
   assert.equal(content.split("\n").length, 2);
   assert.deepEqual(JSON.parse(content.trim()), recorded);
@@ -2412,8 +2156,11 @@ test("legacy task snapshots normalize repository scalars without eager log rewri
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   const { githubRepos, ...legacyProject } = recorded.project;
+  const {
+    status, summary, turnId, updatedAt, updatedBy, ...legacyRecord
+  } = recorded;
   const legacy = {
-    ...recorded,
+    ...legacyRecord,
     schemaVersion: 1,
     project: { ...legacyProject, githubRepo: githubRepos[0] },
   };
@@ -2421,7 +2168,8 @@ test("legacy task snapshots normalize repository scalars without eager log rewri
   await writeFile(logPath, `${JSON.stringify(legacy)}\n`);
 
   const [normalized] = await listTasks(workspace);
-  assert.equal(normalized.schemaVersion, 2);
+  assert.equal(normalized.schemaVersion, 3);
+  assert.equal(normalized.status, null);
   assert.deepEqual(normalized.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(JSON.parse((await readFile(logPath, "utf8")).trim()), legacy);
 });
@@ -2438,8 +2186,11 @@ test("resolving a legacy task preserves every unrelated history line byte-for-by
     dispatchInput(projects[0], "unrelated", "unrelated-thread"),
   );
   const { githubRepos, ...legacyProject } = unresolved.project;
+  const {
+    status, summary, turnId, updatedAt, updatedBy, ...legacyRecord
+  } = unresolved;
   const legacy = {
-    ...unresolved,
+    ...legacyRecord,
     schemaVersion: 1,
     project: { ...legacyProject, githubRepo: githubRepos[0] },
   };
@@ -2449,7 +2200,7 @@ test("resolving a legacy task preserves every unrelated history line byte-for-by
   await writeFile(logPath, `${legacyLine}\n${unrelatedLine}\n`);
 
   const resolved = await resolveTask(workspace, prepared.id, "resolved-legacy-thread");
-  assert.equal(resolved.schemaVersion, 2);
+  assert.equal(resolved.schemaVersion, 3);
   assert.deepEqual(resolved.project.githubRepos, githubRepos);
   const [updatedLegacyLine, preservedUnrelatedLine] = (await readFile(logPath, "utf8"))
     .slice(0, -1)
@@ -2843,7 +2594,7 @@ test("CLI project list groups repositories without repeating project details", a
   });
 });
 
-test("CLI task list uses TITLE PROJECT CREATED ID THREAD ID order, filters, sorts, and preserves JSON", async () => {
+test("CLI task list uses TITLE PROJECT STATUS UPDATED ID THREAD ID order, filters, sorts, and preserves JSON", async () => {
   const { workspace, projects } = await fixture(2);
   const longTitle = "Investigate and document a deliberately long retry-handling failure title";
   const first = await recordTask(workspace, {
@@ -2868,16 +2619,16 @@ test("CLI task list uses TITLE PROJECT CREATED ID THREAD ID order, filters, sort
     "task", "list", "--project", "project-1", "--workspace", workspace,
   ]);
   const createdWidth = "2026-08-08T12:00:00.000+05:00".length;
-  const header = `${"TITLE".padEnd(longTitle.length)}  PROJECT    ${"CREATED".padEnd(createdWidth)}  ${"ID".padEnd("task-newest".length)}  THREAD ID`;
+  const header = `${"TITLE".padEnd(longTitle.length)}  PROJECT    STATUS   ${"UPDATED".padEnd(createdWidth)}  ${"ID".padEnd("task-newest".length)}  THREAD ID`;
   assert.equal(human.stdout, [
     header,
-    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  ${"task-first".padEnd("task-newest".length)}  thread-first`,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  ${"task-latest".padEnd("task-newest".length)}  thread-latest`,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest  thread-newest`,
+    `${longTitle}  project-1  working  ${FIXED_TIME.padEnd(createdWidth)}  ${"task-first".padEnd("task-newest".length)}  thread-first`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  working  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  ${"task-latest".padEnd("task-newest".length)}  thread-latest`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  working  2026-08-08T12:00:00.000+05:00  task-newest  thread-newest`,
     "",
   ].join("\n"));
   assert.deepEqual(human.stdout.trimEnd().split("\n")[0].trim().split(/\s{2,}/), [
-    "TITLE", "PROJECT", "CREATED", "ID", "THREAD ID",
+    "TITLE", "PROJECT", "STATUS", "UPDATED", "ID", "THREAD ID",
   ]);
   assert.doesNotMatch(human.stdout, /task-second/);
 
@@ -2893,9 +2644,9 @@ test("CLI task list uses TITLE PROJECT CREATED ID THREAD ID order, filters, sort
   ]);
   assert.equal(ascendingHuman.stdout, [
     header,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  2026-08-08T12:00:00.000+05:00  task-newest  thread-newest`,
-    `${"Echo input".padEnd(longTitle.length)}  project-1  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  ${"task-latest".padEnd("task-newest".length)}  thread-latest`,
-    `${longTitle}  project-1  ${FIXED_TIME.padEnd(createdWidth)}  ${"task-first".padEnd("task-newest".length)}  thread-first`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  working  2026-08-08T12:00:00.000+05:00  task-newest  thread-newest`,
+    `${"Echo input".padEnd(longTitle.length)}  project-1  working  ${"2026-08-08T08:00:00.000Z".padEnd(createdWidth)}  ${"task-latest".padEnd("task-newest".length)}  thread-latest`,
+    `${longTitle}  project-1  working  ${FIXED_TIME.padEnd(createdWidth)}  ${"task-first".padEnd("task-newest".length)}  thread-first`,
     "",
   ].join("\n"));
   const ascendingJson = await runCli([
@@ -2926,18 +2677,18 @@ test("CLI task list abbreviates UUIDs, shows null thread IDs, and supports --ful
   const abbreviatedRows = abbreviated.stdout.trimEnd().split("\n")
     .map((line) => line.trim().split(/\s{2,}/));
   assert.deepEqual(abbreviatedRows, [
-    ["TITLE", "PROJECT", "CREATED", "ID", "THREAD ID"],
-    ["Unresolved", "project-1", "2026-08-08T11:00:00.000Z", "ea896202", "-"],
-    ["Resolved", "project-1", FIXED_TIME, "c0f010ff", "019ff141"],
+    ["TITLE", "PROJECT", "STATUS", "UPDATED", "ID", "THREAD ID"],
+    ["Unresolved", "project-1", "working", "2026-08-08T11:00:00.000Z", "ea896202", "-"],
+    ["Resolved", "project-1", "working", FIXED_TIME, "c0f010ff", "019ff141"],
   ]);
 
   const full = await runCli(["task", "list", "--full-id", "--workspace", workspace]);
   const fullRows = full.stdout.trimEnd().split("\n")
     .map((line) => line.trim().split(/\s{2,}/));
   assert.deepEqual(fullRows, [
-    ["TITLE", "PROJECT", "CREATED", "ID", "THREAD ID"],
-    ["Unresolved", "project-1", "2026-08-08T11:00:00.000Z", SECOND_TASK_ID, "-"],
-    ["Resolved", "project-1", FIXED_TIME, TASK_ID, threadId],
+    ["TITLE", "PROJECT", "STATUS", "UPDATED", "ID", "THREAD ID"],
+    ["Unresolved", "project-1", "working", "2026-08-08T11:00:00.000Z", SECOND_TASK_ID, "-"],
+    ["Resolved", "project-1", "working", FIXED_TIME, TASK_ID, threadId],
   ]);
 
   const json = await runCli([
@@ -2962,10 +2713,15 @@ test("CLI task show prints human details for full and unique short IDs", async (
   const expected = [
     "Title: Show by short ID",
     "Project: project-1",
+    "Status: working",
+    "Summary: -",
     `Project path: ${projects[0]}`,
     `Created: ${FIXED_TIME}`,
+    `Updated: ${FIXED_TIME}`,
+    "Updated by: dispatcher",
     `Task ID: ${TASK_ID}`,
     "Thread ID: show-thread",
+    "Turn ID: -",
     "Instruction:",
     recorded.instruction,
     "",
@@ -3035,10 +2791,15 @@ test("CLI task show escapes line breaks in labeled details", async () => {
   assert.equal(human.stdout, [
     "Title: First line\\nProject: forged",
     "Project: project\\r\\nInstruction: forged",
+    "Status: working",
+    "Summary: -",
     `Project path: ${project.replaceAll("\n", "\\n")}`,
     `Created: ${FIXED_TIME}`,
+    `Updated: ${FIXED_TIME}`,
+    "Updated by: dispatcher",
     `Task ID: ${TASK_ID}`,
     "Thread ID: show-thread",
+    "Turn ID: -",
     "Instruction:",
     recorded.instruction,
     "",

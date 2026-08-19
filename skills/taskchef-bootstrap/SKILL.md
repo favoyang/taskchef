@@ -19,13 +19,16 @@ all deterministic workspace operations.
   workspace.
 - Do not dispatch tasks or report on executor threads during bootstrap unless
   the user separately requests those actions.
-- Never use collaboration agents, hooks, schedules, polling, or daemons.
+- Never create ad hoc hooks, schedules, polling, or daemons. The installed
+  plugin's initial-identity hook is part of normal TaskChef execution, not
+  bootstrap work.
 
 ## Initialize and repair
 
 1. Run `workspace path --json` and use its returned canonical path for native
    project comparisons. The CLI resolves `--workspace`, then
-   `TASKCHEF_WORKSPACE`, then `~/.agents/taskchef`; do not infer a workspace
+   an absolute (or `~/`-prefixed) `TASKCHEF_WORKSPACE`, then
+   `~/.agents/taskchef`; do not infer a workspace
    from the current project.
 2. List native Codex projects once. If an exact canonical-path local project
    already exists, run `workspace init --json`. Otherwise run
@@ -35,7 +38,7 @@ all deterministic workspace operations.
    CLI discovered from the current desktop environment; never invoke
    `codex add` or hard-code an application bundle path.
 3. `workspace init` takes no stdin, creates an empty
-   configuration when missing, creates the append-only task log, refreshes
+   configuration when missing, creates the one-entry-per-task JSONL log, refreshes
    managed instructions, and removes legacy TaskChef skill links. The installed
    plugin provides all three TaskChef skills outside the dispatcher workspace.
 4. Run `doctor --json` after setup or when the user asks to diagnose the

@@ -169,10 +169,15 @@ function taskDetails(task) {
   return [
     `Title: ${singleLineDetail(task.title)}`,
     `Project: ${singleLineDetail(task.project.name)}`,
+    `Status: ${singleLineDetail(task.status ?? "unknown")}`,
+    `Summary: ${singleLineDetail(task.summary ?? "-")}`,
     `Project path: ${singleLineDetail(task.project.path)}`,
     `Created: ${singleLineDetail(task.createdAt)}`,
+    `Updated: ${singleLineDetail(task.updatedAt ?? "-")}`,
+    `Updated by: ${singleLineDetail(task.updatedBy ?? "-")}`,
     `Task ID: ${singleLineDetail(task.id)}`,
     `Thread ID: ${singleLineDetail(task.threadId ?? "-")}`,
+    `Turn ID: ${singleLineDetail(task.turnId ?? "-")}`,
     "Instruction:",
     task.instruction,
   ].join("\n");
@@ -381,11 +386,12 @@ async function taskList(args) {
   const result = { taskCount: dispatches.length, tasks: dispatches };
   const fullId = args.includes("--full-id");
   print(result, args, (value) => table(
-    ["TITLE", "PROJECT", "CREATED", "ID", "THREAD ID"],
+    ["TITLE", "PROJECT", "STATUS", "UPDATED", "ID", "THREAD ID"],
     value.tasks.map((dispatch) => [
       dispatch.title,
       dispatch.project?.name,
-      dispatch.createdAt,
+      dispatch.status ?? "unknown",
+      dispatch.updatedAt ?? dispatch.createdAt,
       displayId(dispatch.id, fullId),
       displayId(dispatch.threadId, fullId),
     ]),
