@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 
+// Deprecated v5 compatibility exports. TaskChef no longer uses bounded thread
+// discovery, but keeping these pure helpers avoids breaking existing imports
+// before the next major release.
 export const THREAD_RESOLUTION_CHECKPOINTS_MS = Object.freeze([10_000, 30_000]);
 export const THREAD_RESOLUTION_TIMEOUT_MS = 30_000;
 export const THREAD_RESOLUTION_RECENT_LIMIT = 50;
 export const THREAD_RESOLUTION_CLOCK_SKEW_MS = 5_000;
 export const EXECUTOR_OWNERSHIP_PARAGRAPH = "This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.";
+export const EXECUTOR_RESULT_PARAGRAPH = "Before ending, call the TaskChef report_result MCP tool with completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
 
 const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
@@ -52,6 +56,25 @@ function toolIdentifier(value) {
   return normalized.length > 0 ? normalized : null;
 }
 
+function attachCreationRecovery(error, taskId, resultReporting) {
+  const creationError = error instanceof Error ? error : new Error(String(error));
+  try {
+    Object.defineProperties(creationError, {
+      taskChefTaskId: { value: taskId, enumerable: true },
+      taskChefResultReporting: { value: resultReporting, enumerable: true },
+    });
+    return creationError;
+  } catch {
+    const wrapped = new Error(
+      `Executor creation failed for recorded TaskChef task ${taskId}.`,
+      { cause: creationError },
+    );
+    wrapped.taskChefTaskId = taskId;
+    wrapped.taskChefResultReporting = resultReporting;
+    return wrapped;
+  }
+}
+
 export function isProvisionalThreadId(value) {
   const id = toolIdentifier(value);
   return id !== null && id.startsWith("local:");
@@ -66,9 +89,6 @@ export function normalizeDurableThreadId(value, name = "threadId") {
   return id;
 }
 
-function wait(delayMs) {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
-}
 
 export function taskChefMarker(taskId) {
   return `<!-- taskchef_id=${requireUuid(taskId)} -->`;
@@ -94,7 +114,7 @@ export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${taskChefMarker(id)}\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${instruction}`,
+    instruction: `${taskChefMarker(id)}\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\n${instruction}`,
   };
 }
 
@@ -104,9 +124,7 @@ export function listThreadEntries(result) {
   const unique = new Map();
   for (const entry of entries) {
     const id = toolIdentifier(entry?.id);
-    if (id !== null && !unique.has(id)) {
-      unique.set(id, { ...entry, id });
-    }
+    if (id !== null && !unique.has(id)) unique.set(id, { ...entry, id });
   }
   return [...unique.values()];
 }
@@ -161,9 +179,9 @@ export function filterThreadCandidates(result, {
       ?? thread.environmentType
       ?? thread.backing?.environment?.type;
     if (
-      environmentType !== null &&
-      candidateEnvironmentType !== undefined &&
-      candidateEnvironmentType !== environmentType
+      environmentType !== null
+      && candidateEnvironmentType !== undefined
+      && candidateEnvironmentType !== environmentType
     ) return false;
     const candidateTime = timestampMilliseconds(thread.createdAt ?? thread.updatedAt);
     if (minimumCreatedAt !== null && candidateTime !== null && candidateTime < minimumCreatedAt) {
@@ -176,173 +194,37 @@ export function filterThreadCandidates(result, {
     Number(right.title === title) - Number(left.title === title));
 }
 
-function validateResolutionSchedule(checkpointsMs, timeoutMs) {
-  if (!Array.isArray(checkpointsMs) || checkpointsMs.length === 0) {
-    throw new Error("checkpointsMs must contain at least one checkpoint");
-  }
-  if (checkpointsMs.length > 2) {
-    throw new Error("checkpointsMs must contain at most two checkpoints");
-  }
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
-    throw new Error("timeoutMs must be positive");
-  }
-  let previous = 0;
-  for (const checkpoint of checkpointsMs) {
-    if (!Number.isInteger(checkpoint) || checkpoint <= previous || checkpoint > timeoutMs) {
-      throw new Error("checkpointsMs must be strictly increasing positive integers within timeoutMs");
-    }
-    previous = checkpoint;
-  }
-  if (checkpointsMs.length === 2 && checkpointsMs[1] - checkpointsMs[0] < 20_000) {
-    throw new Error("checkpointsMs must keep two checkpoints at least 20000ms apart");
-  }
-}
-
-async function inspectCandidates(candidates, {
-  readThread,
-  taskId,
-  attempt,
-  canVerify = () => true,
-}) {
-  const inspected = await Promise.all(candidates.map(async (candidate) => {
-    try {
-      const readResult = await readThread({
-        threadId: candidate.id,
-        ...(candidate.hostId ? { hostId: candidate.hostId } : {}),
-        turnLimit: 1,
-        includeOutputs: false,
-      });
-      if (!canVerify()) {
-        return { candidate, matches: false, error: null };
-      }
-      return {
-        candidate,
-        matches: hasExactTaskChefMarker(readResult, taskId),
-        error: null,
-      };
-    } catch (error) {
-      return {
-        candidate,
-        matches: false,
-        error: {
-          attempt,
-          operation: "readThread",
-          threadId: candidate.id,
-          message: error instanceof Error ? error.message : String(error),
-        },
-      };
-    }
-  }));
-  return {
-    exactMatches: inspected.filter((item) => item.matches).map((item) => item.candidate),
-    errors: inspected.flatMap((item) => item.error === null ? [] : [item.error]),
-  };
-}
-
-export async function createAndRecordDelegation({
-  project,
-  title,
-  instruction,
-  target,
-  expected = {},
-  createThread,
-  listThreads,
-  readThread,
-  recordTask,
-  resolveRecordedTask = null,
-  resolveProvisionalThread = null,
-  taskId = randomUUID(),
-  checkpointsMs = THREAD_RESOLUTION_CHECKPOINTS_MS,
-  timeoutMs = THREAD_RESOLUTION_TIMEOUT_MS,
-  recentLimit = THREAD_RESOLUTION_RECENT_LIMIT,
-  now = Date.now,
-  waitImpl = wait,
-}) {
+export async function createAndRecordDelegation(input) {
+  const {
+    project,
+    title,
+    instruction,
+    target,
+    createThread,
+    recordTask,
+    resolveRecordedTask = null,
+    reportRecordedResult = null,
+    taskId = randomUUID(),
+  } = input ?? {};
   requireString(project, "project");
   requireString(title, "title");
   requireObject(target, "target");
   for (const [value, name] of [
     [createThread, "createThread"],
-    [listThreads, "listThreads"],
-    [readThread, "readThread"],
     [recordTask, "recordTask"],
   ]) {
     if (typeof value !== "function") throw new Error(`${name} must be a function`);
   }
-  if (resolveProvisionalThread !== null && typeof resolveProvisionalThread !== "function") {
-    throw new Error("resolveProvisionalThread must be a function or null");
+  for (const [value, name] of [
+    [resolveRecordedTask, "resolveRecordedTask"],
+    [reportRecordedResult, "reportRecordedResult"],
+  ]) {
+    if (value !== null && typeof value !== "function") {
+      throw new Error(`${name} must be a function or null`);
+    }
   }
-  if (resolveRecordedTask !== null && typeof resolveRecordedTask !== "function") {
-    throw new Error("resolveRecordedTask must be a function or null");
-  }
-  validateResolutionSchedule(checkpointsMs, timeoutMs);
 
   const prepared = prepareDelegation(instruction, { taskId });
-  const discoveryErrors = [];
-  const createdAfter = now();
-  const createResult = parseToolResult(await createThread({
-    prompt: prepared.instruction,
-    title,
-    target,
-  }), "create_thread result");
-  const clientThreadId = toolIdentifier(createResult.clientThreadId);
-  const pendingWorktreeId = toolIdentifier(createResult.pendingWorktreeId);
-  const returnedThreadId = toolIdentifier(createResult.threadId);
-  const returnedProvisionalId = isProvisionalThreadId(returnedThreadId)
-    ? returnedThreadId
-    : null;
-  const provisional = clientThreadId ?? pendingWorktreeId ?? returnedProvisionalId;
-  const resolutionStartedAt = provisional === null ? null : now();
-  const provisionalIds = new Set([
-    clientThreadId,
-    pendingWorktreeId,
-    returnedProvisionalId,
-  ].filter(Boolean));
-  const durableThreadId = !isProvisionalThreadId(returnedThreadId)
-    && !provisionalIds.has(returnedThreadId)
-    ? returnedThreadId
-    : null;
-
-  if (durableThreadId !== null) {
-    await recordTask({
-      id: prepared.id,
-      project,
-      title,
-      instruction: prepared.instruction,
-      threadId: durableThreadId,
-    });
-    return {
-      status: "recorded",
-      resolution: "immediate",
-      ...prepared,
-      threadId: durableThreadId,
-      hostId: createResult.hostId ?? expected.hostId ?? null,
-      provisional,
-      attempts: 0,
-      discoveryErrors,
-    };
-  }
-
-  if (provisional === null) {
-    await recordTask({
-      id: prepared.id,
-      project,
-      title,
-      instruction: prepared.instruction,
-      threadId: null,
-    });
-    return {
-      status: "recorded-unresolved",
-      reason: "create-returned-no-thread-identifier",
-      ...prepared,
-      threadId: null,
-      provisional: null,
-      attempts: 0,
-      matchingThreadIds: [],
-      discoveryErrors,
-    };
-  }
-
   await recordTask({
     id: prepared.id,
     project,
@@ -351,219 +233,87 @@ export async function createAndRecordDelegation({
     threadId: null,
   });
 
-  if (resolveRecordedTask === null) {
+  let createResult;
+  try {
+    createResult = parseToolResult(await createThread({
+      prompt: prepared.instruction,
+      title,
+      target,
+    }), "create_thread result");
+  } catch (error) {
+    let resultReporting = "unavailable";
+    if (reportRecordedResult !== null) {
+      try {
+        await reportRecordedResult({
+          taskId: prepared.id,
+          threadId: null,
+          turnId: null,
+          status: "failed",
+          summary: "Executor creation failed before the executor started.",
+        });
+        resultReporting = "recorded";
+      } catch {
+        resultReporting = "failed";
+      }
+    }
+    throw attachCreationRecovery(error, prepared.id, resultReporting);
+  }
+
+  const returnedThreadId = toolIdentifier(createResult.threadId);
+  const clientThreadId = toolIdentifier(createResult.clientThreadId);
+  const pendingWorktreeId = toolIdentifier(createResult.pendingWorktreeId);
+  const provisional = clientThreadId
+    ?? pendingWorktreeId
+    ?? (isProvisionalThreadId(returnedThreadId) ? returnedThreadId : null);
+  const durableThreadId = returnedThreadId !== null
+    && !isProvisionalThreadId(returnedThreadId)
+    && returnedThreadId !== clientThreadId
+    && returnedThreadId !== pendingWorktreeId
+      ? returnedThreadId
+      : null;
+
+  if (durableThreadId !== null) {
+    if (resolveRecordedTask !== null) {
+      try {
+        await resolveRecordedTask({ id: prepared.id, threadId: durableThreadId });
+        return {
+          status: "recorded",
+          resolution: "immediate",
+          ...prepared,
+          threadId: durableThreadId,
+          provisional,
+          hostId: createResult.hostId ?? null,
+        };
+      } catch (error) {
+        return {
+          status: "recorded-unresolved",
+          reason: "task-resolution-failed",
+          resolutionError: error instanceof Error ? error.message : String(error),
+          ...prepared,
+          threadId: null,
+          createdThreadId: durableThreadId,
+          provisional,
+          hostId: createResult.hostId ?? null,
+        };
+      }
+    }
     return {
       status: "recorded-unresolved",
       reason: "task-resolution-unavailable",
       ...prepared,
       threadId: null,
+      createdThreadId: durableThreadId,
       provisional,
-      attempts: 0,
-      matchingThreadIds: [],
-      discoveryErrors,
+      hostId: createResult.hostId ?? null,
     };
   }
 
-  const resolutionDeadline = resolutionStartedAt + timeoutMs;
-  let deadlineExpired = false;
-  const hasResolutionTime = () => {
-    if (now() < resolutionDeadline) return true;
-    deadlineExpired = true;
-    return false;
-  };
-
-  const acceptResolvedThread = async (thread, resolution, attempt, {
-    verified = false,
-    enforceDeadline = true,
-  } = {}) => {
-    const canContinue = enforceDeadline ? hasResolutionTime : () => true;
-    const threadId = toolIdentifier(thread.id);
-    if (
-      threadId === null
-      || provisionalIds.has(threadId)
-      || isProvisionalThreadId(threadId)
-    ) {
-      discoveryErrors.push({
-        attempt,
-        operation: "validateThreadId",
-        ...(threadId === null ? {} : { threadId }),
-        message: "resolved threadId is not a durable identifier",
-      });
-      return null;
-    }
-    const durableThread = { ...thread, id: threadId };
-    if (!canContinue()) return null;
-    if (!verified) {
-      const inspected = await inspectCandidates([durableThread], {
-        readThread,
-        taskId: prepared.id,
-        attempt,
-        canVerify: canContinue,
-      });
-      discoveryErrors.push(...inspected.errors);
-      if (inspected.exactMatches.length !== 1 || inspected.errors.length > 0) return null;
-    }
-    if (!canContinue()) return null;
-    try {
-      await resolveRecordedTask({ id: prepared.id, threadId });
-    } catch (error) {
-      discoveryErrors.push({
-        attempt,
-        operation: "resolveRecordedTask",
-        threadId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-    return {
-      status: "recorded",
-      resolution,
-      ...prepared,
-      threadId,
-      hostId: durableThread.hostId ?? expected.hostId ?? null,
-      provisional,
-      attempts: attempt,
-      discoveryErrors,
-    };
-  };
-
-  if (resolveProvisionalThread !== null) {
-    let nativeResult = null;
-    let nativeAttempts = 0;
-    const remainingTimeoutMs = timeoutMs - (now() - resolutionStartedAt);
-    if (remainingTimeoutMs > 0) {
-      nativeAttempts = 1;
-      try {
-        const nativeResponse = await resolveProvisionalThread({
-          provisionalId: provisional,
-          ...(clientThreadId ? { clientThreadId } : {}),
-          ...(pendingWorktreeId ? { pendingWorktreeId } : {}),
-          timeoutMs: remainingTimeoutMs,
-        });
-        if (hasResolutionTime()) {
-          nativeResult = parseToolResult(nativeResponse, "provisional thread resolver result");
-        }
-      } catch (error) {
-        if (hasResolutionTime()) {
-          discoveryErrors.push({
-            attempt: 1,
-            operation: "resolveProvisionalThread",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    }
-    hasResolutionTime();
-    const nativeThreadId = toolIdentifier(nativeResult?.threadId);
-    if (nativeThreadId !== null) {
-      const resolved = await acceptResolvedThread({
-        id: nativeThreadId,
-        hostId: nativeResult.hostId ?? expected.hostId ?? null,
-      }, "native", 1);
-      if (resolved !== null) return resolved;
-    }
-    return {
-      status: "recorded-unresolved",
-      reason: discoveryErrors.length > 0
-        ? "thread-discovery-error"
-        : deadlineExpired
-          ? "resolution-deadline-exhausted"
-          : "native-resolution-unresolved",
-      ...prepared,
-      threadId: null,
-      provisional,
-      attempts: nativeAttempts,
-      matchingThreadIds: [],
-      discoveryErrors,
-    };
-  }
-
-  let exactMatches = [];
-  let ambiguousMatches = [];
-  let attemptsMade = 0;
-  let previousAttemptStartedAt = resolutionStartedAt;
-  for (let index = 0; index < checkpointsMs.length; index += 1) {
-    const attempt = index + 1;
-    const intervalMs = index === 0
-      ? checkpointsMs[0]
-      : checkpointsMs[index] - checkpointsMs[index - 1];
-    const dueAt = previousAttemptStartedAt + intervalMs;
-    const remainingDelayMs = dueAt - now();
-    if (remainingDelayMs > 0) {
-      try {
-        await waitImpl(remainingDelayMs);
-      } catch (error) {
-        discoveryErrors.push({
-          attempt,
-          operation: "wait",
-          message: error instanceof Error ? error.message : String(error),
-        });
-        break;
-      }
-    }
-    previousAttemptStartedAt = now();
-    attemptsMade = attempt;
-    let candidates = [];
-    let attemptFailed = false;
-    try {
-      const snapshot = await listThreads({ limit: recentLimit });
-      candidates = filterThreadCandidates(snapshot, {
-        excludedThreadIds: provisionalIds,
-        hostId: expected.hostId ?? null,
-        projectId: expected.projectId ?? target.projectId ?? null,
-        title,
-        createdAfter,
-        environmentType: expected.environmentType ?? target.environment?.type ?? null,
-      });
-    } catch (error) {
-      attemptFailed = true;
-      discoveryErrors.push({
-        attempt,
-        operation: "listThreads",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-    const inspected = await inspectCandidates(candidates, {
-      readThread,
-      taskId: prepared.id,
-      attempt,
-    });
-    exactMatches = inspected.exactMatches;
-    discoveryErrors.push(...inspected.errors);
-    if (inspected.errors.length > 0) attemptFailed = true;
-    if (exactMatches.length > 1) ambiguousMatches = exactMatches;
-    if (
-      exactMatches.length === 1
-      && ambiguousMatches.length === 0
-      && !attemptFailed
-      && discoveryErrors.length === 0
-    ) {
-      const resolved = await acceptResolvedThread(
-        exactMatches[0],
-        "discovered",
-        attempt,
-        { verified: true, enforceDeadline: false },
-      );
-      if (resolved !== null) return resolved;
-    }
-  }
-
-  const reason = ambiguousMatches.length > 1
-    ? "multiple-exact-marker-matches"
-    : discoveryErrors.length > 0
-      ? "thread-discovery-error"
-      : deadlineExpired
-        ? "resolution-deadline-exhausted"
-        : "no-exact-marker-match";
   return {
     status: "recorded-unresolved",
-    reason,
+    reason: "awaiting-initial-hook",
     ...prepared,
     threadId: null,
     provisional,
-    attempts: attemptsMade,
-    discoveryErrors,
-    matchingThreadIds: (ambiguousMatches.length > 1 ? ambiguousMatches : exactMatches)
-      .map((thread) => thread.id),
+    hostId: createResult.hostId ?? null,
   };
 }

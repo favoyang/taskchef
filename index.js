@@ -15,7 +15,9 @@ export {
   listTasks,
   readTask,
   recordTask,
+  reportTaskResult,
   resolveTask,
+  startTaskFromHook,
   requireSafeId,
   removeProject,
   validateConfig,
@@ -29,6 +31,7 @@ export {
 
 export {
   EXECUTOR_OWNERSHIP_PARAGRAPH,
+  EXECUTOR_RESULT_PARAGRAPH,
   THREAD_RESOLUTION_CHECKPOINTS_MS,
   THREAD_RESOLUTION_CLOCK_SKEW_MS,
   THREAD_RESOLUTION_RECENT_LIMIT,
@@ -36,8 +39,8 @@ export {
   createAndRecordDelegation,
   filterThreadCandidates,
   hasExactTaskChefMarker,
-  listThreadEntries,
   isProvisionalThreadId,
+  listThreadEntries,
   normalizeDurableThreadId,
   parseTaskChefMarker,
   prepareDelegation,
@@ -57,3 +60,5 @@ export {
 } from "./src/codex-app.js";
 
 export { createTaskChefMcpServer } from "./src/mcp.js";
+
+export { handleInitialPromptHook } from "./src/hook.js";

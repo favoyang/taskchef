@@ -4,11 +4,11 @@
 
 TaskChef is an interactive Codex dispatcher. It routes independent assignments
 to real Codex tasks in configured local projects, records each submitted
-delegation in a task history, and returns immediately. New tasks append; only a
-nullable thread ID may later transition to its durable value.
+delegation in a task history, and returns immediately. New tasks append; locked
+atomic updates may later resolve identity and replace the latest semantic result.
 
-Codex tasks remain authoritative for their progress and results. TaskChef does
-not maintain a second lifecycle database.
+Codex tasks remain authoritative for current activity. TaskChef stores only the
+latest useful semantic result, not a second lifecycle or event database.
 
 ## Core behavior
 
@@ -19,14 +19,15 @@ not maintain a second lifecycle database.
 2. TaskChef separates only outcomes that can proceed independently.
 3. It selects each target using configured project metadata and validates the
    selected local path.
-4. It creates an independently openable Codex task in that project.
-5. It embeds a generated TaskChef UUID marker in the initial instruction before
-   creation, followed by an executor-ownership sentence and the assignment. It
-   appends one task entry as soon as creation returns, using `threadId: null`
-   while a provisional client ID is briefly resolved.
+4. It embeds a generated TaskChef UUID marker, executor-ownership sentence, and
+   result-callback instruction, then records the task with `threadId: null`.
+5. It creates an independently openable Codex task. A durable returned ID is
+   resolved immediately; otherwise the initial-prompt hook links the root
+   session ID without polling.
 6. It returns without waiting for executor work to complete.
-7. When requested, TaskChef can read task entries, query the relevant Codex
-   tasks once, and present a live report without persisting the fetched state.
+7. Executors report `completed`, `needs_input`, or `failed` through MCP. Reports
+   filter old terminal entries, use one live metadata snapshot, and read only
+   tasks whose cached result may be stale.
 
 A task created by TaskChef owns its delegated initial assignment. It executes
 that assignment in the current task and does not re-dispatch it merely because
@@ -60,7 +61,10 @@ Every command resolves one workspace in this precedence order:
 2. `TASKCHEF_WORKSPACE`
 3. `~/.agents/taskchef`
 
-The current directory is never an implicit workspace. `workspace path` exposes
+`TASKCHEF_WORKSPACE` must be absolute or start with `~/`; this prevents the
+hook, MCP server, and CLI from resolving one relative override against
+different process directories. The current directory is never an implicit
+workspace. `workspace path` exposes
 the resolved absolute path and its source. Bootstrap compares this canonical
 path with native Codex projects, and when absent invokes the validated
 `codex app <path>` command before verifying the native list again. It never
@@ -136,14 +140,14 @@ legacy `null` to `[]`; `workspace init` persists the migration atomically, and
 any later configuration write emits version 2.
 
 The configuration does not store dispatcher identity, execution modes,
-schedules, task status, results, host information, or the workspace path.
+schedules, task state, host information, or the workspace path.
 
 ## Task entry
 
 `tasks.jsonl` contains one compact JSON object per line, in append order:
 
 ```json
-{"schemaVersion":2,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z"}
+{"schemaVersion":3,"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":{"name":"payments-api","path":"/workspace/payments-api","isGitRepository":true,"githubRepos":["https://github.com/example/payments-api","https://github.com/example/payments-sdk"],"description":"Owns payment authorization, capture, refunds, and provider integrations."},"title":"Add payment retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nBefore ending, call the TaskChef report_result MCP tool with completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.\n\nAdd structured logs for failed payment retries and test them.","threadId":"019f9d46-f42c-7482-9707-3c107bf241ee","createdAt":"2026-08-08T10:00:00.000Z","status":"completed","summary":"Added structured retry logs and regression coverage.","turnId":"019f9d47-result-turn","updatedAt":"2026-08-08T10:08:00.000Z","updatedBy":"mcp"}
 ```
 
 - `schemaVersion` identifies the task entry format.
@@ -154,28 +158,38 @@ schedules, task status, results, host information, or the workspace path.
   `<!-- taskchef_id=<full UUID> -->` correlation marker, executor-ownership
   paragraph, and assignment body.
 - `threadId` identifies the created Codex task, or is `null` when creation was
-  accepted but bounded marker resolution did not find one durable task ID.
+  accepted but its initial identity has not yet been linked.
 - `createdAt` is the dispatch time as an ISO 8601 timestamp.
+- `status` is `working`, `needs_input`, `completed`, or `failed`; legacy
+  entries normalize it to `null`.
+- `summary` is a nullable, bounded latest-result summary.
+- `turnId` identifies the initial hook turn or latest reported result turn. An
+  MCP result for a linked executor requires it; null is allowed only for a
+  failed creation before any durable thread exists.
+- `updatedAt` is the server-side update time.
+- `updatedBy` is `dispatcher`, `hook`, or `mcp`.
 
-Every entry has exactly these fields. IDs and non-null thread IDs must be
+Schema-version-3 entries have exactly these fields. IDs and non-null thread IDs must be
 unique; any number of unresolved entries may have `threadId: null`. The file is
 empty or newline terminated, with no blank lines. TaskChef rejects a malformed
 log instead of skipping bad entries. Writers replace the complete validated
 file atomically under a workspace lock, so an interrupted write leaves either
 the old history or the complete new history.
 
-Task creation appends entries. The only permitted mutation is an atomic,
-idempotent `task resolve` transition from `threadId: null` to one unique durable
-thread ID. Resolution requires the stored instruction's exact marker to match
-the task ID. A resolved or mismatched entry cannot be overwritten.
+Task creation appends entries. Identity resolution and result callbacks acquire
+the same cross-process lock, reread and validate the complete log, patch one
+matching entry, and atomically replace the file. Resolution is idempotent and
+one-way from null to one unique durable thread ID. Result callbacks must match
+the recorded task/thread and replace only the latest result snapshot; they do
+not append events.
 
 The project snapshot preserves the route even if the project is renamed,
-moved, or removed later. Entries never contain status, result, transcript,
-hidden reasoning, `hostId`, or update timestamps.
+moved, or removed later. Entries never contain transcripts, hidden reasoning,
+`hostId`, or an event history.
 
-New task entries use schema version 2 and list-valued project snapshots.
-Version 1 entries with string or null repository metadata remain readable and
-normalize to version 2 in API and CLI output. Historical task entries with the
+New task entries use schema version 3. Version 1 and 2 entries remain readable
+and normalize to version 3 in API and CLI output with nullable result fields.
+Historical task entries with the
 old heading-style marker also remain readable. New nullable records, candidate
 matching, and resolution require the exact HTML-comment marker; TaskChef never
 uses an old marker to correlate a thread. Direct records that already have a
@@ -197,49 +211,29 @@ For each assignment, `$taskchef-delegate`:
    the already-loaded native projects
 3. prefixes the instruction with the prepared exact
    `<!-- taskchef_id=<UUID> -->` marker as the first line, followed by a blank
-   line, the executor-ownership sentence, another blank line, and the
+   line, the executor-ownership sentence, result-callback sentence, and
    assignment body
-4. creates a real Codex task at the exact configured path
-5. appends a task entry immediately through the structured `record_task` tool
-   when creation returns a durable thread ID; it never opens a shell, parses
-   stdin, writes a temporary record file, or probes command-sandbox permission
-6. when creation returns only a provisional client ID, immediately appends the
-   marked entry with `threadId: null`; the current supported Codex surface has
-   no provisional-ID resolver, so the skill performs no post-creation tool
-   availability inspection
-7. takes at most two recent-thread
-   snapshots on a nominal 10- and 30-second schedule after the provisional
-   result; a late first checkpoint runs immediately, and the second starts at
-   least 20 seconds after the first actually started. It filters candidates by
-   available host/project/time/worktree metadata, uses title only as an advisory
-   ordering hint, issues all independent candidate reads in exactly one
-   programmatic batch per snapshot, and accepts only one thread whose structured
-   delegated input starts with the exact marker; inability to execute that
-   required batch leaves the nullable record unresolved instead of switching to
-   serial reads
-8. atomically fills the nullable thread ID with `resolve_task` after an exact
-   match
-9. returns after recording or after reporting that bounded resolution was
-   unresolved, without waiting for executor work completion.
+4. appends a `working` task entry with `threadId: null` through `record_task`
+   before executor creation
+5. creates a real Codex task at the exact configured path
+6. calls `resolve_task` when creation returns a durable thread ID; otherwise it
+   returns immediately and the initial `UserPromptSubmit` hook resolves the root
+   session ID against the exact marker
+7. records executor-creation failure as a `failed` semantic result on the
+   already-existing entry
+8. never lists, reads, waits for, or polls threads during delegation.
 
-The exact random marker remains the sole correlation proof. Creation-time
-filtering allows five seconds of clock skew. Candidate reads use exactly one
-programmatic batch per snapshot and inspect only
-structured `codexDelegation.input`, never untrusted title, summary, preview, or
-plain-text marker echoes. Zero exact matches remain unresolved; multiple exact
-matches are ambiguous. Snapshot, candidate-read, or task-resolution errors
-leave the already-recorded nullable entry intact. The workflow is bounded by
-two snapshots rather than an absolute wall-clock cutoff:
-mandatory recording or tool latency can shift both attempts later, but cannot
-erase an attempt or reduce the minimum 20-second interval between their start
-times.
-A `clientThreadId`, `pendingWorktreeId`, or ID in the documented provisional
-`local:` namespace remains diagnostic context and is rejected from every path
-that could persist the canonical `threadId` field.
+Recording first closes the creation/hook race. On the exact marked prompt, the
+hook receives the root session ID and initial turn ID and writes only identity
+plus `working`. On later prompts whose session ID matches a recorded executor,
+the same `UserPromptSubmit` hook reads the task history and supplies the current
+turn ID as callback context without writing. No permission, tool, stop,
+notification, or session hook writes task lifecycle state. A provisional
+`local:` ID is diagnostic only and can never be persisted as `threadId`.
 
 The plugin bundles a local stdio MCP server with focused `prepare_dispatch`,
-`record_task`, and `resolve_task` tools. It accepts no workspace path from the
-model and resolves only `TASKCHEF_WORKSPACE` or the canonical
+`record_task`, `resolve_task`, and `report_result` tools. It accepts no workspace path from the
+model and resolves only an absolute (or `~/`-prefixed) `TASKCHEF_WORKSPACE` or the canonical
 `~/.agents/taskchef` default. The write tools reuse the public workspace APIs,
 so structured calls cannot bypass exact-field validation, locking, atomic
 replacement, unique IDs, or one-way nullable resolution. They are closed-world
@@ -247,7 +241,11 @@ local mutations and never create Codex tasks. Desktop thread tools remain
 available only to the Codex skill; the standalone CLI remains available for
 bootstrap, manual inspection, and recovery.
 
-### End-to-end benchmark results
+### Legacy end-to-end benchmark results
+
+Schema-v1 benchmark fixtures below validate historical bounded-resolver
+artifacts only. New benchmarks must measure record-before-create, initial-hook
+identity, and result callbacks without using the removed snapshot resolver.
 
 An explicitly requested live benchmark writes one ignored, timestamped JSON
 artifact through `scripts/e2e-benchmark.js`. Schema version 1 contains:
@@ -298,17 +296,20 @@ up to seven seconds, while permanent permission failures such as `EPERM` or
 `EACCES` fail immediately so the caller can request the required permission
 without paying the contention retry budget.
 
-A failed executor creation produces no entry. If executor creation succeeds but
-the append fails, the executor remains valid and TaskChef tells the user that
-it was not recorded.
+A failed executor creation normally leaves its pre-created entry with `failed`.
+The exported orchestration helper attaches `taskChefTaskId` and
+`taskChefResultReporting` (`recorded`, `failed`, or `unavailable`) to a thrown
+creation error so callers can recover the entry if failure reporting itself was
+not available. A failed pre-creation record stops before executor creation, so
+there is no untracked executor.
 
 ## Task history and live reports
 
 The CLI reads persisted history without contacting Codex:
 
 - `task show <id-or-8-character-prefix>` returns one entry. By default it emits
-  labeled human-readable lines for title, project name and path, creation time,
-  full task ID, thread ID, and instruction. A null thread ID renders as `-`.
+  labeled human-readable lines for title, project, status, summary, creation and
+  update metadata, task/thread/turn IDs, and instruction. A null ID renders as `-`.
   Carriage returns and newlines in labeled values render as `\\r` and `\\n`.
   The instruction starts on the line after `Instruction:` and retains its stored
   line breaks and indentation. `--json` returns the unchanged complete task
@@ -318,7 +319,7 @@ The CLI reads persisted history without contacting Codex:
   wrong-case prefixes fail without selecting a task.
 - `task list` returns entries newest-first by creation time, optionally filtered
   by historical project name or exact path. `--ascending` returns oldest-first.
-  Human rows include task and thread ID columns, abbreviating UUID-shaped IDs
+  Human rows include status, update time, task ID, and thread ID, abbreviating UUID-shaped IDs
   to their first eight-character section unless `--full-id` is passed. Null
   thread IDs display as `-`. ID formatting does not alter JSON values, and the
   selected order applies to both human rows and the JSON `tasks` array.
@@ -326,20 +327,35 @@ The CLI reads persisted history without contacting Codex:
 - `task resolve <id> --thread-id <thread-id>` atomically fills one nullable
   thread ID after Codex verifies the exact structured marker match.
 
-When the user requests current state or outcomes, `$taskchef-report` makes one
-marker-based discovery pass for nullable entries and uses `task resolve` only
-for a single exact match. It reports unmatched entries as unresolved and
-queries every durable thread ID exactly once, in batches of no more than eight.
-The report does not poll, wait, persist status or results, or create a scheduled
-job.
+When the user requests an overview, `$taskchef-report` includes working,
+needs-input, unresolved, legacy, and terminal tasks updated during the last
+seven days. It omits older terminal entries unless explicitly requested or a
+single recent-thread metadata snapshot shows that they are active or awaiting
+approval. That one snapshot is a broad contradiction check: active or awaiting-
+approval metadata overrides a cached result immediately, without one detailed
+read per task. An inactive state does not prove semantic completion; in a broad
+overview it permits an `updatedBy: mcp` result to stand by default.
+Dispatcher- or hook-written `working` snapshots have no semantic callback and
+trigger a live read when selected; an inactive task without an MCP callback has
+an unknown outcome. An MCP-written `failed` snapshot with null thread/turn IDs
+is a fresh executor-creation failure and requires no live lookup. For a focused
+task, title, or project report, any newer matched metadata timestamp triggers at
+most one targeted read per selected inactive task. This distinguishes normal
+same-turn finalization from a quick newer turn by comparing structured turn IDs
+and native turn state. Missing callbacks, uncertain or contradictory identity
+or metadata, and explicitly fully-live requests also trigger one targeted read.
+Reads are batched in groups of eight. Broad overviews do not fan out reads over
+idle terminal tasks solely because their timestamps are newer. Reporting never
+persists inferred live state and does not poll, wait, or schedule work.
 
 ## Boundaries
 
 TaskChef does not include:
 
-- lifecycle status or result persistence
-- task callbacks, hooks, indefinite polling, daemons, heartbeats, or schedules
-- arbitrary Codex task discovery beyond bounded marker-based creation recovery
+- lifecycle event history or hook-inferred completion
+- lifecycle event types beyond `UserPromptSubmit`
+- indefinite polling, daemons, heartbeats, dispatcher wakeups, or schedules
+- arbitrary Codex task discovery
 - remote hosts or `hostId` storage
 - transcript or hidden-reasoning collection
 - one-active-task-per-project restrictions
@@ -351,15 +367,16 @@ TaskChef does not include:
 1. Bootstrap creates `AGENTS.md`, `taskchef.json`, and `tasks.jsonl`, then
    remains idempotent.
 2. Project metadata routes an unambiguous request to the correct local project.
-3. A successful delegation creates a visible Codex task and appends its thread
-   ID with a project snapshot.
-4. A provisional creation with one exact marker match records its durable
-   thread ID; zero or multiple matches record `threadId: null` for later
-   recovery.
+3. A delegation records `working` before creating a visible Codex task.
+4. A durable creation resolves immediately; a provisional creation is linked
+   by the initial exact-marker hook without polling.
 5. The dispatcher returns without waiting for execution.
 6. Several independent assignments can create several entries, including
    multiple entries for the same project.
 7. Task history commands return deterministic entries and project counts.
-8. A live report queries each relevant task once and writes nothing.
-9. Malformed JSONL, duplicate IDs, duplicate thread IDs, and symlinked managed
+8. MCP callbacks replace the latest needs-input, completed, or failed snapshot.
+9. A report skips old terminal tasks by default, checks live metadata once,
+   overrides active or approval-waiting tasks directly, and reads only anomalous
+   candidates without writing inferred state.
+10. Malformed JSONL, duplicate IDs, duplicate thread IDs, and symlinked managed
    files fail safely.

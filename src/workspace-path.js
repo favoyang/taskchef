@@ -37,8 +37,12 @@ export function resolveWorkspacePath({
     source = "explicit";
     value = explicit;
   }
+  const expanded = expandHome(value, homedir);
+  if (source === "environment" && !path.isAbsolute(expanded)) {
+    throw new Error(`${TASKCHEF_WORKSPACE_ENV} must be an absolute path or start with ~/`);
+  }
   return {
-    workspace: path.resolve(cwd, expandHome(value, homedir)),
+    workspace: path.resolve(cwd, expanded),
     source,
   };
 }

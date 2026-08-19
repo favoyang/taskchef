@@ -1,270 +1,174 @@
-# Delegation design
+# Delegation and result design
 
-This document explains how TaskChef 5.5 delegates a request, records the new
-Codex task, and safely recovers a durable task ID when creation initially
-returns only a provisional ID.
+TaskChef is deliberately smaller than a workflow engine. It records one useful
+snapshot per delegated task, links the executor identity once, accepts semantic
+results from the executor, and performs cheap freshness checks when reporting.
 
-## Mental model
-
-TaskChef is the dispatcher and Codex tasks are the executors. TaskChef chooses
-where work belongs, creates a normal Codex task there, and appends one entry to
-the canonical `~/.agents/taskchef/tasks.jsonl` history. It returns after the
-task is recorded; it does not wait for executor completion.
-
-```mermaid
-flowchart LR
-    U["User request"] --> D["TaskChef dispatcher"]
-    D --> P["Choose configured project"]
-    P --> C["Create Codex executor"]
-    C --> R["Record task atomically"]
-    R --> U2["Return executor link"]
-```
-
-Three focused local tools handle TaskChef-owned data operations:
-
-| Tool | Responsibility | Mutates history? |
-| --- | --- | --- |
-| `prepare_dispatch` | Load routes and generate the UUID, timestamp, and exact marker | No |
-| `record_task` | Append the created task with a durable ID or `null` | Yes, one atomic append |
-| `resolve_task` | Fill a recorded `null` ID after one exact marker match | Yes, one-way and atomic |
-
-The tools never create Codex tasks. Task creation and thread discovery remain
-native Codex operations.
-
-## Before and after structured tools
-
-The following values come from separate real traces. The MCP record calls used
-an existing record and therefore measured duplicate validation, locking, tool
-transport, and permission overhead rather than a new append. The resolve calls
-were idempotent. Treat the operation comparison as strong evidence about
-orchestration overhead, not as a complete post-release delegation benchmark.
-
-| Stage | Earlier CLI path | TaskChef 5.5 MCP path | What changed |
-| --- | ---: | ---: | --- |
-| Prepare routing data and correlation values | Several operations; roughly 0.4–1.0 s in the original trace | `prepare_dispatch`: 79 ms | One call now loads routes and generates UUID, timestamp, and marker internally |
-| Native Codex project list | About 0.6–0.7 s | Still about 0.6–0.7 s | Runs concurrently with preparation |
-| Create Codex task | About 0.3 s | Fundamentally unchanged | Still a native Codex operation |
-| Record permission-aware operation | 7.167 s | 62 ms, then 58 ms | Removed shell, stdin, temporary-file, sandbox-failure, and approval paths |
-| Resolve permission-aware operation | 8.982 s | 11 ms, then 8 ms | Uses a structured atomic call instead of a new shell command |
-| Approval prompts | Required in the failing trace | None in the MCP benchmark | The installed local tool process has the appropriate tool authorization |
-
-Combining measurements from different runs suggests a durable fast path near
-1.0–1.2 seconds, compared with roughly 8–9 seconds for the later CLI benchmark.
-This is an estimate until another full post-release delegation benchmark
-measures every stage in one run.
-
-### Where the time was saved
-
-MCP is not inherently thousands of times faster than invoking a CLI. Both
-paths ultimately call the same TaskChef validation, lock, and atomic-write
-code. The large difference came from work surrounding that code:
-
-| Removed overhead | Evidence from the original trace |
-| --- | --- |
-| Interactive stdin and EOF handling | The first TTY attempt consumed several tool round trips and did not terminate cleanly |
-| Temporary-file/redirection orchestration | A second invocation was needed to pass one exact JSON value non-interactively |
-| Late sandbox failure | The redirected attempt waited about 7.3 seconds before `EPERM` on the canonical workspace lock |
-| Approval and retry | The escalated retry took about 11 seconds including review and then succeeded |
-| Separate UUID/timestamp shell work | Those values are now generated inside `prepare_dispatch` |
-| Repeated process/tool boundaries | Preparation and both writes are focused structured calls with validated schemas |
-
-The actual TaskChef write is small. The MCP benchmark reached duplicate-record
-validation in tens of milliseconds. The improvement comes mainly from avoiding
-a known-to-fail sandboxed command followed by an approved retry, not from
-weakening locking, atomicity, or validation.
-
-## Durable-ID fast path
+## Minimal workflow
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant S as Delegate skill
+    participant D as Delegate skill
     participant M as TaskChef MCP
-    participant C as Codex
-    participant W as Canonical workspace
+    participant C as Codex executor
+    participant H as Initial hook
+    participant W as tasks.jsonl
 
-    U->>S: Delegate request
-    par Independent preparation
-        S->>M: prepare_dispatch()
-        M->>W: Load and validate routes
-        M-->>S: UUID, timestamp, marker, projects
+    U->>D: Delegate work
+    par Prepare routing
+        D->>M: prepare_dispatch
     and
-        S->>C: List native projects once
-        C-->>S: Native projects
+        D->>C: List native projects
     end
-    S->>S: Select one exact configured project
-    S->>C: Create task with marked instruction
-    C-->>S: durable threadId
-    S->>M: record_task(..., threadId)
-    M->>W: Lock, validate, append atomically
-    M-->>S: Recorded task
-    S-->>U: Return created task immediately
+    D->>M: record_task(threadId: null)
+    M->>W: Append working task under lock
+    D->>C: Create task with exact marker
+    alt Durable ID returned
+        D->>M: resolve_task
+    else Provisional ID returned
+        C->>H: Initial UserPromptSubmit
+        H->>W: Resolve root session ID and initial turn
+    end
+    D-->>U: Return immediately
+    C->>M: report_result(needs_input | completed | failed)
+    M->>W: Replace latest semantic snapshot under lock
 ```
 
-### Example
+Recording happens before creation. This closes the only important race: when
+the initial hook runs, the exact TaskChef marker already has an entry to update.
+There is no 10/30-second discovery loop, scheduler, daemon, or dispatcher
+wakeup.
 
-Preparation returns:
+Every executor receives this ownership instruction unchanged:
 
-```json
-{
-  "schemaVersion": 1,
-  "workspace": "/home/example/.agents/taskchef",
-  "taskId": "c0f010ff-84f2-4838-a69d-0ff1f5d721d7",
-  "preparedAt": "2026-08-14T09:30:00.000Z",
-  "marker": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->",
-  "projectCount": 1,
-  "projects": [
-    {
-      "name": "t2",
-      "path": "/projects/t2",
-      "isGitRepository": true,
-      "githubRepos": [],
-      "description": "Small Python fixture project"
-    }
-  ]
-}
-```
+> This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
 
-The exact executor instruction becomes:
+## Who writes what
 
-```text
-<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
+| Writer | Trigger and condition | Fields it owns |
+| --- | --- | --- |
+| Dispatcher via `record_task` | Before executor creation | New entry, `status: working`, null identity/result, server timestamps |
+| Dispatcher via `resolve_task` | Creation immediately returns a durable root ID | `threadId` only |
+| Initial `UserPromptSubmit` hook | Prompt starts with the exact TaskChef marker and the entry exists | `threadId`, initial `turnId`, `status: working`, `updatedAt`, `updatedBy: hook` |
+| Follow-up `UserPromptSubmit` hook | Session ID exactly matches a recorded executor | Nothing; reads the snapshot and injects the current `turnId` for the MCP callback |
+| Executor via `report_result` | Work has a semantic outcome | `status`, bounded `summary`, result `turnId`, `updatedAt`, `updatedBy: mcp` |
+| Reporter | On explicit report request | Nothing; inferred live state is never persisted |
 
-This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
+The hook does not write needs-input, completed, or failed. Its follow-up path is
+read-only and exists only so the executor can report the current turn. A native permission
+request is live Codex state; it is not a TaskChef semantic result. The executor
+uses `needs_input` only when it truly requires a user decision or information.
 
-Return exactly the integers 1 through 10, one per line.
-Do not modify files.
-```
+## Task snapshot
 
-If Codex returns a durable ID such as
-`019ffbd4-5d96-79c0-9364-130d58156b76`, TaskChef sends the same marked
-instruction and durable ID to `record_task`. The tool rejects a mismatched
-marker, duplicate task ID, or duplicate durable thread ID before appending.
+Schema version 3 retains the delegation fields and adds:
 
-## Provisional-ID recovery path
+- `status`: `working`, `needs_input`, `completed`, or `failed`
+- `summary`: null while working, otherwise a concise result capped at 2,000 characters
+- `turnId`: initial or latest reported turn; linked MCP results require it, and
+  only a pre-thread creation failure may report null
+- `updatedAt`: server-side timestamp
+- `updatedBy`: `dispatcher`, `hook`, or `mcp`
 
-Codex can sometimes return a `clientThreadId` or `pendingWorktreeId` before the
-durable task is discoverable. TaskChef never writes that provisional value into
-the canonical `threadId` field.
+Schema versions 1 and 2 remain readable and normalize to nullable result fields.
+There is no result-event file: each callback replaces the latest snapshot on the
+same JSONL line.
+Result instructions forbid secrets, transcripts, and raw command output; the
+server also caps the stored summary at 2,000 characters.
 
-```mermaid
-flowchart TD
-    C["Creation returns provisional ID"] --> N["Record task with threadId: null"]
-    N --> S1["First recent-task snapshot around 10 seconds"]
-    S1 --> B1["Filter candidates and batch-read structured inputs"]
-    B1 --> M1{"Exactly one exact marker match?"}
-    M1 -->|Yes| R["resolve_task: null to durable ID"]
-    M1 -->|No| S2["Second snapshot at least 20 seconds after first start"]
-    S2 --> B2["Filter candidates and batch-read structured inputs"]
-    B2 --> M2{"Exactly one exact marker match?"}
-    M2 -->|Yes| R
-    M2 -->|Zero, multiple, or error| U["Keep null and report unresolved"]
-```
+## Locking and conflicts
 
-The nominal snapshot starts are 10 and 30 seconds after the provisional
-result. They are catch-up checkpoints rather than expiration deadlines. If
-mandatory recording finishes at 14 seconds, the first snapshot starts
-immediately at 14 seconds, and the second cannot start before 34 seconds. Work
-spent filtering and reading candidates counts toward that 20-second interval.
-TaskChef never takes a third snapshot.
+All configuration, identity, and result writes use the existing cross-process
+workspace lock. A writer acquires the lock, rereads and validates the complete
+JSONL file, changes one exact task, and publishes a complete replacement with
+an atomic rename. Concurrent writers therefore cannot create partial JSON,
+duplicate entries, or lose changes to different tasks. Sequential callbacks for
+the same task use last accepted write wins; normal executor turns are already
+sequential.
 
-### Example
+SQLite is postponed because this file-level write volume is tiny and the
+existing lock provides the property users need. SQLite becomes worthwhile only
+if TaskChef later adds high-frequency event history or many continuous writers.
 
-Suppose task creation initially returns only:
+## Result trust
 
-```json
-{
-  "clientThreadId": "local:pending-123"
-}
-```
+The MCP server does not receive an independently authenticated caller task ID
+from the model transport. It validates that the supplied task exists and that
+the supplied durable thread ID exactly matches the recorded thread. The turn ID
+is stored as evidence but remains model-supplied. A trusted plugin install,
+local-only MCP server, bounded summary, and exact task/thread match are the
+current trust boundary.
 
-TaskChef keeps that value for diagnostics only and records the complete task
-with `threadId: null`:
+This is sufficient for a lightweight personal dispatcher, but not a
+multi-tenant authorization boundary. Transport-authenticated caller identity is
+postponed until Codex exposes it.
 
-```json
-{
-  "id": "c0f010ff-84f2-4838-a69d-0ff1f5d721d7",
-  "project": "/projects/t2",
-  "title": "Count from 1 to 10",
-  "instruction": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nReturn exactly the integers 1 through 10, one per line.\nDo not modify files.",
-  "threadId": null
-}
-```
+## Fresh reporting without reading every task
 
-A later candidate read might contain this structured delegated input:
+A stored result is cached evidence, not permanent truth. Overview reports:
 
-```json
-{
-  "userMessage": {
-    "content": [
-      {
-        "codexDelegation": {
-          "input": "<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nReturn exactly the integers 1 through 10, one per line.\nDo not modify files."
-        }
-      }
-    ]
-  },
-  "threadId": "019ffbd4-5d96-79c0-9364-130d58156b76"
-}
-```
+1. Load `tasks.jsonl` once.
+2. Always consider working, needs-input, unresolved, and legacy entries.
+3. Consider completed or failed entries updated in the last seven days.
+4. Take one recent-thread metadata snapshot for all selected tasks. Include an
+   older terminal task in an overview when the snapshot shows it is active or
+   awaiting native approval.
+5. A null-thread/null-turn `failed` snapshot written by MCP is a fresh creation
+   failure and needs no live task lookup because no executor exists.
+6. Treat only `updatedBy: mcp` as a semantic cache. Dispatcher- and hook-written
+   `working` snapshots require a targeted live read; an inactive task with no
+   callback has an unknown outcome.
+7. In a broad overview, use an MCP result directly when identity is certain and
+   the task is inactive; do not fan out detailed reads over idle terminal tasks
+   solely because their timestamps are newer.
+8. Active or awaiting-approval metadata overrides the cached result directly.
+   For a focused task, title, or project report, read each selected inactive
+   task at most once when matched metadata is newer than the callback by any
+   amount. Batch targeted immediate reads, at most eight tasks per call, also
+   for a missing callback, uncertain or contradictory state, or an explicitly
+   fully-live request.
+9. If an anomaly triggers a detailed read, compare its latest structured turn
+   ID and native turn state with stored `turnId`. A newer turn without a
+   callback makes the cache stale. An interrupted or cancelled callback turn
+   cannot prove completion.
 
-If this is the only exact marker match, TaskChef calls:
+An explicit task, title, or project report bypasses the seven-day overview
+filter. Old terminal tasks skipped from an overview are counted so the user
+knows history was intentionally omitted.
 
-```json
-{
-  "tool": "resolve_task",
-  "arguments": {
-    "taskId": "c0f010ff-84f2-4838-a69d-0ff1f5d721d7",
-    "threadId": "019ffbd4-5d96-79c0-9364-130d58156b76"
-  }
-}
-```
+The cheap operation is the single list/metadata snapshot, not one read per
+historical task. It is sufficient to expose active and native-approval state for
+many recent tasks at once. It does not prove completion; semantic outcomes come
+from MCP callbacks. Detailed thread reads are the exceptional fallback.
+Timestamps are a pragmatic anomaly filter; turn IDs and native turn state
+provide the stronger check whenever a targeted response is necessary.
 
-The stored value changes atomically from `null` to that durable ID. If neither
-snapshot finds exactly one match, the stored value remains `null`; TaskChef
-reports `local:pending-123` only as provisional diagnostic context.
+## Permission and follow-up example
 
-For each snapshot TaskChef:
+1. Delegation records one `working` entry with null identity.
+2. The initial hook resolves the root thread and initial turn.
+3. The executor reaches a real product decision and calls `report_result` with
+   `needs_input` plus “Approve deployment to production.”
+4. The user opens that executor and approves. The same hook reads the matching
+   task and injects the new turn ID without changing the stored snapshot. Until
+   the final callback, a report sees newer/active live metadata and labels the
+   cached needs-input result stale.
+5. The executor finishes and calls `report_result` with `completed`, the new
+   turn ID, and a concise outcome. The same JSONL line now contains the completed
+   snapshot.
 
-1. Lists at most 50 recent tasks.
-2. Filters by available host, project, creation time, and worktree metadata.
-3. Uses title only to prioritize reads, never as correlation proof.
-4. Reads every remaining candidate together in one programmatic batch.
-5. Examines only structured `codexDelegation.input`.
-6. Accepts only one input beginning with the exact marker and blank line.
-7. Calls `resolve_task` once to atomically change `null` to the durable ID.
+If step 3 were merely Codex asking for filesystem or command approval, no MCP
+callback would be written. Reporting would show “awaiting native approval” from
+live task state.
 
-Zero matches, multiple matches, read errors, or resolution-write errors leave
-the existing nullable record intact. TaskChef reports that state and never
-guesses.
+## Explicitly postponed
 
-## Correctness and safety invariants
-
-| Invariant | Enforcement |
-| --- | --- |
-| Canonical workspace | The MCP server resolves `TASKCHEF_WORKSPACE` or `~/.agents/taskchef`; the model cannot pass a workspace path |
-| Exact marked instruction | The full UUID marker is generated before creation and must be the first line followed by a blank line |
-| Durable correlation | Only the exact marker inside structured delegated input proves a discovery match |
-| No provisional persistence | A provisional ID is diagnostic only; the record receives `null` |
-| Atomic history | Record and resolve reuse TaskChef's existing locks and atomic file replacement |
-| One-way resolution | Resolution permits only `null` to one unique durable ID and is idempotent for that same ID |
-| Bounded discovery | At most two snapshots, with at least 20 seconds between their actual start times |
-| Immediate handoff | The dispatcher returns after recording or bounded recovery and never waits for executor completion |
-
-## Stable capability assumptions
-
-TaskChef 5.5 does not probe the tool surface after creation. The supported Codex
-surface has no native provisional-ID resolver, so the skill always uses the
-fixed two-snapshot recovery workflow when creation is provisional. A future
-native resolver should be adopted through a versioned TaskChef change and
-tests, rather than adding capability-detection latency and variable behavior to
-every dispatch.
-
-## Validation references
-
-- The normative data and workflow contract is in [`../SPEC.md`](../SPEC.md).
-- The executable skill instructions are in
-  [`../skills/taskchef-delegate/SKILL.md`](../skills/taskchef-delegate/SKILL.md).
-- Structured tool definitions are in [`../src/mcp.js`](../src/mcp.js).
-- Timestamped local benchmark artifacts are written under
-  `reports/e2e-benchmarks/` and intentionally remain outside release packages.
+- append-only result or transition events
+- lifecycle event types beyond `UserPromptSubmit`
+- fork tracking or result merging
+- SQLite
+- polling, reconciliation schedules, daemons, and dispatcher wakeups
+- durable report watermarks
+- transcript or assistant-prose classification
+- transport-authenticated caller thread/turn identity
