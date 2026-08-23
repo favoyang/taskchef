@@ -2,6 +2,7 @@ import { access, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import { openWorkspaceInCodex } from "./codex-app.js";
+import { createDashboardServer } from "./dashboard.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
 
 import {
@@ -409,11 +410,51 @@ async function taskSummary(args) {
   return 0;
 }
 
+function dashboardPort(args) {
+  const value = option(args, "--port", "3210");
+  if (!/^\d+$/.test(value)) throw new Error("--port must be an integer from 0 to 65535");
+  const port = Number(value);
+  if (port > 65_535) throw new Error("--port must be an integer from 0 to 65535");
+  return port;
+}
+
+async function dashboard(args) {
+  validateCommandArgs(args, 1, {
+    values: ["--port", "--workspace"],
+    switches: ["--json"],
+  });
+  const server = await createDashboardServer({
+    workspace: workspaceRoot(args),
+    port: dashboardPort(args),
+  });
+  print({
+    schemaVersion: 1,
+    url: server.url,
+    workspace: server.monitor.workspace,
+  }, args, (value) => [
+    `TaskChef dashboard: ${value.url}`,
+    `Workspace: ${value.workspace}`,
+    "Press Ctrl+C to stop.",
+  ].join("\n"));
+
+  let stop;
+  await new Promise((resolve) => {
+    stop = resolve;
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+  process.off("SIGINT", stop);
+  process.off("SIGTERM", stop);
+  await server.close();
+  return 0;
+}
+
 function usage() {
   process.stdout.write(`TaskChef workspace utility
 
 Usage:
   taskchef help
+  taskchef dashboard [--port <number>] [--json] [--workspace <path>]
   taskchef doctor [--json] [--workspace <path>]
   taskchef workspace path [--json] [--workspace <path>]
   taskchef workspace init [--register-codex] [--codex-cli <path>] [--json] [--workspace <path>]
@@ -435,6 +476,8 @@ Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
 Workspace resolution precedence is --workspace, TASKCHEF_WORKSPACE, then
 ~/.agents/taskchef.
+The dashboard binds to 127.0.0.1 and reads the canonical task log without
+modifying dispatcher-workspace files.
 `);
 }
 
@@ -443,6 +486,7 @@ export async function runCli(args) {
     usage();
     return 0;
   }
+  if (args[0] === "dashboard") return dashboard(args);
   if (args[0] === "doctor") return doctor(args);
   if (args[0] === "workspace" && args[1] === "path") return workspacePath(args);
   if (args[0] === "workspace" && args[1] === "init") return initialize(args);

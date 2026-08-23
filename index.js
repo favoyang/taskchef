@@ -59,6 +59,13 @@ export {
   openWorkspaceInCodex,
 } from "./src/codex-app.js";
 
+export {
+  DashboardMonitor,
+  createDashboardServer,
+  dashboardAuthority,
+  sortTasksByMeaningfulUpdate,
+} from "./src/dashboard.js";
+
 export { createTaskChefMcpServer } from "./src/mcp.js";
 
 export { handleInitialPromptHook } from "./src/hook.js";
