@@ -852,13 +852,8 @@ async function validateDispatchShape(
   return normalized;
 }
 
-async function readDispatchRecordsUnlocked(root) {
+async function parseDispatchRecordsUnlocked(root, content) {
   await readConfig(root, { checkPaths: false });
-  const filePath = path.join(root, DISPATCH_FILE_NAME);
-  if (!(await managedRegularFileExists(filePath))) {
-    throw new Error(`task log does not exist: ${filePath}`);
-  }
-  const content = await readFile(filePath, "utf8");
   if (content.length > 0 && !content.endsWith("\n")) {
     throw new Error(`${DISPATCH_FILE_NAME} must end with a newline`);
   }
@@ -895,6 +890,14 @@ async function readDispatchRecordsUnlocked(root) {
   return records;
 }
 
+async function readDispatchRecordsUnlocked(root) {
+  const filePath = path.join(root, DISPATCH_FILE_NAME);
+  if (!(await managedRegularFileExists(filePath))) {
+    throw new Error(`task log does not exist: ${filePath}`);
+  }
+  return parseDispatchRecordsUnlocked(root, await readFile(filePath, "utf8"));
+}
+
 async function readDispatchesUnlocked(root) {
   return (await readDispatchRecordsUnlocked(root)).map((record) => record.normalized);
 }
@@ -902,6 +905,12 @@ async function readDispatchesUnlocked(root) {
 export async function listTasks(workspaceRoot) {
   const root = await realpath(path.resolve(workspaceRoot));
   return readDispatchesUnlocked(root);
+}
+
+export async function parseTaskLogContent(workspaceRoot, content) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  if (typeof content !== "string") throw new Error("task log content must be a string");
+  return (await parseDispatchRecordsUnlocked(root, content)).map((record) => record.normalized);
 }
 
 export async function recordTask(workspaceRoot, input, { now } = {}) {
@@ -942,7 +951,7 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
   });
 }
 
-export async function resolveTask(workspaceRoot, taskId, threadId) {
+export async function resolveTask(workspaceRoot, taskId, threadId, { now } = {}) {
   const id = requireSafeId(taskId, "taskId");
   const durableThreadId = normalizeDurableThreadId(threadId);
   const root = await realpath(path.resolve(workspaceRoot));
@@ -962,9 +971,19 @@ export async function resolveTask(workspaceRoot, taskId, threadId) {
     if (dispatches.some((item) => item.threadId === durableThreadId)) {
       throw new Error(`threadId is already recorded: ${durableThreadId}`);
     }
-    const resolved = { ...dispatch, threadId: durableThreadId };
+    const currentRecord = records[index];
+    const resolved = currentRecord.raw.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      ? await validateDispatchShape({
+        ...dispatch,
+        threadId: durableThreadId,
+        updatedAt: now ?? new Date().toISOString(),
+        updatedBy: "dispatcher",
+      })
+      : { ...dispatch, threadId: durableThreadId };
     const lines = records.map((record, recordIndex) => recordIndex === index
-      ? JSON.stringify({ ...record.raw, threadId: durableThreadId })
+      ? currentRecord.raw.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+        ? dispatchLineWithState(resolved, {})
+        : JSON.stringify({ ...record.raw, threadId: durableThreadId })
       : record.line);
     await writeDispatchLinesAtomic(root, lines);
     return resolved;

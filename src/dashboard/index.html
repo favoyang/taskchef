@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>TaskChef dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">TaskChef</p>
+        <h1>Task dashboard</h1>
+        <p class="subtitle">Latest delegated work, updated as TaskChef reports change.</p>
+      </div>
+      <div class="connection" role="status" aria-live="polite">
+        <span id="connection-dot" class="connection-dot"></span>
+        <span id="connection-label">Connecting…</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="toolbar" aria-label="Task filters">
+        <label>
+          Project
+          <select id="project-filter">
+            <option value="">All projects</option>
+          </select>
+        </label>
+        <label>
+          Status
+          <select id="status-filter">
+            <option value="">All statuses</option>
+          </select>
+        </label>
+        <p id="task-count" class="task-count" aria-live="polite"></p>
+      </section>
+
+      <div id="dashboard-message" class="dashboard-message" role="status" hidden></div>
+      <section aria-labelledby="tasks-heading">
+        <h2 id="tasks-heading" class="visually-hidden">Tasks</h2>
+        <div id="task-list" class="task-list"></div>
+        <div id="empty-state" class="empty-state" hidden>
+          <h2>No tasks match these filters</h2>
+          <p>Choose a different project or status to see more work.</p>
+        </div>
+      </section>
+    </main>
+
+    <aside id="notifications" class="notifications" aria-label="Task notifications" hidden>
+      <div class="notifications-heading">
+        <strong>Updates</strong>
+        <button id="clear-notifications" class="text-button" type="button">Clear all</button>
+      </div>
+      <div id="toast-list" class="toast-list" aria-live="polite"></div>
+    </aside>
+
+    <dialog id="task-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-header">
+        <div>
+          <p id="dialog-project" class="eyebrow"></p>
+          <h2 id="dialog-title"></h2>
+        </div>
+        <button id="close-dialog" class="icon-button" type="button" aria-label="Close task details">×</button>
+      </div>
+      <div class="dialog-actions">
+        <button id="open-project" class="primary-button" type="button">Open project in Codex</button>
+        <button id="copy-thread-id" class="secondary-button" type="button">Copy thread ID</button>
+      </div>
+      <section>
+        <h3>Result</h3>
+        <p id="dialog-summary" class="preserve-lines"></p>
+      </section>
+      <section>
+        <h3>Original instruction</h3>
+        <pre id="dialog-instruction"></pre>
+      </section>
+      <section>
+        <h3>Metadata</h3>
+        <dl id="dialog-metadata" class="metadata"></dl>
+      </section>
+    </dialog>
+  </body>
+</html>

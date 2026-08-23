@@ -162,6 +162,53 @@ when its metadata is newer than the callback; missing callbacks and other
 anomalies also receive at most one targeted read. Reporting writes nothing and
 never polls.
 
+### Watch the local dashboard
+
+Run a local dashboard when you want the task history to remain visible while
+executors report results:
+
+```sh
+taskchef dashboard
+```
+
+Open the printed capability URL, which starts with `http://127.0.0.1:3210` and
+contains a one-time launch token. Do not share it: the browser exchanges it for
+a local session cookie before loading task data, then removes the token from the
+address bar. Use `--port <number>` to choose another port and `--workspace
+<path>` to override the normal workspace resolution. Press Ctrl+C in the
+terminal to stop the server.
+
+The dashboard:
+
+- orders tasks by their latest semantic or identity update;
+- filters by project and status;
+- shows dismissible notifications when tasks are added or changed;
+- reveals the original instruction, latest semantic result, and task metadata;
+- opens a task's project in Codex on request, while preserving the recorded
+  thread ID for manual task selection.
+
+The server binds only to the numeric IPv4 loopback interface, requires the
+unguessable launch capability before serving instructions or results, validates
+the same task schema as the CLI, retains its last valid snapshot if the log
+becomes invalid, and never writes dispatcher-workspace files. It limits event
+streams and disconnects slow clients instead of buffering snapshots without
+bound. It watches the workspace directory
+so TaskChef's atomic log replacement remains visible, uses a low-frequency file
+metadata check to recover from missed watcher events, and streams snapshots to
+the browser with automatic reconnect. To keep untrusted history from exhausting
+the server or browser, the dashboard rejects logs above 16 MiB, histories above
+2,000 tasks, and unusually large display fields while retaining the last valid
+snapshot. The data CLI remains unaffected by these display limits.
+
+Direct desktop navigation to a recorded thread is not exposed by the supported
+`codex app` CLI, which accepts only a workspace path. A task-level refresh would
+require native Codex metadata tools that are available to the report skill, not
+to a standalone browser page. TaskChef also does not submit replies from the
+dashboard: `codex resume <session> [prompt]` starts an interactive CLI session
+and may execute the prompt immediately, rather than opening a reviewed draft in
+the desktop app. These integrations remain deferred until Codex provides a
+stable task deep link or explicit draft handoff.
+
 ### Manage configured projects
 
 Use `$taskchef-bootstrap` to scan local Codex projects and refresh the managed

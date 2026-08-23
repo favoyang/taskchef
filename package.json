@@ -45,7 +45,7 @@
   "scripts": {
     "benchmark:dispatch": "node scripts/benchmark-dispatch-prepare.js",
     "benchmark:e2e": "node scripts/e2e-benchmark.js",
-    "test": "node --test tests/taskchef.test.js"
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
