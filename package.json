@@ -1,6 +1,6 @@
 {
   "name": "taskchef",
-  "version": "5.9.0",
+  "version": "5.10.0",
   "description": "A non-blocking interactive dispatcher for visible Codex tasks.",
   "license": "MIT",
   "author": "Favo Yang",
