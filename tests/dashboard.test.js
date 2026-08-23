@@ -27,6 +27,7 @@ import {
   MAX_NOTIFICATIONS,
   findCurrentTask,
   nextDateFilterRefreshDelay,
+  notificationTitle,
   reconcileNotifications,
   taskWithinDateFilter,
 } from "../src/dashboard/state.js";
@@ -122,6 +123,13 @@ test("dashboard exposes stable task status filters", () => {
   assert.deepEqual(KNOWN_TASK_STATUSES, [
     "working", "needs input", "completed", "failed", "unresolved",
   ]);
+});
+
+test("dashboard notification titles describe the task's latest state", () => {
+  assert.equal(notificationTitle({ status: "completed" }, "changed"), "Task completed");
+  assert.equal(notificationTitle({ status: "needs_input" }, "changed"), "Task needs input");
+  assert.equal(notificationTitle({ status: null }, "changed"), "Task unresolved");
+  assert.equal(notificationTitle({ status: "working" }, "new"), "New task");
 });
 
 test("notification state stays bounded and resolves older notices to current tasks", () => {
