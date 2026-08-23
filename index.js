@@ -56,6 +56,8 @@ export {
 
 export {
   discoverCodexCli,
+  isCodexThreadDeepLinkId,
+  openThreadInCodex,
   openWorkspaceInCodex,
 } from "./src/codex-app.js";
 

@@ -181,11 +181,12 @@ terminal to stop the server.
 The dashboard:
 
 - orders tasks by their latest semantic or identity update;
-- filters by project and status;
+- filters by project, status, and latest update window (24 hours, 7 days, or
+  all time);
 - shows dismissible notifications when tasks are added or changed;
 - reveals the original instruction, latest semantic result, and task metadata;
-- opens a task's project in Codex on request, while preserving the recorded
-  thread ID for manual task selection.
+- opens the recorded task directly in Codex when it has a supported UUID thread
+  ID, with a project-opening fallback for unresolved or legacy identities.
 
 The server binds only to the numeric IPv4 loopback interface, requires the
 unguessable launch capability before serving instructions or results, validates
@@ -200,14 +201,26 @@ the server or browser, the dashboard rejects logs above 16 MiB, histories above
 2,000 tasks, and unusually large display fields while retaining the last valid
 snapshot. The data CLI remains unaffected by these display limits.
 
-Direct desktop navigation to a recorded thread is not exposed by the supported
-`codex app` CLI, which accepts only a workspace path. A task-level refresh would
-require native Codex metadata tools that are available to the report skill, not
-to a standalone browser page. TaskChef also does not submit replies from the
-dashboard: `codex resume <session> [prompt]` starts an interactive CLI session
-and may execute the prompt immediately, rather than opening a reviewed draft in
-the desktop app. These integrations remain deferred until Codex provides a
-stable task deep link or explicit draft handoff.
+Date windows advance while the page is open, even when the task file is idle.
+They use persisted semantic/identity timestamps and identity changes observed by
+the current server. Legacy schema-v1 identity resolutions did not record an
+update timestamp, so after a dashboard restart those rare historical records
+fall back to their creation time.
+
+The dashboard uses Codex's registered `codex://threads/<thread-id>` desktop
+route for direct navigation. A task-level refresh would require native Codex
+metadata tools that are available to the report skill, not to a standalone
+browser page. TaskChef also does not submit replies from the dashboard: `codex
+resume <session> [prompt]` starts an interactive CLI session and may execute the
+prompt immediately, rather than opening a reviewed draft in the desktop app.
+Refresh and reply integrations remain deferred until Codex exposes supported
+browser-facing contracts for those actions.
+
+TaskChef task records do not contain model token usage, and the supported Codex
+task metadata surface does not expose it to this local server. The dashboard
+therefore does not estimate tokens or inspect private Codex session logs. Token
+usage can be added later if Codex exposes a supported per-task usage field or
+TaskChef executors begin reporting a structured usage value.
 
 ### Manage configured projects
 

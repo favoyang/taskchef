@@ -48,6 +48,7 @@ import {
   readConfig,
   listTasks,
   matchProjectForGithubUrl,
+  openThreadInCodex,
   readTask,
   recordTask,
   reportTaskResult,
@@ -266,11 +267,22 @@ test("CLI uses the per-user default independently of its current directory", asy
 
 test("Codex CLI discovery prefers a desktop-bundled PATH candidate and validates app support", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-codex-cli-"));
+  const genericDirectory = path.join(root, "generic");
   const bundledDirectory = path.join(root, "ChatGPT.app", "Contents", "Resources");
-  await mkdir(bundledDirectory, { recursive: true });
+  await Promise.all([
+    mkdir(genericDirectory),
+    mkdir(bundledDirectory, { recursive: true }),
+  ]);
+  await writeFile(path.join(genericDirectory, "codex"), [
+    "#!/bin/sh",
+    "printf 'Usage: codex app [OPTIONS] [PATH]\\n'",
+    "",
+  ].join("\n"), { mode: 0o700 });
   const bundled = path.join(bundledDirectory, "codex");
   await writeFile(bundled, "#!/bin/sh\nprintf 'Usage: codex app [OPTIONS] [PATH]\\n'\n", { mode: 0o700 });
-  const found = await discoverCodexCli({ env: { PATH: bundledDirectory } });
+  const found = await discoverCodexCli({
+    env: { PATH: [genericDirectory, bundledDirectory].join(path.delimiter) },
+  });
   assert.equal(found.path, bundled);
   assert.equal(found.source, "desktop-path");
 });
@@ -317,6 +329,27 @@ test("Codex CLI discovery never probes lower-precedence PATH entries", async () 
   });
   assert.equal(found.path, path.join(firstDirectory, "codex"));
   await assert.rejects(lstat(lowerProbe), { code: "ENOENT" });
+});
+
+test("Codex thread opening uses the registered desktop deep link", async () => {
+  const invocations = [];
+  const threadId = "019FFB69-57A6-7801-8B7A-8FF4C32A398C";
+  const result = await openThreadInCodex(threadId, {
+    platform: "darwin",
+    run: async (...args) => { invocations.push(args); },
+  });
+  assert.deepEqual(invocations, [[
+    "/usr/bin/open",
+    [`codex://threads/${threadId}`],
+    { timeout: 10_000, killSignal: "SIGKILL" },
+  ]]);
+  assert.equal(result.mechanism, "codex-deep-link");
+  assert.equal(result.threadId, threadId);
+});
+
+test("Codex thread opening rejects missing and legacy opaque thread IDs", async () => {
+  await assert.rejects(openThreadInCodex(""), /not supported/);
+  await assert.rejects(openThreadInCodex("durable-thread"), /not supported/);
 });
 
 test("workspace init can request Codex app opening through an explicit validated CLI", async () => {

@@ -23,13 +23,17 @@ import {
   writeSseEvent,
 } from "../src/dashboard.js";
 import {
+  KNOWN_TASK_STATUSES,
   MAX_NOTIFICATIONS,
   findCurrentTask,
+  nextDateFilterRefreshDelay,
   reconcileNotifications,
+  taskWithinDateFilter,
 } from "../src/dashboard/state.js";
 
 const FIRST_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_ID = "22222222-2222-4222-8222-222222222222";
+const FIRST_THREAD_ID = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-dashboard-"));
@@ -92,6 +96,32 @@ test("dashboard authority omits the normalized HTTP default port", () => {
   assert.equal(dashboardAuthority("127.0.0.1", 80), "127.0.0.1");
   assert.equal(dashboardAuthority("127.0.0.1", 3210), "127.0.0.1:3210");
   assert.equal(dashboardAuthority("::1", 80), "[::1]");
+});
+
+test("dashboard date filters use each task's latest meaningful update", () => {
+  const now = Date.parse("2026-08-24T12:00:00.000Z");
+  const recent = {
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-24T11:00:00.000Z",
+  };
+  const threeDaysOld = {
+    createdAt: "2026-08-21T12:00:00.000Z",
+    updatedAt: null,
+  };
+  assert.equal(taskWithinDateFilter(recent, "24h", now), true);
+  assert.equal(taskWithinDateFilter(threeDaysOld, "24h", now), false);
+  assert.equal(taskWithinDateFilter(threeDaysOld, "7d", now), true);
+  assert.equal(taskWithinDateFilter(threeDaysOld, "all", now), true);
+  assert.equal(taskWithinDateFilter(recent, "unknown", now), false);
+  assert.equal(nextDateFilterRefreshDelay([recent], "24h", now), 23 * 60 * 60 * 1_000 + 1);
+  assert.equal(nextDateFilterRefreshDelay([threeDaysOld], "24h", now), null);
+  assert.equal(nextDateFilterRefreshDelay([recent], "all", now), null);
+});
+
+test("dashboard exposes stable task status filters", () => {
+  assert.deepEqual(KNOWN_TASK_STATUSES, [
+    "working", "needs input", "completed", "failed", "unresolved",
+  ]);
 });
 
 test("notification state stays bounded and resolves older notices to current tasks", () => {
@@ -355,9 +385,13 @@ test("observed legacy resolution advances meaningful ordering", async () => {
   const monitor = new DashboardMonitor(workspace, { pollIntervalMs: 60_000 });
   await monitor.start();
   assert.equal(monitor.snapshot().tasks[0].id, SECOND_ID);
+  const resolutionStartedAt = Date.now();
   await resolveTask(workspace, FIRST_ID, "thread-one");
   await waitFor(() => monitor.snapshot().tasks[0].id === FIRST_ID);
-  assert.equal(monitor.snapshot().tasks[0].updatedAt, null);
+  const resolvedTask = monitor.snapshot().tasks[0];
+  assert.equal(resolvedTask.updatedAt, null);
+  assert.ok(Date.parse(resolvedTask.meaningfulUpdatedAt) >= resolutionStartedAt);
+  assert.equal(taskWithinDateFilter(resolvedTask, "24h"), true);
   monitor.close();
 });
 
@@ -375,16 +409,18 @@ test("dashboard server is local-only, sends secure static content, streams snaps
     project,
     FIRST_ID,
     "<img src=x onerror=alert(1)>",
-    "thread-one",
+    FIRST_THREAD_ID,
   ));
   await rename(staleProject, `${staleProject}-moved`);
   let openedProject = null;
+  let openedThread = null;
   const server = await createDashboardServer({
     workspace,
     maxEventClients: 1,
     port: 0,
     monitorOptions: { pollIntervalMs: 60_000 },
     openProject: async (projectPath) => { openedProject = projectPath; },
+    openThread: async (threadId) => { openedThread = threadId; },
   });
 
   try {
@@ -392,7 +428,7 @@ test("dashboard server is local-only, sends secure static content, streams snaps
       assert.equal((await fetch(`${server.origin}${pathName}`)).status, 401);
     }
     const unauthenticatedAction = await fetch(
-      `${server.origin}/api/tasks/${FIRST_ID}/open-project`,
+      `${server.origin}/api/tasks/${FIRST_ID}/open-codex`,
       { method: "POST" },
     );
     assert.equal(unauthenticatedAction.status, 401);
@@ -416,19 +452,21 @@ test("dashboard server is local-only, sends secure static content, streams snaps
     assert.equal(snapshot.tasks[0].title, "<img src=x onerror=alert(1)>");
     assert.equal(snapshot.tasks[0].id, FIRST_ID);
 
-    const rejected = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-project`, {
+    const rejected = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
       headers: { Cookie: cookie, Origin: "http://example.invalid" },
     });
     assert.equal(rejected.status, 403);
     assert.equal(openedProject, null);
+    assert.equal(openedThread, null);
 
-    const accepted = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-project`, {
+    const accepted = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
       headers: { Cookie: cookie, Origin: server.origin },
     });
     assert.equal(accepted.status, 202);
-    assert.equal(openedProject, snapshot.tasks[0].project.path);
+    assert.equal(openedThread, FIRST_THREAD_ID);
+    assert.equal(openedProject, null);
 
     const eventResponse = await fetch(`${server.origin}/api/events`, {
       headers: { Cookie: cookie },
@@ -465,15 +503,18 @@ test("dashboard server is local-only, sends secure static content, streams snaps
 
     const forged = JSON.parse(validLog.trim());
     forged.project.path = workspace;
+    forged.threadId = "legacy-thread";
     await writeFile(taskLog, `${JSON.stringify(forged)}\n`);
     await server.monitor.refresh({ force: true });
     openedProject = null;
-    const forgedAction = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-project`, {
+    openedThread = null;
+    const forgedAction = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
       headers: { Cookie: cookie, Origin: server.origin },
     });
     assert.equal(forgedAction.status, 409);
     assert.equal(openedProject, null);
+    assert.equal(openedThread, null);
 
     const malformed = await rawHttpRequest({
       host: server.host,
@@ -484,6 +525,31 @@ test("dashboard server is local-only, sends secure static content, streams snaps
     assert.equal((await fetch(`${server.origin}/api/snapshot`, {
       headers: { Cookie: cookie },
     })).status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test("dashboard opens a valid Codex thread after its recorded project moves", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, input(project, FIRST_ID, "Historical task", FIRST_THREAD_ID));
+  await rename(project, `${project}-moved`);
+  let openedThread = null;
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    monitorOptions: { pollIntervalMs: 60_000 },
+    openThread: async (threadId) => { openedThread = threadId; },
+  });
+  try {
+    const launch = await fetch(server.url, { redirect: "manual" });
+    const cookie = launch.headers.get("set-cookie").split(";", 1)[0];
+    const response = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: server.origin },
+    });
+    assert.equal(response.status, 202);
+    assert.equal(openedThread, FIRST_THREAD_ID);
   } finally {
     await server.close();
   }
@@ -535,7 +601,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   const stateScript = await readFile(path.resolve("src/dashboard/state.js"), "utf8");
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /id="clear-notifications"/);
+  assert.match(html, /id="date-filter"/);
   assert.match(script, /textContent = task\.instruction/);
+  assert.doesNotMatch(script, /\bstatusLabel\(/);
   assert.doesNotMatch(script, /innerHTML/);
   assert.match(stateScript, /MAX_NOTIFICATIONS = 50/);
 });
