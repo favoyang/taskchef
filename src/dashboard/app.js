@@ -2,6 +2,7 @@ import {
   findCurrentTask,
   KNOWN_TASK_STATUSES,
   nextDateFilterRefreshDelay,
+  notificationTitle,
   reconcileNotifications,
   taskStatusLabel,
   taskWithinDateFilter,
@@ -78,7 +79,7 @@ function notificationToast(notification) {
   text.type = "button";
   text.className = "toast-content";
   const title = document.createElement("strong");
-  title.textContent = notification.kind === "new" ? "New task" : "Task updated";
+  title.textContent = notificationTitle(task, notification.kind);
   const description = document.createElement("span");
   description.textContent = `${task.title} · ${taskStatusLabel(task)}`;
   text.append(title, description);

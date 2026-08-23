@@ -21,6 +21,10 @@ export function taskStatusLabel(task) {
   return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
 }
 
+export function notificationTitle(task, kind) {
+  return kind === "new" ? "New task" : `Task ${taskStatusLabel(task)}`;
+}
+
 export function taskWithinDateFilter(task, filter, now = Date.now()) {
   const windowMs = DATE_WINDOWS_MS.get(filter);
   if (windowMs === null) return true;
