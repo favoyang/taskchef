@@ -1,4 +1,43 @@
 export const MAX_NOTIFICATIONS = 50;
+export const KNOWN_TASK_STATUSES = [
+  "working",
+  "needs input",
+  "completed",
+  "failed",
+  "unresolved",
+];
+
+const DATE_WINDOWS_MS = new Map([
+  ["24h", 24 * 60 * 60 * 1_000],
+  ["7d", 7 * 24 * 60 * 60 * 1_000],
+  ["all", null],
+]);
+
+function taskMeaningfulTime(task) {
+  return Date.parse(task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt);
+}
+
+export function taskStatusLabel(task) {
+  return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
+}
+
+export function taskWithinDateFilter(task, filter, now = Date.now()) {
+  const windowMs = DATE_WINDOWS_MS.get(filter);
+  if (windowMs === null) return true;
+  if (windowMs === undefined) return false;
+  const meaningfulTime = taskMeaningfulTime(task);
+  return Number.isFinite(meaningfulTime) && meaningfulTime >= now - windowMs;
+}
+
+export function nextDateFilterRefreshDelay(tasks, filter, now = Date.now()) {
+  const windowMs = DATE_WINDOWS_MS.get(filter);
+  if (windowMs === null || windowMs === undefined) return null;
+  const nextCutoff = tasks
+    .map((task) => taskMeaningfulTime(task) + windowMs - now)
+    .filter((delay) => Number.isFinite(delay) && delay >= 0)
+    .reduce((minimum, delay) => Math.min(minimum, delay), Number.POSITIVE_INFINITY);
+  return Number.isFinite(nextCutoff) ? nextCutoff + 1 : null;
+}
 
 export function taskSignature(task) {
   return JSON.stringify([

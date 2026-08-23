@@ -6,7 +6,11 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { openWorkspaceInCodex } from "./codex-app.js";
+import {
+  isCodexThreadDeepLinkId,
+  openThreadInCodex,
+  openWorkspaceInCodex,
+} from "./codex-app.js";
 import {
   canonicalDirectory,
   canonicalGitRoot,
@@ -184,7 +188,12 @@ export class DashboardMonitor extends EventEmitter {
       revision: this.revision,
       generatedAt: new Date().toISOString(),
       healthy: !this.unhealthy,
-      tasks: this.tasks,
+      tasks: this.tasks.map((task) => ({
+        ...task,
+        meaningfulUpdatedAt: new Date(
+          meaningfulUpdateTime(task, this.observedUpdateTimes),
+        ).toISOString(),
+      })),
     };
   }
 
@@ -395,6 +404,7 @@ export async function createDashboardServer({
   port = 3210,
   monitorOptions = {},
   openProject = null,
+  openThread = null,
 } = {}) {
   if (!LOOPBACK_HOSTS.has(host)) {
     throw new Error("dashboard host must be a loopback address");
@@ -501,7 +511,7 @@ export async function createDashboardServer({
       return;
     }
 
-    const taskMatch = url.pathname.match(/^\/api\/tasks\/([a-zA-Z0-9._-]+)\/open-project$/);
+    const taskMatch = url.pathname.match(/^\/api\/tasks\/([a-zA-Z0-9._-]+)\/open-codex$/);
     if (taskMatch && method === "POST") {
       if (request.headers.origin !== allowedOrigin) {
         sendJson(response, 403, { message: "Dashboard session validation failed." });
@@ -513,6 +523,12 @@ export async function createDashboardServer({
         return;
       }
       try {
+        if (isCodexThreadDeepLinkId(task.threadId)) {
+          if (openThread) await openThread(task.threadId);
+          else await openThreadInCodex(task.threadId);
+          sendJson(response, 202, { message: "Opened this task in Codex." });
+          return;
+        }
         const trustedProject = (await readConfig(monitor.workspace, { checkPaths: false })).projects
           .find((project) => project.path === task.project.path);
         if (!trustedProject) {
@@ -533,11 +549,13 @@ export async function createDashboardServer({
         if (openProject) await openProject(canonicalProjectPath);
         else await openWorkspaceInCodex(canonicalProjectPath);
         sendJson(response, 202, {
-          message: "Opened the project in Codex. Select the recorded task there.",
+          message: task.threadId
+            ? "Opened the project in Codex; this legacy thread ID cannot use direct navigation."
+            : "Opened the project in Codex; this task does not yet have a thread ID.",
         });
       } catch {
         sendJson(response, 503, {
-          message: "Codex could not be opened. Run codex app with the project path instead.",
+          message: "Codex could not be opened. Open the project and select the recorded thread instead.",
         });
       }
       return;

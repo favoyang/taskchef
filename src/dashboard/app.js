@@ -1,6 +1,10 @@
 import {
   findCurrentTask,
+  KNOWN_TASK_STATUSES,
+  nextDateFilterRefreshDelay,
   reconcileNotifications,
+  taskStatusLabel,
+  taskWithinDateFilter,
 } from "./state.js";
 
 const state = {
@@ -10,6 +14,7 @@ const state = {
   initialized: false,
   selectedTask: null,
 };
+let dateRefreshTimer = null;
 
 const elements = {
   clearNotifications: document.querySelector("#clear-notifications"),
@@ -18,6 +23,7 @@ const elements = {
   connectionLabel: document.querySelector("#connection-label"),
   copyThreadId: document.querySelector("#copy-thread-id"),
   dashboardMessage: document.querySelector("#dashboard-message"),
+  dateFilter: document.querySelector("#date-filter"),
   dialog: document.querySelector("#task-dialog"),
   dialogInstruction: document.querySelector("#dialog-instruction"),
   dialogMetadata: document.querySelector("#dialog-metadata"),
@@ -26,17 +32,13 @@ const elements = {
   dialogTitle: document.querySelector("#dialog-title"),
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
-  openProject: document.querySelector("#open-project"),
+  openProject: document.querySelector("#open-codex"),
   projectFilter: document.querySelector("#project-filter"),
   statusFilter: document.querySelector("#status-filter"),
   taskCount: document.querySelector("#task-count"),
   taskList: document.querySelector("#task-list"),
   toastList: document.querySelector("#toast-list"),
 };
-
-function statusLabel(task) {
-  return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
-}
 
 function formatTime(value) {
   if (!value) return "—";
@@ -78,7 +80,7 @@ function notificationToast(notification) {
   const title = document.createElement("strong");
   title.textContent = notification.kind === "new" ? "New task" : "Task updated";
   const description = document.createElement("span");
-  description.textContent = `${task.title} · ${statusLabel(task)}`;
+  description.textContent = `${task.title} · ${taskStatusLabel(task)}`;
   text.append(title, description);
   text.addEventListener("click", () => {
     const current = findCurrentTask(state.tasks, notification.taskId);
@@ -121,13 +123,15 @@ function openDialog(task) {
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyThreadId.disabled = !task.threadId;
   elements.dialogMetadata.replaceChildren(
-    ...detailRow("Status", statusLabel(task)),
+    ...detailRow("Status", taskStatusLabel(task)),
     ...detailRow("Task ID", task.id),
     ...detailRow("Thread ID", task.threadId),
     ...detailRow("Turn ID", task.turnId),
     ...detailRow("Project path", task.project.path),
     ...detailRow("Created", formatTime(task.createdAt)),
-    ...detailRow("Updated", formatTime(task.updatedAt ?? task.createdAt)),
+    ...detailRow("Updated", formatTime(
+      task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt,
+    )),
     ...detailRow("Updated by", task.updatedBy),
   );
   if (!elements.dialog.open) elements.dialog.showModal();
@@ -145,7 +149,7 @@ function taskCard(task) {
   title.addEventListener("click", () => openDialog(task));
   const badge = document.createElement("span");
   badge.className = `status status-${task.status ?? "unresolved"}`;
-  badge.textContent = statusLabel(task);
+  badge.textContent = taskStatusLabel(task);
   heading.append(title, badge);
   const project = document.createElement("p");
   project.className = "task-project";
@@ -154,8 +158,8 @@ function taskCard(task) {
   summary.className = "task-summary";
   summary.textContent = task.summary ?? "No semantic result reported yet.";
   const time = document.createElement("time");
-  time.dateTime = task.updatedAt ?? task.createdAt;
-  time.textContent = `Updated ${formatTime(task.updatedAt ?? task.createdAt)}`;
+  time.dateTime = task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt;
+  time.textContent = `Updated ${formatTime(time.dateTime)}`;
   article.append(heading, project, summary, time);
   return article;
 }
@@ -163,12 +167,17 @@ function taskCard(task) {
 function render() {
   const project = elements.projectFilter.value;
   const status = elements.statusFilter.value;
+  const date = elements.dateFilter.value;
   const visible = state.tasks.filter((task) =>
     (!project || task.project.name === project)
-    && (!status || statusLabel(task) === status));
+    && (!status || taskStatusLabel(task) === status)
+    && taskWithinDateFilter(task, date));
   elements.taskList.replaceChildren(...visible.map(taskCard));
   elements.emptyState.hidden = visible.length > 0;
   elements.taskCount.textContent = `${visible.length} of ${state.tasks.length} task${state.tasks.length === 1 ? "" : "s"}`;
+  clearTimeout(dateRefreshTimer);
+  const refreshDelay = nextDateFilterRefreshDelay(visible, date);
+  dateRefreshTimer = refreshDelay === null ? null : setTimeout(render, refreshDelay);
 }
 
 function applySnapshot(snapshot) {
@@ -193,7 +202,7 @@ function applySnapshot(snapshot) {
   );
   replaceOptions(
     elements.statusFilter,
-    [...new Set(state.tasks.map(statusLabel))].sort(),
+    [...new Set([...KNOWN_TASK_STATUSES, ...state.tasks.map(taskStatusLabel)])],
     "All statuses",
   );
   if (state.selectedTask) {
@@ -222,6 +231,7 @@ events.addEventListener("dashboard-error", (event) => {
 
 elements.projectFilter.addEventListener("change", render);
 elements.statusFilter.addEventListener("change", render);
+elements.dateFilter.addEventListener("change", render);
 elements.clearNotifications.addEventListener("click", () => {
   state.notifications = [];
   renderNotifications();
@@ -244,7 +254,7 @@ elements.openProject.addEventListener("click", async () => {
   if (!state.selectedTask) return;
   elements.openProject.disabled = true;
   try {
-    const response = await fetch(`/api/tasks/${encodeURIComponent(state.selectedTask.id)}/open-project`, {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(state.selectedTask.id)}/open-codex`, {
       method: "POST",
     });
     const result = await response.json();
