@@ -90,7 +90,10 @@ time { font-size: 0.78rem; }
 .empty-state { padding: 60px 20px; border: 1px dashed var(--border); border-radius: 10px; text-align: center; color: var(--muted); }
 .empty-state h2 { margin-bottom: 6px; color: var(--text); }
 
-.dashboard-message { margin-bottom: 18px; padding: 11px 14px; border: 1px solid #d8c58e; border-radius: 7px; background: #fff7de; color: #604613; }
+.dashboard-message { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding: 8px 8px 8px 14px; border: 1px solid #d8c58e; border-radius: 7px; background: #fff7de; color: #604613; }
+.dashboard-message[hidden] { display: none; }
+.dashboard-message span { flex: 1; }
+.dashboard-message .icon-button { flex: none; padding: 4px 7px; color: inherit; }
 
 .notifications { position: fixed; right: 20px; bottom: 20px; z-index: 3; width: min(380px, calc(100vw - 40px)); padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
 .notifications-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
