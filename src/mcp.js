@@ -4,6 +4,7 @@ import {
   prepareDispatch,
   linkTask,
   recordTask,
+  reportTaskState,
   reportTaskResult,
 } from "./workspace.js";
 import { parseTaskChefMarker } from "./delegation.js";
@@ -18,7 +19,7 @@ const projectSchema = z.object({
 });
 
 const taskSchema = z.object({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.union([z.literal(4), z.literal(5)]),
   id: z.string(),
   project: projectSchema,
   title: z.string(),
@@ -30,6 +31,12 @@ const taskSchema = z.object({
   turnId: z.string().nullable(),
   updatedAt: z.string(),
   updatedBy: z.enum(["dispatcher", "mcp"]),
+  lastResult: z.object({
+    status: z.enum(["needs_input", "completed", "failed"]),
+    summary: z.string(),
+    turnId: z.string().nullable(),
+    updatedAt: z.string(),
+  }).nullable(),
 });
 
 const preparationSchema = z.object({
@@ -54,13 +61,14 @@ export function createTaskChefMcpServer({
   prepare = prepareDispatch,
   record = recordTask,
   reportResult = reportTaskResult,
+  reportState = reportTaskState,
   link = linkTask,
 } = {}) {
   const server = new McpServer(
     { name: "taskchef", version: "1.0.0" },
     {
       instructions:
-        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. The executor must call link_task before other work and report_result before ending.",
+        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. The executor must call link_task first, report_state working at the start of each execution turn, and report_state with a semantic outcome before ending.",
     },
   );
 
@@ -137,11 +145,37 @@ export function createTaskChefMcpServer({
   );
 
   server.registerTool(
+    "report_state",
+    {
+      title: "Report TaskChef state",
+      description:
+        "Report this self-linked executor turn's lifecycle state. Use working before substantive work in a newly linked or follow-up turn, with summary omitted or null. Before ending the same turn, report needs_input, completed, or failed with a concise semantic summary. Exact retries are idempotent; stale or mismatched turns are rejected.",
+      inputSchema: {
+        taskId: z.string().min(1),
+        threadId: z.string().min(1).nullable(),
+        turnId: z.string().min(1).max(256).nullable(),
+        status: z.enum(["working", "needs_input", "completed", "failed"]),
+        summary: z.string().min(1).max(2_000).nullable().optional(),
+      },
+      outputSchema: { task: taskSchema },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const task = await reportState(workspace, input);
+      return toolResult("task", task, `Recorded ${task.status} state for TaskChef task ${task.id}.`);
+    },
+  );
+
+  server.registerTool(
     "report_result",
     {
-      title: "Report TaskChef result",
+      title: "Report TaskChef result (deprecated)",
       description:
-        "Store the executor's latest semantic outcome for one recorded TaskChef task. A linked executor must supply its matching durable thread ID and current turn ID. Null IDs are accepted only for a failed executor creation before a thread exists. Use needs_input only for a semantic user decision, not a transient native approval prompt. Summaries must omit secrets, transcripts, and raw command output.",
+        "Deprecated compatibility alias for semantic results. New executors must use report_state working at turn start and report_state again with needs_input, completed, or failed before ending. This alias preserves legacy callers by implicitly starting the supplied newer turn before storing its result.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),

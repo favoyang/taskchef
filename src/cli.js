@@ -166,18 +166,22 @@ function singleLineDetail(value) {
 }
 
 function taskDetails(task) {
+  const lastResult = task.lastResult;
   return [
     `Title: ${singleLineDetail(task.title)}`,
     `Project: ${singleLineDetail(task.project.name)}`,
-    `Status: ${singleLineDetail(task.status ?? "unknown")}`,
-    `Summary: ${singleLineDetail(task.summary ?? "-")}`,
+    `Current status: ${singleLineDetail(task.status ?? "unknown")}`,
+    `Current turn ID: ${singleLineDetail(task.turnId ?? "-")}`,
+    `Last result status: ${singleLineDetail(lastResult?.status ?? "-")}`,
+    `Last result summary: ${singleLineDetail(lastResult?.summary ?? "-")}`,
+    `Last result turn ID: ${singleLineDetail(lastResult?.turnId ?? "-")}`,
+    `Last result updated: ${singleLineDetail(lastResult?.updatedAt ?? "-")}`,
     `Project path: ${singleLineDetail(task.project.path)}`,
     `Created: ${singleLineDetail(task.createdAt)}`,
     `Updated: ${singleLineDetail(task.updatedAt ?? "-")}`,
     `Updated by: ${singleLineDetail(task.updatedBy ?? "-")}`,
     `Task ID: ${singleLineDetail(task.id)}`,
     `Thread ID: ${singleLineDetail(task.threadId ?? "-")}`,
-    `Turn ID: ${singleLineDetail(task.turnId ?? "-")}`,
     "Instruction:",
     task.instruction,
   ].join("\n");

@@ -131,6 +131,8 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
     boundedText(task.summary, 2_000, `${name} summary`);
     boundedText(task.threadId, 512, `${name} thread ID`);
     boundedText(task.turnId, 512, `${name} turn ID`);
+    boundedText(task.lastResult?.summary, 2_000, `${name} last result summary`);
+    boundedText(task.lastResult?.turnId, 512, `${name} last result turn ID`);
     boundedText(task.project.name, 1_000, `${name} project name`);
     boundedText(task.project.path, 8_192, `${name} project path`);
     boundedText(task.project.description, 4_000, `${name} project description`);

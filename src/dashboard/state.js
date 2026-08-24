@@ -51,6 +51,7 @@ export function taskSignature(task) {
     task.turnId,
     task.updatedAt,
     task.updatedBy,
+    task.lastResult,
   ]);
 }
 

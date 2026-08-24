@@ -7,7 +7,7 @@ work, approvals, and follow-ups happen; TaskChef keeps the latest compact
 snapshot for navigation and reporting.
 
 ```text
-request -> recorded TaskChef task -> Codex executor -> latest semantic result
+request -> recorded TaskChef task -> Codex executor -> current state + last result
 ```
 
 ## Which document should I read?
@@ -48,7 +48,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 configured projects and routing metadata
-tasks.jsonl     one schema-4 snapshot per task
+tasks.jsonl     one schema-4/5 snapshot per task (new writes use schema 5)
 ```
 
 List or change routing targets conversationally:
@@ -92,17 +92,22 @@ outcomes may become separate executors; dependent work should stay together.
 
 ## Work with and report executors
 
-Open an executor as an ordinary Codex task. Each executor reports its latest
-semantic outcome:
+Open an executor as an ordinary Codex task. Each executor reports `working`
+when a turn starts and one semantic outcome before that same turn ends:
 
-- `completed`: the requested outcome is complete.
-- `needs_input`: a real user decision or missing fact blocks progress.
-- `failed`: execution or executor creation failed.
+- `completed`: the requested outcome is complete;
+- `needs_input`: a real user decision or missing fact blocks progress;
+- `failed`: the executor or creation attempt ended unsuccessfully.
 
-A native approval prompt is live Codex state, not `needs_input`. TaskChef
-stores a concise summary, never a transcript or hidden reasoning.
+A native approval prompt is live Codex state, not `needs_input`.
+TaskChef stores the current reported execution state and separately preserves
+the last concise semantic result. A follow-up therefore appears as `working`
+immediately without erasing the previous outcome. TaskChef does not store the
+transcript or a lifecycle event log.
 
-Ask for a current report:
+## View and report tasks
+
+Ask the dispatcher for an on-demand report:
 
 ```text
 Report on the work TaskChef has dispatched.

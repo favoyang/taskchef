@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 export const EXECUTOR_OWNERSHIP_PARAGRAPH = "This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.";
 export const EXECUTOR_LINK_PARAGRAPH = "Before any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.";
-export const EXECUTOR_RESULT_PARAGRAPH = "Before ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
+export const EXECUTOR_WORKING_PARAGRAPH = "After a successful initial link, and at the start of every follow-up turn before substantive work, read this exact Codex thread natively to obtain the current turn ID and call TaskChef report_state with the marked task ID, the self-linked thread ID, that current turn ID, status working, and summary omitted or null. link_task remains the first TaskChef action on the initial turn; do not report working before identity is linked. Never reuse a prior turn ID after a follow-up.";
+export const EXECUTOR_RESULT_PARAGRAPH = "Before ending, read this exact Codex thread again and call TaskChef report_state for the same current working turn with status completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
 
 const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
@@ -96,7 +97,7 @@ export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${taskChefMarker(id)}\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\n${instruction}`,
+    instruction: `${taskChefMarker(id)}\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_WORKING_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\n${instruction}`,
   };
 }
 
