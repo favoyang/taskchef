@@ -33,6 +33,7 @@ export {
   EXECUTOR_LINK_PARAGRAPH,
   EXECUTOR_RESULT_PARAGRAPH,
   EXECUTOR_WORKING_PARAGRAPH,
+  EXECUTOR_SKILL_INVOCATION,
   createAndRecordDelegation,
   isProvisionalThreadId,
   normalizeCodexThreadId,

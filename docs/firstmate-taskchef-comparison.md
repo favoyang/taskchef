@@ -70,7 +70,7 @@ responsibility until an outcome is landed, transferred, or safely preserved.
 | Dimension | TaskChef 7 | FirstMate at `038d0f7` |
 | --- | --- | --- |
 | Primary goal | Put multi-project work into the right visible Codex task and make it findable later. | Let one person direct a supervised crew across projects through one liaison. |
-| Product form | Codex plugin: three skills, local MCP server, data CLI, and loopback dashboard. | Cloneable agent distribution: instructions, internal skills, scripts, policies, and private on-disk state. |
+| Product form | Codex plugin: four skills, local MCP server, data CLI, and loopback dashboard. | Cloneable agent distribution: instructions, internal skills, scripts, policies, and private on-disk state. |
 | Runtime | Native Codex desktop tasks are the executors and live source of truth. | Harness-driven workers in tmux by default, with documented alternative session backends; Codex can be a harness, but Codex desktop is not a runtime backend. |
 | Coordinator lifetime | Dispatcher returns immediately and does not supervise. | First mate remains active and uses watcher/guard mechanisms to supervise meaningful events. |
 | Project isolation | Delegates to the configured Codex project; isolation follows native Codex/project behavior. | Ship and scout workers require separate Treehouse- or backend-managed worktrees. |
@@ -215,7 +215,7 @@ harness adapter.
 | --- | --- | --- |
 | Codex | Built around native Codex projects, tasks, thread reads, and desktop deep links. | Codex is one verified harness; desktop tasks are not its worker runtime. |
 | GitHub | Configured repository URLs aid routing; delivery remains the executor project's concern. | GitHub CLI, PR state, and configured delivery modes are part of supervised shipping workflows. |
-| Skills | Three plugin skills with narrow bootstrap, delegate, and report responsibilities. | Internal firstmate-only skills plus standalone public skills; AGENTS.md routes conditional procedures. |
+| Skills | Four plugin skills with narrow bootstrap, delegate, executor, and report responsibilities. | Internal firstmate-only skills plus standalone public skills; AGENTS.md routes conditional procedures. |
 | MCP | Four primary local TaskChef tools plus one deprecated compatibility alias own deterministic identity and state writes. | FirstMate describes itself as an agent distribution rather than an MCP product; deterministic behavior lives largely in scripts. |
 | Runtime extensions | Extend plugin skills/MCP/CLI/dashboard or compose native Codex capabilities. | Add or verify harness adapters, session backends, dispatch profiles, operational scripts, and optional integrations. |
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "TaskChef Executor"
+  short_description: "Run and report a delegated TaskChef assignment."
+  default_prompt: "Use $taskchef-executor to execute and report this delegated TaskChef assignment."

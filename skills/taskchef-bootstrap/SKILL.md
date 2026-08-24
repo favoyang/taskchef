@@ -38,7 +38,7 @@ all deterministic workspace operations.
    `codex add` or hard-code an application bundle path.
 3. `workspace init` takes no stdin, creates an empty
    configuration when missing, creates the one-entry-per-task JSONL log, and
-   refreshes managed instructions. The installed plugin provides all three
+   refreshes managed instructions. The installed plugin provides all four
    TaskChef skills outside the dispatcher workspace.
 4. Run `doctor --json` after setup or when the user asks to diagnose the
    workspace. Doctor is read-only. Rerun `workspace init --json` to repair the

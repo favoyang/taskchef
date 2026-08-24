@@ -33,6 +33,7 @@
     "src",
     "skills/taskchef-bootstrap",
     "skills/taskchef-delegate",
+    "skills/taskchef-executor",
     "skills/taskchef-report"
   ],
   "engines": {

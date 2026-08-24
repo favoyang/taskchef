@@ -18,7 +18,7 @@ is dated research, not contract.
 | **Delegated task** | One independently useful outcome represented by one TaskChef task UUID and snapshot. |
 | **Executor** | The native Codex task created to own and perform one delegated task. |
 | **Task record** | One complete JSON object in `tasks.jsonl`; it contains immutable intent/project fields and mutable identity/result fields. |
-| **Marker** | The exact first instruction line `<!-- taskchef_id=<lowercase full UUID> -->`, followed by a blank line. |
+| **Marker** | The exact first instruction line `<!-- taskchef_id=<lowercase full UUID> -->`; new instructions begin the assignment on the next line. |
 | **Record-before-create** | Persisting a link-pending task before asking Codex to create its executor. |
 | **Self-linking** | The executor's one-way registration of its own canonical Codex UUIDv7 from `CODEX_THREAD_ID`. |
 | **Link-pending** | A working task whose `threadId` is null and `updatedBy` is `dispatcher`. |
@@ -26,7 +26,7 @@ is dated research, not contract.
 | **Last semantic result** | The most recent `completed`, `needs_input`, or `failed` outcome, preserved separately while a newer turn is working. |
 | **Current turn ID** | The canonical Codex UUIDv7 returned by an exact native read of the linked executor for the turn being reported. |
 | **Dashboard** | The loopback, read-only UI derived from validated workspace snapshots and bounded native actions. |
-| **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, or `taskchef-report`. |
+| **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-report`. |
 
 ## Components and ownership
 
@@ -34,6 +34,9 @@ is dated research, not contract.
   diagnostics. It MUST NOT dispatch or report unless separately requested.
 - `taskchef-delegate` MUST own routing and record-before-create delegation.
   It MUST return after creation and MUST NOT poll, supervise, or infer identity.
+- `taskchef-executor` MUST own executor assignment ownership, self-linking,
+  exact thread/turn identity, per-turn state reporting, failure behavior,
+  privacy, and idempotency. It MUST NOT dispatch the owned assignment again.
 - `taskchef-report` MUST own on-demand reporting. It MUST NOT poll or persist
   inferred state.
 - The MCP server MUST expose four primary lifecycle tools plus the deprecated
@@ -99,8 +102,10 @@ fields MUST NOT change after recording.
 
 1. The dispatcher MUST call `prepare_dispatch` once per outcome.
 2. It MUST choose exactly one configured project and exact native-project path.
-3. It MUST build the instruction from the returned marker, a blank line, the
-   packaged executor contract paragraphs, and the user's outcome.
+3. It MUST build the instruction with the returned marker as line 1, the user's
+   outcome beginning on line 2, and exactly one concise explicit
+   `$taskchef-executor` invocation at the end after one blank line. It MUST NOT
+   inline the executor protocol into a new instruction.
 4. It MUST call `record_task` with `threadId: null` before native creation.
 5. It MUST create exactly one native Codex executor and return immediately.
 6. The executor MUST read its own `CODEX_THREAD_ID` and call `link_task`
@@ -116,6 +121,11 @@ If native creation fails after recording, the dispatcher MUST call
 `report_state` with `failed`, null thread/turn IDs, and a bounded summary.
 A link failure MUST remain visible and retryable; the executor MUST report it
 visibly and MUST NOT continue substantive work.
+
+Previously recorded instructions with the former blank line and inline
+executor protocol MUST remain marker-readable and executable. Their
+`report_result` calls MUST remain supported by the deprecated alias. New
+instructions MUST use the explicit executor skill contract above.
 
 `needs_input` MUST mean a semantic user decision or missing fact. A native
 approval prompt MUST remain live Codex state and MUST NOT be stored as
@@ -166,7 +176,7 @@ new preparation values, though it writes no state.
 | `id` | Non-empty string; MUST equal the instruction marker. |
 | `project` | Non-empty configured project path. |
 | `title` | Non-empty string. |
-| `instruction` | Non-empty string beginning with the exact marker and blank line. |
+| `instruction` | Non-empty string beginning with the exact marker and at least one following instruction line. |
 | `threadId` | Literal null. |
 
 **Structured output:** `{ task: Task }`.

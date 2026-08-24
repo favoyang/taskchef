@@ -31,7 +31,7 @@ codex plugin add taskchef@favoyang-plugins
 npm install --global taskchef
 ```
 
-The plugin provides three skills and a local MCP server. The npm installation
+The plugin provides four skills and a local MCP server. The npm installation
 puts the `taskchef` CLI on `PATH`. TaskChef installs no hooks, schedules,
 daemons, or background identity search.
 
@@ -86,9 +86,20 @@ $taskchef-delegate In payments, add structured logs for failed retries and test 
 ```
 
 TaskChef prepares a UUID and marker, persists the task before native creation,
-creates the executor, and returns its task link. The executor reads its own
-`CODEX_THREAD_ID` and self-links before substantive work. Independent
-outcomes may become separate executors; dependent work should stay together.
+creates the executor, and returns its task link. New executor instructions keep
+the assignment visible immediately after the marker and end with an explicit
+`$taskchef-executor` invocation. That skill reads the executor's own
+`CODEX_THREAD_ID`, self-links, and reports lifecycle state. Independent outcomes
+may become separate executors; dependent work should stay together.
+
+For example, TaskChef generates this shape:
+
+```text
+<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
+Fix duplicate charges after a retry and add a regression test.
+
+Use $taskchef-executor to execute and report this delegated TaskChef assignment.
+```
 
 ## Work with and report executors
 
@@ -104,6 +115,11 @@ TaskChef stores the current reported execution state and separately preserves
 the last concise semantic result. A follow-up therefore appears as `working`
 immediately without erasing the previous outcome. TaskChef does not store the
 transcript or a lifecycle event log.
+
+Delegated tasks created by earlier TaskChef versions remain compatible: their
+inline executor protocol still parses, self-links, and may use the deprecated
+`report_result` alias. The v7 inline-paragraph named exports remain as deprecated
+historical snapshots, but new delegations use the executor skill and `report_state`.
 
 ## View and report tasks
 

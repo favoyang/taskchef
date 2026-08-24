@@ -31,6 +31,7 @@
     "defaultPrompt": [
       "$taskchef-bootstrap Set up TaskChef in this folder.",
       "$taskchef-delegate Dispatch this request to the right project.",
+      "$taskchef-executor Execute this delegated TaskChef assignment.",
       "$taskchef-report Report on work in the TaskChef task history."
     ],
     "brandColor": "#D97706",
