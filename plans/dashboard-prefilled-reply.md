@@ -19,7 +19,7 @@ the prompt automatically.
       parameters from the registered `codex:` scheme or use hidden APIs.
 - [ ] Treat exact task identity as a prerequisite and reuse the corrected
       parent/child correlation validation from the live-state refresh plan.
-- [ ] If a supported prefill contract exists, define a capability-protected
+- [ ] If a supported prefill contract exists, define a same-origin validated
       handoff containing only the selected UUID thread ID and user-authored draft,
       with strict size limits and no automatic submission.
 - [ ] If no supported prefill contract exists, implement the safe fallback: an

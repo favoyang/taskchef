@@ -174,10 +174,9 @@ executors report results:
 taskchef dashboard
 ```
 
-Open the printed capability URL, which starts with `http://127.0.0.1:3210` and
-contains a one-time launch token. Do not share it: the browser exchanges it for
-a local session cookie before loading task data, then removes the token from the
-address bar. Use `--port <number>` to choose another port and `--workspace
+Open the printed local URL, which is `http://127.0.0.1:3210/` by default. The
+same server can be open in the Codex in-app browser and an external browser at
+the same time. Use `--port <number>` to choose another port and `--workspace
 <path>` to override the normal workspace resolution. Press Ctrl+C in the
 terminal to stop the server.
 
@@ -191,10 +190,14 @@ The dashboard:
 - opens the recorded task directly in Codex when it has a supported UUID thread
   ID, with a project-opening fallback for unresolved or legacy identities.
 
-The server binds only to the numeric IPv4 loopback interface, requires the
-unguessable launch capability before serving instructions or results, validates
-the same task schema as the CLI, retains its last valid snapshot if the log
-becomes invalid, and never writes dispatcher-workspace files. It limits event
+The server binds only to the numeric IPv4 loopback interface and rejects
+non-loopback configuration. It intentionally does not authenticate browser
+sessions, so any local process or browser that can reach the port can read the
+dashboard data. Keep the server running only while needed and do not expose it
+through a proxy or tunnel. State-changing actions still require an exact Host
+and same-origin request. The server validates the same task schema as the CLI,
+retains its last valid snapshot if the log becomes invalid, and never writes
+dispatcher-workspace files. It limits event
 streams and disconnects slow clients instead of buffering snapshots without
 bound. It watches the workspace directory
 so TaskChef's atomic log replacement remains visible, uses a low-frequency file

@@ -403,7 +403,7 @@ test("observed legacy resolution advances meaningful ordering", async () => {
   monitor.close();
 });
 
-test("dashboard server is local-only, sends secure static content, streams snapshots, and protects actions", async () => {
+test("dashboard server serves independent clients without sessions and protects local actions", async () => {
   const { workspace, project } = await fixture();
   const staleProject = path.join(path.dirname(workspace), "stale-project");
   await mkdir(staleProject);
@@ -432,37 +432,23 @@ test("dashboard server is local-only, sends secure static content, streams snaps
   });
 
   try {
-    for (const pathName of ["/", "/api/snapshot", "/api/events"]) {
-      assert.equal((await fetch(`${server.origin}${pathName}`)).status, 401);
-    }
-    const unauthenticatedAction = await fetch(
-      `${server.origin}/api/tasks/${FIRST_ID}/open-codex`,
-      { method: "POST" },
-    );
-    assert.equal(unauthenticatedAction.status, 401);
-
-    const launch = await fetch(server.url, { redirect: "manual" });
-    assert.equal(launch.status, 303);
-    assert.equal(launch.headers.get("location"), "/");
-    const cookie = launch.headers.get("set-cookie").split(";", 1)[0];
-    assert.equal((await fetch(server.url, { redirect: "manual" })).status, 401);
-    const page = await fetch(server.origin, { headers: { Cookie: cookie } });
+    assert.equal(new URL(server.url).search, "");
+    const page = await fetch(server.url);
     assert.equal(page.status, 200);
+    assert.equal(page.headers.get("set-cookie"), null);
     assert.match(page.headers.get("content-security-policy"), /default-src 'self'/);
     assert.match(page.headers.get("x-frame-options"), /DENY/);
     const html = await page.text();
     assert.doesNotMatch(html, /onerror=alert/);
 
-    const snapshotResponse = await fetch(`${server.origin}/api/snapshot`, {
-      headers: { Cookie: cookie },
-    });
+    const snapshotResponse = await fetch(`${server.origin}/api/snapshot`);
     const snapshot = await snapshotResponse.json();
     assert.equal(snapshot.tasks[0].title, "<img src=x onerror=alert(1)>");
     assert.equal(snapshot.tasks[0].id, FIRST_ID);
 
     const rejected = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
-      headers: { Cookie: cookie, Origin: "http://example.invalid" },
+      headers: { Origin: "http://example.invalid" },
     });
     assert.equal(rejected.status, 403);
     assert.equal(openedProject, null);
@@ -470,22 +456,18 @@ test("dashboard server is local-only, sends secure static content, streams snaps
 
     const accepted = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
-      headers: { Cookie: cookie, Origin: server.origin },
+      headers: { Origin: server.origin },
     });
     assert.equal(accepted.status, 202);
     assert.equal(openedThread, FIRST_THREAD_ID);
     assert.equal(openedProject, null);
 
-    const eventResponse = await fetch(`${server.origin}/api/events`, {
-      headers: { Cookie: cookie },
-    });
+    const eventResponse = await fetch(`${server.origin}/api/events`);
     const reader = eventResponse.body.getReader();
     const firstEvent = new TextDecoder().decode((await reader.read()).value);
     assert.match(firstEvent, /event: snapshot/);
     assert.match(firstEvent, new RegExp(FIRST_ID));
-    const cappedEvent = await fetch(`${server.origin}/api/events`, {
-      headers: { Cookie: cookie },
-    });
+    const cappedEvent = await fetch(`${server.origin}/api/events`);
     assert.equal(cappedEvent.status, 503);
     await reader.cancel();
     await waitFor(() => server.eventClientCount === 0);
@@ -494,13 +476,9 @@ test("dashboard server is local-only, sends secure static content, streams snaps
     const validLog = await readFile(taskLog, "utf8");
     await writeFile(taskLog, "not-json\n");
     await server.monitor.refresh({ force: true });
-    const unhealthySnapshot = await fetch(`${server.origin}/api/snapshot`, {
-      headers: { Cookie: cookie },
-    });
+    const unhealthySnapshot = await fetch(`${server.origin}/api/snapshot`);
     assert.equal((await unhealthySnapshot.json()).healthy, false);
-    const unhealthyEvents = await fetch(`${server.origin}/api/events`, {
-      headers: { Cookie: cookie },
-    });
+    const unhealthyEvents = await fetch(`${server.origin}/api/events`);
     const unhealthyReader = unhealthyEvents.body.getReader();
     const unhealthyEvent = new TextDecoder().decode((await unhealthyReader.read()).value);
     assert.match(unhealthyEvent, /event: snapshot/);
@@ -518,7 +496,7 @@ test("dashboard server is local-only, sends secure static content, streams snaps
     openedThread = null;
     const forgedAction = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
-      headers: { Cookie: cookie, Origin: server.origin },
+      headers: { Origin: server.origin },
     });
     assert.equal(forgedAction.status, 409);
     assert.equal(openedProject, null);
@@ -530,9 +508,14 @@ test("dashboard server is local-only, sends secure static content, streams snaps
       request: `GET //[ HTTP/1.1\r\nHost: ${new URL(server.origin).host}\r\nConnection: close\r\n\r\n`,
     });
     assert.match(malformed, /^HTTP\/1\.1 400 Bad Request/);
-    assert.equal((await fetch(`${server.origin}/api/snapshot`, {
-      headers: { Cookie: cookie },
-    })).status, 200);
+    assert.equal((await fetch(`${server.origin}/api/snapshot`)).status, 200);
+
+    const invalidHost = await rawHttpRequest({
+      host: server.host,
+      port: server.port,
+      request: "GET /api/snapshot HTTP/1.1\r\nHost: example.invalid\r\nConnection: close\r\n\r\n",
+    });
+    assert.match(invalidHost, /^HTTP\/1\.1 421 Misdirected Request/);
   } finally {
     await server.close();
   }
@@ -550,11 +533,9 @@ test("dashboard opens a valid Codex thread after its recorded project moves", as
     openThread: async (threadId) => { openedThread = threadId; },
   });
   try {
-    const launch = await fetch(server.url, { redirect: "manual" });
-    const cookie = launch.headers.get("set-cookie").split(";", 1)[0];
     const response = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
-      headers: { Cookie: cookie, Origin: server.origin },
+      headers: { Origin: server.origin },
     });
     assert.equal(response.status, 202);
     assert.equal(openedThread, FIRST_THREAD_ID);
@@ -580,26 +561,30 @@ test("dashboard server rejects non-loopback binding and malformed startup logs",
   );
 });
 
-test("multiple dashboard instances keep independent browser sessions", async () => {
+test("in-app and external-style clients use one dashboard concurrently without shared state", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, input(project, FIRST_ID, "Shared task", "thread-one"));
-  const first = await createDashboardServer({ workspace, port: 0 });
-  const second = await createDashboardServer({ workspace, port: 0 });
+  const server = await createDashboardServer({ workspace, port: 0 });
   try {
-    const firstLaunch = await fetch(first.url, { redirect: "manual" });
-    const secondLaunch = await fetch(second.url, { redirect: "manual" });
-    const firstCookie = firstLaunch.headers.get("set-cookie").split(";", 1)[0];
-    const secondCookie = secondLaunch.headers.get("set-cookie").split(";", 1)[0];
-    assert.notEqual(firstCookie.split("=", 1)[0], secondCookie.split("=", 1)[0]);
-    const browserCookies = `${firstCookie}; ${secondCookie}`;
-    assert.equal((await fetch(`${first.origin}/api/snapshot`, {
-      headers: { Cookie: browserCookies },
-    })).status, 200);
-    assert.equal((await fetch(`${second.origin}/api/snapshot`, {
-      headers: { Cookie: browserCookies },
-    })).status, 200);
+    const [inAppPage, externalPage, inAppEvents, externalEvents] = await Promise.all([
+      fetch(server.url, { headers: { "User-Agent": "Codex in-app browser" } }),
+      fetch(server.url, { headers: { "User-Agent": "External browser" } }),
+      fetch(`${server.origin}/api/events`, { headers: { "User-Agent": "Codex in-app browser" } }),
+      fetch(`${server.origin}/api/events`, { headers: { "User-Agent": "External browser" } }),
+    ]);
+    assert.equal(inAppPage.status, 200);
+    assert.equal(externalPage.status, 200);
+    assert.equal(inAppPage.headers.get("set-cookie"), null);
+    assert.equal(externalPage.headers.get("set-cookie"), null);
+    for (const response of [inAppEvents, externalEvents]) {
+      const reader = response.body.getReader();
+      const event = new TextDecoder().decode((await reader.read()).value);
+      assert.match(event, /event: snapshot/);
+      assert.match(event, new RegExp(FIRST_ID));
+      await reader.cancel();
+    }
   } finally {
-    await Promise.all([first.close(), second.close()]);
+    await server.close();
   }
 });
 

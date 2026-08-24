@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { constants, watch } from "node:fs";
 import { open, readFile, realpath, stat } from "node:fs/promises";
@@ -383,14 +382,6 @@ export function createSseClient(response, {
   return client;
 }
 
-function requestSessionCookie(request, cookieName) {
-  return request.headers.cookie
-    ?.split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${cookieName}=`))
-    ?.slice(cookieName.length + 1) ?? null;
-}
-
 function publicMonitorError() {
   return {
     message: "The task log is temporarily unavailable. Showing the last valid snapshot.",
@@ -418,10 +409,6 @@ export async function createDashboardServer({
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   await monitor.start();
   const clients = new Set();
-  const capabilityToken = randomBytes(32).toString("base64url");
-  let launchToken = capabilityToken;
-  const sessionToken = randomBytes(32).toString("base64url");
-  const sessionCookieName = `taskchef_session_${randomBytes(12).toString("hex")}`;
   let allowedAuthority;
   let allowedOrigin;
 
@@ -445,26 +432,6 @@ export async function createDashboardServer({
     }
     if (request.headers.host !== allowedAuthority) {
       sendJson(response, 421, { message: "Misdirected request." });
-      return;
-    }
-    const authenticated = requestSessionCookie(request, sessionCookieName) === sessionToken;
-    if (
-      (method === "GET" || method === "HEAD")
-      && launchToken !== null
-      && url.pathname === "/"
-      && url.searchParams.get("token") === launchToken
-    ) {
-      launchToken = null;
-      response.writeHead(303, {
-        ...securityHeaders("text/plain; charset=utf-8"),
-        Location: "/",
-        "Set-Cookie": `${sessionCookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/`,
-      });
-      response.end("Opening TaskChef dashboard.\n");
-      return;
-    }
-    if (!authenticated) {
-      sendJson(response, 401, { message: "Dashboard launch capability required." });
       return;
     }
     if (method !== "GET" && method !== "HEAD" && method !== "POST") {
@@ -514,7 +481,7 @@ export async function createDashboardServer({
     const taskMatch = url.pathname.match(/^\/api\/tasks\/([a-zA-Z0-9._-]+)\/open-codex$/);
     if (taskMatch && method === "POST") {
       if (request.headers.origin !== allowedOrigin) {
-        sendJson(response, 403, { message: "Dashboard session validation failed." });
+        sendJson(response, 403, { message: "Dashboard origin validation failed." });
         return;
       }
       const task = monitor.tasks.find((candidate) => candidate.id === taskMatch[1]);
@@ -600,7 +567,7 @@ export async function createDashboardServer({
     host,
     port: boundPort,
     origin: allowedOrigin,
-    url: `${allowedOrigin}/?token=${encodeURIComponent(capabilityToken)}`,
+    url: `${allowedOrigin}/`,
     monitor,
     get eventClientCount() { return clients.size; },
     async close() {
