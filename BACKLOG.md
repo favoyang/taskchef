@@ -40,18 +40,9 @@ clear data model before implementation.
 - Consider multiple executor threads for one logical assignment if a real
   workflow requires it.
 
-## Codex provisional thread lifecycle
+## Transport-authenticated executor identity
 
-- Track [openai/codex#26861](https://github.com/openai/codex/issues/26861),
-  where worktree creation can return only a provisional `clientThreadId` or
-  `pendingWorktreeId` with no supported mapping to the durable `threadId`.
-- Prefer an official bounded operation such as
-  `wait_for_thread(clientThreadId, timeoutMs) -> { status, threadId? }` or
-  `resolve_client_thread(clientThreadId) -> { status, threadId? }`. Returning a
-  reserved durable ID from `create_thread`, or emitting a materialization event
-  containing it, would also close the lifecycle gap.
-- Replace bounded exact-marker discovery when Codex exposes one of these APIs.
-  The initial hook intentionally never links from `session_id`, because Codex
-  documents that subagent hooks use the parent session ID. Keep exact
-  correlation verification unless an official contract provides equivalent
-  guarantees.
+- If custom MCP later receives authenticated calling-task metadata, compare it
+  with the executor's `link_task` assertion.
+- Keep the current local cooperative trust model until such metadata exists;
+  do not reintroduce parent/session identity, hooks, task search, or polling.

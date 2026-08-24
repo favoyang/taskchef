@@ -9,6 +9,7 @@ export {
   filterTasks,
   importProjects,
   initializeWorkspace,
+  linkTask,
   listProjects,
   prepareDispatch,
   readConfig,
@@ -17,7 +18,6 @@ export {
   recordTask,
   reportTaskResult,
   resolveTask,
-  startTaskFromHook,
   requireSafeId,
   removeProject,
   validateConfig,
@@ -31,20 +31,14 @@ export {
 
 export {
   EXECUTOR_OWNERSHIP_PARAGRAPH,
+  EXECUTOR_LINK_PARAGRAPH,
   EXECUTOR_RESULT_PARAGRAPH,
-  THREAD_RESOLUTION_CHECKPOINTS_MS,
-  THREAD_RESOLUTION_CLOCK_SKEW_MS,
-  THREAD_RESOLUTION_RECENT_LIMIT,
-  THREAD_RESOLUTION_TIMEOUT_MS,
   createAndRecordDelegation,
-  filterThreadCandidates,
-  hasExactTaskChefMarker,
   isProvisionalThreadId,
-  listThreadEntries,
+  normalizeCodexThreadId,
   normalizeDurableThreadId,
   parseTaskChefMarker,
   prepareDelegation,
-  structuredDelegatedInputs,
   taskChefMarker,
 } from "./src/delegation.js";
 
@@ -69,5 +63,3 @@ export {
 } from "./src/dashboard.js";
 
 export { createTaskChefMcpServer } from "./src/mcp.js";
-
-export { INITIAL_LINK_CHECKPOINTS_MS, handleInitialPromptHook } from "./src/hook.js";

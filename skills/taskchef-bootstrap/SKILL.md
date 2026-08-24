@@ -19,9 +19,8 @@ all deterministic workspace operations.
   workspace.
 - Do not dispatch tasks or report on executor threads during bootstrap unless
   the user separately requests those actions.
-- Never create ad hoc hooks, schedules, polling, or daemons. The installed
-  plugin's initial-identity hook is part of normal TaskChef execution, not
-  bootstrap work.
+- Never create hooks, schedules, polling, or daemons. TaskChef executors
+  self-link through the installed MCP server.
 
 ## Initialize and repair
 

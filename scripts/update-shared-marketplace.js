@@ -26,15 +26,12 @@ const REQUIRED_PLUGIN_FILES = [
   ".codex-plugin/plugin.json",
   ".mcp.json",
   "bin/taskchef.js",
-  "hooks/hooks.json",
-  "hooks/taskchef-initial-prompt.js",
   "mcp/server.js",
   "node_modules/@modelcontextprotocol/sdk/package.json",
   "node_modules/proper-lockfile/package.json",
   "node_modules/zod/package.json",
   "src/cli.js",
   "src/delegation.js",
-  "src/hook.js",
   "src/mcp.js",
   "src/workspace-path.js",
   "src/workspace.js",
@@ -143,20 +140,6 @@ export async function validateExtractedPlugin(pluginRoot, version, execFileImpl 
   }
   const mcpConfig = JSON.parse(await readFile(path.join(pluginRoot, ".mcp.json"), "utf8"));
   assertTaskChefMcpConfig(mcpConfig);
-  const hookConfig = JSON.parse(
-    await readFile(path.join(pluginRoot, "hooks", "hooks.json"), "utf8"),
-  );
-  assertTaskChefHookConfig(hookConfig);
-  const hookEntrypoint = await readFile(
-    path.join(pluginRoot, "hooks", "taskchef-initial-prompt.js"),
-    "utf8",
-  );
-  if (!hookEntrypoint.startsWith("#!/usr/bin/env node\n")) {
-    throw new Error("published TaskChef hook entrypoint has no Node shebang");
-  }
-  if (!hookEntrypoint.includes('from "../src/hook.js"')) {
-    throw new Error("published TaskChef hook entrypoint does not load src/hook.js");
-  }
   for (const skillName of SKILL_NAMES) {
     const skill = await readFile(path.join(pluginRoot, "skills", skillName, "SKILL.md"), "utf8");
     validateSkillFrontmatter(skill, skillName);
@@ -179,19 +162,6 @@ function assertTaskChefMcpConfig(config) {
     throw new Error("published TaskChef MCP server path is invalid");
   }
   if (server.cwd !== ".") throw new Error("published TaskChef MCP cwd is not plugin-relative");
-}
-
-function assertTaskChefHookConfig(config) {
-  const hook = config?.hooks?.UserPromptSubmit?.[0]?.hooks?.[0];
-  if (hook?.type !== "command") {
-    throw new Error("published TaskChef UserPromptSubmit hook is not a command hook");
-  }
-  if (hook.command !== 'node "$PLUGIN_ROOT/hooks/taskchef-initial-prompt.js"') {
-    throw new Error("published TaskChef POSIX hook command is invalid");
-  }
-  if (hook.commandWindows !== 'node "%PLUGIN_ROOT%\\hooks\\taskchef-initial-prompt.js"') {
-    throw new Error("published TaskChef Windows hook command is invalid");
-  }
 }
 
 export async function verifyPublishedPluginArchive(version, execFileImpl = execFile) {

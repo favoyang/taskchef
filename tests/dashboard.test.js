@@ -12,6 +12,7 @@ import {
   createDashboardServer,
   dashboardAuthority,
   initializeWorkspace,
+  linkTask,
   recordTask,
   reportTaskResult,
   resolveTask,
@@ -364,7 +365,7 @@ test("bounded task-log reads stay on one descriptor across atomic replacement", 
   await assert.rejects(readBoundedTaskLog(taskLog, 16), /limit of 16 bytes/);
 });
 
-test("manual thread resolution advances meaningful ordering", async () => {
+test("executor self-linking advances meaningful ordering", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, {
     ...input(project, FIRST_ID, "Older unresolved task", null),
@@ -377,11 +378,11 @@ test("manual thread resolution advances meaningful ordering", async () => {
   await monitor.start();
   assert.equal(monitor.snapshot().tasks[0].id, SECOND_ID);
 
-  const resolved = await resolveTask(workspace, FIRST_ID, "thread-one", {
+  const resolved = await linkTask(workspace, FIRST_ID, FIRST_THREAD_ID, {
     now: "2026-08-23T10:00:00.000Z",
   });
   assert.equal(resolved.updatedAt, "2026-08-23T10:00:00.000Z");
-  assert.equal(resolved.updatedBy, "dispatcher");
+  assert.equal(resolved.updatedBy, "mcp");
   await waitFor(() => monitor.snapshot().tasks[0].id === FIRST_ID);
   monitor.close();
 });

@@ -47,11 +47,12 @@ all deterministic task-log operations.
 4. Treat `updatedBy: mcp`, `status: failed`, and null thread/turn IDs as a fresh
    executor-creation failure. No live read is possible or needed; report the
    stored failure summary, not unresolved. Otherwise, only a snapshot with
-   `updatedBy: mcp` is a cached semantic result. A
-   dispatcher- or hook-written `working` snapshot has no semantic callback and
-   requires one live task query when selected; if the task is inactive and no
-   callback exists, report the outcome as unknown rather than treating
-   `working` as fresh. When identity is certain and metadata says the thread is
+   `updatedBy: mcp`, a result status, a non-null summary, and a non-null turn ID
+   is a cached semantic result. Any `working` snapshot has no semantic
+   callback, including a self-linked `updatedBy: mcp` snapshot, and requires
+   one live task query when selected; if the task is inactive and no callback
+   exists, report the outcome as unknown rather than treating `working` as
+   fresh. When identity is certain and metadata says the thread is
    inactive, trust the latest MCP result by default in a broad overview. Do not
    read every idle terminal task in an overview merely because native
    `updatedAt` is later: callbacks normally run before Codex finalizes the same
@@ -74,9 +75,12 @@ all deterministic task-log operations.
    completed, failed, unresolved, or unknown. Show the cached summary when it
    remains fresh. If a newer turn exists without a callback, describe the live
    state and label the cached result stale rather than overwriting it.
-6. Never edit `tasks.jsonl` directly during reporting. The initial hook normally
-   resolves null identity; manual recovery may call `task resolve` only after
-   one exact structured marker match. Never persist inferred status,
+6. Never edit `tasks.jsonl` directly during reporting. The task API preserves
+   each record's persisted `schemaVersion`: a schema 4 null identity is executor
+   link-pending and must be retried by that executor, while a schema 1-3 null
+   identity is a legacy recovery candidate. Manual recovery may call
+   `task resolve` only for the latter after one exact structured marker match.
+   Never persist inferred status,
    transcripts, prose classifications, or hidden reasoning. Do not poll or wait.
 
 If the task history is empty, say that TaskChef has not recorded any tasks. If

@@ -20,6 +20,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
 import {
+  normalizeCodexThreadId,
   normalizeDurableThreadId,
   parseTaskChefMarker,
   taskChefMarker,
@@ -47,7 +48,8 @@ const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_CONFIG_SCHEMA_VERSION = 2;
-const CURRENT_TASK_SCHEMA_VERSION = 3;
+const CURRENT_TASK_SCHEMA_VERSION = 4;
+const PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 1;
 const PREVIOUS_SCHEMA_VERSION = 2;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
@@ -786,6 +788,7 @@ async function validateDispatchShape(
   const supportedVersions = [
     LEGACY_SCHEMA_VERSION,
     PREVIOUS_SCHEMA_VERSION,
+    PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION,
     CURRENT_TASK_SCHEMA_VERSION,
   ];
   if (!supportedVersions.includes(dispatch?.schemaVersion)) {
@@ -793,7 +796,7 @@ async function validateDispatchShape(
   }
   requireExactFields(
     dispatch,
-    dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
       ? DISPATCH_FIELDS
       : LEGACY_DISPATCH_FIELDS,
     name,
@@ -804,7 +807,7 @@ async function validateDispatchShape(
     allowLegacyGithubRepo: dispatch.schemaVersion === LEGACY_SCHEMA_VERSION,
   });
   const normalized = {
-    schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+    schemaVersion: dispatch.schemaVersion,
     id,
     project,
     title: requireString(dispatch.title, `${name}.title`).trim(),
@@ -813,21 +816,21 @@ async function validateDispatchShape(
       ? null
       : normalizeDurableThreadId(dispatch.threadId, `${name}.threadId`),
     createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
-    status: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    status: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
       ? requireEnum(dispatch.status, TASK_STATUSES, `${name}.status`)
       : null,
-    summary: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    summary: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
       ? optionalString(dispatch.summary, `${name}.summary`, {
         maxLength: MAX_RESULT_SUMMARY_LENGTH,
       })
       : null,
-    turnId: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    turnId: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
       ? optionalString(dispatch.turnId, `${name}.turnId`, { maxLength: 256 })
       : null,
-    updatedAt: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    updatedAt: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
       ? requireTimestamp(dispatch.updatedAt, `${name}.updatedAt`)
       : null,
-    updatedBy: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    updatedBy: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
       ? requireEnum(dispatch.updatedBy, TASK_UPDATE_SOURCES, `${name}.updatedBy`)
       : null,
   };
@@ -881,13 +884,22 @@ async function parseDispatchRecordsUnlocked(root, content) {
   const threadIds = new Set();
   for (const { normalized: dispatch } of records) {
     if (ids.has(dispatch.id)) throw new Error(`duplicate task ID: ${dispatch.id}`);
-    if (dispatch.threadId !== null && threadIds.has(dispatch.threadId)) {
+    const threadKey = dispatch.threadId === null ? null : threadIdentityKey(dispatch.threadId);
+    if (threadKey !== null && threadIds.has(threadKey)) {
       throw new Error(`duplicate task threadId: ${dispatch.threadId}`);
     }
     ids.add(dispatch.id);
-    if (dispatch.threadId !== null) threadIds.add(dispatch.threadId);
+    if (threadKey !== null) threadIds.add(threadKey);
   }
   return records;
+}
+
+function threadIdentityKey(threadId) {
+  try {
+    return `codex:${normalizeCodexThreadId(threadId)}`;
+  } catch {
+    return `opaque:${threadId}`;
+  }
 }
 
 async function readDispatchRecordsUnlocked(root) {
@@ -942,9 +954,18 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
     }
     if (
       dispatch.threadId !== null &&
-      existing.some((item) => item.threadId === dispatch.threadId)
+      existing.some((item) => (
+        item.threadId !== null
+        && threadIdentityKey(item.threadId) === threadIdentityKey(dispatch.threadId)
+      ))
     ) {
       throw new Error(`threadId is already recorded: ${dispatch.threadId}`);
+    }
+    if (
+      dispatch.threadId !== null
+      && parseTaskChefMarker(dispatch.instruction) === dispatch.id
+    ) {
+      throw new Error("a marked self-linking task must be recorded with threadId: null");
     }
     await appendDispatchesAtomic(root, [dispatch]);
     return dispatch;
@@ -960,6 +981,10 @@ export async function resolveTask(workspaceRoot, taskId, threadId, { now } = {})
     const dispatches = records.map((record) => record.normalized);
     const index = dispatches.findIndex((dispatch) => dispatch.id === id);
     if (index === -1) throw new Error(`task not found: ${id}`);
+    const currentRecord = records[index];
+    if (currentRecord.raw.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION) {
+      throw new Error(`task resolve is only available for legacy pre-self-linking records: ${id}`);
+    }
     const dispatch = dispatches[index];
     if (dispatch.threadId === durableThreadId) return dispatch;
     if (dispatch.threadId !== null) {
@@ -968,25 +993,93 @@ export async function resolveTask(workspaceRoot, taskId, threadId, { now } = {})
     if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
       throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
     }
-    if (dispatches.some((item) => item.threadId === durableThreadId)) {
+    if (dispatches.some((item) => (
+      item.threadId !== null
+      && threadIdentityKey(item.threadId) === threadIdentityKey(durableThreadId)
+    ))) {
       throw new Error(`threadId is already recorded: ${durableThreadId}`);
     }
-    const currentRecord = records[index];
-    const resolved = currentRecord.raw.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
-      ? await validateDispatchShape({
-        ...dispatch,
+    const statefulLegacy = currentRecord.raw.schemaVersion === PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION;
+    const rawResolved = statefulLegacy
+      ? {
+        ...currentRecord.raw,
         threadId: durableThreadId,
         updatedAt: now ?? new Date().toISOString(),
         updatedBy: "dispatcher",
-      })
+      }
+      : { ...currentRecord.raw, threadId: durableThreadId };
+    const resolved = statefulLegacy
+      ? await validateDispatchShape(rawResolved)
       : { ...dispatch, threadId: durableThreadId };
     const lines = records.map((record, recordIndex) => recordIndex === index
-      ? currentRecord.raw.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
-        ? dispatchLineWithState(resolved, {})
-        : JSON.stringify({ ...record.raw, threadId: durableThreadId })
+      ? JSON.stringify(rawResolved)
       : record.line);
     await writeDispatchLinesAtomic(root, lines);
     return resolved;
+  });
+}
+
+export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
+  const id = requireSafeId(taskId, "taskId");
+  const durableThreadId = normalizeCodexThreadId(threadId);
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const records = await readDispatchRecordsUnlocked(root);
+    const dispatches = records.map((record) => record.normalized);
+    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
+    if (index === -1) throw new Error(`task not found: ${id}`);
+    const currentRecord = records[index];
+    if (currentRecord.raw.schemaVersion < CURRENT_TASK_SCHEMA_VERSION) {
+      throw new Error(`link_task accepts only self-linking task records: ${id}`);
+    }
+    const dispatch = dispatches[index];
+    const sameIdentity = dispatch.threadId?.toLowerCase() === durableThreadId;
+    if (sameIdentity && dispatch.updatedBy === "mcp") {
+      if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
+        throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
+      }
+      if (dispatch.threadId === durableThreadId) return dispatch;
+      const canonical = await validateDispatchShape({
+        ...dispatch,
+        threadId: durableThreadId,
+        updatedAt: now ?? new Date().toISOString(),
+        updatedBy: "mcp",
+      });
+      const lines = records.map((record, recordIndex) => recordIndex === index
+        ? dispatchLineWithState(canonical, {})
+        : record.line);
+      await writeDispatchLinesAtomic(root, lines);
+      return canonical;
+    }
+    if (dispatch.threadId !== null && dispatch.updatedBy === "mcp") {
+      throw new Error(`task already has a different threadId: ${id}`);
+    }
+    if (
+      dispatch.threadId !== null
+      || dispatch.status !== "working"
+      || dispatch.updatedBy !== "dispatcher"
+    ) {
+      throw new Error(`task is not an eligible link-pending dispatcher record: ${id}`);
+    }
+    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
+      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
+    }
+    if (dispatches.some((item) => (
+      item.id !== id && item.threadId?.toLowerCase() === durableThreadId
+    ))) {
+      throw new Error(`threadId is already recorded: ${durableThreadId}`);
+    }
+    const linked = await validateDispatchShape({
+      ...dispatch,
+      threadId: durableThreadId,
+      updatedAt: now ?? new Date().toISOString(),
+      updatedBy: "mcp",
+    });
+    const lines = records.map((record, recordIndex) => recordIndex === index
+      ? dispatchLineWithState(linked, {})
+      : record.line);
+    await writeDispatchLinesAtomic(root, lines);
+    return linked;
   });
 }
 
@@ -995,59 +1088,6 @@ function dispatchLineWithState(dispatch, patch) {
     ...dispatch,
     schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
     ...patch,
-  });
-}
-
-export async function startTaskFromHook(
-  workspaceRoot,
-  taskId,
-  threadId,
-  turnId,
-  { now } = {},
-) {
-  const id = requireSafeId(taskId, "taskId");
-  const durableThreadId = normalizeDurableThreadId(threadId);
-  const currentTurnId = optionalString(turnId, "turnId", { maxLength: 256 });
-  const root = await realpath(path.resolve(workspaceRoot));
-  return withWorkspaceLock(root, async () => {
-    const records = await readDispatchRecordsUnlocked(root);
-    const dispatches = records.map((record) => record.normalized);
-    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
-    if (index === -1) throw new Error(`task not found: ${id}`);
-    const dispatch = dispatches[index];
-    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
-      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
-    }
-    if (dispatch.threadId !== null && dispatch.threadId !== durableThreadId) {
-      throw new Error(`task already has a different threadId: ${id}`);
-    }
-    if (
-      dispatch.threadId === null
-      && dispatches.some((item) => item.id !== id && item.threadId === durableThreadId)
-    ) {
-      throw new Error(`threadId is already recorded: ${durableThreadId}`);
-    }
-    if (dispatch.threadId === durableThreadId && dispatch.updatedBy === "mcp") {
-      return dispatch;
-    }
-    if (dispatch.threadId === durableThreadId && dispatch.updatedBy === "hook") {
-      return dispatch;
-    }
-    const updatedAt = now ?? new Date().toISOString();
-    const started = await validateDispatchShape({
-      ...dispatch,
-      threadId: durableThreadId,
-      status: "working",
-      summary: null,
-      turnId: currentTurnId,
-      updatedAt,
-      updatedBy: "hook",
-    });
-    const lines = records.map((record, recordIndex) => recordIndex === index
-      ? dispatchLineWithState(started, {})
-      : record.line);
-    await writeDispatchLinesAtomic(root, lines);
-    return started;
   });
 }
 
@@ -1074,28 +1114,55 @@ export async function reportTaskResult(workspaceRoot, input, { now } = {}) {
     const index = dispatches.findIndex((dispatch) => dispatch.id === id);
     if (index === -1) throw new Error(`task not found: ${id}`);
     const dispatch = dispatches[index];
+    const isSelfLinkingJourney = (
+      records[index].raw.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION
+      && dispatch.threadId !== null
+      && parseTaskChefMarker(dispatch.instruction) === dispatch.id
+    );
+    let resultTurnId = turnId;
+    if (isSelfLinkingJourney) {
+      if (dispatch.updatedBy === "dispatcher") {
+        throw new Error(`self-linking task must link before reporting a result: ${id}`);
+      }
+      resultTurnId = normalizeCodexThreadId(turnId, "turnId");
+    }
     if (dispatch.threadId === null) {
-      if (threadId !== null || turnId !== null || status !== "failed") {
+      if (threadId !== null || resultTurnId !== null || status !== "failed") {
         throw new Error(`task without a durable threadId accepts only failed with null thread/turn IDs: ${id}`);
       }
     } else {
-      if (threadId !== dispatch.threadId) {
+      if (threadIdentityKey(threadId) !== threadIdentityKey(dispatch.threadId)) {
         throw new Error(`task result threadId does not match recorded threadId: ${id}`);
       }
-      if (turnId === null) {
+      if (resultTurnId === null) {
         throw new Error(`task result turnId is required for a linked task: ${id}`);
       }
     }
+    if (dispatch.updatedBy === "mcp" && resultTurnId === dispatch.turnId) {
+      if (status === dispatch.status && summary === dispatch.summary) return dispatch;
+      throw new Error(`task turn already has a different semantic result: ${id}`);
+    }
+    if (
+      isSelfLinkingJourney
+      && dispatch.turnId !== null
+      && resultTurnId <= dispatch.turnId
+    ) {
+      throw new Error(`task result turnId must be newer than the stored turnId: ${id}`);
+    }
+    const persistedSchemaVersion = records[index].raw.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION
+      ? CURRENT_TASK_SCHEMA_VERSION
+      : PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION;
     const updated = await validateDispatchShape({
       ...dispatch,
+      schemaVersion: persistedSchemaVersion,
       status,
       summary,
-      turnId,
+      turnId: resultTurnId,
       updatedAt: now ?? new Date().toISOString(),
       updatedBy: "mcp",
     });
     const lines = records.map((record, recordIndex) => recordIndex === index
-      ? dispatchLineWithState(updated, {})
+      ? dispatchLineWithState(updated, { schemaVersion: persistedSchemaVersion })
       : record.line);
     await writeDispatchLinesAtomic(root, lines);
     return updated;

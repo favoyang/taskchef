@@ -2,9 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   prepareDispatch,
+  linkTask,
   recordTask,
   reportTaskResult,
-  resolveTask,
 } from "./workspace.js";
 import { parseTaskChefMarker } from "./delegation.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
@@ -54,13 +54,13 @@ export function createTaskChefMcpServer({
   prepare = prepareDispatch,
   record = recordTask,
   reportResult = reportTaskResult,
-  resolve = resolveTask,
+  link = linkTask,
 } = {}) {
   const server = new McpServer(
     { name: "taskchef", version: "1.0.0" },
     {
       instructions:
-        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively. Use resolve_task for a durable root thread ID. Executors must call report_result before ending with completed, needs_input, or failed.",
+        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. The executor must call link_task before other work and report_result before ending.",
     },
   );
 
@@ -89,13 +89,13 @@ export function createTaskChefMcpServer({
     {
       title: "Record TaskChef task",
       description:
-        "Atomically append one prepared TaskChef task before creating its Codex executor. Pass the exact marked instruction and use null for threadId until a durable root ID is known.",
+        "Atomically append one prepared TaskChef task before creating its Codex executor. Pass the exact marked instruction and null threadId; only the executor may self-link it.",
       inputSchema: {
         id: z.string().min(1),
         project: z.string().min(1),
         title: z.string().min(1),
         instruction: z.string().min(1),
-        threadId: z.string().min(1).nullable(),
+        threadId: z.null(),
       },
       outputSchema: { task: taskSchema },
       annotations: {
@@ -114,11 +114,11 @@ export function createTaskChefMcpServer({
   );
 
   server.registerTool(
-    "resolve_task",
+    "link_task",
     {
-      title: "Resolve TaskChef task",
+      title: "Link TaskChef executor",
       description:
-        "Atomically fill one recorded TaskChef task's nullable thread ID after exactly one structured marker match. The one-way transition cannot overwrite another durable ID.",
+        "Register this executor's asserted durable Codex thread ID. The atomic one-way transition is idempotent and rejects conflicts or thread reuse.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1),
@@ -131,8 +131,8 @@ export function createTaskChefMcpServer({
       },
     },
     async ({ taskId, threadId }) => {
-      const task = await resolve(workspace, taskId, threadId);
-      return toolResult("task", task, `Resolved TaskChef task ${task.id}.`);
+      const task = await link(workspace, taskId, threadId);
+      return toolResult("task", task, `Linked TaskChef task ${task.id}.`);
     },
   );
 

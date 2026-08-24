@@ -115,7 +115,7 @@ does not sit between you and the workers. It does not keep checking them, retry
 failed work, enforce a pull-request process, or merge changes. This is a
 deliberate boundary, not a missing background service: TaskChef specifies that
 native Codex tasks remain authoritative and that dispatch returns immediately
-(`SPEC.md:3-28`).
+([TaskChef specification: Purpose](../SPEC.md#purpose)).
 
 The experience is close to having a receptionist who knows which room each job
 belongs in and keeps a log of where it was sent.
@@ -176,7 +176,7 @@ TaskChef is built for a Codex desktop user with several local projects. You
 install the plugin, run its bootstrap skill, and let it create a small TaskChef
 workspace. You then register the projects it may route to. Each project has a
 name, local path, optional description, and any GitHub repositories associated
-with it (`README.md:32-82`; `SPEC.md:69-127`).
+with it (`README.md:32-82`; [TaskChef specification: Workspace](../SPEC.md#workspace)).
 
 The practical setup work is mostly curating good project descriptions. If two
 projects sound similar, clearer descriptions make conversational routing more
@@ -218,7 +218,7 @@ TaskChef considers the project's name, description, and associated GitHub
 repositories. A pasted GitHub issue or pull-request link is especially strong
 evidence: TaskChef compares the repository identity and routes only if exactly
 one configured project matches. It asks when the match is missing or ambiguous
-(`SPEC.md:108-114`).
+([TaskChef specification: Dispatch workflow](../SPEC.md#dispatch-workflow)).
 
 This routing is one of TaskChef's strongest user-facing features. It avoids
 sending a plausible-sounding job to the wrong checkout merely because two
@@ -232,10 +232,13 @@ TaskChef also records enough information to find it later.
 
 There is a small creation-time edge case: Codex may initially return only a
 temporary identity while a worktree-backed task is materializing. TaskChef
-keeps the request in its history and tries briefly to find the durable task. If
-it cannot identify exactly one match, it labels the record unresolved rather
-than linking you to the wrong task (`SPEC.md:177-212`). From the user's point of
-view, this means “preserved but not yet linkable,” not “lost.”
+records the request before creation, then the executor registers its own
+durable child identity through `link_task` as its first action. Until that
+succeeds, the record remains visibly link-pending and the executor retries on a
+later turn without dispatcher search or identity guessing
+([TaskChef specification: Executor self-linking](../SPEC.md#executor-self-linking)).
+From the user's point of view, this means “preserved and waiting for the child
+to identify itself,” not “lost.”
 
 ### 5. Work directly with the executor
 
@@ -515,17 +518,20 @@ progress of the set.
 #### What happens with TaskChef
 
 Suppose Codex accepts the task but initially returns only a temporary task
-identity. TaskChef saves the delegation as unresolved and briefly searches for
-the one durable Codex task containing its exact request marker.
+identity. TaskChef has already saved the marked delegation. The child reads its
+own durable identity from native task context and calls `link_task`; the
+dispatcher neither searches recent tasks nor repairs identity.
 
-If one match appears, TaskChef repairs the link and shows the task. If none or
-more than one appears, it refuses to guess. A later status request can try once
-more. The user-visible state is:
+If the child's first link is interrupted or rejected, the record remains
+link-pending and that same executor retries before substantive work on a later
+turn. Status reporting does not infer or write an identity
+([TaskChef specification: Executor self-linking](../SPEC.md#executor-self-linking)).
+The user-visible state is:
 
 ```text
 MOCK OUTPUT
-The catalog request was accepted and recorded, but its durable Codex task
-could not be identified safely yet. It remains available for later recovery.
+The catalog request was accepted and recorded, but its executor has not linked
+its durable Codex task yet. It remains link-pending for an executor retry.
 ```
 
 TaskChef's recovery ends at task identity. If the executor later crashes during
@@ -611,7 +617,8 @@ coordinator to summarize decisions accurately.
 
 TaskChef keeps a compact, durable log of submissions. It preserves the exact
 instruction, selected project, creation time, TaskChef identity, and Codex task
-link. Project removal does not erase old entries (`SPEC.md:132-175`).
+link. Project removal does not erase old entries
+([TaskChef specification: Task schema](../SPEC.md#task-schema)).
 
 This is good for finding work and answering “where did that request go?” It is
 not meant to answer every lifecycle question. Final outcomes, approvals, test
