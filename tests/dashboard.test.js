@@ -127,7 +127,7 @@ test("dashboard exposes stable task status filters", () => {
   ]);
 });
 
-test("dashboard task controls isolate clicks and share the supported Codex action", async () => {
+test("dashboard task controls isolate clicks and keep successful direct opens silent", async () => {
   const requests = [];
   const messages = [];
   let stopped = false;
@@ -138,7 +138,7 @@ test("dashboard task controls isolate clicks and share the supported Codex actio
   }, FIRST_ID, {
     fetchAction: async (url, options) => {
       requests.push({ url, options, disabledDuringRequest: control.disabled });
-      return { json: async () => ({ message: "Opened this task in Codex." }) };
+      return { json: async () => ({}) };
     },
     showMessage: (message) => messages.push(message),
   });
@@ -148,8 +148,27 @@ test("dashboard task controls isolate clicks and share the supported Codex actio
     options: { method: "POST" },
     disabledDuringRequest: true,
   }]);
-  assert.deepEqual(messages, ["Opened this task in Codex."]);
+  assert.deepEqual(messages, []);
   assert.equal(control.disabled, false);
+});
+
+test("dashboard task controls preserve open fallback and failure messages", async () => {
+  const messages = [];
+  const control = { disabled: false };
+  const responses = [
+    "Opened the project in Codex; this task does not yet have a thread ID.",
+    "Codex could not be opened. Open the project and select the recorded thread instead.",
+  ];
+  for (const message of responses) {
+    await openTaskFromControl({
+      currentTarget: control,
+      stopPropagation: () => {},
+    }, FIRST_ID, {
+      fetchAction: async () => ({ json: async () => ({ message }) }),
+      showMessage: (value) => messages.push(value),
+    });
+  }
+  assert.deepEqual(messages, responses);
 });
 
 test("dashboard notification titles describe the task's latest state", () => {
@@ -468,6 +487,16 @@ test("dashboard server serves independent clients without sessions and protects 
     const html = await page.text();
     assert.doesNotMatch(html, /onerror=alert/);
 
+    for (const assetName of ["taskchef.svg", "taskchef-dark.svg"]) {
+      const assetResponse = await fetch(`${server.origin}/assets/${assetName}`);
+      assert.equal(assetResponse.status, 200);
+      assert.equal(assetResponse.headers.get("content-type"), "image/svg+xml");
+      assert.equal(
+        await assetResponse.text(),
+        await readFile(path.resolve("assets", assetName), "utf8"),
+      );
+    }
+
     const snapshotResponse = await fetch(`${server.origin}/api/snapshot`);
     const snapshot = await snapshotResponse.json();
     assert.equal(snapshot.tasks[0].title, "<img src=x onerror=alert(1)>");
@@ -486,6 +515,7 @@ test("dashboard server serves independent clients without sessions and protects 
       headers: { Origin: server.origin },
     });
     assert.equal(accepted.status, 202);
+    assert.deepEqual(await accepted.json(), {});
     assert.equal(openedThread, FIRST_THREAD_ID);
     assert.equal(openedProject, null);
 
@@ -650,8 +680,11 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
-  assert.match(html, /<title>TaskChef dashboard<\/title>/);
-  assert.match(html, /<h1>TaskChef dashboard<\/h1>/);
+  assert.match(html, /<title>TaskChef Dashboard<\/title>/);
+  assert.match(html, /<h1>TaskChef Dashboard<\/h1>/);
+  assert.match(html, /<source srcset="\/assets\/taskchef-dark\.svg" media="\(prefers-color-scheme: dark\)">/);
+  assert.match(html, /<img src="\/assets\/taskchef\.svg" alt="" width="48" height="48">/);
+  assert.match(html, /<picture class="dashboard-icon" aria-hidden="true">/);
   assert.doesNotMatch(html, />Task dashboard</);
   assert.match(script, /textContent = task\.instruction/);
   assert.match(script, /openTask\.type = "button"/);

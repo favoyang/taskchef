@@ -10,7 +10,7 @@ export async function openTaskFromControl(event, taskId, {
       method: "POST",
     });
     const result = await response.json();
-    showMessage(result.message);
+    if (result.message) showMessage(result.message);
   } finally {
     control.disabled = false;
   }

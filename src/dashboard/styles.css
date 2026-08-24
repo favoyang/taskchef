@@ -45,6 +45,11 @@ h1 { margin-bottom: 6px; font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1; le
 h2 { line-height: 1.2; }
 h3 { margin-bottom: 8px; font-size: 0.84rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
+.title-row { display: flex; align-items: center; gap: clamp(10px, 2vw, 16px); margin-bottom: 6px; }
+.title-row h1 { margin-bottom: 0; }
+.dashboard-icon { display: block; flex: none; width: clamp(38px, 6vw, 48px); aspect-ratio: 1; }
+.dashboard-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
 .eyebrow { margin-bottom: 10px; color: var(--accent); font-size: 0.78rem; font-weight: 750; letter-spacing: 0.15em; text-transform: uppercase; }
 .subtitle, .task-project, time { color: var(--muted); }
 .subtitle { margin-bottom: 0; }
@@ -120,6 +125,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
 
 @media (max-width: 650px) {
   .site-header { align-items: flex-start; padding-top: 32px; }
+  .title-row { align-items: flex-start; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar label, .toolbar select { width: 100%; }
   .task-count { margin: 0; }
