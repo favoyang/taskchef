@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { EventEmitter } from "node:events";
 import os from "node:os";
@@ -31,6 +31,7 @@ import {
   reconcileNotifications,
   taskWithinDateFilter,
 } from "../src/dashboard/state.js";
+import { openTaskFromControl } from "../src/dashboard/actions.js";
 
 const FIRST_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_ID = "22222222-2222-4222-8222-222222222222";
@@ -123,6 +124,31 @@ test("dashboard exposes stable task status filters", () => {
   assert.deepEqual(KNOWN_TASK_STATUSES, [
     "working", "needs input", "completed", "failed", "unresolved",
   ]);
+});
+
+test("dashboard task controls isolate clicks and share the supported Codex action", async () => {
+  const requests = [];
+  const messages = [];
+  let stopped = false;
+  const control = { disabled: false };
+  await openTaskFromControl({
+    currentTarget: control,
+    stopPropagation: () => { stopped = true; },
+  }, FIRST_ID, {
+    fetchAction: async (url, options) => {
+      requests.push({ url, options, disabledDuringRequest: control.disabled });
+      return { json: async () => ({ message: "Opened this task in Codex." }) };
+    },
+    showMessage: (message) => messages.push(message),
+  });
+  assert.equal(stopped, true);
+  assert.deepEqual(requests, [{
+    url: `/api/tasks/${FIRST_ID}/open-codex`,
+    options: { method: "POST" },
+    disabledDuringRequest: true,
+  }]);
+  assert.deepEqual(messages, ["Opened this task in Codex."]);
+  assert.equal(control.disabled, false);
 });
 
 test("dashboard notification titles describe the task's latest state", () => {
@@ -544,6 +570,33 @@ test("dashboard opens a valid Codex thread after its recorded project moves", as
   }
 });
 
+test("dashboard open action preserves the unresolved task project fallback", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, {
+    ...input(project, FIRST_ID, "Unresolved task", null),
+    instruction: `<!-- taskchef_id=${FIRST_ID} -->\n\nComplete the unresolved task safely.`,
+  });
+  let openedProject = null;
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    monitorOptions: { pollIntervalMs: 60_000 },
+    openProject: async (projectPath) => { openedProject = projectPath; },
+  });
+  try {
+    const response = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
+      method: "POST",
+      headers: { Origin: server.origin },
+    });
+    assert.equal(response.status, 202);
+    assert.equal(await realpath(openedProject), await realpath(project));
+    assert.equal((await response.json()).message,
+      "Opened the project in Codex; this task does not yet have a thread ID.");
+  } finally {
+    await server.close();
+  }
+});
+
 test("dashboard server rejects non-loopback binding and malformed startup logs", async () => {
   const { workspace } = await fixture();
   await assert.rejects(
@@ -591,11 +644,20 @@ test("in-app and external-style clients use one dashboard concurrently without s
 test("dashboard assets remain part of the shipped source tree", async () => {
   const html = await readFile(path.resolve("src/dashboard/index.html"), "utf8");
   const script = await readFile(path.resolve("src/dashboard/app.js"), "utf8");
+  const actionScript = await readFile(path.resolve("src/dashboard/actions.js"), "utf8");
   const stateScript = await readFile(path.resolve("src/dashboard/state.js"), "utf8");
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
+  assert.match(html, /<title>TaskChef dashboard<\/title>/);
+  assert.match(html, /<h1>TaskChef dashboard<\/h1>/);
+  assert.doesNotMatch(html, />Task dashboard</);
   assert.match(script, /textContent = task\.instruction/);
+  assert.match(script, /openTask\.type = "button"/);
+  assert.match(script, /openTask\.textContent = "Open task"/);
+  assert.match(script, /openTask\.setAttribute\("aria-label", `Open \$\{task\.title\} in Codex`\)/);
+  assert.match(script, /openTaskFromControl\(event, task\.id/);
+  assert.match(actionScript, /event\.stopPropagation\(\)/);
   assert.doesNotMatch(script, /\bstatusLabel\(/);
   assert.doesNotMatch(script, /innerHTML/);
   assert.match(stateScript, /MAX_NOTIFICATIONS = 50/);
