@@ -22,6 +22,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import mermaidParser from "mermaid";
 import lockfile from "proper-lockfile";
 import * as taskchef from "../index.js";
 
@@ -1249,6 +1250,58 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     env: { ...process.env, GITHUB_OUTPUT: taggedOutputPath },
   });
   assert.equal(await readFile(taggedOutputPath, "utf8"), "version=2.3.4\n");
+});
+
+test("delegation design documents MCP calls and field transitions as a Markdown sequence", async () => {
+  const design = await readFile(path.resolve("docs/delegation-design.md"), "utf8");
+  const mermaid = design.match(/```mermaid\n(sequenceDiagram[\s\S]*?)```/)?.[1];
+  assert.ok(mermaid, "delegation design should contain a Mermaid sequence diagram");
+  const parsed = await mermaidParser.parse(mermaid);
+  assert.equal(parsed.diagramType, "sequence");
+  const calls = [...new Set(
+    [...mermaid.matchAll(/\b(prepare_dispatch|record_task|link_task|report_result)\(/g)]
+      .map((match) => match[1]),
+  )];
+  assert.deepEqual(calls.sort(), ["link_task", "prepare_dispatch", "record_task", "report_result"]);
+  for (const call of calls) {
+    assert.match(design, new RegExp(`${call}\\(`));
+  }
+  const fields = [
+    "threadId=null",
+    "status=working",
+    "summary=null",
+    "turnId=null",
+    "updatedBy=dispatcher",
+    "updatedBy=mcp",
+  ];
+  for (const field of fields) {
+    assert.match(design, new RegExp(field));
+  }
+  const semanticLabels = mermaid.split("\n").flatMap((line) => {
+    const statement = line.trim();
+    const frame = statement.match(/^(?:alt|else)\s+(.+)$/)?.[1];
+    if (frame) return [frame];
+    if (!statement.startsWith("Note ") && !statement.includes(":")) return [];
+    const separator = statement.indexOf(":");
+    return separator === -1 ? [] : [statement.slice(separator + 1)];
+  }).map((label) => label
+    .replaceAll("#59;", ";")
+    .replace(/<br\s*\/?>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim());
+  assert.ok(semanticLabels.length > 30, "sequence should retain its detailed lifecycle labels");
+  for (const label of [
+    "Native creation succeeds",
+    "Read current task CODEX_THREAD_ID",
+    "Exact native read of this executor thread",
+    "Executor needs user input",
+    "Exact native read after follow-up",
+    "Native creation fails after record_task",
+    "Keep threadId=null and turnId=null Set status=failed, summary, updatedAt, updatedBy=mcp",
+    "If initial link_task stops before commit, an eligible record stays link-pending If the response is lost after commit, an identical retry returns the linked snapshot Inspect state first; never retry an identity conflict or terminal record",
+  ]) {
+    assert.ok(semanticLabels.includes(label), `sequence should retain identity-critical label: ${label}`);
+  }
 });
 
 test("release automation pins the shared marketplace to the exact npm version", async () => {
