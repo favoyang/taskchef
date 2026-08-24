@@ -52,7 +52,10 @@
         <p id="task-count" class="task-count" aria-live="polite"></p>
       </section>
 
-      <div id="dashboard-message" class="dashboard-message" role="status" hidden></div>
+      <div id="dashboard-message" class="dashboard-message" hidden>
+        <span id="dashboard-message-text" role="status" aria-live="polite"></span>
+        <button id="dismiss-dashboard-message" class="icon-button" type="button" aria-label="Dismiss dashboard message">×</button>
+      </div>
       <section aria-labelledby="tasks-heading">
         <h2 id="tasks-heading" class="visually-hidden">Tasks</h2>
         <div id="task-list" class="task-list"></div>

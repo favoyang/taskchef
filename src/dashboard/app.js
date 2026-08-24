@@ -25,6 +25,7 @@ const elements = {
   connectionLabel: document.querySelector("#connection-label"),
   copyThreadId: document.querySelector("#copy-thread-id"),
   dashboardMessage: document.querySelector("#dashboard-message"),
+  dashboardMessageText: document.querySelector("#dashboard-message-text"),
   dateFilter: document.querySelector("#date-filter"),
   dialog: document.querySelector("#task-dialog"),
   dialogInstruction: document.querySelector("#dialog-instruction"),
@@ -32,6 +33,7 @@ const elements = {
   dialogProject: document.querySelector("#dialog-project"),
   dialogSummary: document.querySelector("#dialog-summary"),
   dialogTitle: document.querySelector("#dialog-title"),
+  dismissDashboardMessage: document.querySelector("#dismiss-dashboard-message"),
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
   openProject: document.querySelector("#open-codex"),
@@ -227,7 +229,7 @@ function applySnapshot(snapshot) {
 }
 
 function showMessage(message) {
-  elements.dashboardMessage.textContent = message;
+  elements.dashboardMessageText.textContent = message;
   elements.dashboardMessage.hidden = false;
 }
 
@@ -245,6 +247,9 @@ events.addEventListener("dashboard-error", (event) => {
 elements.projectFilter.addEventListener("change", render);
 elements.statusFilter.addEventListener("change", render);
 elements.dateFilter.addEventListener("change", render);
+elements.dismissDashboardMessage.addEventListener("click", () => {
+  elements.dashboardMessage.hidden = true;
+});
 elements.clearNotifications.addEventListener("click", () => {
   state.notifications = [];
   renderNotifications();

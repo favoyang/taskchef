@@ -680,6 +680,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
+  assert.match(html, /id="dashboard-message-text" role="status" aria-live="polite"/);
+  assert.match(html, /id="dismiss-dashboard-message"[^>]+type="button"[^>]+aria-label="Dismiss dashboard message"/);
   assert.match(html, /<title>TaskChef Dashboard<\/title>/);
   assert.match(html, /<h1>TaskChef Dashboard<\/h1>/);
   assert.match(html, /<source srcset="\/assets\/taskchef-dark\.svg" media="\(prefers-color-scheme: dark\)">/);
@@ -691,6 +693,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /openTask\.textContent = "Open task"/);
   assert.match(script, /openTask\.setAttribute\("aria-label", `Open \$\{task\.title\} in Codex`\)/);
   assert.match(script, /openTaskFromControl\(event, task\.id/);
+  assert.match(script, /elements\.dashboardMessageText\.textContent = message/);
+  assert.match(script, /elements\.dismissDashboardMessage\.addEventListener\("click", \(\) => \{/);
+  assert.match(script, /elements\.dashboardMessage\.hidden = true/);
   assert.match(actionScript, /event\.stopPropagation\(\)/);
   assert.doesNotMatch(script, /\bstatusLabel\(/);
   assert.doesNotMatch(script, /innerHTML/);
