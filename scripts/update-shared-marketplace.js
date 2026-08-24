@@ -25,6 +25,8 @@ const SKILL_NAMES = [
 const REQUIRED_PLUGIN_FILES = [
   ".codex-plugin/plugin.json",
   ".mcp.json",
+  "assets/taskchef-dark.svg",
+  "assets/taskchef.svg",
   "bin/taskchef.js",
   "mcp/server.js",
   "node_modules/@modelcontextprotocol/sdk/package.json",
