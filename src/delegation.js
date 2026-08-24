@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-// Deprecated v5 compatibility exports. TaskChef no longer uses bounded thread
-// discovery, but keeping these pure helpers avoids breaking existing imports
-// before the next major release.
+// Bounded discovery parameters used when Codex returns only a provisional
+// client ID. Candidate content still needs exact-marker verification.
 export const THREAD_RESOLUTION_CHECKPOINTS_MS = Object.freeze([10_000, 30_000]);
 export const THREAD_RESOLUTION_TIMEOUT_MS = 30_000;
 export const THREAD_RESOLUTION_RECENT_LIMIT = 50;
@@ -310,7 +309,7 @@ export async function createAndRecordDelegation(input) {
 
   return {
     status: "recorded-unresolved",
-    reason: "awaiting-initial-hook",
+    reason: "awaiting-bounded-marker-resolution",
     ...prepared,
     threadId: null,
     provisional,

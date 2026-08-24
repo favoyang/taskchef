@@ -22,8 +22,8 @@ latest useful semantic result, not a second lifecycle or event database.
 4. It embeds a generated TaskChef UUID marker, executor-ownership sentence, and
    result-callback instruction, then records the task with `threadId: null`.
 5. It creates an independently openable Codex task. A durable returned ID is
-   resolved immediately; otherwise the initial-prompt hook links the root
-   session ID without polling.
+   resolved immediately; otherwise bounded recent-task checks accept exactly
+   one child whose structured initial input contains the exact marker.
 6. It returns without waiting for executor work to complete.
 7. Executors report `completed`, `needs_input`, or `failed` through MCP. Reports
    filter old terminal entries, use one live metadata snapshot, and read only
@@ -217,15 +217,17 @@ For each assignment, `$taskchef-delegate`:
    before executor creation
 5. creates a real Codex task at the exact configured path
 6. calls `resolve_task` when creation returns a durable thread ID; otherwise it
-   returns immediately and the initial `UserPromptSubmit` hook resolves the root
-   session ID against the exact marker
+   checks at 10 and 30 seconds and resolves only one recent task whose
+   structured initial input contains the exact marker
 7. records executor-creation failure as a `failed` semantic result on the
    already-existing entry
-8. never lists, reads, waits for, or polls threads during delegation.
+8. returns after the bounded identity check without waiting for executor work.
 
 Recording first closes the creation/hook race. On the exact marked prompt, the
-hook receives the root session ID and initial turn ID and writes only identity
-plus `working`. On later prompts whose session ID matches a recorded executor,
+hook waits for the separately verified canonical identity, then writes only the
+initial turn plus `working`. It never persists the hook `session_id`, because a
+subagent hook can receive its parent's session ID. On later prompts whose
+session ID matches a recorded executor,
 the same `UserPromptSubmit` hook reads the task history and supplies the current
 turn ID as callback context without writing. No permission, tool, stop,
 notification, or session hook writes task lifecycle state. A provisional
@@ -369,7 +371,7 @@ TaskChef does not include:
 2. Project metadata routes an unambiguous request to the correct local project.
 3. A delegation records `working` before creating a visible Codex task.
 4. A durable creation resolves immediately; a provisional creation is linked
-   by the initial exact-marker hook without polling.
+   only after bounded discovery verifies one exact structured-marker match.
 5. The dispatcher returns without waiting for execution.
 6. Several independent assignments can create several entries, including
    multiple entries for the same project.

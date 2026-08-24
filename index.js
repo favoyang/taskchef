@@ -70,4 +70,4 @@ export {
 
 export { createTaskChefMcpServer } from "./src/mcp.js";
 
-export { handleInitialPromptHook } from "./src/hook.js";
+export { INITIAL_LINK_CHECKPOINTS_MS, handleInitialPromptHook } from "./src/hook.js";

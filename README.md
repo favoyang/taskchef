@@ -140,9 +140,12 @@ Every delegated instruction begins with a unique
 executor-ownership paragraph, a result-callback paragraph, and the assignment. The
 valid HTML comment stays invisible in rendered Markdown.
 TaskChef records the marked delegation before executor creation. If creation
-does not return a durable thread ID, the trusted initial-prompt hook receives
-the root session ID and atomically links it to the existing entry. Delegation
-does not wait, poll, list tasks, or retry discovery.
+does not return a durable thread ID, the dispatcher performs bounded checks at
+10 and 30 seconds and accepts only one recently created task whose structured
+initial input contains the exact marker. The initial-prompt hook may wait for
+that verified link, but never treats its session ID as executor identity:
+subagent hooks can carry the parent session ID. If no unique match appears,
+TaskChef leaves the entry unresolved instead of risking a wrong link.
 
 ### Ask for a live report
 
@@ -433,11 +436,10 @@ printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspac
   taskchef task record --json
 ```
 
-If a task has `threadId: null`, the initial plugin hook normally resolves its
-exact marker to the root session ID. Direct manual recovery may use the
-equivalent CLI operation below after verifying one exact structured marker
-match. Both hook and CLI reach the same locked atomic logic, which permits only
-the one-way transition from null to one unique thread ID:
+If a task still has `threadId: null` after bounded resolution, direct manual
+recovery may use the CLI operation below after verifying one exact structured
+marker match. The same locked atomic logic permits only the one-way transition
+from null to one unique thread ID:
 
 ```sh
 taskchef task resolve c0f010ff-84f2-4838-a69d-0ff1f5d721d7 \

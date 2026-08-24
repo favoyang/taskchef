@@ -27,8 +27,11 @@ sequenceDiagram
     alt Durable ID returned
         D->>M: resolve_task
     else Provisional ID returned
+        D->>C: Bounded recent-task checks
+        D->>C: Read candidates and verify exact marker
+        D->>M: resolve_task(verified child ID)
         C->>H: Initial UserPromptSubmit
-        H->>W: Resolve root session ID and initial turn
+        H->>W: Wait for verified link; record initial turn
     end
     D-->>U: Return immediately
     C->>M: report_result(needs_input | completed | failed)
@@ -37,8 +40,8 @@ sequenceDiagram
 
 Recording happens before creation. This closes the only important race: when
 the initial hook runs, the exact TaskChef marker already has an entry to update.
-There is no 10/30-second discovery loop, scheduler, daemon, or dispatcher
-wakeup.
+The dispatcher performs only the bounded 10/30-second identity checks. There is
+no scheduler, daemon, indefinite polling, or dispatcher wakeup.
 
 Every executor receives this ownership instruction unchanged:
 
@@ -49,8 +52,8 @@ Every executor receives this ownership instruction unchanged:
 | Writer | Trigger and condition | Fields it owns |
 | --- | --- | --- |
 | Dispatcher via `record_task` | Before executor creation | New entry, `status: working`, null identity/result, server timestamps |
-| Dispatcher via `resolve_task` | Creation immediately returns a durable root ID | `threadId` only |
-| Initial `UserPromptSubmit` hook | Prompt starts with the exact TaskChef marker and the entry exists | `threadId`, initial `turnId`, `status: working`, `updatedAt`, `updatedBy: hook` |
+| Dispatcher via `resolve_task` | Creation returns a durable ID, or bounded discovery verifies one exact-marker child | `threadId` only |
+| Initial `UserPromptSubmit` hook | Prompt starts with the exact TaskChef marker and the verified link exists | Initial `turnId`, `status: working`, `updatedAt`, `updatedBy: hook` |
 | Follow-up `UserPromptSubmit` hook | Session ID exactly matches a recorded executor | Nothing; reads the snapshot and injects the current `turnId` for the MCP callback |
 | Executor via `report_result` | Work has a semantic outcome | `status`, bounded `summary`, result `turnId`, `updatedAt`, `updatedBy: mcp` |
 | Reporter | On explicit report request | Nothing; inferred live state is never persisted |
@@ -147,7 +150,8 @@ provide the stronger check whenever a targeted response is necessary.
 ## Permission and follow-up example
 
 1. Delegation records one `working` entry with null identity.
-2. The initial hook resolves the root thread and initial turn.
+2. The dispatcher verifies and resolves the child thread; the initial hook then
+   records its initial turn without trusting the inherited session ID.
 3. The executor reaches a real product decision and calls `report_result` with
    `needs_input` plus “Approve deployment to production.”
 4. The user opens that executor and approves. The same hook reads the matching
@@ -168,7 +172,7 @@ live task state.
 - lifecycle event types beyond `UserPromptSubmit`
 - fork tracking or result merging
 - SQLite
-- polling, reconciliation schedules, daemons, and dispatcher wakeups
+- indefinite polling, reconciliation schedules, daemons, and dispatcher wakeups
 - durable report watermarks
 - transcript or assistant-prose classification
 - transport-authenticated caller thread/turn identity
