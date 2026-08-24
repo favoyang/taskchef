@@ -7,6 +7,7 @@ import {
   taskStatusLabel,
   taskWithinDateFilter,
 } from "./state.js";
+import { openTaskFromControl } from "./actions.js";
 
 const state = {
   tasks: [],
@@ -161,7 +162,18 @@ function taskCard(task) {
   const time = document.createElement("time");
   time.dateTime = task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt;
   time.textContent = `Updated ${formatTime(time.dateTime)}`;
-  article.append(heading, project, summary, time);
+  const footer = document.createElement("div");
+  footer.className = "task-footer";
+  const openTask = document.createElement("button");
+  openTask.type = "button";
+  openTask.className = "secondary-button task-open";
+  openTask.textContent = "Open task";
+  openTask.setAttribute("aria-label", `Open ${task.title} in Codex`);
+  openTask.addEventListener("click", (event) => openTaskFromControl(event, task.id, {
+    showMessage,
+  }));
+  footer.append(time, openTask);
+  article.append(heading, project, summary, footer);
   return article;
 }
 
@@ -251,16 +263,7 @@ elements.copyThreadId.addEventListener("click", async () => {
     showMessage("Clipboard access is unavailable. Copy the thread ID from the metadata below.");
   }
 });
-elements.openProject.addEventListener("click", async () => {
+elements.openProject.addEventListener("click", async (event) => {
   if (!state.selectedTask) return;
-  elements.openProject.disabled = true;
-  try {
-    const response = await fetch(`/api/tasks/${encodeURIComponent(state.selectedTask.id)}/open-codex`, {
-      method: "POST",
-    });
-    const result = await response.json();
-    showMessage(result.message);
-  } finally {
-    elements.openProject.disabled = false;
-  }
+  await openTaskFromControl(event, state.selectedTask.id, { showMessage });
 });

@@ -74,6 +74,8 @@ select { min-width: 180px; padding: 9px 34px 9px 11px; border: 1px solid var(--b
 .task-project { margin: 3px 0 12px; font-size: 0.86rem; }
 .task-summary { max-width: 78ch; margin-bottom: 14px; }
 time { font-size: 0.78rem; }
+.task-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.task-open { flex: none; }
 
 .status { flex: none; padding: 4px 9px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 0.72rem; font-weight: 750; text-transform: capitalize; }
 .status-completed { background: var(--accent-soft); color: var(--accent); }
@@ -122,6 +124,8 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .toolbar label, .toolbar select { width: 100%; }
   .task-count { margin: 0; }
   .task-heading { align-items: flex-start; }
+  .task-footer { align-items: flex-start; flex-direction: column; }
+  .task-open { width: 100%; }
   .dialog-actions { align-items: stretch; flex-direction: column; }
   .metadata { grid-template-columns: 1fr; }
   .metadata dt { padding-bottom: 0; border-bottom: 0; }
