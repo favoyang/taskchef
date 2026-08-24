@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "conventional-changelog-conventionalcommits": "^10.3.0",
+    "mermaid": "^11.17.0",
     "yaml": "^2.9.0"
   },
   "scripts": {
