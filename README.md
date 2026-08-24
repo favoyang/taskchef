@@ -1,537 +1,296 @@
 # TaskChef
 
-Bring work for all your local Codex projects to one inbox. TaskChef reads each
-request, chooses the right project, and opens a normal Codex task there. It
-keeps a task history plus the executor's latest semantic result so you can find
-the work later. Codex task state remains authoritative for current activity.
-
-If a request contains independent work for different projects, TaskChef can
-open several tasks. It returns as soon as they are created, so you can send the
-next request or open any executor and work with it directly.
-
-## The mental model
-
-- The **dispatcher workspace** is the per-user `~/.agents/taskchef` folder that
-  stores project routes and task history. A Codex task opened in this folder is the
-  **dispatcher**.
-- A **configured project** is a local repository or folder where TaskChef may
-  send work.
-- An **executor** is the normal Codex task that handles delegated work inside a
-  configured project.
-- A **task entry** records what TaskChef delegated, which project it chose, and
-  the executor's Codex task ID.
+TaskChef is a local dispatch desk for Codex. Send work to one inbox, and
+TaskChef routes each independently useful outcome to a normal Codex task in the
+right configured project. It keeps a compact history and the executor's latest
+semantic result; the Codex task remains the live place to work.
 
 ```text
-request in dispatcher
+request in TaskChef
         |
-        +-- task entry --> executor in project A
-        +-- task entry --> executor in project B
+        +-- recorded task --> executor in project A
+        +-- recorded task --> executor in project B
 ```
 
-Executors report a compact `completed`, `needs_input`, or `failed` result into
-their existing task entry. When you ask for a report, TaskChef filters old
-terminal work and checks cheap live metadata once for every selected task.
-Active or approval-waiting metadata overrides the cache immediately; idle MCP
-results are trusted by default, with detailed reads reserved for anomalies.
+The dispatcher returns after creating each executor. Open an executor to guide
+the work directly, or ask TaskChef for a current report later.
 
-See [Delegation design](docs/delegation-design.md) for the illustrated workflow,
-writer boundaries, locking, trust model, freshness rules, and follow-up example.
+## Which document should I read?
 
-## Quickstart
+| If you want to... | Read |
+| --- | --- |
+| Install, configure, dispatch, report, or recover | This README |
+| Know the exact terminology and required behavior | [TaskChef specification](SPEC.md) |
+| Understand MCP calls, field transitions, locking, and trust boundaries | [Delegation and result design](docs/delegation-design.md) |
+| Compare TaskChef with FirstMate | [FirstMate and TaskChef research](docs/firstmate-taskchef-comparison.md) |
+| Review deferred product ideas | [Backlog](BACKLOG.md) |
 
-### 1. Install the plugin
+## Install
 
-You need Node.js 18 or newer, Git, and local access to each target project.
+TaskChef requires Node.js 18 or newer, Git, Codex desktop, and local access to
+each target project.
 
-Add the [Favo Yang plugin marketplace](https://github.com/favoyang/codex-plugins)
-and install TaskChef:
+Add the Favo Yang plugin marketplace and install TaskChef:
 
 ```sh
 codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
 ```
 
-TaskChef installs without lifecycle hooks, hook trust prompts, or reapproval.
-Executors link their own durable Codex task IDs through the local MCP server.
+The plugin provides three skills and a local MCP server. It installs no
+lifecycle hooks.
 
-### 2. Bootstrap the dispatcher workspace
+## Bootstrap your dispatcher
 
-Invoke the bootstrap skill from any Codex project:
+From any Codex project, ask the bootstrap skill to set up TaskChef:
 
 ```text
 $taskchef-bootstrap Set up TaskChef.
 ```
 
-Bootstrap creates `~/.agents/taskchef`, opens it in the current Codex desktop
-app when it is not already a saved local project, and creates:
+The skill creates the per-user dispatcher workspace at `~/.agents/taskchef`,
+registers it as a local Codex project when needed, and scans eligible local
+projects. TaskChef creates and manages these files:
 
 ```text
-AGENTS.md
-taskchef.json
-tasks.jsonl
+AGENTS.md       managed dispatcher instructions plus your additions
+taskchef.json   configured projects and routing metadata
+tasks.jsonl     one latest snapshot per delegated task
 ```
 
-TaskChef scans eligible local Codex projects during setup and adds them to the
-managed project list in `taskchef.json`.
-
-`taskchef.json` defines the available routes. A project name or GitHub issue or
-pull-request URL in your request is usually enough for TaskChef to choose the
-right project. Each project's `githubRepos` field is a list. A managed
-`*-workspace` project lists all child or sub-repositories there, so links into
-any of them route to the workspace. If a project needs more context, extend its
-optional `description` field with responsibilities and keywords that
-distinguish it from nearby projects.
-
-The generated `AGENTS.md` turns ordinary requests in the TaskChef project into
-delegated work. From any other project, explicitly invoke `$taskchef-delegate`;
-it uses the same configuration and task history.
-
-### 3. Delegate the first task
-
-Suppose bootstrap found a project named `payments-api`. This prompt delegates
-one task to it:
+Review the configured projects:
 
 ```text
-In payments-api, fix the duplicate charge shown after a payment retry, add a regression test, and report what changed.
+$taskchef-bootstrap List my configured TaskChef projects.
 ```
 
-TaskChef replies with a link to the new Codex task. Open it to follow progress
-or give the executor more instructions. The dispatcher is ready for another
-request immediately.
-
-The plugin's focused MCP tools prepare and record delegations directly in the
-canonical workspace. They preserve TaskChef's lock and atomic-write guarantees
-without shell quoting, stdin handling, temporary record files, or a separate
-command-sandbox permission round trip.
-
-## Everyday workflows
-
-### Route work across projects
-
-Suppose `storefront` is another configured project and owns the customer web
-interface. These two changes do not depend on each other, so they can run in
-separate tasks:
+Good project descriptions make conversational routing clearer. A configured
+project may advertise several GitHub repositories, which is useful for a
+managed workspace that owns multiple child repositories.
 
 ```text
-In payments-api, add structured logs for failed payment retries and test them. Separately, in storefront, fix the checkout form's keyboard focus order and run the browser tests.
+$taskchef-bootstrap Add /workspace/payments as payments. It owns payment authorization, capture, refunds, and retries.
 ```
 
-TaskChef opens one executor in each project. If several changes need close
-coordination, keep them in one task instead of splitting them just because
-they touch frontend and backend code. Multiple active executors may also use
-the same project.
+TaskChef accepts Git repositories and ordinary local folders. It routes only to
+projects on the same local execution host.
 
-### Follow up on delegated work
+## Dispatch work
 
-Open an executor and prompt it like any other Codex task. Its thread is the
-live source of truth for progress, questions, and results.
+Open the TaskChef dispatcher project and describe an outcome:
 
-The dispatcher workspace keeps `tasks.jsonl`, one line per submitted
-delegation. New tasks are appended. Later locked atomic updates may fill the
-nullable thread ID and replace the task's latest status, summary, turn ID,
-timestamp, and writer. There is no transition-event log.
+```text
+In payments, fix duplicate charges after a retry, add a regression test, and report what changed.
+```
 
-Every delegated instruction begins with a unique
-`<!-- taskchef_id=<UUID> -->` marker followed by a blank line, an
-executor-ownership paragraph, a mandatory self-link paragraph, a result-callback
-paragraph, and the assignment. The valid HTML comment stays invisible in
-rendered Markdown. TaskChef records the marked delegation before executor
-creation and returns immediately. The child calls `link_task` before substantive
-work with its own durable native ID, never the parent/delegator or provisional
-client ID. Failed or interrupted linking remains visibly pending and retryable.
+The dispatcher records the request before it creates the executor, opens one
+normal Codex task in `payments`, and immediately returns a task link. The
+executor links its own durable Codex identity before doing substantive work.
 
-### Ask for a live report
+To dispatch from another project, invoke the delegation skill explicitly:
 
-Ask the dispatcher when you want a current overview:
+```text
+$taskchef-delegate In payments, add structured logs for failed retries and test them.
+```
+
+Independent outcomes may run in separate tasks:
+
+```text
+In payments, add retry-failure logs and tests. Separately, in storefront, fix the checkout form's keyboard focus order and run the browser tests.
+```
+
+Keep dependent or tightly coordinated work together. TaskChef does not split a
+request merely because it mentions several repositories.
+
+## Work with executors
+
+Open an executor and use it like any other Codex task. That task owns the live
+conversation, approvals, follow-ups, implementation, and delivery workflow.
+
+Each executor reports one latest semantic outcome to TaskChef:
+
+- `completed`: the requested outcome is complete;
+- `needs_input`: a real user decision or missing fact blocks progress;
+- `failed`: the executor or creation attempt ended unsuccessfully.
+
+A native command-approval prompt is live Codex state, not `needs_input`.
+TaskChef stores a concise result, not the transcript or a lifecycle event log.
+
+## View and report tasks
+
+Ask the dispatcher for an on-demand report:
 
 ```text
 Report on the work TaskChef has dispatched.
 ```
 
-This runs `$taskchef-report`. Overviews always consider working, needs-input,
-unresolved, legacy, and terminal tasks changed in the last seven days. Older
-terminal tasks are skipped unless requested or live metadata shows that they
-are active or awaiting approval. Cached MCP results are trusted for idle tasks
-in broad overviews. Active or approval-waiting tasks are reported directly from
-the one broad metadata snapshot. Focused reports read a selected idle task once
-when its metadata is newer than the callback; missing callbacks and other
-anomalies also receive at most one targeted read. Reporting writes nothing and
-never polls.
+The `$taskchef-report` skill reads TaskChef's cached semantic results and takes
+one cheap native metadata snapshot for selected Codex tasks. Active or
+approval-waiting native state overrides the cache. Focused reports may read an
+idle task once when its native metadata is newer or the cache is uncertain.
+Reports never poll and never write inferred state into `tasks.jsonl`.
 
-### Watch the local dashboard
+For file-backed inspection without live Codex checks:
 
-Run a local dashboard when you want the task history to remain visible while
-executors report results:
+```sh
+taskchef task list
+taskchef task list --project payments
+taskchef task show c0f010ff
+taskchef task summary
+```
+
+Pass `--json` for machine-readable output. `task show` accepts a full TaskChef
+task ID or an unambiguous eight-character prefix.
+
+## Use the dashboard
+
+Run the local read-only dashboard:
 
 ```sh
 taskchef dashboard
 ```
 
-Open the printed local URL, which is `http://127.0.0.1:3210/` by default. The
-same server can be open in the Codex in-app browser and an external browser at
-the same time. Use `--port <number>` to choose another port and `--workspace
-<path>` to override the normal workspace resolution. Press Ctrl+C in the
-terminal to stop the server.
+Open the printed URL, normally `http://127.0.0.1:3210/`. The dashboard:
 
-The dashboard:
+- updates when TaskChef links an executor or receives a semantic result;
+- filters tasks by project, status, and update window;
+- shows the recorded instruction, result, and identity metadata;
+- opens a recorded task directly in Codex when its stored thread ID is a
+  supported UUID;
+- falls back to opening the configured project for null or opaque legacy
+  identities.
 
-- orders tasks by their latest semantic or identity update;
-- filters by project, status, and latest update window (24 hours, 7 days, or
-  all time);
-- shows dismissible notifications when tasks are added or changed;
-- reveals the original instruction, latest semantic result, and task metadata;
-- opens the recorded task directly in Codex when it has a supported UUID thread
-  ID, with a project-opening fallback for unresolved or legacy identities.
+Use `--port <number>` for a different port and `--workspace <path>` only when
+you intentionally need a non-default workspace. Press Ctrl+C to stop the
+server.
 
-The server binds only to the numeric IPv4 loopback interface and rejects
-non-loopback configuration. It intentionally does not authenticate browser
-sessions, so any local process or browser that can reach the port can read the
-dashboard data. Keep the server running only while needed and do not expose it
-through a proxy or tunnel. State-changing actions still require an exact Host
-and same-origin request. The server validates the same task schema as the CLI,
-retains its last valid snapshot if the log becomes invalid, and never writes
-dispatcher-workspace files. It limits event
-streams and disconnects slow clients instead of buffering snapshots without
-bound. It watches the workspace directory
-so TaskChef's atomic log replacement remains visible, uses a low-frequency file
-metadata check to recover from missed watcher events, and streams snapshots to
-the browser with automatic reconnect. To keep untrusted history from exhausting
-the server or browser, the dashboard rejects logs above 16 MiB, histories above
-2,000 tasks, and unusually large display fields while retaining the last valid
-snapshot. The data CLI remains unaffected by these display limits.
+The server binds only to numeric loopback, does not authenticate browser
+sessions, and exposes the local task history to any local process that can
+reach its port. Do not proxy or tunnel it. State-changing open-in-Codex requests
+require an exact Host and same-origin request; the dashboard never edits the
+dispatcher workspace.
 
-Date windows advance while the page is open, even when the task file is idle.
-They use persisted semantic/identity timestamps and identity changes observed by
-the current server. Legacy schema-v1 identity resolutions did not record an
-update timestamp, so after a dashboard restart those rare historical records
-fall back to their creation time.
+## Configure and diagnose
 
-The dashboard uses Codex's registered `codex://threads/<thread-id>` desktop
-route for direct navigation. A task-level refresh would require native Codex
-metadata tools that are available to the report skill, not to a standalone
-browser page. TaskChef also does not submit replies from the dashboard: `codex
-resume <session> [prompt]` starts an interactive CLI session and may execute the
-prompt immediately, rather than opening a reviewed draft in the desktop app.
-Refresh and reply integrations remain deferred until Codex exposes supported
-browser-facing contracts for those actions.
-
-TaskChef task records do not contain model token usage, and the supported Codex
-task metadata surface does not expose it to this local server. The dashboard
-therefore does not estimate tokens or inspect private Codex session logs. Token
-usage can be added later if Codex exposes a supported per-task usage field or
-TaskChef executors begin reporting a structured usage value.
-
-### Manage configured projects
-
-Use `$taskchef-bootstrap` to scan local Codex projects and refresh the managed
-list:
+Use the bootstrap skill for routine administration:
 
 ```text
-$taskchef-bootstrap Scan my local Codex projects and update TaskChef's managed project list.
+$taskchef-bootstrap Scan my local Codex projects and refresh TaskChef's configured project list.
+$taskchef-bootstrap Diagnose my TaskChef workspace and repair what can be repaired safely.
 ```
 
-The same skill can diagnose the workspace and repair configuration errors that
-it can fix safely:
-
-```text
-$taskchef-bootstrap Diagnose this TaskChef workspace and fix any repairable configuration errors.
-```
-
-Project paths must exist when you add or dispatch to them. Configure the
-repository root for a Git project. TaskChef also accepts non-Git folders. It
-detects Git status and the canonical GitHub `origin` when adding or importing
-a project. Repeat `--github-repo` to configure several repositories, or place a
-`githubRepos` array in an import. URLs are canonicalized and deduplicated.
-
-Removing a project does not rewrite old task entries. Each entry keeps the
-project metadata that TaskChef used when it delegated the work.
-
-## Important boundaries
-
-- TaskChef is an interactive dispatcher, not a scheduler, daemon, hook, or
-  background worker. Executors self-link and report their current turn.
-- Executors are visible Codex tasks. The dispatcher does not supervise them or
-  wait for them to finish.
-- TaskChef routes only to projects on the same local execution host.
-- Each task line contains the latest reported semantic result, not a complete
-  lifecycle or event history.
-- TaskChef does not store executor transcripts, hidden reasoning, or `hostId`.
-- A live report uses one metadata snapshot for all selected tasks and
-  immediately overrides active or approval-waiting state. Broad overviews stay
-  cache-first; focused reports read selected idle tasks once when metadata is
-  newer than the callback. Reporting never persists inferred live state.
-
-## Updating
-
-Refresh the marketplace snapshot, then reinstall TaskChef:
+The equivalent data CLI is useful for direct inspection and scripting:
 
 ```sh
-codex plugin marketplace upgrade favoyang-plugins
-codex plugin add taskchef@favoyang-plugins
+taskchef doctor
+taskchef workspace path
+taskchef workspace init
+taskchef project add /workspace/payments --name payments \
+  --description "Payment authorization, capture, refunds, and retries." \
+  --github-repo https://github.com/example/payments-api
+taskchef project import projects.json
+taskchef project list
+taskchef project remove payments
 ```
 
-## CLI reference
+Workspace resolution is deterministic: `--workspace <path>`, then an absolute
+or `~/`-prefixed `TASKCHEF_WORKSPACE`, then `~/.agents/taskchef`. The current
+directory is never an implicit TaskChef workspace.
 
-The plugin has three skills:
-
-- `$taskchef-bootstrap` initializes, diagnoses, and configures a workspace
-- `$taskchef-delegate` routes requests and creates executor tasks
-- `$taskchef-report` reads the task history and reports live executor state once
-
-Normal delegation uses the plugin's bundled MCP tools. The bootstrap and report
-skills continue to call the CLI for deterministic workspace administration,
-task-history reads, and later recovery. The same CLI is also available for
-direct inspection, benchmarking, and manual operations over the shared
-workspace logic. Run it once with `npx` if you do not want a global installation:
-
-```sh
-npx taskchef help
-```
-
-For the shorter command used below, install it globally:
+Install the data CLI globally only if you want the short `taskchef` command:
 
 ```sh
 npm install --global taskchef
 ```
 
-The npm package provides the data CLI. The Codex plugin provides the skills and
-focused MCP tools used during delegation; native Codex tools still create and
-inspect executor tasks. From a source checkout, use `node bin/taskchef.js`.
+Otherwise use `npx taskchef help`. The plugin already bundles the CLI used by
+its skills.
 
-```text
-taskchef help
-taskchef doctor
-taskchef workspace path
-taskchef workspace init
-taskchef project add <path>
-taskchef project import [<file> | -]
-taskchef project list
-taskchef project remove <name>
-taskchef dispatch prepare
-taskchef task record
-taskchef task resolve <task-id> --thread-id <thread-id>
-taskchef task show <task-id-or-8-character-prefix>
-taskchef task list
-taskchef task summary
-```
+## Common recovery
 
-Workspace resolution is deterministic: `--workspace <path>`, then the
-`TASKCHEF_WORKSPACE` environment variable, then `~/.agents/taskchef`. The
-environment override must be absolute (or start with `~/`) so plugin processes
-with different working directories resolve the same workspace. The current
-directory is never an implicit workspace. Data commands use concise
-human-readable output by default and accept `--json` for machine-readable
-output. Run `taskchef help` for every option.
+### An executor is link-pending
 
-`taskchef dispatch prepare --json` is the CLI equivalent of the MCP
-`prepare_dispatch` operation: it resolves the canonical workspace, loads and
-validates configured projects, and returns a generated task UUID, preparation
-timestamp, and exact correlation marker. Normal delegation calls the MCP tool;
-the CLI command remains useful for diagnostics and benchmarks. `task record`
-accepts one JSON value only from closed, non-interactive standard input and is
-intended for manual recovery or direct CLI use, not the skill's normal
-recording path.
+A newly recorded schema 4 task with no `threadId` is waiting for its executor
+to self-link. Open that executor and continue it. The executor must retry
+`link_task` with its own `CODEX_THREAD_ID`; do not search recent tasks or copy a
+dispatcher, parent, `CODEX_SESSION_ID`, or provisional client ID into the
+record.
 
-For repeatable live delegation measurements, run
-`npm run benchmark:e2e -- write`. It reads one non-interactive JSON value,
-validates a stable schema, derives durations and summary totals, and writes a
-timestamped result under the supplied output directory (default:
-`reports/e2e-benchmarks`). Use `validate <file>` to verify a saved result and
-`clean [directory]` to remove only prior TaskChef end-to-end result JSON files.
-Start from `assets/e2e-benchmark-example.json`; the strict schema records the
-record-before-create order, provisional client ID, executor self-link, rejected
-parent identity, needs-input callback, fresh follow-up turn, final result, and
-exact dashboard deep link. The writer stamps `taskchefVersion` from its own
-package; saved files retain that version for historical validation.
+If executor creation itself failed, TaskChef stores `failed` with null thread
+and turn IDs. The original task record remains available for diagnosis.
 
-### One-time upgrade from an older workspace
+### A pre-6.0 task has no thread ID
 
-TaskChef 5 does not include a general migration command. For a one-time upgrade,
-stop delegating and validate the old workspace. Then perform this one-time copy
-only when the destination does not already exist:
-
-```sh
-set -eu
-old_workspace=/path/to/old-taskchef-workspace
-new_workspace="$HOME/.agents/taskchef"
-backup_workspace="$old_workspace.pre-taskchef-5-backup"
-if [ -e "$new_workspace" ]; then
-  printf '%s\n' "Refusing to overwrite existing destination: $new_workspace" >&2
-  exit 1
-fi
-if [ -e "$backup_workspace" ]; then
-  printf '%s\n' "Refusing to overwrite existing backup: $backup_workspace" >&2
-  exit 1
-fi
-taskchef doctor --workspace "$old_workspace"
-cp -pR "$old_workspace" "$backup_workspace"
-install -d -m 700 "$new_workspace"
-install -m 600 "$old_workspace/AGENTS.md" "$new_workspace/AGENTS.md"
-install -m 600 "$old_workspace/taskchef.json" "$new_workspace/taskchef.json"
-install -m 600 "$old_workspace/tasks.jsonl" "$new_workspace/tasks.jsonl"
-taskchef workspace init --workspace "$new_workspace" --register-codex
-taskchef doctor --workspace "$new_workspace"
-```
-
-Keep the backup and old saved Codex project until `project list`, `task list`,
-and `doctor` confirm the expected project and task counts. Do not merge several
-histories by hand; conflicting task or thread IDs require case-by-case review.
-
-### Project administration
-
-```sh
-taskchef workspace init
-taskchef doctor
-
-taskchef project add /workspace/payments \
-  --name payments \
-  --description "Owns payment authorization, capture, and refunds." \
-  --github-repo https://github.com/example/payments-api \
-  --github-repo https://github.com/example/payments-sdk
-
-taskchef project list
-taskchef project remove payments
-```
-
-Human-readable project listings group configured GitHub repositories by
-project. The first row shows the project details; additional repository rows
-leave the repeated name, kind, and path columns blank. A project without a
-configured repository has one row containing `-` in the repository column:
-
-```text
-NAME      KIND    GITHUB REPOSITORY                        PATH
-notes     folder  -                                        /workspace/notes
-payments  git     https://github.com/example/payments-api  /workspace/payments
-                  https://github.com/example/payments-sdk
-```
-
-Import projects as a JSON array from a file or standard input:
-
-```sh
-taskchef project import projects.json
-taskchef project import - < projects.json
-```
-
-Import merges by canonical path, preserves an existing name or description
-when the imported object omits it, and unions repository lists without
-duplicates. `--replace` replaces the configured project set.
-
-The current configuration schema is version 2. Version 1 remains readable:
-legacy `githubRepo: null` normalizes to `githubRepos: []`, and a legacy string
-normalizes to a one-item `githubRepos` list. `workspace init` persists this
-migration atomically; other configuration writes also emit version 2. Legacy
-task lines remain readable without an eager rewrite of the JSONL history.
-
-### Task history
-
-`task record` reads one submitted delegation from standard input. The
-`project` value is the exact configured project path:
-
-```sh
-printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nBefore any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.\n\nBefore ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.\n\nAdd structured logs for failed retries and test them.","threadId":null}' |
-  taskchef task record --json
-```
-
-For unresolved records created by TaskChef 5.x or older, direct manual recovery
-may use the CLI operation below after verifying one exact structured marker
-match. Schema 4 self-linking records reject this command:
+`taskchef task resolve` is a legacy recovery command for unresolved schema 1-3
+records only. First establish one exact TaskChef marker match and one unique
+durable executor ID:
 
 ```sh
 taskchef task resolve c0f010ff-84f2-4838-a69d-0ff1f5d721d7 \
   --thread-id 019f9d46-f42c-7482-9707-3c107bf241ee
 ```
 
-Inspect the task history without querying Codex tasks:
+The command rejects schema 4 self-linking records. Never edit `tasks.jsonl`
+by hand.
+
+### The workspace looks damaged or stale
+
+Run:
 
 ```sh
-taskchef task show c0f010ff
-taskchef task show c0f010ff --json
-taskchef task list
-taskchef task list --project payments
-taskchef task list --ascending
-taskchef task list --full-id
-taskchef task summary
+taskchef doctor
+taskchef workspace init
+taskchef doctor
 ```
 
-Human-readable task listings include both the task ID and Codex thread ID.
-UUID-shaped IDs use their first eight-character section by default; pass
-`--full-id` to show both IDs in full. Null thread IDs appear as `-`, consistent
-with other empty table cells. Tasks are newest-first by default; pass
-`--ascending` to list them from oldest to newest. ID formatting does not alter
-the complete values in `--json` output, and the selected order applies to its
-`tasks` array.
+`doctor` is read-only. `workspace init` refreshes the managed instructions,
+migrates supported configuration, and removes obsolete workspace-local
+TaskChef skill links. It does not rewrite legacy task history eagerly.
 
-`task show` accepts either the full task ID or the exact eight-character task
-ID printed by the default human-readable list. A short ID must identify exactly
-one recorded task; use `task list --full-id` when a short ID is missing or
-ambiguous. Its default output labels the title, project, latest result fields,
-creation and update times, task/thread/turn IDs, and instruction. A null thread ID appears as
-`-`. Line breaks in labeled values are escaped as `\\r` and `\\n`, while
-multiline instructions retain their original line breaks and indentation. Pass
-`--json` to receive the unchanged complete task object.
+### Upgrading an old custom workspace
 
-```text
-Title: Add retry logs
-Project: payments
-Status: completed
-Summary: Added structured retry logs and regression coverage.
-Project path: /workspace/payments
-Created: 2026-08-12T10:00:00.000Z
-Updated: 2026-08-12T10:08:00.000Z
-Updated by: mcp
-Task ID: c0f010ff-84f2-4838-a69d-0ff1f5d721d7
-Thread ID: 019f9d46-f42c-7482-9707-3c107bf241ee
-Turn ID: 019f9d47-f42c-7482-9707-3c107bf241ef
-Instruction:
-<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
+Back up `AGENTS.md`, `taskchef.json`, and `tasks.jsonl`, then initialize the
+canonical `~/.agents/taskchef` destination only when it does not already exist.
+Keep the backup until `project list`, `task list`, and `doctor` confirm the
+expected contents. Do not merge task histories by hand; duplicate task or
+thread identities require case-by-case review.
 
-This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
+## Boundaries
 
-Before any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.
+- TaskChef is an interactive dispatcher, not a scheduler, daemon, worker
+  runtime, or supervisor.
+- Executors are visible Codex tasks; TaskChef does not wait for them or merge
+  their changes.
+- `tasks.jsonl` holds latest snapshots, not transcripts or transition events.
+- TaskChef does not store `hostId`, hidden reasoning, or token usage.
+- Executor identity is a cooperative assertion inside a local single-user
+  trust boundary.
 
-Before ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.
+The [specification](SPEC.md) is the normative source for these guarantees. The
+[workflow document](docs/delegation-design.md) ties them to the current 6.x
+implementation.
 
-Add structured logs for failed payment retries and test them.
-```
+## Update
 
-The list remains a compact table:
-
-```text
-TITLE           PROJECT   STATUS     UPDATED                   ID        THREAD ID
-Add retry logs  payments  completed  2026-08-12T10:08:00.000Z  c0f010ff  019f9d46
-```
-
-The complete data contract is in [SPEC.md](SPEC.md). The illustrated runtime
-workflow, writer boundaries, and freshness rules are in
-[Delegation design](docs/delegation-design.md). Deferred ideas are in
-[BACKLOG.md](BACKLOG.md).
-
-## Development and release
-
-This executor self-linking redesign removes post-creation discovery and hooks.
-It requires a major release. Library callers migrating from TaskChef 5.x should
-remove thread-list/read, checkpoint, timeout, and `resolveRecordedTask`
-arguments. Provide `recordTask` before creation and optionally
-`reportRecordedResult` for creation failure. Creation errors expose
-`taskChefTaskId` and `taskChefResultReporting` for bounded recovery.
+Refresh the marketplace snapshot and reinstall TaskChef:
 
 ```sh
+codex plugin marketplace upgrade favoyang-plugins
+codex plugin add taskchef@favoyang-plugins
+```
+
+## Development
+
+From a source checkout:
+
+```sh
+npm ci
 npm test
 npm pack --dry-run
-npx -y -p semantic-release@25 -p @semantic-release/exec -p @semantic-release/git semantic-release --dry-run
 ```
 
-The `Release` GitHub Actions workflow runs semantic-release on `main`.
-Semantic Commit Messages determine the release type:
-
-```text
-fix: correct task log validation
-feat: add a new CLI command
-feat!: change the workspace data contract
-```
-
-The workflow tests the package and validates the npm tarball before publishing
-through npm trusted publishing. It synchronizes version files, creates the
-GitHub release, and pins the TaskChef entry in `favoyang/codex-plugins` to the
-published npm version. Marketplace updates use the `MARKETPLACE_DEPLOY_KEY`
-Actions secret, a write-enabled deploy key scoped to the catalog repository.
+The release workflow runs semantic-release on `main`, publishes the npm
+package, creates the GitHub release, and updates the shared plugin marketplace
+to the released version. Documentation-only changes do not require a TaskChef
+runtime migration, but they may still produce a patch release under the
+repository's Conventional Commit policy.
