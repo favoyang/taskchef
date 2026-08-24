@@ -23,7 +23,7 @@ an incorrect parent/child thread correlation.
 - [ ] Make TaskChef identity resolution validate the exact task marker and
       returned child thread ID; reject ambiguous root/session IDs rather than
       silently linking the task to its creator.
-- [ ] Design a capability-protected `POST` refresh action that performs one
+- [ ] Design a same-origin validated `POST` refresh action that performs one
       bounded read for the selected task, applies timeouts and version checks,
       and never starts or resumes work.
 - [ ] Keep live state separate from persisted semantic results: show running,
