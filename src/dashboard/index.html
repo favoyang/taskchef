@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <title>TaskChef dashboard</title>
+    <title>TaskChef Dashboard</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/app.js" type="module"></script>
   </head>
@@ -12,7 +12,13 @@
     <header class="site-header">
       <div>
         <p class="eyebrow">TaskChef</p>
-        <h1>TaskChef dashboard</h1>
+        <div class="title-row">
+          <picture class="dashboard-icon" aria-hidden="true">
+            <source srcset="/assets/taskchef-dark.svg" media="(prefers-color-scheme: dark)">
+            <img src="/assets/taskchef.svg" alt="" width="48" height="48">
+          </picture>
+          <h1>TaskChef Dashboard</h1>
+        </div>
         <p class="subtitle">Latest delegated work, updated as TaskChef reports change.</p>
       </div>
       <div class="connection" role="status" aria-live="polite">

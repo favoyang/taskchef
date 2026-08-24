@@ -19,6 +19,7 @@ import {
 
 const TASKS_FILE_NAME = "tasks.jsonl";
 const STATIC_ROOT = fileURLToPath(new URL("./dashboard/", import.meta.url));
+const ASSET_ROOT = fileURLToPath(new URL("../assets/", import.meta.url));
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_TASKS = 2_000;
@@ -36,11 +37,13 @@ const CONTENT_SECURITY_POLICY = [
 ].join("; ");
 
 const STATIC_FILES = new Map([
-  ["/", ["index.html", "text/html; charset=utf-8"]],
-  ["/actions.js", ["actions.js", "text/javascript; charset=utf-8"]],
-  ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
-  ["/state.js", ["state.js", "text/javascript; charset=utf-8"]],
-  ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
+  ["/", [path.join(STATIC_ROOT, "index.html"), "text/html; charset=utf-8"]],
+  ["/actions.js", [path.join(STATIC_ROOT, "actions.js"), "text/javascript; charset=utf-8"]],
+  ["/app.js", [path.join(STATIC_ROOT, "app.js"), "text/javascript; charset=utf-8"]],
+  ["/state.js", [path.join(STATIC_ROOT, "state.js"), "text/javascript; charset=utf-8"]],
+  ["/styles.css", [path.join(STATIC_ROOT, "styles.css"), "text/css; charset=utf-8"]],
+  ["/assets/taskchef-dark.svg", [path.join(ASSET_ROOT, "taskchef-dark.svg"), "image/svg+xml"]],
+  ["/assets/taskchef.svg", [path.join(ASSET_ROOT, "taskchef.svg"), "image/svg+xml"]],
 ]);
 
 export function dashboardAuthority(host, port) {
@@ -494,7 +497,7 @@ export async function createDashboardServer({
         if (isCodexThreadDeepLinkId(task.threadId)) {
           if (openThread) await openThread(task.threadId);
           else await openThreadInCodex(task.threadId);
-          sendJson(response, 202, { message: "Opened this task in Codex." });
+          sendJson(response, 202, {});
           return;
         }
         const trustedProject = (await readConfig(monitor.workspace, { checkPaths: false })).projects
@@ -539,8 +542,8 @@ export async function createDashboardServer({
       sendJson(response, 404, { message: "Not found." });
       return;
     }
-    const [fileName, contentType] = staticFile;
-    const body = await readFile(path.join(STATIC_ROOT, fileName));
+    const [filePath, contentType] = staticFile;
+    const body = await readFile(filePath);
     response.writeHead(200, securityHeaders(contentType));
     response.end(method === "HEAD" ? undefined : body);
   };
