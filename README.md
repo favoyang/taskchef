@@ -32,8 +32,7 @@ Executors report a compact `completed`, `needs_input`, or `failed` result into
 their existing task entry. When you ask for a report, TaskChef filters old
 terminal work and checks cheap live metadata once for every selected task.
 Active or approval-waiting metadata overrides the cache immediately; idle MCP
-results are trusted by default, with detailed reads reserved for anomalies. It
-never infers completion from hook events.
+results are trusted by default, with detailed reads reserved for anomalies.
 
 See [Delegation design](docs/delegation-design.md) for the illustrated workflow,
 writer boundaries, locking, trust model, freshness rules, and follow-up example.
@@ -52,11 +51,8 @@ codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
 ```
 
-In a new Codex task, run `/hooks`, review the TaskChef hook, and trust it. Codex
-skips new or changed plugin hooks until you approve their current definition,
-so repeat this review after an update changes the hook. TaskChef uses this hook
-to link the marked initial executor prompt and to provide read-only current-turn
-identity on later prompts in that same executor. It never writes task outcomes.
+TaskChef installs without lifecycle hooks, hook trust prompts, or reapproval.
+Executors link their own durable Codex task IDs through the local MCP server.
 
 ### 2. Bootstrap the dispatcher workspace
 
@@ -137,15 +133,12 @@ timestamp, and writer. There is no transition-event log.
 
 Every delegated instruction begins with a unique
 `<!-- taskchef_id=<UUID> -->` marker followed by a blank line, an
-executor-ownership paragraph, a result-callback paragraph, and the assignment. The
-valid HTML comment stays invisible in rendered Markdown.
-TaskChef records the marked delegation before executor creation. If creation
-does not return a durable thread ID, the dispatcher performs bounded checks at
-10 and 30 seconds and accepts only one recently created task whose structured
-initial input contains the exact marker. The initial-prompt hook may wait for
-that verified link, but never treats its session ID as executor identity:
-subagent hooks can carry the parent session ID. If no unique match appears,
-TaskChef leaves the entry unresolved instead of risking a wrong link.
+executor-ownership paragraph, a mandatory self-link paragraph, a result-callback
+paragraph, and the assignment. The valid HTML comment stays invisible in
+rendered Markdown. TaskChef records the marked delegation before executor
+creation and returns immediately. The child calls `link_task` before substantive
+work with its own durable native ID, never the parent/delegator or provisional
+client ID. Failed or interrupted linking remains visibly pending and retryable.
 
 ### Ask for a live report
 
@@ -255,9 +248,8 @@ project metadata that TaskChef used when it delegated the work.
 
 ## Important boundaries
 
-- TaskChef is an interactive dispatcher, not a scheduler, daemon, or background
-  worker. Its single lifecycle hook writes initial executor identity, then only
-  provides read-only current-turn context on follow-up prompts.
+- TaskChef is an interactive dispatcher, not a scheduler, daemon, hook, or
+  background worker. Executors self-link and report their current turn.
 - Executors are visible Codex tasks. The dispatcher does not supervise them or
   wait for them to finish.
 - TaskChef routes only to projects on the same local execution host.
@@ -346,10 +338,11 @@ validates a stable schema, derives durations and summary totals, and writes a
 timestamped result under the supplied output directory (default:
 `reports/e2e-benchmarks`). Use `validate <file>` to verify a saved result and
 `clean [directory]` to remove only prior TaskChef end-to-end result JSON files.
-Start from `assets/e2e-benchmark-example.json`; the writer accepts strict
-schema fields only and supports stopped workflows after preparation, creation,
-or recording failures. The writer stamps `taskchefVersion` from its own package;
-saved files retain that version for historical validation.
+Start from `assets/e2e-benchmark-example.json`; the strict schema records the
+record-before-create order, provisional client ID, executor self-link, rejected
+parent identity, needs-input callback, fresh follow-up turn, final result, and
+exact dashboard deep link. The writer stamps `taskchefVersion` from its own
+package; saved files retain that version for historical validation.
 
 ### One-time upgrade from an older workspace
 
@@ -435,14 +428,13 @@ task lines remain readable without an eager rewrite of the JSONL history.
 `project` value is the exact configured project path:
 
 ```sh
-printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nBefore ending, call the TaskChef report_result MCP tool with completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.\n\nAdd structured logs for failed retries and test them.","threadId":"019f..."}' |
+printf '%s\n' '{"id":"c0f010ff-84f2-4838-a69d-0ff1f5d721d7","project":"/workspace/payments","title":"Add retry logs","instruction":"<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->\n\nThis task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.\n\nBefore any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.\n\nBefore ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.\n\nAdd structured logs for failed retries and test them.","threadId":null}' |
   taskchef task record --json
 ```
 
-If a task still has `threadId: null` after bounded resolution, direct manual
-recovery may use the CLI operation below after verifying one exact structured
-marker match. The same locked atomic logic permits only the one-way transition
-from null to one unique thread ID:
+For unresolved records created by TaskChef 5.x or older, direct manual recovery
+may use the CLI operation below after verifying one exact structured marker
+match. Schema 4 self-linking records reject this command:
 
 ```sh
 taskchef task resolve c0f010ff-84f2-4838-a69d-0ff1f5d721d7 \
@@ -489,13 +481,15 @@ Updated: 2026-08-12T10:08:00.000Z
 Updated by: mcp
 Task ID: c0f010ff-84f2-4838-a69d-0ff1f5d721d7
 Thread ID: 019f9d46-f42c-7482-9707-3c107bf241ee
-Turn ID: 019f9d47-result-turn
+Turn ID: 019f9d47-f42c-7482-9707-3c107bf241ef
 Instruction:
 <!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
 
 This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
 
-Before ending, call the TaskChef report_result MCP tool with completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.
+Before any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.
+
+Before ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.
 
 Add structured logs for failed payment retries and test them.
 ```
@@ -514,16 +508,12 @@ workflow, writer boundaries, and freshness rules are in
 
 ## Development and release
 
-This result-callback redesign changes the public
-`createAndRecordDelegation` contract from post-creation thread discovery to
-record-before-create plus hook resolution. Release it as a new major version.
-Library callers migrating from TaskChef 5.x should remove `listThreads`,
-`readThread`, checkpoint, and timeout arguments; provide `recordTask` before
-creation and optional `resolveRecordedTask` and `reportRecordedResult`
-callbacks instead. The old pure thread-inspection exports remain temporarily
-available as deprecated compatibility helpers, but TaskChef no longer calls
-them. Creation errors expose `taskChefTaskId` and `taskChefResultReporting` so
-library callers can recover a record when the failure callback was unavailable.
+This executor self-linking redesign removes post-creation discovery and hooks.
+It requires a major release. Library callers migrating from TaskChef 5.x should
+remove thread-list/read, checkpoint, timeout, and `resolveRecordedTask`
+arguments. Provide `recordTask` before creation and optionally
+`reportRecordedResult` for creation failure. Creation errors expose
+`taskChefTaskId` and `taskChefResultReporting` for bounded recovery.
 
 ```sh
 npm test

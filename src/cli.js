@@ -464,12 +464,13 @@ Usage:
   taskchef project remove <name> [--json] [--workspace <path>]
   taskchef dispatch prepare [--json] [--workspace <path>]
   taskchef task record [--json] [--workspace <path>]
-  taskchef task resolve <task-id> --thread-id <thread-id> [--json] [--workspace <path>]
+  taskchef task resolve <legacy-task-id> --thread-id <thread-id> [--json] [--workspace <path>]
   taskchef task show <task-id-or-8-character-prefix> [--json] [--workspace <path>]
   taskchef task list [--project <name-or-path>] [--ascending] [--full-id] [--json] [--workspace <path>]
   taskchef task summary [--json] [--workspace <path>]
 
 Task record reads one JSON value from closed, non-interactive standard input.
+Task resolve is a legacy migration command and rejects self-linking task records.
 Task show accepts a full task ID or the exact 8-character ID printed by task list.
 Task show prints human-readable details by default; --json prints the complete task object.
 Project import reads a JSON

@@ -1,46 +1,50 @@
 {
-  "schemaVersion": 1,
-  "benchmark": "taskchef-delegate-e2e",
+  "schemaVersion": 2,
+  "benchmark": "taskchef-executor-self-link-e2e",
+  "taskchefVersion": "0.0.0",
   "runId": "replace-with-run-id",
-  "startedAt": "2026-08-13T06:30:00.000Z",
-  "completedAt": "2026-08-13T06:30:05.000Z",
+  "startedAt": "2026-08-24T10:00:00.000Z",
+  "completedAt": "2026-08-24T10:01:00.000Z",
   "workload": {
     "project": "example-project",
-    "title": "Example workload",
-    "prompt": "Return the requested example output."
+    "title": "Provisional self-link example",
+    "prompt": "Pause for approval, then complete the requested work."
   },
   "task": {
     "taskId": "00000000-0000-4000-8000-000000000000",
     "threadId": "00000000-0000-7000-8000-000000000000",
-    "clientThreadId": null,
+    "clientThreadId": "local:replace-with-provisional-id",
     "recorded": true,
-    "resolution": "immediate",
-    "resolutionAttempts": 0
+    "linked": true
   },
-  "stages": [
-    {
-      "name": "prepare-and-list-projects",
-      "startedAt": "2026-08-13T06:30:00.000Z",
-      "completedAt": "2026-08-13T06:30:00.200Z",
-      "outcome": "success"
-    },
-    {
-      "name": "create-thread",
-      "startedAt": "2026-08-13T06:30:01.000Z",
-      "completedAt": "2026-08-13T06:30:01.100Z",
-      "outcome": "durable"
-    },
-    {
-      "name": "record-task",
-      "startedAt": "2026-08-13T06:30:02.000Z",
-      "completedAt": "2026-08-13T06:30:04.000Z",
-      "outcome": "recorded"
-    }
-  ],
+  "turns": {
+    "needsInput": "00000000-0001-7000-8000-000000000000",
+    "completion": "00000000-0002-7000-8000-000000000000"
+  },
+  "events": {
+    "preparedAt": "2026-08-24T10:00:00.000Z",
+    "recordedAt": "2026-08-24T10:00:01.000Z",
+    "createdAt": "2026-08-24T10:00:02.000Z",
+    "linkedAt": "2026-08-24T10:00:05.000Z",
+    "needsInputAt": "2026-08-24T10:00:20.000Z",
+    "followedUpAt": "2026-08-24T10:00:40.000Z",
+    "completedAt": "2026-08-24T10:01:00.000Z"
+  },
   "validation": {
-    "recordVerified": true,
-    "markerVerified": true,
-    "outputVerified": false,
-    "candidateFilterEffective": false
+    "exactMarkerCorrelated": true,
+    "noDispatcherPostCreateReads": true,
+    "childIdentityVerified": true,
+    "parentIdentityRejected": true,
+    "linkRetryVerified": true,
+    "needsInputVerified": true,
+    "followUpTurnFresh": true,
+    "dashboardDeepLinkVerified": true,
+    "outputVerified": true
+  },
+  "summary": {
+    "totalWallMs": 60000,
+    "provisionalPath": true,
+    "linked": true,
+    "freshFollowUp": true
   }
 }

@@ -27,6 +27,7 @@ import * as taskchef from "../index.js";
 
 import {
   EXECUTOR_OWNERSHIP_PARAGRAPH,
+  EXECUTOR_LINK_PARAGRAPH,
   EXECUTOR_RESULT_PARAGRAPH,
   createAndRecordDelegation,
   createTaskChefMcpServer,
@@ -41,10 +42,9 @@ import {
   ensureWorkspaceInstructions,
   ensureWorkspaceSkills,
   filterTasks,
-  handleInitialPromptHook,
   importProjects,
-  INITIAL_LINK_CHECKPOINTS_MS,
   initializeWorkspace,
+  linkTask,
   listProjects,
   readConfig,
   listTasks,
@@ -83,11 +83,15 @@ const FIXED_TIME = "2026-08-08T10:00:00.000Z";
 const TASK_ID = "c0f010ff-84f2-4838-a69d-0ff1f5d721d7";
 const SECOND_TASK_ID = "ea896202-04fc-4a46-a6a1-4c9f5d63edfe";
 const BENCHMARK_THREAD_ID = "00000000-0000-7000-8000-000000000000";
+const SELF_LINK_THREAD_ID = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
+const OTHER_THREAD_ID = "019ffb69-57a6-7801-8b7a-8ff4c32a398d";
+const FIRST_RESULT_TURN_ID = "01a03275-d530-7043-ab4a-513a1ad6ae1e";
+const SECOND_RESULT_TURN_ID = "01a03275-d531-7043-ab4a-513a1ad6ae1e";
 
 function e2eBenchmarkInput() {
   return {
-    schemaVersion: 1,
-    benchmark: "taskchef-delegate-e2e",
+    schemaVersion: 2,
+    benchmark: "taskchef-executor-self-link-e2e",
     taskchefVersion: "5.1.1",
     runId: "baseline-t2-count",
     startedAt: "2026-08-13T06:30:00.000Z",
@@ -102,35 +106,30 @@ function e2eBenchmarkInput() {
       threadId: BENCHMARK_THREAD_ID,
       clientThreadId: null,
       recorded: true,
-      resolution: "immediate",
-      resolutionAttempts: 0,
+      linked: true,
     },
-    stages: [
-      {
-        name: "prepare-and-list-projects",
-        startedAt: "2026-08-13T06:30:00.000Z",
-        completedAt: "2026-08-13T06:30:00.200Z",
-        outcome: "success",
-      },
-      {
-        name: "create-thread",
-        startedAt: "2026-08-13T06:30:01.000Z",
-        completedAt: "2026-08-13T06:30:01.100Z",
-        outcome: "durable",
-      },
-      {
-        name: "record-task",
-        startedAt: "2026-08-13T06:30:02.000Z",
-        completedAt: "2026-08-13T06:30:04.000Z",
-        outcome: "recorded",
-      },
-    ],
+    turns: { needsInput: FIRST_RESULT_TURN_ID, completion: SECOND_RESULT_TURN_ID },
+    events: {
+      preparedAt: "2026-08-13T06:30:00.000Z",
+      recordedAt: "2026-08-13T06:30:00.100Z",
+      createdAt: "2026-08-13T06:30:00.200Z",
+      linkedAt: "2026-08-13T06:30:00.300Z",
+      needsInputAt: "2026-08-13T06:30:01.000Z",
+      followedUpAt: "2026-08-13T06:30:03.000Z",
+      completedAt: "2026-08-13T06:30:05.000Z",
+    },
     validation: {
-      recordVerified: true,
-      markerVerified: true,
-      outputVerified: false,
-      candidateFilterEffective: false,
+      exactMarkerCorrelated: true,
+      noDispatcherPostCreateReads: true,
+      childIdentityVerified: true,
+      parentIdentityRejected: true,
+      linkRetryVerified: true,
+      needsInputVerified: true,
+      followUpTurnFresh: true,
+      dashboardDeepLinkVerified: true,
+      outputVerified: true,
     },
+    summary: undefined,
   };
 }
 
@@ -397,7 +396,7 @@ test("Codex opening failure leaves an initialized workspace and returns structur
 test("public task history API uses task terminology", () => {
   for (const name of [
     "buildTaskSummary", "filterTasks", "listTasks", "prepareDispatch", "readTask", "recordTask",
-    "resolveTask", "reportTaskResult", "startTaskFromHook",
+    "linkTask", "resolveTask", "reportTaskResult",
   ]) {
     assert.equal(typeof taskchef[name], "function");
   }
@@ -408,15 +407,11 @@ test("public task history API uses task terminology", () => {
   }
   for (const name of [
     "filterThreadCandidates", "hasExactTaskChefMarker", "listThreadEntries",
-    "structuredDelegatedInputs",
-  ]) {
-    assert.equal(typeof taskchef[name], "function");
-  }
-  for (const name of [
+    "structuredDelegatedInputs", "startTaskFromHook",
     "THREAD_RESOLUTION_CHECKPOINTS_MS", "THREAD_RESOLUTION_CLOCK_SKEW_MS",
     "THREAD_RESOLUTION_RECENT_LIMIT", "THREAD_RESOLUTION_TIMEOUT_MS",
   ]) {
-    assert.ok(name in taskchef);
+    assert.equal(name in taskchef, false);
   }
 });
 
@@ -444,7 +439,7 @@ test("dispatch preparation combines canonical routing data and correlation value
   );
 });
 
-test("structured MCP tools prepare, record, and resolve through canonical workspace APIs", async () => {
+test("structured MCP tools prepare, record, self-link, and report through canonical workspace APIs", async () => {
   const { workspace, projects } = await fixture(1);
   const server = createTaskChefMcpServer({ workspace });
   const client = new Client({ name: "taskchef-test", version: "1.0.0" });
@@ -457,7 +452,7 @@ test("structured MCP tools prepare, record, and resolve through canonical worksp
     assert.deepEqual(listed.tools.map((tool) => tool.name), [
       "prepare_dispatch",
       "record_task",
-      "resolve_task",
+      "link_task",
       "report_result",
     ]);
     assert.equal(listed.tools[0].annotations.readOnlyHint, true);
@@ -498,7 +493,7 @@ test("structured MCP tools prepare, record, and resolve through canonical worksp
         project: projects[0],
         title: "Unmarked MCP task",
         instruction: "This input has no correlation marker.",
-        threadId: "durable-unmarked-thread",
+        threadId: null,
       },
     });
     assert.equal(unmarkedResult.isError, true);
@@ -506,16 +501,16 @@ test("structured MCP tools prepare, record, and resolve through canonical worksp
     await assert.rejects(readTask(workspace, SECOND_TASK_ID), /task not found/);
 
     const resolvedResult = await client.callTool({
-      name: "resolve_task",
-      arguments: { taskId: prepared.taskId, threadId: "durable-mcp-thread" },
+      name: "link_task",
+      arguments: { taskId: prepared.taskId, threadId: SELF_LINK_THREAD_ID },
     });
-    assert.equal(resolvedResult.structuredContent.task.threadId, "durable-mcp-thread");
+    assert.equal(resolvedResult.structuredContent.task.threadId, SELF_LINK_THREAD_ID);
     const completedResult = await client.callTool({
       name: "report_result",
       arguments: {
         taskId: prepared.taskId,
-        threadId: "durable-mcp-thread",
-        turnId: "turn-complete",
+        threadId: SELF_LINK_THREAD_ID,
+        turnId: FIRST_RESULT_TURN_ID,
         status: "completed",
         summary: "Implemented and verified the change.",
       },
@@ -527,7 +522,7 @@ test("structured MCP tools prepare, record, and resolve through canonical worksp
       name: "report_result",
       arguments: {
         taskId: prepared.taskId,
-        threadId: "durable-mcp-thread",
+        threadId: SELF_LINK_THREAD_ID,
         turnId: null,
         status: "completed",
         summary: "This linked result lacks turn evidence.",
@@ -599,328 +594,94 @@ test("workspace lock retries contention but fails permanent permission errors im
   assert.deepEqual(waits, [100, 100]);
 });
 
-test("end-to-end benchmark results use a stable derived summary and timestamped filename", async () => {
+test("end-to-end self-link benchmark derives summary and writes a timestamped result", async () => {
   const input = e2eBenchmarkInput();
-  const normalized = normalizeBenchmarkResult(input);
+  delete input.summary;
+  const normalized = normalizeBenchmarkResult(JSON.parse(JSON.stringify(input)));
   assert.deepEqual(normalized.summary, {
     totalWallMs: 5_000,
-    measuredStageMs: 2_300,
-    orchestrationOverheadMs: 2_700,
-    resolved: true,
-    resolutionAttempts: 0,
+    provisionalPath: false,
+    linked: true,
+    freshFollowUp: true,
   });
-  assert.deepEqual(normalized.stages.map((stage) => stage.durationMs), [200, 100, 2_000]);
 
-  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-benchmark-"));
-  const staleVersionInput = structuredClone(input);
-  staleVersionInput.taskchefVersion = "0.0.0";
-  const { outputPath } = await writeBenchmarkResult(staleVersionInput, root);
-  assert.equal(
-    path.basename(outputPath),
-    "2026-08-13T06-30-00.000Z-taskchef-delegate-e2e.json",
-  );
-  const saved = JSON.parse(await readFile(outputPath, "utf8"));
-  const currentVersion = JSON.parse(await readFile("package.json", "utf8")).version;
-  assert.deepEqual(saved.summary, normalized.summary);
-  assert.equal(saved.taskchefVersion, currentVersion);
-  await assert.rejects(writeBenchmarkResult(staleVersionInput, root), /EEXIST/);
-
-  const example = JSON.parse(await readFile("assets/e2e-benchmark-example.json", "utf8"));
-  const exampleRoot = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-example-"));
-  const exampleWrite = await writeBenchmarkResult(example, exampleRoot);
-  assert.equal(exampleWrite.result.taskchefVersion, currentVersion);
-});
-
-test("end-to-end benchmark cleanup removes only matching result files", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-clean-"));
-  const matching = "2026-08-13T06-30-00.000Z-taskchef-delegate-e2e.json";
-  await writeFile(path.join(root, matching), "{}\n");
-  await writeFile(path.join(root, "keep.json"), "{}\n");
-  await writeFile(path.join(root, "customer-notes-taskchef-delegate-e2e.json"), "{}\n");
-  await writeFile(path.join(root, "2026-99-99T99-99-99.999Z-taskchef-delegate-e2e.json"), "{}\n");
-  assert.deepEqual(await cleanBenchmarkResults(root), [matching]);
+  const outputDirectory = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-results-"));
+  const written = await writeBenchmarkResult(input, outputDirectory);
+  assert.match(path.basename(written.outputPath), /taskchef-executor-self-link-e2e\.json$/);
+  assert.equal(written.result.taskchefVersion,
+    JSON.parse(await readFile(path.resolve("package.json"), "utf8")).version);
   assert.deepEqual(
-    (await readdir(root)).sort(),
-    [
-      "2026-99-99T99-99-99.999Z-taskchef-delegate-e2e.json",
-      "customer-notes-taskchef-delegate-e2e.json",
-      "keep.json",
-    ],
+    normalizeBenchmarkResult(JSON.parse(await readFile(written.outputPath, "utf8")), {
+      requireDerived: true,
+    }).summary,
+    normalized.summary,
   );
 });
 
-test("end-to-end benchmark validation rejects incomplete and inconsistent results", () => {
-  const missingStage = e2eBenchmarkInput();
-  missingStage.stages.pop();
-  assert.throws(() => normalizeBenchmarkResult(missingStage), /requires a record-task stage/);
-  const invalidTime = e2eBenchmarkInput();
-  invalidTime.completedAt = "2026-08-13T06:29:59.000Z";
-  assert.throws(() => normalizeBenchmarkResult(invalidTime), /must not precede/);
-  const missingValidation = e2eBenchmarkInput();
-  delete missingValidation.validation.candidateFilterEffective;
-  assert.throws(
-    () => normalizeBenchmarkResult(missingValidation),
-    /candidateFilterEffective must be boolean/,
+test("end-to-end self-link benchmark cleanup removes only managed results", async () => {
+  const outputDirectory = await mkdtemp(path.join(os.tmpdir(), "taskchef-e2e-clean-"));
+  const managed = "2026-08-13T06-30-00.000Z-taskchef-executor-self-link-e2e.json";
+  await writeFile(path.join(outputDirectory, managed), "{}\n");
+  await writeFile(path.join(outputDirectory, "keep.json"), "{}\n");
+  await writeFile(
+    path.join(outputDirectory, "2026-08-13Tnotes-taskchef-executor-self-link-e2e.json"),
+    "{}\n",
   );
-  for (const invalidAttempts of [undefined, -1, 0.5]) {
-    const invalid = e2eBenchmarkInput();
-    invalid.task.resolutionAttempts = invalidAttempts;
-    assert.throws(() => normalizeBenchmarkResult(invalid), /nonnegative integer/);
-  }
-  const inconsistentAttempts = e2eBenchmarkInput();
-  inconsistentAttempts.task.resolutionAttempts = 1;
-  assert.throws(() => normalizeBenchmarkResult(inconsistentAttempts), /must agree/);
-  const outOfBoundsStage = e2eBenchmarkInput();
-  outOfBoundsStage.stages[0].startedAt = "2026-08-13T06:29:59.999Z";
-  assert.throws(() => normalizeBenchmarkResult(outOfBoundsStage), /within the benchmark run/);
-  for (const noncanonical of ["2026/08/13", "2026-08-13", "2026-08-13T06:30:00Z"]) {
-    const invalid = e2eBenchmarkInput();
-    invalid.startedAt = noncanonical;
-    assert.throws(() => normalizeBenchmarkResult(invalid), /canonical UTC ISO timestamp|four-digit UTC year/);
-  }
-  const invalidOutcome = e2eBenchmarkInput();
-  invalidOutcome.stages[0].outcome = "okay";
-  assert.throws(() => normalizeBenchmarkResult(invalidOutcome), /outcome is invalid/);
-  for (const invalidVersion of ["01.2.3", "1.02.3", "1.2.03", "1.2.3-..", "1.2.3+build..1"]) {
-    const invalid = e2eBenchmarkInput();
-    invalid.taskchefVersion = invalidVersion;
-    assert.throws(() => normalizeBenchmarkResult(invalid), /must be a semantic version/);
-  }
-  for (const makeWhitespaceOnly of [
-    (input) => { input.runId = "   "; },
-    (input) => { input.workload.project = "\t"; },
-    (input) => { input.workload.title = "\n"; },
-    (input) => { input.workload.prompt = "  "; },
-  ]) {
-    const invalid = e2eBenchmarkInput();
-    makeWhitespaceOnly(invalid);
-    assert.throws(() => normalizeBenchmarkResult(invalid), /must be a non-empty string/);
-  }
-  const invalidTaskId = e2eBenchmarkInput();
-  invalidTaskId.task.taskId = "replace-with-task-id";
-  assert.throws(() => normalizeBenchmarkResult(invalidTaskId), /lowercase UUID/);
-  const provisionalThreadId = e2eBenchmarkInput();
-  provisionalThreadId.task.threadId = "local:pending";
-  assert.throws(() => normalizeBenchmarkResult(provisionalThreadId), /provisional local: namespace/);
-  const opaqueDurableThreadId = e2eBenchmarkInput();
-  opaqueDurableThreadId.task.threadId = "durable-thread";
-  assert.equal(normalizeBenchmarkResult(opaqueDurableThreadId).task.threadId, "durable-thread");
-  const echoedClientId = e2eBenchmarkInput();
-  echoedClientId.task.clientThreadId = BENCHMARK_THREAD_ID;
-  assert.throws(() => normalizeBenchmarkResult(echoedClientId), /must differ/);
-  const distinctClientId = e2eBenchmarkInput();
-  distinctClientId.task.clientThreadId = "client-new-thread:diagnostic";
-  assert.equal(normalizeBenchmarkResult(distinctClientId).task.clientThreadId, "client-new-thread:diagnostic");
-  const markedPrompt = e2eBenchmarkInput();
-  markedPrompt.workload.prompt = `<!-- taskchef_id=${TASK_ID} -->\n\nDo work.`;
-  assert.throws(() => normalizeBenchmarkResult(markedPrompt), /must not contain a TaskChef marker/);
-  const tooManyAttempts = e2eBenchmarkInput();
-  tooManyAttempts.task.resolutionAttempts = 99;
-  assert.throws(() => normalizeBenchmarkResult(tooManyAttempts), /must not exceed 2/);
+  await writeFile(
+    path.join(outputDirectory, "9999-99-99T99-99-99.999Z-taskchef-executor-self-link-e2e.json"),
+    "{}\n",
+  );
+  assert.deepEqual(await cleanBenchmarkResults(outputDirectory), [managed]);
+  assert.deepEqual((await readdir(outputDirectory)).sort(), [
+    "2026-08-13Tnotes-taskchef-executor-self-link-e2e.json",
+    "9999-99-99T99-99-99.999Z-taskchef-executor-self-link-e2e.json",
+    "keep.json",
+  ]);
+});
 
-  for (const addUnknown of [
-    (input) => { input.hiddenReasoning = "do not persist"; },
-    (input) => { input.workload.transcript = "do not persist"; },
-    (input) => { input.stages[0].details = {}; },
-    (input) => { input.observations = { executorOutput: "sensitive output" }; },
-  ]) {
-    const invalid = e2eBenchmarkInput();
-    addUnknown(invalid);
-    assert.throws(() => normalizeBenchmarkResult(invalid), /unknown field/);
-  }
+test("end-to-end self-link benchmark enforces record order, child identity, and fresh turns", () => {
+  const provisional = e2eBenchmarkInput();
+  provisional.task.clientThreadId = "local:pending";
+  assert.equal(normalizeBenchmarkResult(provisional).summary.provisionalPath, true);
 
-  const overlapping = e2eBenchmarkInput();
-  overlapping.stages[1].startedAt = "2026-08-13T06:30:00.100Z";
-  assert.throws(() => normalizeBenchmarkResult(overlapping), /ordered and non-overlapping/);
+  const staleTurn = e2eBenchmarkInput();
+  staleTurn.turns.completion = staleTurn.turns.needsInput;
+  assert.throws(() => normalizeBenchmarkResult(staleTurn), /newer turn ID/);
 
-  const unresolvedImmediate = e2eBenchmarkInput();
-  unresolvedImmediate.task.threadId = null;
-  assert.throws(() => normalizeBenchmarkResult(unresolvedImmediate), /immediate durable resolution/);
-  const unrecorded = e2eBenchmarkInput();
-  unrecorded.task.recorded = false;
-  assert.throws(() => normalizeBenchmarkResult(unrecorded), /must agree with task.recorded/);
-  const falseRecordVerification = e2eBenchmarkInput();
-  falseRecordVerification.validation.recordVerified = false;
-  assert.equal(normalizeBenchmarkResult(falseRecordVerification).validation.recordVerified, false);
-  const falseMarkerVerification = e2eBenchmarkInput();
-  falseMarkerVerification.validation.markerVerified = false;
-  assert.equal(normalizeBenchmarkResult(falseMarkerVerification).validation.markerVerified, false);
+  const reversedTurns = e2eBenchmarkInput();
+  reversedTurns.turns.completion = "01a03275-d52f-7043-ab4a-513a1ad6ae1e";
+  assert.throws(() => normalizeBenchmarkResult(reversedTurns), /newer turn ID/);
 
-  const contradictoryResolution = e2eBenchmarkInput();
-  contradictoryResolution.task.clientThreadId = "client-thread";
-  contradictoryResolution.task.resolution = "native";
-  contradictoryResolution.task.resolutionAttempts = 1;
-  contradictoryResolution.stages[1].outcome = "provisional";
-  contradictoryResolution.stages.push({
-    name: "resolve-provisional",
-    startedAt: "2026-08-13T06:30:04.100Z",
-    completedAt: "2026-08-13T06:30:04.200Z",
-    outcome: "unresolved",
-  });
-  assert.throws(() => normalizeBenchmarkResult(contradictoryResolution), /agree with its resolution stage/);
+  const nonnativeTurn = e2eBenchmarkInput();
+  nonnativeTurn.turns.needsInput = "turn-needs-input";
+  assert.throws(() => normalizeBenchmarkResult(nonnativeTurn), /canonical Codex UUIDv7/);
 
-  const impossibleSnapshot = structuredClone(contradictoryResolution);
-  impossibleSnapshot.completedAt = "2026-08-13T06:30:40.000Z";
-  impossibleSnapshot.task.resolution = "unresolved";
-  impossibleSnapshot.task.threadId = null;
-  impossibleSnapshot.stages[3].startedAt = "2026-08-13T06:30:12.000Z";
-  impossibleSnapshot.stages[3].completedAt = "2026-08-13T06:30:13.000Z";
-  impossibleSnapshot.stages[3].outcome = "unresolved";
-  impossibleSnapshot.observations = {
-    resolutionSnapshots: [{
-      attempt: 1,
-      startedAt: "2026-08-13T06:30:12.000Z",
-      completedAt: "2026-08-13T06:30:13.000Z",
-      recentTaskCount: 2,
-      candidateCount: 1,
-      exactMatchCount: 2,
-      resolveWriteMs: 0,
-      resolveWriteOutcome: "not-attempted",
-    }],
-  };
-  impossibleSnapshot.validation.markerVerified = false;
-  impossibleSnapshot.validation.candidateFilterEffective = true;
-  assert.throws(() => normalizeBenchmarkResult(impossibleSnapshot), /counts are inconsistent/);
+  const nonnativeThread = e2eBenchmarkInput();
+  nonnativeThread.task.threadId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  assert.throws(() => normalizeBenchmarkResult(nonnativeThread), /canonical Codex UUIDv7/);
 
-  const mismatchedFilter = structuredClone(impossibleSnapshot);
-  mismatchedFilter.task.resolutionAttempts = 2;
-  mismatchedFilter.observations.resolutionSnapshots[0].exactMatchCount = 0;
-  mismatchedFilter.stages[3].outcome = "failed";
-  mismatchedFilter.validation.candidateFilterEffective = false;
-  assert.throws(() => normalizeBenchmarkResult(mismatchedFilter), /must match resolution snapshot counts/);
+  const createBeforeRecord = e2eBenchmarkInput();
+  createBeforeRecord.events.recordedAt = "2026-08-13T06:30:00.300Z";
+  createBeforeRecord.events.createdAt = "2026-08-13T06:30:00.200Z";
+  assert.throws(() => normalizeBenchmarkResult(createBeforeRecord), /events must be ordered|record must precede/);
 
-  const failedPreparation = e2eBenchmarkInput();
-  failedPreparation.task = {
-    taskId: null,
-    threadId: null,
-    clientThreadId: null,
-    recorded: false,
-    resolution: "unresolved",
-    resolutionAttempts: 0,
-  };
-  failedPreparation.stages = [{ ...failedPreparation.stages[0], outcome: "failed" }];
-  failedPreparation.validation = {
-    recordVerified: false,
-    markerVerified: false,
-    outputVerified: false,
-    candidateFilterEffective: false,
-  };
-  assert.equal(normalizeBenchmarkResult(failedPreparation).stages.length, 1);
-
-  const failedCreation = structuredClone(failedPreparation);
-  failedCreation.task.taskId = TASK_ID;
-  failedCreation.stages[0].outcome = "success";
-  failedCreation.stages.push({ ...e2eBenchmarkInput().stages[1], outcome: "failed" });
-  assert.equal(normalizeBenchmarkResult(failedCreation).stages.length, 2);
-
-  const zeroAttemptProvisional = e2eBenchmarkInput();
-  zeroAttemptProvisional.task.threadId = null;
-  zeroAttemptProvisional.task.clientThreadId = "client-thread";
-  zeroAttemptProvisional.task.resolution = "unresolved";
-  zeroAttemptProvisional.stages[1].outcome = "provisional";
-  zeroAttemptProvisional.validation.markerVerified = false;
-  assert.equal(normalizeBenchmarkResult(zeroAttemptProvisional).task.resolutionAttempts, 0);
-
-  const missingFallbackEvidence = structuredClone(zeroAttemptProvisional);
-  missingFallbackEvidence.task.resolutionAttempts = 2;
-  missingFallbackEvidence.stages.push({
-    name: "resolve-provisional",
-    startedAt: "2026-08-13T06:30:04.100Z",
-    completedAt: "2026-08-13T06:30:04.200Z",
-    outcome: "unresolved",
-  });
-  assert.throws(() => normalizeBenchmarkResult(missingFallbackEvidence), /require two fallback snapshots/);
-
-  const invalidSpacing = structuredClone(missingFallbackEvidence);
-  invalidSpacing.completedAt = "2026-08-13T06:30:40.000Z";
-  invalidSpacing.stages[3].startedAt = "2026-08-13T06:30:12.000Z";
-  invalidSpacing.stages[3].completedAt = "2026-08-13T06:30:35.000Z";
-  invalidSpacing.observations = {
-    resolutionSnapshots: [
-      {
-        attempt: 1,
-        startedAt: "2026-08-13T06:30:12.000Z",
-        completedAt: "2026-08-13T06:30:13.000Z",
-        recentTaskCount: 2,
-        candidateCount: 2,
-        exactMatchCount: 0,
-        resolveWriteMs: 0,
-        resolveWriteOutcome: "not-attempted",
-      },
-      {
-        attempt: 2,
-        startedAt: "2026-08-13T06:30:14.000Z",
-        completedAt: "2026-08-13T06:30:15.000Z",
-        recentTaskCount: 2,
-        candidateCount: 2,
-        exactMatchCount: 0,
-        resolveWriteMs: 0,
-        resolveWriteOutcome: "not-attempted",
-      },
-    ],
-  };
-  assert.throws(() => normalizeBenchmarkResult(invalidSpacing), /at least 20 seconds apart/);
-
-  const continuedAfterMatch = structuredClone(invalidSpacing);
-  continuedAfterMatch.observations.resolutionSnapshots[1].startedAt = "2026-08-13T06:30:32.000Z";
-  continuedAfterMatch.observations.resolutionSnapshots[1].completedAt = "2026-08-13T06:30:33.000Z";
-  continuedAfterMatch.observations.resolutionSnapshots[0].exactMatchCount = 1;
-  continuedAfterMatch.observations.resolutionSnapshots[0].resolveWriteOutcome = "failed";
-  assert.throws(() => normalizeBenchmarkResult(continuedAfterMatch), /must terminate fallback resolution/);
-  continuedAfterMatch.observations.resolutionSnapshots[0].exactMatchCount = 2;
-  continuedAfterMatch.observations.resolutionSnapshots[0].resolveWriteOutcome = "not-attempted";
-  assert.throws(() => normalizeBenchmarkResult(continuedAfterMatch), /must terminate fallback resolution/);
-
-  const failedResolveWrite = structuredClone(mismatchedFilter);
-  failedResolveWrite.task.resolutionAttempts = 1;
-  failedResolveWrite.observations.resolutionSnapshots[0].exactMatchCount = 1;
-  failedResolveWrite.observations.resolutionSnapshots[0].resolveWriteOutcome = "failed";
-  failedResolveWrite.validation.candidateFilterEffective = true;
-  assert.equal(normalizeBenchmarkResult(failedResolveWrite).task.resolution, "unresolved");
-  const impossibleWriteDuration = structuredClone(mismatchedFilter);
-  impossibleWriteDuration.observations.resolutionSnapshots[0].resolveWriteMs = 1;
-  assert.throws(() => normalizeBenchmarkResult(impossibleWriteDuration), /must be zero when no write was attempted/);
-  const mislabeledResolveWriteFailure = structuredClone(failedResolveWrite);
-  mislabeledResolveWriteFailure.stages[3].outcome = "unresolved";
-  assert.throws(() => normalizeBenchmarkResult(mislabeledResolveWriteFailure), /requires a failed resolution stage/);
-
-  const incompleteFallback = structuredClone(mismatchedFilter);
-  incompleteFallback.task.resolutionAttempts = 1;
-  incompleteFallback.stages[3].outcome = "unresolved";
-  incompleteFallback.validation.candidateFilterEffective = true;
-  assert.throws(() => normalizeBenchmarkResult(incompleteFallback), /requires the second fallback attempt/);
-  incompleteFallback.stages[3].outcome = "failed";
-  assert.throws(() => normalizeBenchmarkResult(incompleteFallback), /requires the second fallback attempt/);
-
-  const failedSecondAttempt = structuredClone(incompleteFallback);
-  failedSecondAttempt.task.resolutionAttempts = 2;
-  assert.equal(normalizeBenchmarkResult(failedSecondAttempt).task.resolutionAttempts, 2);
-  failedSecondAttempt.observations.resolutionSnapshots[0].candidateCount = 2;
-  failedSecondAttempt.observations.resolutionSnapshots[0].exactMatchCount = 2;
-  assert.throws(() => normalizeBenchmarkResult(failedSecondAttempt), /must terminate fallback resolution/);
-
-  const missingDerived = normalizeBenchmarkResult(e2eBenchmarkInput());
-  delete missingDerived.summary;
-  delete missingDerived.stages[0].durationMs;
+  const parentIdentity = e2eBenchmarkInput();
+  parentIdentity.validation.parentIdentityRejected = false;
   assert.throws(
-    () => normalizeBenchmarkResult(missingDerived, { requireDerived: true }),
-    /durationMs is required in a saved result/,
+    () => normalizeBenchmarkResult(parentIdentity),
+    /validation.parentIdentityRejected must be true/,
   );
 
-  const impossiblePreparationDuration = e2eBenchmarkInput();
-  impossiblePreparationDuration.observations = {
-    preparation: { dispatchPrepareMs: 201, nativeProjectListMs: 200 },
-  };
-  assert.throws(() => normalizeBenchmarkResult(impossiblePreparationDuration), /fit within the preparation stage/);
-  const impossibleValidationDuration = e2eBenchmarkInput();
-  impossibleValidationDuration.observations = { validationDurationMs: 1_001 };
-  assert.throws(() => normalizeBenchmarkResult(impossibleValidationDuration), /fit after the workflow stages/);
-  const excessiveRecentWindow = structuredClone(impossibleSnapshot);
-  excessiveRecentWindow.observations.resolutionSnapshots[0].recentTaskCount = 51;
-  assert.throws(() => normalizeBenchmarkResult(excessiveRecentWindow), /must not exceed 50/);
-  const extendedYear = e2eBenchmarkInput();
-  extendedYear.startedAt = "+010000-01-01T00:00:00.000Z";
-  assert.throws(() => normalizeBenchmarkResult(extendedYear), /four-digit UTC year/);
+  const malformedThread = e2eBenchmarkInput();
+  malformedThread.task.threadId = "parent-thread";
+  assert.throws(() => normalizeBenchmarkResult(malformedThread), /canonical Codex UUIDv7/);
+
+  const noncanonicalTimestamp = e2eBenchmarkInput();
+  noncanonicalTimestamp.startedAt = "2026-08-13T06:30:00Z";
+  assert.throws(
+    () => normalizeBenchmarkResult(noncanonicalTimestamp),
+    /canonical four-digit-year UTC timestamp/,
+  );
 });
 
 test("delegation marker parsing requires the exact first-line full UUID marker", () => {
@@ -928,7 +689,7 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\nDo the work.`,
+    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\nDo the work.`,
   );
   const [marker, blankLine] = prepared.instruction.split("\n", 2);
   assert.equal(marker, `<!-- taskchef_id=${TASK_ID} -->`);
@@ -966,7 +727,18 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   );
 });
 
-test("minimal delegation records before creation and resolves only an immediate durable ID", async () => {
+test("README task record and task show examples preserve exact executor lifecycle paragraphs", async () => {
+  const readme = await readFile(path.resolve("README.md"), "utf8");
+  for (const paragraph of [
+    EXECUTOR_OWNERSHIP_PARAGRAPH,
+    EXECUTOR_LINK_PARAGRAPH,
+    EXECUTOR_RESULT_PARAGRAPH,
+  ]) {
+    assert.ok(readme.split(paragraph).length - 1 >= 2);
+  }
+});
+
+test("minimal delegation records before creation and leaves even durable creation self-link pending", async () => {
   const order = [];
   const recorded = [];
   const resolved = [];
@@ -984,15 +756,17 @@ test("minimal delegation records before creation and resolves only an immediate 
     resolveRecordedTask: async (task) => { order.push("resolve"); resolved.push(task); },
   });
 
-  assert.deepEqual(order, ["record", "create", "resolve"]);
+  assert.deepEqual(order, ["record", "create"]);
   assert.equal(recorded[0].threadId, null);
-  assert.equal(result.status, "recorded");
-  assert.equal(result.threadId, "durable-thread");
-  assert.deepEqual(resolved, [{ id: TASK_ID, threadId: "durable-thread" }]);
+  assert.equal(result.status, "recorded-link-pending");
+  assert.equal(result.resolution, "executor-self-link");
+  assert.equal(result.threadId, null);
+  assert.deepEqual(resolved, []);
+  assert.match(recorded[0].instruction, /link_task MCP tool/);
   assert.match(recorded[0].instruction, /report_result MCP tool/);
 });
 
-test("minimal delegation leaves provisional identity for bounded exact-marker resolution", async () => {
+test("minimal delegation returns immediately with provisional creation link-pending", async () => {
   let createCalls = 0;
   const result = await createAndRecordDelegation({
     project: "/projects/example",
@@ -1008,8 +782,8 @@ test("minimal delegation leaves provisional identity for bounded exact-marker re
   });
 
   assert.equal(createCalls, 1);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "awaiting-bounded-marker-resolution");
+  assert.equal(result.status, "recorded-link-pending");
+  assert.equal(result.resolution, "executor-self-link");
   assert.equal(result.threadId, null);
   assert.equal(result.provisional, "local:pending");
 });
@@ -1040,10 +814,9 @@ test("split delegation records and creates one distinct task per outcome", async
       resolveRecordedTask: ({ id, threadId }) => resolveTask(workspace, id, threadId),
     })));
 
-  assert.deepEqual(results.map((result) => result.threadId).sort(), [
-    "durable-split-0",
-    "durable-split-1",
-  ]);
+  assert.deepEqual(results.map((result) => result.threadId), [null, null]);
+  await Promise.all(outcomes.map((outcome, index) =>
+    linkTask(workspace, outcome.id, [SELF_LINK_THREAD_ID, OTHER_THREAD_ID][index])));
   assert.equal(new Set(created.map((prompt) => parseTaskChefMarker(prompt))).size, 2);
   assert.deepEqual((await listTasks(workspace)).map((task) => task.id).sort(), [
     TASK_ID,
@@ -1051,7 +824,55 @@ test("split delegation records and creates one distinct task per outcome", async
   ].sort());
 });
 
-test("minimal delegation preserves a created durable ID when record resolution is unavailable", async () => {
+test("provisional executor self-links exact child and reports fresh follow-up turns", async () => {
+  const { workspace, projects } = await fixture(1);
+  let childPrompt;
+  const created = await createAndRecordDelegation({
+    project: projects[0],
+    title: "Provisional self-link journey",
+    instruction: "Pause for approval, then complete.",
+    target: { type: "project", projectId: "project-example" },
+    taskId: TASK_ID,
+    recordTask: ({ project: _projectPath, ...task }) => recordTask(workspace, {
+      ...task,
+      project: projects[0],
+    }),
+    createThread: async ({ prompt }) => {
+      childPrompt = prompt;
+      return { clientThreadId: "local:provisional-child", hostId: "local" };
+    },
+  });
+
+  assert.equal(created.status, "recorded-link-pending");
+  assert.equal(created.provisional, "local:provisional-child");
+  assert.equal(parseTaskChefMarker(childPrompt), TASK_ID);
+  assert.equal((await readTask(workspace, TASK_ID)).threadId, null);
+  await assert.rejects(linkTask(workspace, TASK_ID, "local:provisional-child"), /provisional/);
+
+  const childThreadId = SELF_LINK_THREAD_ID;
+  await linkTask(workspace, TASK_ID, childThreadId);
+  await assert.rejects(linkTask(workspace, TASK_ID, OTHER_THREAD_ID), /different threadId/);
+  let result = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: childThreadId,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Approval is required to continue.",
+  });
+  assert.equal(result.status, "needs_input");
+  result = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: childThreadId,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Approval received and work completed.",
+  });
+  assert.equal(result.turnId, SECOND_RESULT_TURN_ID);
+  assert.equal(result.threadId, childThreadId);
+  assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 1);
+});
+
+test("minimal delegation does not let a dispatcher-owned durable ID bypass self-linking", async () => {
   const result = await createAndRecordDelegation({
     project: "/projects/example",
     title: "Durable recovery",
@@ -1062,13 +883,13 @@ test("minimal delegation preserves a created durable ID when record resolution i
     createThread: async () => ({ threadId: "durable-created-thread" }),
   });
 
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "task-resolution-unavailable");
+  assert.equal(result.status, "recorded-link-pending");
+  assert.equal(result.resolution, "executor-self-link");
   assert.equal(result.threadId, null);
-  assert.equal(result.createdThreadId, "durable-created-thread");
+  assert.equal("createdThreadId" in result, false);
 });
 
-test("minimal delegation does not retry creation when immediate record resolution fails", async () => {
+test("minimal delegation ignores dispatcher resolution callbacks and never retries creation", async () => {
   let createCalls = 0;
   const result = await createAndRecordDelegation({
     project: "/projects/example",
@@ -1085,10 +906,9 @@ test("minimal delegation does not retry creation when immediate record resolutio
   });
 
   assert.equal(createCalls, 1);
-  assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "task-resolution-failed");
-  assert.equal(result.createdThreadId, "durable-created-thread");
-  assert.match(result.resolutionError, /record lock unavailable/);
+  assert.equal(result.status, "recorded-link-pending");
+  assert.equal(result.resolution, "executor-self-link");
+  assert.equal(result.threadId, null);
 });
 
 test("minimal delegation preserves and marks the task failed when executor creation fails", async () => {
@@ -1158,165 +978,81 @@ test("creation errors expose recovery identity when result reporting is unavaila
   });
 });
 
-test("initial hook trusts only a separately verified child identity", async () => {
+test("executor self-linking rejects parent identity, retries idempotently, and keeps result turns fresh", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Wait for a decision, then finish.", { taskId: TASK_ID });
   await recordTask(workspace, {
     ...dispatchInput(projects[0], TASK_ID, null),
     instruction: prepared.instruction,
   }, { now: FIXED_TIME });
-  await assert.rejects(reportTaskResult(workspace, {
-    taskId: TASK_ID,
-    threadId: null,
-    turnId: "unexpected-turn",
-    status: "failed",
-    summary: "Creation failed.",
-  }), /accepts only failed with null thread\/turn IDs/);
-
-  await resolveTask(workspace, TASK_ID, "child-thread", {
-    now: "2026-08-19T00:59:59.000Z",
+  let current = await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-19T01:00:00.000Z",
   });
-  const hookOutput = await handleInitialPromptHook({
-    hook_event_name: "UserPromptSubmit",
-    prompt: prepared.instruction,
-    session_id: "parent-thread",
-    turn_id: "turn-1",
-  }, {
-    workspace,
-    startTask: (root, taskId, threadId, turnId) =>
-      taskchef.startTaskFromHook(root, taskId, threadId, turnId, {
-        now: "2026-08-19T01:00:00.000Z",
-      }),
-  });
-  assert.match(hookOutput.hookSpecificOutput.additionalContext, /report_result/);
-  let current = await readTask(workspace, TASK_ID);
-  assert.equal(current.threadId, "child-thread");
+  assert.equal(current.threadId, SELF_LINK_THREAD_ID);
   assert.equal(current.status, "working");
-  assert.equal(current.turnId, "turn-1");
-  assert.equal(current.updatedBy, "hook");
-
-  const replay = await handleInitialPromptHook({
-    hook_event_name: "UserPromptSubmit",
-    prompt: prepared.instruction,
-    session_id: "parent-thread",
-    turn_id: "turn-replayed",
-  }, {
-    workspace,
-    startTask: (root, taskId, threadId, turnId) =>
-      taskchef.startTaskFromHook(root, taskId, threadId, turnId, {
-        now: "2026-08-19T01:00:30.000Z",
-      }),
-  });
-  assert.match(replay.hookSpecificOutput.additionalContext, /report_result/);
-  current = await readTask(workspace, TASK_ID);
-  assert.equal(current.turnId, "turn-1");
+  assert.equal(current.turnId, null);
+  assert.equal(current.updatedBy, "mcp");
+  assert.deepEqual(await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-19T01:00:30.000Z",
+  }), current);
   assert.equal(current.updatedAt, "2026-08-19T01:00:00.000Z");
+  await assert.rejects(linkTask(workspace, TASK_ID, OTHER_THREAD_ID), /different threadId/);
 
   current = await reportTaskResult(workspace, {
     taskId: TASK_ID,
-    threadId: "child-thread",
-    turnId: "turn-1",
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
     status: "needs_input",
     summary: "Approve deployment to continue.",
   }, { now: "2026-08-19T01:01:00.000Z" });
   assert.equal(current.status, "needs_input");
 
-  const followUp = await handleInitialPromptHook({
-    hook_event_name: "UserPromptSubmit",
-    prompt: "Approved. Continue the deployment.",
-    session_id: "child-thread",
-    turn_id: "turn-2",
-  }, { workspace });
-  assert.match(followUp.hookSpecificOutput.additionalContext, new RegExp(TASK_ID));
-  assert.match(followUp.hookSpecificOutput.additionalContext, /current turn turn-2/);
-  assert.match(followUp.hookSpecificOutput.additionalContext, /Pass this exact task ID/);
   current = await readTask(workspace, TASK_ID);
   assert.equal(current.status, "needs_input");
-  assert.equal(current.turnId, "turn-1");
+  assert.equal(current.turnId, FIRST_RESULT_TURN_ID);
   assert.equal(current.updatedBy, "mcp");
+
+  await assert.rejects(reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    status: "completed",
+    summary: "A non-native turn ID must not be accepted.",
+  }), /canonical Codex UUIDv7/);
+
+  assert.deepEqual(await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID.toUpperCase(),
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Approve deployment to continue.",
+  }), current);
+  await assert.rejects(reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "completed",
+    summary: "This stale turn must not complete the task.",
+  }), /turn already has a different semantic result/);
 
   current = await reportTaskResult(workspace, {
     taskId: TASK_ID,
-    threadId: "child-thread",
-    turnId: "turn-2",
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
     status: "completed",
     summary: "Deployment approved and completed successfully.",
   }, { now: "2026-08-19T01:03:00.000Z" });
   assert.equal(current.status, "completed");
-  assert.equal(current.turnId, "turn-2");
+  assert.equal(current.turnId, SECOND_RESULT_TURN_ID);
+  await assert.rejects(reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "failed",
+    summary: "A replayed earlier turn must not replace completion.",
+  }), /turnId must be newer than the stored turnId/);
   assert.equal(current.updatedBy, "mcp");
   assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 1);
-});
-
-test("initial hook leaves provisional identity unresolved instead of recording a parent session", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Run the child task.", { taskId: TASK_ID });
-  await recordTask(workspace, {
-    ...dispatchInput(projects[0], TASK_ID, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  let startCalls = 0;
-
-  const output = await handleInitialPromptHook({
-    hook_event_name: "UserPromptSubmit",
-    prompt: prepared.instruction,
-    session_id: "parent-thread",
-    turn_id: "child-turn",
-  }, {
-    workspace,
-    linkCheckpoints: [0],
-    startTask: async () => { startCalls += 1; },
-  });
-
-  assert.equal(startCalls, 0);
-  assert.match(output.systemMessage, /durable child task ID could not be verified/);
-  const current = await readTask(workspace, TASK_ID);
-  assert.equal(current.threadId, null);
-  assert.equal(current.turnId, null);
-  assert.equal(current.status, "working");
-});
-
-test("initial hook observes a verified child link at its final checkpoint", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Run the delayed child task.", { taskId: TASK_ID });
-  await recordTask(workspace, {
-    ...dispatchInput(projects[0], TASK_ID, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  let elapsed = 0;
-
-  const output = await handleInitialPromptHook({
-    hook_event_name: "UserPromptSubmit",
-    prompt: prepared.instruction,
-    session_id: "parent-thread",
-    turn_id: "child-turn",
-  }, {
-    workspace,
-    waitImpl: async (delayMs) => {
-      elapsed += delayMs;
-      if (elapsed === INITIAL_LINK_CHECKPOINTS_MS.at(-1)) {
-        await resolveTask(workspace, TASK_ID, "delayed-child-thread");
-      }
-    },
-  });
-
-  assert.equal(elapsed, INITIAL_LINK_CHECKPOINTS_MS.at(-1));
-  assert.match(output.hookSpecificOutput.additionalContext, /delayed-child-thread/);
-  const current = await readTask(workspace, TASK_ID);
-  assert.equal(current.threadId, "delayed-child-thread");
-  assert.equal(current.turnId, "child-turn");
-});
-
-test("non-TaskChef prompts ignore workspace resolution failures", async () => {
-  const output = await handleInitialPromptHook({
-    hook_event_name: "UserPromptSubmit",
-    prompt: "Ordinary unrelated prompt",
-    session_id: "ordinary-thread",
-    turn_id: "ordinary-turn",
-  }, {
-    resolveWorkspace: () => { throw new Error("invalid TASKCHEF_WORKSPACE"); },
-  });
-  assert.deepEqual(output, { continue: true });
 });
 
 test("concurrent semantic callbacks update different tasks without duplicate lines or lost writes", async () => {
@@ -1546,15 +1282,12 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: ".codex-plugin/plugin.json" },
       { path: ".mcp.json" },
       { path: "bin/taskchef.js", mode: 0o755 },
-      { path: "hooks/hooks.json" },
-      { path: "hooks/taskchef-initial-prompt.js" },
       { path: "mcp/server.js" },
       { path: "node_modules/@modelcontextprotocol/sdk/package.json" },
       { path: "node_modules/proper-lockfile/package.json" },
       { path: "node_modules/zod/package.json" },
       { path: "src/cli.js" },
       { path: "src/delegation.js" },
-      { path: "src/hook.js" },
       { path: "src/mcp.js" },
       { path: "src/workspace-path.js" },
       { path: "src/workspace.js" },
@@ -1570,13 +1303,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
     ], "2.3.4"),
     /missing \.codex-plugin\/plugin\.json/,
   );
-  assert.throws(
-    () => validatePublishedPluginPackage([{
-      ...packedRelease[0],
-      files: packedRelease[0].files.filter((file) => file.path !== "hooks/hooks.json"),
-    }], "2.3.4"),
-    /missing hooks\/hooks\.json/,
-  );
+  assert.equal(packedRelease[0].files.some((file) => file.path.startsWith("hooks/")), false);
   assert.throws(
     () => validatePublishedPluginPackage([{
       ...packedRelease[0],
@@ -1687,57 +1414,28 @@ test("init preserves existing configuration and merges managed instructions", as
 test("delegate skill isolates trigger metadata and requires structured workspace tools", async () => {
   const content = await readFile(path.resolve("skills/taskchef-delegate/SKILL.md"), "utf8");
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
-  assert.equal(
-    frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, resolve provisional identity by exact marker within a strict bound, and never wait for executor completion."',
-  );
+  assert.match(frontmatter, /require executor self-linking/);
   assert.doesNotMatch(frontmatter, /ordinary work requests in the TaskChef project/i);
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
-  assert.doesNotMatch(frontmatter, /\btaskchef-(?:bootstrap|report)\b/);
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
-  const literals = [...body.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
-  assert.deepEqual(literals.filter((literal) => /\btaskchef\.js(?:\s|$)/.test(literal)), []);
-  assert.equal(literals.some((literal) => /^(?:doctor|workspace|task|dispatch)\s/.test(literal)), false);
-  for (const toolName of ["prepare_dispatch", "record_task", "resolve_task", "report_result"]) {
-    assert.ok(literals.includes(toolName));
+  for (const toolName of ["prepare_dispatch", "record_task", "link_task", "report_result"]) {
+    assert.match(body, new RegExp(`\\b${toolName}\\b`));
   }
-  assert.match(body, /never probe for them or fall back to shell CLI writes/i);
+  assert.match(body, /Never fall back to shell writes/i);
   assert.match(
     body,
     /initial structured `codexDelegation\.input` starts with an exact[\s\S]+already owns that delegated\s+assignment/i,
   );
-  assert.match(body, /Do not re-dispatch it\s+merely because it concerns TaskChef or a configured project/i);
-  assert.match(
-    body,
-    /does not prevent the task from using TaskChef later[\s\S]+initial assignment explicitly asks to delegate separate\s+work[\s\S]+user later explicitly requests a new\s+delegation/i,
-  );
-  assert.match(body, /exactly `<!-- taskchef_id=<full UUID> -->` as the\s+first line/);
-  assert.match(body, /blank line, this executor-role paragraph, another blank line, the result/);
-  assert.match(body, /This task owns the delegated assignment\. Execute it in this task/);
-  assert.match(body, /Explicit requests to delegate separate work remain valid/);
-  assert.doesNotMatch(body, /`# taskchef_id=/);
-  assert.match(body, /list the native Codex projects once and call `prepare_dispatch`\s+exactly once for each outcome/);
-  assert.match(body, /never reuse either across executors/i);
-  assert.match(body, /Never take a pre-creation thread\s+snapshot/);
-  assert.match(body, /exact\s+random marker is the sole correlation proof/i);
+  assert.match(body, /Never reuse a task ID or marker/i);
   assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
-  assert.match(body, /without shell parsing, stdin, or\s+per-command filesystem escalation/);
-  assert.match(body, /closes the hook race/);
-  assert.match(body, /bounded\s+identity-resolution sequence/i);
-  assert.match(body, /Never use\s+`session_id`/i);
-  assert.match(body, /Stop at 30 seconds/i);
-  assert.match(body, /If executor creation fails, call `report_result`/);
-
-  for (const file of ["SPEC.md", "README.md", "docs/delegation-design.md"]) {
-    const documented = await readFile(path.resolve(file), "utf8");
-    assert.match(documented, new RegExp(EXECUTOR_OWNERSHIP_PARAGRAPH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
-
-  const backlog = await readFile(path.resolve("BACKLOG.md"), "utf8");
-  assert.match(backlog, /openai\/codex#26861/);
-  assert.match(backlog, /wait_for_thread\(clientThreadId, timeoutMs\)/);
-  assert.match(backlog, /resolve_client_thread\(clientThreadId\)/);
+  assert.match(body, /Do not call `link_task` from the dispatcher/i);
+  assert.match(body, /Never use CODEX_SESSION_ID or the parent or delegator thread ID/i);
+  assert.match(body, /current turn ID obtained by reading that exact thread/i);
+  assert.match(body, /A follow-up must use the\s+new turn ID/i);
+  assert.match(body, /return immediately/i);
+  assert.match(body, /If creation fails after recording, call `report_result`/);
+  assert.doesNotMatch(body, /bounded identity-resolution|Stop at 30 seconds|resolve_task immediately/i);
 });
 
 test("bootstrap skill initializes and verifies the canonical Codex project without hard-coded paths", async () => {
@@ -1773,21 +1471,28 @@ test("report skill keeps overviews cheap and reads newer focused tasks once", as
   assert.doesNotMatch(content, /30-second|30 seconds newer/);
   assert.match(content, /newer turn without a callback\s+makes the cache stale/i);
   assert.match(content, /interrupted or cancelled callback turn\s+cannot prove completion/i);
-  assert.match(content, /only a\s+snapshot with\s+`updatedBy: mcp` is a cached semantic result/i);
-  assert.match(content, /hook-written `working` snapshot has no semantic callback and\s+requires one live task query/);
-  assert.match(content, /inactive and no\s+callback exists, report the outcome as unknown/);
+  assert.match(content, /only a snapshot with\s+`updatedBy: mcp`, a result status, a non-null summary, and a non-null turn ID\s+is a cached semantic result/i);
+  assert.match(content, /Any `working` snapshot has no semantic\s+callback, including a self-linked `updatedBy: mcp` snapshot/i);
+  assert.match(content, /task is inactive and no callback\s+exists, report the outcome as unknown/);
   assert.match(content, /null thread\/turn IDs as a fresh\s+executor-creation failure/);
+  assert.match(content, /schema 4 null identity is executor\s+link-pending/);
+  assert.match(content, /schema 1-3 null\s+identity is a legacy recovery candidate/);
   assert.match(content, /No live read is possible or needed/);
   assert.match(content, /no semantic callback/);
   assert.doesNotMatch(content, /task update|reconcile-candidates/);
 });
 
-test("bundled identity hook has portable plugin-root commands", async () => {
-  const config = JSON.parse(await readFile(path.resolve("hooks/hooks.json"), "utf8"));
-  const hook = config.hooks.UserPromptSubmit[0].hooks[0];
-  assert.match(hook.command, /\$PLUGIN_ROOT\/hooks\/taskchef-initial-prompt\.js/);
-  assert.match(hook.commandWindows, /%PLUGIN_ROOT%\\hooks\\taskchef-initial-prompt\.js/);
-  assert.ok(hook.timeout * 1_000 > INITIAL_LINK_CHECKPOINTS_MS.at(-1));
+test("plugin package omits lifecycle hooks", async () => {
+  await assert.rejects(lstat(path.resolve("hooks/hooks.json")), { code: "ENOENT" });
+  await assert.rejects(lstat(path.resolve("src/hook.js")), { code: "ENOENT" });
+  assert.equal((await readFile(path.resolve("package.json"), "utf8")).includes('"hooks"'), false);
+});
+
+test("comparison documentation describes executor self-linking instead of dispatcher search", async () => {
+  const comparison = await readFile(path.resolve("docs/firstmate-taskchef-comparison.md"), "utf8");
+  assert.match(comparison, /executor registers its own\s+durable child identity through `link_task`/);
+  assert.match(comparison, /dispatcher neither searches recent tasks nor repairs identity/);
+  assert.doesNotMatch(comparison, /briefly searches|tries briefly to find|repairs the link/);
 });
 
 test("init fails safely on malformed managed instruction markers", async () => {
@@ -2151,7 +1856,7 @@ test("dispatch recording appends one working task entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
-  assert.equal(recorded.schemaVersion, 3);
+  assert.equal(recorded.schemaVersion, 4);
   assert.equal(recorded.project.name, "project-1");
   assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [
@@ -2176,10 +1881,9 @@ test("durable direct recording remains marker-independent", async () => {
   assert.equal(recorded.id, "direct-record");
   assert.equal(recorded.instruction, "Create echo_input.py, test it, and report the result.");
   assert.equal(recorded.threadId, "durable-thread");
-  assert.deepEqual(await resolveTask(workspace, "direct-record", "durable-thread"), recorded);
   await assert.rejects(
-    resolveTask(workspace, "direct-record", "different-thread"),
-    /already has a different threadId/,
+    resolveTask(workspace, "direct-record", "durable-thread"),
+    /only available for legacy pre-self-linking records/,
   );
 });
 
@@ -2212,7 +1916,7 @@ test("old heading markers remain history-readable but cannot be newly recorded o
   );
   await assert.rejects(
     resolveTask(workspace, TASK_ID, "durable-thread"),
-    /does not contain its exact TaskChef marker/,
+    /only available for legacy pre-self-linking records/,
   );
 });
 
@@ -2266,7 +1970,7 @@ test("legacy task snapshots normalize repository scalars without eager log rewri
   await writeFile(logPath, `${JSON.stringify(legacy)}\n`);
 
   const [normalized] = await listTasks(workspace);
-  assert.equal(normalized.schemaVersion, 3);
+  assert.equal(normalized.schemaVersion, 1);
   assert.equal(normalized.status, null);
   assert.deepEqual(normalized.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(JSON.parse((await readFile(logPath, "utf8")).trim()), legacy);
@@ -2298,7 +2002,7 @@ test("resolving a legacy task preserves every unrelated history line byte-for-by
   await writeFile(logPath, `${legacyLine}\n${unrelatedLine}\n`);
 
   const resolved = await resolveTask(workspace, prepared.id, "resolved-legacy-thread");
-  assert.equal(resolved.schemaVersion, 3);
+  assert.equal(resolved.schemaVersion, 1);
   assert.deepEqual(resolved.project.githubRepos, githubRepos);
   const [updatedLegacyLine, preservedUnrelatedLine] = (await readFile(logPath, "utf8"))
     .slice(0, -1)
@@ -2308,6 +2012,88 @@ test("resolving a legacy task preserves every unrelated history line byte-for-by
     threadId: "resolved-legacy-thread",
   });
   assert.equal(preservedUnrelatedLine, unrelatedLine);
+});
+
+test("legacy resolution rejects a case-variant duplicate Codex UUID", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Resolve the legacy task.", { taskId: TASK_ID });
+  const unresolved = await recordTask(workspace, {
+    ...dispatchInput(projects[0], prepared.id, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  const occupied = await recordTask(
+    workspace,
+    dispatchInput(projects[0], SECOND_TASK_ID, SELF_LINK_THREAD_ID),
+    { now: FIXED_TIME },
+  );
+  const { status, summary, turnId, updatedAt, updatedBy, ...legacy } = unresolved;
+  await writeFile(
+    path.join(workspace, "tasks.jsonl"),
+    `${JSON.stringify({ ...legacy, schemaVersion: 2 })}\n${JSON.stringify(occupied)}\n`,
+  );
+  await assert.rejects(
+    resolveTask(workspace, TASK_ID, SELF_LINK_THREAD_ID.toUpperCase()),
+    /threadId is already recorded/,
+  );
+});
+
+test("schema 3 legacy resolution refreshes dispatcher state without upgrading history", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Resolve the stateful legacy task.", { taskId: TASK_ID });
+  const current = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  const schema3 = { ...current, schemaVersion: 3 };
+  await writeFile(path.join(workspace, "tasks.jsonl"), `${JSON.stringify(schema3)}\n`);
+
+  const resolvedAt = "2026-08-24T03:00:00.000Z";
+  const resolved = await resolveTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: resolvedAt,
+  });
+  assert.equal(resolved.threadId, SELF_LINK_THREAD_ID);
+  assert.equal(resolved.updatedAt, resolvedAt);
+  assert.equal(resolved.updatedBy, "dispatcher");
+  const persisted = JSON.parse((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim());
+  assert.equal(persisted.schemaVersion, 3);
+  assert.equal(persisted.threadId, SELF_LINK_THREAD_ID);
+  assert.equal(persisted.updatedAt, resolvedAt);
+  assert.equal(persisted.updatedBy, "dispatcher");
+});
+
+test("marked legacy callbacks remain schema 3 across multiple opaque turns", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Continue the marked legacy task.", { taskId: TASK_ID });
+  const current = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await writeFile(
+    path.join(workspace, "tasks.jsonl"),
+    `${JSON.stringify({ ...current, schemaVersion: 3 })}\n`,
+  );
+  await resolveTask(workspace, TASK_ID, "legacy-thread", {
+    now: "2026-08-24T03:00:00.000Z",
+  });
+  await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "legacy-thread",
+    turnId: "legacy-turn-1",
+    status: "needs_input",
+    summary: "A legacy decision is required.",
+  });
+  const completed = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "legacy-thread",
+    turnId: "legacy-turn-2",
+    status: "completed",
+    summary: "The legacy task completed.",
+  });
+  assert.equal(completed.turnId, "legacy-turn-2");
+  assert.equal(
+    JSON.parse((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim()).schemaVersion,
+    3,
+  );
 });
 
 test("dispatch recording rejects duplicate IDs and thread IDs", async () => {
@@ -2321,6 +2107,30 @@ test("dispatch recording rejects duplicate IDs and thread IDs", async () => {
     recordTask(workspace, dispatchInput(projects[0], "dispatch-b", "thread-a")),
     /threadId is already recorded/,
   );
+  await recordTask(workspace, dispatchInput(projects[0], "dispatch-c", SELF_LINK_THREAD_ID));
+  await assert.rejects(
+    recordTask(workspace, dispatchInput(projects[0], "dispatch-d", SELF_LINK_THREAD_ID.toUpperCase())),
+    /threadId is already recorded/,
+  );
+});
+
+test("task log validation rejects mixed-case duplicates of one Codex UUID", async () => {
+  const { workspace, projects } = await fixture(1);
+  const first = await recordTask(
+    workspace,
+    dispatchInput(projects[0], TASK_ID, SELF_LINK_THREAD_ID),
+    { now: FIXED_TIME },
+  );
+  const duplicate = {
+    ...first,
+    id: SECOND_TASK_ID,
+    threadId: SELF_LINK_THREAD_ID.toUpperCase(),
+  };
+  await writeFile(
+    path.join(workspace, "tasks.jsonl"),
+    `${JSON.stringify(first)}\n${JSON.stringify(duplicate)}\n`,
+  );
+  await assert.rejects(listTasks(workspace), /duplicate task threadId/);
 });
 
 test("dispatch recording preserves multiple unresolved tasks with null thread IDs", async () => {
@@ -2350,7 +2160,7 @@ test("dispatch recording preserves multiple unresolved tasks with null thread ID
   assert.deepEqual((await listTasks(workspace)).map((task) => task.threadId), [null, null]);
 });
 
-test("task resolution performs one atomic null-to-threadId transition", async () => {
+test("task linking performs one atomic null-to-threadId transition", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Recover this task later.", { taskId: TASK_ID });
   const unresolved = await recordTask(workspace, {
@@ -2358,20 +2168,90 @@ test("task resolution performs one atomic null-to-threadId transition", async ()
     instruction: prepared.instruction,
   }, { now: FIXED_TIME });
 
-  const resolved = await resolveTask(workspace, prepared.id, "durable-thread");
-  assert.equal(resolved.threadId, "durable-thread");
+  const resolved = await linkTask(workspace, prepared.id, SELF_LINK_THREAD_ID);
+  assert.equal(resolved.threadId, SELF_LINK_THREAD_ID);
   assert.equal(resolved.createdAt, unresolved.createdAt);
   assert.equal(resolved.instruction, unresolved.instruction);
-  assert.deepEqual(await resolveTask(workspace, prepared.id, "durable-thread"), resolved);
+  assert.deepEqual(await linkTask(workspace, prepared.id, SELF_LINK_THREAD_ID), resolved);
   await assert.rejects(
-    resolveTask(workspace, prepared.id, "different-thread"),
+    linkTask(workspace, prepared.id, OTHER_THREAD_ID),
     /already has a different threadId/,
   );
   assert.deepEqual(await readTask(workspace, prepared.id), resolved);
 });
 
-test("task resolution validates the marker and durable thread ID uniqueness", async () => {
+test("task linking accepts uppercase native UUIDs and stores one canonical identity", async () => {
   const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Link this task.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], prepared.id, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+
+  const linked = await linkTask(workspace, prepared.id, SELF_LINK_THREAD_ID.toUpperCase());
+  assert.equal(linked.threadId, SELF_LINK_THREAD_ID);
+  assert.deepEqual(await linkTask(workspace, prepared.id, SELF_LINK_THREAD_ID), linked);
+});
+
+test("task linking rejects dispatcher-prebound schema 4 identities", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(workspace, dispatchInput(projects[0], TASK_ID, SELF_LINK_THREAD_ID), {
+    now: FIXED_TIME,
+  });
+  await assert.rejects(
+    linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID),
+    /not an eligible link-pending dispatcher record/,
+  );
+  await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: "direct-record-turn",
+    status: "completed",
+    summary: "Direct records retain legacy result compatibility.",
+  });
+  await assert.rejects(
+    linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID),
+    /does not contain its exact TaskChef marker/,
+  );
+
+  const marked = prepareDelegation("Marked but prebound.", { taskId: SECOND_TASK_ID });
+  await assert.rejects(
+    recordTask(workspace, {
+      ...dispatchInput(projects[0], SECOND_TASK_ID, OTHER_THREAD_ID),
+      instruction: marked.instruction,
+    }, { now: FIXED_TIME }),
+    /must be recorded with threadId: null/,
+  );
+});
+
+test("task linking cannot revive a terminal creation-failure record", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Creation will fail.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: null,
+    turnId: null,
+    status: "failed",
+    summary: "Executor creation failed.",
+  });
+  await assert.rejects(
+    linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID),
+    /not an eligible link-pending dispatcher record/,
+  );
+});
+
+test("task linking validates the marker and durable thread ID uniqueness", async () => {
+  const { workspace, projects } = await fixture(1);
+  await assert.rejects(linkTask(workspace, "missing-task", SELF_LINK_THREAD_ID), /task not found/);
+  await assert.rejects(linkTask(workspace, TASK_ID, "not-a-codex-uuid"), /canonical Codex UUIDv7/);
+  await assert.rejects(
+    linkTask(workspace, TASK_ID, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+    /canonical Codex UUIDv7/,
+  );
   await assert.rejects(
     recordTask(workspace, dispatchInput(projects[0], "unmarked", null)),
     /null threadId must contain its exact TaskChef marker/,
@@ -2387,14 +2267,14 @@ test("task resolution validates the marker and durable thread ID uniqueness", as
     ...dispatchInput(projects[0], second.id, null),
     instruction: second.instruction,
   });
-  await resolveTask(workspace, first.id, "shared-thread");
+  await linkTask(workspace, first.id, SELF_LINK_THREAD_ID);
   await assert.rejects(
-    resolveTask(workspace, second.id, "shared-thread"),
+    linkTask(workspace, second.id, SELF_LINK_THREAD_ID.toUpperCase()),
     /threadId is already recorded/,
   );
 });
 
-test("concurrent task resolution permits exactly one durable thread ID", async () => {
+test("concurrent task linking permits exactly one durable thread ID", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Resolve concurrently.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2403,8 +2283,8 @@ test("concurrent task resolution permits exactly one durable thread ID", async (
   });
 
   const settled = await Promise.allSettled([
-    resolveTask(workspace, prepared.id, "race-thread-a"),
-    resolveTask(workspace, prepared.id, "race-thread-b"),
+    linkTask(workspace, prepared.id, SELF_LINK_THREAD_ID),
+    linkTask(workspace, prepared.id, OTHER_THREAD_ID),
   ]);
   assert.equal(settled.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(settled.filter((result) => result.status === "rejected").length, 1);
@@ -2412,7 +2292,7 @@ test("concurrent task resolution permits exactly one durable thread ID", async (
     settled.find((result) => result.status === "rejected").reason.message,
     /already has a different threadId/,
   );
-  assert.match((await readTask(workspace, prepared.id)).threadId, /^race-thread-[ab]$/);
+  assert.ok([SELF_LINK_THREAD_ID, OTHER_THREAD_ID].includes((await readTask(workspace, prepared.id)).threadId));
 });
 
 test("concurrent dispatch recording cannot poison the journey", async () => {
@@ -2613,6 +2493,19 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
     ]),
     (error) => error.code === 1 && /provisional local ID/.test(error.stderr),
   );
+  await assert.rejects(
+    runCli([
+      "task", "resolve", prepared.id, "--thread-id", "cli-durable-thread",
+      "--json", "--workspace", workspace,
+    ]),
+    (error) => error.code === 1 && /only available for legacy pre-self-linking records/.test(error.stderr),
+  );
+  const cliTaskLog = path.join(workspace, "tasks.jsonl");
+  const cliRecords = (await readFile(cliTaskLog, "utf8")).trimEnd().split("\n").map(JSON.parse);
+  const legacyCliRecords = cliRecords.map((record) => record.id === prepared.id
+    ? { ...record, schemaVersion: 3 }
+    : record);
+  await writeFile(cliTaskLog, `${legacyCliRecords.map(JSON.stringify).join("\n")}\n`);
   const resolved = await runCli([
     "task", "resolve", prepared.id, "--thread-id", "cli-durable-thread",
     "--json", "--workspace", workspace,
