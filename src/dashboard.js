@@ -521,7 +521,7 @@ export async function createDashboardServer({
         else await openWorkspaceInCodex(canonicalProjectPath);
         sendJson(response, 202, {
           message: task.threadId
-            ? "Opened the project in Codex; this legacy thread ID cannot use direct navigation."
+            ? "Opened the project in Codex; this thread ID cannot use direct navigation."
             : "Opened the project in Codex; this task does not yet have a thread ID.",
         });
       } catch {

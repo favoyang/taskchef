@@ -59,11 +59,7 @@ export function canonicalGithubRepository(value, name = "githubRepos") {
 export function normalizeGithubRepositories(
   value,
   name = "githubRepos",
-  { allowLegacyScalar = false } = {},
 ) {
-  if (allowLegacyScalar && (value === null || typeof value === "string")) {
-    value = value === null ? [] : [value];
-  }
   if (!Array.isArray(value)) throw new Error(`${name} must be an array of GitHub repository URLs`);
   const repositories = [];
   const seen = new Set();

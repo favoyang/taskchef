@@ -5,17 +5,14 @@ import {
   lstat,
   mkdir,
   readFile,
-  readdir,
   realpath,
   link,
   rename,
-  rmdir,
   stat,
   unlink,
   writeFile,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { promisify } from "node:util";
 import lockfile from "proper-lockfile";
@@ -37,27 +34,16 @@ const DISPATCHER_INSTRUCTIONS_URL = new URL(
 );
 const DISPATCHER_INSTRUCTIONS_START = "<!-- taskchef:dispatcher-instructions:start -->";
 const DISPATCHER_INSTRUCTIONS_END = "<!-- taskchef:dispatcher-instructions:end -->";
-const TASKCHEF_SKILL_NAMES = [
-  "taskchef-bootstrap",
-  "taskchef-delegate",
-  "taskchef-report",
-];
-const LEGACY_TASKCHEF_SKILL_NAMES = [...TASKCHEF_SKILL_NAMES, "taskchef-reconcile"];
-const SKILLS_SOURCE_ROOT = fileURLToPath(new URL("../skills/", import.meta.url));
 const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_CONFIG_SCHEMA_VERSION = 2;
 const CURRENT_TASK_SCHEMA_VERSION = 4;
-const PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION = 3;
-const LEGACY_SCHEMA_VERSION = 1;
-const PREVIOUS_SCHEMA_VERSION = 2;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
   "name",
   "path",
   "isGitRepository",
-  "githubRepo",
   "githubRepos",
   "description",
 ]);
@@ -76,15 +62,6 @@ const DISPATCH_FIELDS = new Set([
   "updatedAt",
   "updatedBy",
 ]);
-const LEGACY_DISPATCH_FIELDS = new Set([
-  "schemaVersion",
-  "id",
-  "project",
-  "title",
-  "instruction",
-  "threadId",
-  "createdAt",
-]);
 const RECORD_DISPATCH_FIELDS = new Set([
   "id",
   "project",
@@ -94,7 +71,7 @@ const RECORD_DISPATCH_FIELDS = new Set([
 ]);
 const RESULT_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const TASK_STATUSES = new Set(["working", ...RESULT_STATUSES]);
-const TASK_UPDATE_SOURCES = new Set(["dispatcher", "hook", "mcp"]);
+const TASK_UPDATE_SOURCES = new Set(["dispatcher", "mcp"]);
 const MAX_RESULT_SUMMARY_LENGTH = 2_000;
 
 function requireExactFields(value, fields, name) {
@@ -347,75 +324,6 @@ export async function ensureWorkspaceInstructions(workspaceRoot) {
   return { path: filePath, action };
 }
 
-async function findLegacySkillLinks(workspaceRoot) {
-  const agentsDirectory = path.join(workspaceRoot, ".agents");
-  const agentsDetails = await lstat(agentsDirectory).catch((error) => {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  });
-  if (agentsDetails === null) return { agentsDirectory: null, skillsDirectory: null, links: [] };
-  if (agentsDetails.isSymbolicLink() || !agentsDetails.isDirectory()) {
-    return { agentsDirectory: null, skillsDirectory: null, links: [] };
-  }
-
-  const skillsDirectory = path.join(agentsDirectory, "skills");
-  const skillsDetails = await lstat(skillsDirectory).catch((error) => {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  });
-  if (skillsDetails === null) return { agentsDirectory, skillsDirectory, links: [] };
-  if (skillsDetails.isSymbolicLink() || !skillsDetails.isDirectory()) {
-    return { agentsDirectory, skillsDirectory: null, links: [] };
-  }
-
-  const links = [];
-  for (const skillName of LEGACY_TASKCHEF_SKILL_NAMES) {
-    const skillPath = path.join(skillsDirectory, skillName);
-    const details = await lstat(skillPath).catch((error) => {
-      if (error.code === "ENOENT") return null;
-      throw error;
-    });
-    if (details === null) continue;
-    if (!details.isSymbolicLink()) {
-      throw new Error(`legacy TaskChef skill path is not a symlink: ${skillPath}`);
-    }
-    links.push({ name: skillName, path: skillPath });
-  }
-  return { agentsDirectory, skillsDirectory, links };
-}
-
-async function removeLegacySkillLinks(workspaceRoot) {
-  const legacy = await findLegacySkillLinks(workspaceRoot);
-  for (const link of legacy.links) await unlink(link.path);
-  const removedDirectories = [];
-  if (legacy.skillsDirectory && (await readdir(legacy.skillsDirectory)).length === 0) {
-    await rmdir(legacy.skillsDirectory);
-    removedDirectories.push(legacy.skillsDirectory);
-  }
-  if (legacy.agentsDirectory && (await readdir(legacy.agentsDirectory).catch((error) => {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  }))?.length === 0) {
-    await rmdir(legacy.agentsDirectory);
-    removedDirectories.push(legacy.agentsDirectory);
-  }
-  return { removed: legacy.links, removedDirectories };
-}
-
-export async function ensureWorkspaceSkills(workspaceRoot) {
-  const root = await realpath(path.resolve(workspaceRoot));
-  const legacySkills = await removeLegacySkillLinks(root);
-  return {
-    directory: null,
-    skills: TASKCHEF_SKILL_NAMES.map((name) => ({
-      name,
-      path: path.join(SKILLS_SOURCE_ROOT, name),
-      action: "provided-by-plugin",
-    })),
-    legacySkills,
-  };
-}
-
 export async function canonicalGitRoot(projectPath) {
   const requested = await canonicalDirectory(projectPath);
   const { stdout } = await execFile("git", ["rev-parse", "--show-toplevel"], {
@@ -445,7 +353,7 @@ export async function canonicalDirectory(projectPath) {
 async function normalizeProject(
   project,
   index,
-  { checkPath = true, allowLegacyGithubRepo = false } = {},
+  { checkPath = true } = {},
 ) {
   const field = `projects[${index}]`;
   if (!project || typeof project !== "object" || Array.isArray(project)) {
@@ -453,12 +361,7 @@ async function normalizeProject(
   }
   const unexpected = Object.keys(project).find((key) => !PROJECT_FIELDS.has(key));
   if (unexpected) throw new Error(`${field} has unsupported field: ${unexpected}`);
-  const repositoryField = allowLegacyGithubRepo ? "githubRepo" : "githubRepos";
-  const unsupportedRepositoryField = allowLegacyGithubRepo ? "githubRepos" : "githubRepo";
-  if (unsupportedRepositoryField in project) {
-    throw new Error(`${field} has unsupported field: ${unsupportedRepositoryField}`);
-  }
-  for (const required of ["name", "path", "isGitRepository", repositoryField]) {
+  for (const required of ["name", "path", "isGitRepository", "githubRepos"]) {
     if (!(required in project)) throw new Error(`${field} is missing field: ${required}`);
   }
   const name = requireString(project.name, `${field}.name`).trim();
@@ -476,9 +379,7 @@ async function normalizeProject(
       throw new Error(`${field}.path must be a normalized absolute path`);
     }
   }
-  const githubRepos = normalizeGithubRepositories(project[repositoryField], `${field}.${repositoryField}`, {
-    allowLegacyScalar: allowLegacyGithubRepo,
-  });
+  const githubRepos = normalizeGithubRepositories(project.githubRepos, `${field}.githubRepos`);
   const normalized = {
     name,
     path: projectPath,
@@ -496,14 +397,13 @@ async function normalizeProject(
 
 async function normalizeProjects(
   projects,
-  { checkPaths = true, allowLegacyGithubRepo = false } = {},
+  { checkPaths = true } = {},
 ) {
   if (!Array.isArray(projects)) throw new Error("projects must be an array");
   const normalized = [];
   for (const [index, project] of projects.entries()) {
     normalized.push(await normalizeProject(project, index, {
       checkPath: checkPaths,
-      allowLegacyGithubRepo,
     }));
   }
   if (new Set(normalized.map((project) => project.path)).size !== normalized.length) {
@@ -594,15 +494,12 @@ async function inspectProject(input, index = 0) {
 
 export async function validateConfig(config, { checkPaths = true } = {}) {
   requireExactFields(config, CONFIG_FIELDS, "taskchef.json");
-  if (![LEGACY_SCHEMA_VERSION, CURRENT_CONFIG_SCHEMA_VERSION].includes(config.schemaVersion)) {
+  if (config.schemaVersion !== CURRENT_CONFIG_SCHEMA_VERSION) {
     throw new Error("unsupported configuration schemaVersion");
   }
   return {
     schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
-    projects: await normalizeProjects(config.projects, {
-      checkPaths,
-      allowLegacyGithubRepo: config.schemaVersion === LEGACY_SCHEMA_VERSION,
-    }),
+    projects: await normalizeProjects(config.projects, { checkPaths }),
   };
 }
 
@@ -630,9 +527,6 @@ export async function initializeWorkspace(workspaceRoot) {
   return withWorkspaceLock(root, async () => {
     const configPath = path.join(root, "taskchef.json");
     const configExists = await managedRegularFileExists(configPath);
-    const storedConfigVersion = configExists
-      ? JSON.parse(await readFile(configPath, "utf8")).schemaVersion
-      : null;
     const config = configExists
       ? await readConfig(root, { checkPaths: false })
       : { schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION, projects: [] };
@@ -640,11 +534,7 @@ export async function initializeWorkspace(workspaceRoot) {
     if (configExists && (await managedRegularFileExists(dispatchPath))) {
       await readDispatchesUnlocked(root);
     }
-    const { legacySkills } = await ensureWorkspaceSkills(root);
     if (!configExists) await writeJsonAtomic(configPath, config, { exclusive: true });
-    else if (storedConfigVersion !== CURRENT_CONFIG_SCHEMA_VERSION) {
-      await writeJsonAtomic(configPath, config);
-    }
     const tasks = await ensureDispatchFile(root);
     const instructions = await ensureWorkspaceInstructions(root).catch(async (error) => {
       if (!configExists) await unlink(configPath).catch(() => {});
@@ -656,14 +546,11 @@ export async function initializeWorkspace(workspaceRoot) {
       workspace: root,
       config: {
         path: configPath,
-        action: !configExists
-          ? "created"
-          : storedConfigVersion === CURRENT_CONFIG_SCHEMA_VERSION ? "unchanged" : "migrated",
+        action: configExists ? "unchanged" : "created",
         value: config,
       },
       tasks,
       instructions,
-      legacySkills,
     };
   });
 }
@@ -780,34 +667,15 @@ export async function removeProject(workspaceRoot, name) {
   });
 }
 
-async function validateDispatchShape(
-  dispatch,
-  name = "task",
-  { allowLegacyHeading = false } = {},
-) {
-  const supportedVersions = [
-    LEGACY_SCHEMA_VERSION,
-    PREVIOUS_SCHEMA_VERSION,
-    PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION,
-    CURRENT_TASK_SCHEMA_VERSION,
-  ];
-  if (!supportedVersions.includes(dispatch?.schemaVersion)) {
+async function validateDispatchShape(dispatch, name = "task") {
+  if (dispatch?.schemaVersion !== CURRENT_TASK_SCHEMA_VERSION) {
     throw new Error(`unsupported ${name} schemaVersion`);
   }
-  requireExactFields(
-    dispatch,
-    dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
-      ? DISPATCH_FIELDS
-      : LEGACY_DISPATCH_FIELDS,
-    name,
-  );
+  requireExactFields(dispatch, DISPATCH_FIELDS, name);
   const id = requireSafeId(dispatch.id, `${name}.id`);
-  const project = await normalizeProject(dispatch.project, 0, {
-    checkPath: false,
-    allowLegacyGithubRepo: dispatch.schemaVersion === LEGACY_SCHEMA_VERSION,
-  });
+  const project = await normalizeProject(dispatch.project, 0, { checkPath: false });
   const normalized = {
-    schemaVersion: dispatch.schemaVersion,
+    schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
     id,
     project,
     title: requireString(dispatch.title, `${name}.title`).trim(),
@@ -816,23 +684,13 @@ async function validateDispatchShape(
       ? null
       : normalizeDurableThreadId(dispatch.threadId, `${name}.threadId`),
     createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
-    status: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
-      ? requireEnum(dispatch.status, TASK_STATUSES, `${name}.status`)
-      : null,
-    summary: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
-      ? optionalString(dispatch.summary, `${name}.summary`, {
-        maxLength: MAX_RESULT_SUMMARY_LENGTH,
-      })
-      : null,
-    turnId: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
-      ? optionalString(dispatch.turnId, `${name}.turnId`, { maxLength: 256 })
-      : null,
-    updatedAt: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
-      ? requireTimestamp(dispatch.updatedAt, `${name}.updatedAt`)
-      : null,
-    updatedBy: dispatch.schemaVersion >= PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION
-      ? requireEnum(dispatch.updatedBy, TASK_UPDATE_SOURCES, `${name}.updatedBy`)
-      : null,
+    status: requireEnum(dispatch.status, TASK_STATUSES, `${name}.status`),
+    summary: optionalString(dispatch.summary, `${name}.summary`, {
+      maxLength: MAX_RESULT_SUMMARY_LENGTH,
+    }),
+    turnId: optionalString(dispatch.turnId, `${name}.turnId`, { maxLength: 256 }),
+    updatedAt: requireTimestamp(dispatch.updatedAt, `${name}.updatedAt`),
+    updatedBy: requireEnum(dispatch.updatedBy, TASK_UPDATE_SOURCES, `${name}.updatedBy`),
   };
   if (normalized.status === "working" && normalized.summary !== null) {
     throw new Error(`${name}.summary must be null while status is working`);
@@ -841,14 +699,13 @@ async function validateDispatchShape(
     throw new Error(`${name}.summary is required for status ${normalized.status}`);
   }
   if (
-    normalized.updatedAt !== null
-    && Date.parse(normalized.updatedAt) < Date.parse(normalized.createdAt)
+    Date.parse(normalized.updatedAt) < Date.parse(normalized.createdAt)
   ) {
     throw new Error(`${name}.updatedAt must not be earlier than createdAt`);
   }
   if (
     normalized.threadId === null &&
-    parseTaskChefMarker(normalized.instruction, { allowLegacyHeading }) !== normalized.id
+    parseTaskChefMarker(normalized.instruction) !== normalized.id
   ) {
     throw new Error(`${name} with a null threadId must contain its exact TaskChef marker`);
   }
@@ -875,9 +732,7 @@ async function parseDispatchRecordsUnlocked(root, content) {
     records.push({
       line,
       raw: value,
-      normalized: await validateDispatchShape(value, `task line ${index + 1}`, {
-        allowLegacyHeading: true,
-      }),
+      normalized: await validateDispatchShape(value, `task line ${index + 1}`),
     });
   }
   const ids = new Set();
@@ -972,53 +827,6 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
   });
 }
 
-export async function resolveTask(workspaceRoot, taskId, threadId, { now } = {}) {
-  const id = requireSafeId(taskId, "taskId");
-  const durableThreadId = normalizeDurableThreadId(threadId);
-  const root = await realpath(path.resolve(workspaceRoot));
-  return withWorkspaceLock(root, async () => {
-    const records = await readDispatchRecordsUnlocked(root);
-    const dispatches = records.map((record) => record.normalized);
-    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
-    if (index === -1) throw new Error(`task not found: ${id}`);
-    const currentRecord = records[index];
-    if (currentRecord.raw.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION) {
-      throw new Error(`task resolve is only available for legacy pre-self-linking records: ${id}`);
-    }
-    const dispatch = dispatches[index];
-    if (dispatch.threadId === durableThreadId) return dispatch;
-    if (dispatch.threadId !== null) {
-      throw new Error(`task already has a different threadId: ${id}`);
-    }
-    if (parseTaskChefMarker(dispatch.instruction) !== dispatch.id) {
-      throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
-    }
-    if (dispatches.some((item) => (
-      item.threadId !== null
-      && threadIdentityKey(item.threadId) === threadIdentityKey(durableThreadId)
-    ))) {
-      throw new Error(`threadId is already recorded: ${durableThreadId}`);
-    }
-    const statefulLegacy = currentRecord.raw.schemaVersion === PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION;
-    const rawResolved = statefulLegacy
-      ? {
-        ...currentRecord.raw,
-        threadId: durableThreadId,
-        updatedAt: now ?? new Date().toISOString(),
-        updatedBy: "dispatcher",
-      }
-      : { ...currentRecord.raw, threadId: durableThreadId };
-    const resolved = statefulLegacy
-      ? await validateDispatchShape(rawResolved)
-      : { ...dispatch, threadId: durableThreadId };
-    const lines = records.map((record, recordIndex) => recordIndex === index
-      ? JSON.stringify(rawResolved)
-      : record.line);
-    await writeDispatchLinesAtomic(root, lines);
-    return resolved;
-  });
-}
-
 export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
   const id = requireSafeId(taskId, "taskId");
   const durableThreadId = normalizeCodexThreadId(threadId);
@@ -1028,10 +836,6 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
     const dispatches = records.map((record) => record.normalized);
     const index = dispatches.findIndex((dispatch) => dispatch.id === id);
     if (index === -1) throw new Error(`task not found: ${id}`);
-    const currentRecord = records[index];
-    if (currentRecord.raw.schemaVersion < CURRENT_TASK_SCHEMA_VERSION) {
-      throw new Error(`link_task accepts only self-linking task records: ${id}`);
-    }
     const dispatch = dispatches[index];
     const sameIdentity = dispatch.threadId?.toLowerCase() === durableThreadId;
     if (sameIdentity && dispatch.updatedBy === "mcp") {
@@ -1115,8 +919,7 @@ export async function reportTaskResult(workspaceRoot, input, { now } = {}) {
     if (index === -1) throw new Error(`task not found: ${id}`);
     const dispatch = dispatches[index];
     const isSelfLinkingJourney = (
-      records[index].raw.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION
-      && dispatch.threadId !== null
+      dispatch.threadId !== null
       && parseTaskChefMarker(dispatch.instruction) === dispatch.id
     );
     let resultTurnId = turnId;
@@ -1149,12 +952,9 @@ export async function reportTaskResult(workspaceRoot, input, { now } = {}) {
     ) {
       throw new Error(`task result turnId must be newer than the stored turnId: ${id}`);
     }
-    const persistedSchemaVersion = records[index].raw.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION
-      ? CURRENT_TASK_SCHEMA_VERSION
-      : PREVIOUS_STATEFUL_TASK_SCHEMA_VERSION;
     const updated = await validateDispatchShape({
       ...dispatch,
-      schemaVersion: persistedSchemaVersion,
+      schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
       status,
       summary,
       turnId: resultTurnId,
@@ -1162,7 +962,7 @@ export async function reportTaskResult(workspaceRoot, input, { now } = {}) {
       updatedBy: "mcp",
     });
     const lines = records.map((record, recordIndex) => recordIndex === index
-      ? dispatchLineWithState(updated, { schemaVersion: persistedSchemaVersion })
+      ? dispatchLineWithState(updated, {})
       : record.line);
     await writeDispatchLinesAtomic(root, lines);
     return updated;
@@ -1233,13 +1033,6 @@ export async function doctorWorkspace(workspaceRoot) {
       throw new Error("managed AGENTS.md instructions are missing or stale");
     }
     return "managed AGENTS.md instructions current";
-  });
-  await check("legacy-skill-links", async () => {
-    const legacy = await findLegacySkillLinks(root);
-    if (legacy.links.length > 0) {
-      throw new Error("legacy TaskChef skill links remain; run workspace init to remove them");
-    }
-    return "no legacy TaskChef skill links";
   });
   return { workspace: root, ok: checks.every((item) => item.status === "pass"), checks };
 }

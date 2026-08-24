@@ -8,7 +8,6 @@ const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
 const CODEX_UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TASKCHEF_MARKER_PATTERN = new RegExp(`^<!-- taskchef_id=(${UUID_SOURCE}) -->$`);
-const LEGACY_TASKCHEF_MARKER_PATTERN = new RegExp(`^# taskchef_id=(${UUID_SOURCE})$`);
 
 function requireObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
@@ -82,16 +81,13 @@ export function taskChefMarker(taskId) {
   return `<!-- taskchef_id=${requireUuid(taskId)} -->`;
 }
 
-export function parseTaskChefMarker(instruction, { allowLegacyHeading = false } = {}) {
+export function parseTaskChefMarker(instruction) {
   if (typeof instruction !== "string") return null;
   const firstLine = instruction.split(/\r?\n/, 1)[0];
   const currentMatch = firstLine.match(TASKCHEF_MARKER_PATTERN);
-  if (currentMatch !== null) {
-    const prefix = instruction.match(/^([^\r\n]*)(\r?\n)\2/);
-    return prefix === null ? null : currentMatch[1];
-  }
-  if (!allowLegacyHeading) return null;
-  return firstLine.match(LEGACY_TASKCHEF_MARKER_PATTERN)?.[1] ?? null;
+  if (currentMatch === null) return null;
+  const prefix = instruction.match(/^([^\r\n]*)(\r?\n)\2/);
+  return prefix === null ? null : currentMatch[1];
 }
 
 export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {

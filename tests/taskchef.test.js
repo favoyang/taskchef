@@ -41,7 +41,6 @@ import {
   discoverCodexCli,
   doctorWorkspace,
   ensureWorkspaceInstructions,
-  ensureWorkspaceSkills,
   filterTasks,
   importProjects,
   initializeWorkspace,
@@ -55,7 +54,6 @@ import {
   recordTask,
   reportTaskResult,
   removeProject,
-  resolveTask,
   requireSafeId,
   parseTaskChefMarker,
   prepareDelegation,
@@ -211,7 +209,6 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
   assert.equal(repeated.config.action, "unchanged");
   assert.equal(repeated.tasks.action, "unchanged");
   assert.equal(repeated.instructions.action, "unchanged");
-  assert.deepEqual(repeated.legacySkills.removed, []);
 });
 
 test("workspace resolution prefers explicit, environment, then the per-user default", () => {
@@ -348,7 +345,7 @@ test("Codex thread opening uses the registered desktop deep link", async () => {
   assert.equal(result.threadId, threadId);
 });
 
-test("Codex thread opening rejects missing and legacy opaque thread IDs", async () => {
+test("Codex thread opening rejects missing and opaque non-native thread IDs", async () => {
   await assert.rejects(openThreadInCodex(""), /not supported/);
   await assert.rejects(openThreadInCodex("durable-thread"), /not supported/);
 });
@@ -397,7 +394,7 @@ test("Codex opening failure leaves an initialized workspace and returns structur
 test("public task history API uses task terminology", () => {
   for (const name of [
     "buildTaskSummary", "filterTasks", "listTasks", "prepareDispatch", "readTask", "recordTask",
-    "linkTask", "resolveTask", "reportTaskResult",
+    "linkTask", "reportTaskResult",
   ]) {
     assert.equal(typeof taskchef[name], "function");
   }
@@ -708,13 +705,6 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\nDo the work.`), null);
   assert.equal(parseTaskChefMarker(`# taskchef_id=${TASK_ID}\n\nDo the work.`), null);
   assert.equal(
-    parseTaskChefMarker(
-      `# taskchef_id=${TASK_ID}\n\nHistorical work.`,
-      { allowLegacyHeading: true },
-    ),
-    TASK_ID,
-  );
-  assert.equal(
     parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\n\r\nDo the work.`),
     TASK_ID,
   );
@@ -817,7 +807,6 @@ test("split delegation records and creates one distinct task per outcome", async
         created.push(prompt);
         return { threadId: `durable-split-${index}` };
       },
-      resolveRecordedTask: ({ id, threadId }) => resolveTask(workspace, id, threadId),
     })));
 
   assert.deepEqual(results.map((result) => result.threadId), [null, null]);
@@ -1102,57 +1091,6 @@ test("concurrent semantic callbacks update different tasks without duplicate lin
   }), /does not match recorded threadId/);
 });
 
-test("init removes legacy TaskChef skill links without deleting unrelated skills", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-legacy-skills-"));
-  const workspace = path.join(root, "workspace");
-  await initializeWorkspace(workspace);
-  const skillsDirectory = path.join(workspace, ".agents", "skills");
-  await mkdir(path.join(skillsDirectory, "other-skill"), { recursive: true });
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
-    await symlink(path.join(root, "old-source", skillName), path.join(skillsDirectory, skillName));
-  }
-
-  const stale = await doctorWorkspace(workspace);
-  assert.equal(stale.ok, false);
-  assert.match(
-    stale.checks.find((check) => check.name === "legacy-skill-links").message,
-    /run workspace init/,
-  );
-
-  const refreshed = await initializeWorkspace(workspace);
-  assert.deepEqual(
-    refreshed.legacySkills.removed.map((link) => link.name),
-    ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"],
-  );
-  assert.equal((await lstat(path.join(skillsDirectory, "other-skill"))).isDirectory(), true);
-  assert.equal((await doctorWorkspace(workspace)).ok, true);
-
-  const compatibility = await ensureWorkspaceSkills(workspace);
-  assert.equal(compatibility.directory, null);
-  assert.deepEqual(
-    compatibility.skills.map((skill) => skill.action),
-    ["provided-by-plugin", "provided-by-plugin", "provided-by-plugin"],
-  );
-
-  const onlyLegacy = path.join(root, "only-legacy");
-  await mkdir(path.join(onlyLegacy, ".agents", "skills"), { recursive: true });
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-reconcile"]) {
-    await symlink(path.join(root, "old-source", skillName), path.join(onlyLegacy, ".agents", "skills", skillName));
-  }
-  const cleaned = await initializeWorkspace(onlyLegacy);
-  assert.equal(cleaned.legacySkills.removedDirectories.length, 2);
-  await assert.rejects(lstat(path.join(onlyLegacy, ".agents")), { code: "ENOENT" });
-});
-
-test("init refuses to delete a non-symlink legacy TaskChef skill path", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-legacy-skill-directory-"));
-  const skillPath = path.join(root, ".agents", "skills", "taskchef-bootstrap");
-  await mkdir(skillPath, { recursive: true });
-  await writeFile(path.join(skillPath, "KEEP"), "user content\n");
-  await assert.rejects(initializeWorkspace(root), /legacy TaskChef skill path is not a symlink/);
-  assert.equal(await readFile(path.join(skillPath, "KEEP"), "utf8"), "user content\n");
-});
-
 test("init leaves unrelated symlinked agents paths untouched", async () => {
   for (const symlinkSkillsDirectory of [false, true]) {
     const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-unrelated-agents-"));
@@ -1191,7 +1129,8 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
   assert.equal(packageJson.files.includes(".mcp.json"), true);
   assert.equal(packageJson.files.includes("assets"), true);
-  assert.equal(packageJson.files.includes("docs/delegation-design.md"), true);
+  assert.equal(packageJson.files.includes("docs/spec.md"), true);
+  assert.equal(packageJson.files.includes("docs/workflows.md"), true);
   assert.equal(packageJson.files.includes("docs/firstmate-taskchef-comparison.md"), true);
   assert.equal(packageJson.files.includes("mcp"), true);
   assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
@@ -1266,69 +1205,25 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(await readFile(taggedOutputPath, "utf8"), "version=2.3.4\n");
 });
 
-test("delegation design documents MCP calls and field transitions as focused Markdown sequences", async () => {
-  const design = await readFile(path.resolve("docs/delegation-design.md"), "utf8");
-  const diagrams = [...design.matchAll(/```mermaid\n(sequenceDiagram[\s\S]*?)```/g)]
+test("workflow document keeps current MCP sequences renderable and focused", async () => {
+  const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
+  const diagrams = [...workflows.matchAll(/\`\`\`mermaid\n(sequenceDiagram[\s\S]*?)\`\`\`/g)]
     .map((match) => match[1]);
-  assert.equal(diagrams.length, 7, "each lifecycle logic point should have a focused diagram");
+  assert.equal(diagrams.length, 6);
   for (const diagram of diagrams) {
     const parsed = await mermaidParser.parse(diagram);
     assert.equal(parsed.diagramType, "sequence");
-    assert.ok(
-      diagram.trim().split("\n").length <= 28,
-      "each lifecycle diagram should remain small enough to scan",
-    );
+    assert.ok(diagram.trim().split("\n").length <= 32);
   }
-  const mermaid = diagrams.join("\n");
-  const calls = [...new Set(
-    [...mermaid.matchAll(/\b(prepare_dispatch|record_task|link_task|report_result)\(/g)]
-      .map((match) => match[1]),
-  )];
-  assert.deepEqual(calls.sort(), ["link_task", "prepare_dispatch", "record_task", "report_result"]);
-  for (const call of calls) {
-    assert.match(design, new RegExp(`${call}\\(`));
+  for (const call of ["prepare_dispatch", "record_task", "link_task", "report_result"]) {
+    assert.match(workflows, new RegExp(`\\b${call}\\(`));
   }
-  const fields = [
-    "threadId=null",
-    "status=working",
-    "summary=null",
-    "turnId=null",
-    "updatedBy=dispatcher",
-    "updatedBy=mcp",
-  ];
-  for (const field of fields) {
-    assert.match(design, new RegExp(field));
-  }
-  assert.match(design, /exactly one native creation call and never retries/);
-  const semanticLabels = mermaid.split("\n").flatMap((line) => {
-    const statement = line.trim();
-    const frame = statement.match(/^(?:alt|else)\s+(.+)$/)?.[1];
-    if (frame) return [frame];
-    if (!statement.startsWith("Note ") && !statement.includes(":")) return [];
-    const separator = statement.indexOf(":");
-    return separator === -1 ? [] : [statement.slice(separator + 1)];
-  }).map((label) => label
-    .replaceAll("#59;", ";")
-    .replace(/<br\s*\/?>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim());
-  assert.ok(semanticLabels.length > 30, "sequences should retain their detailed lifecycle labels");
-  for (const label of [
-    "Creation result is not executor identity authority",
-    "Created-task directive; dispatcher returns immediately",
-    "Read own CODEX_THREAD_ID",
-    "Exact read of this executor thread",
-    "Exact native read after follow-up",
-    "Native creation fails after record_task",
-    "Keep threadId=null and turnId=null Set status=failed, summary, updatedAt, updatedBy=mcp",
-    "Creation failure with preserved TaskChef taskId",
-    "Initial link stops before commit",
-    "Link commits but response is lost",
-  ]) {
-    assert.ok(semanticLabels.includes(label), `sequences should retain identity-critical label: ${label}`);
-  }
+  assert.match(workflows, /Follow-up turns/);
+  assert.match(workflows, /Link-pending and failure paths/);
+  assert.match(workflows, /Dashboard update flow/);
+  assert.match(workflows, /Concurrency and trust boundaries/);
+  assert.doesNotMatch(workflows, /task resolve|schema 1-3|updatedBy: hook/);
 });
-
 test("release automation pins the shared marketplace to the exact npm version", async () => {
   const marketplace = {
     name: "favoyang-plugins",
@@ -1555,8 +1450,8 @@ test("report skill keeps overviews cheap and reads newer focused tasks once", as
   assert.match(content, /Any `working` snapshot has no semantic\s+callback, including a self-linked `updatedBy: mcp` snapshot/i);
   assert.match(content, /task is inactive and no callback\s+exists, report the outcome as unknown/);
   assert.match(content, /null thread\/turn IDs as a fresh\s+executor-creation failure/);
-  assert.match(content, /schema 4 null identity is executor\s+link-pending/);
-  assert.match(content, /schema 1-3 null\s+identity is a legacy recovery candidate/);
+  assert.match(content, /A null identity is\s+executor link-pending/);
+  assert.doesNotMatch(content, /schema 1-3|task resolve|legacy recovery/);
   assert.match(content, /No live read is possible or needed/);
   assert.match(content, /no semantic callback/);
   assert.doesNotMatch(content, /task update|reconcile-candidates/);
@@ -1571,8 +1466,8 @@ test("plugin package omits lifecycle hooks", async () => {
 test("documentation architecture keeps four audience owners linked and current", async () => {
   const documents = [
     "README.md",
-    "SPEC.md",
-    "docs/delegation-design.md",
+    "docs/spec.md",
+    "docs/workflows.md",
     "docs/firstmate-taskchef-comparison.md",
   ];
   const contents = new Map(await Promise.all(documents.map(async (file) => [
@@ -1589,8 +1484,8 @@ test("documentation architecture keeps four audience owners linked and current",
   }
 
   assert.match(contents.get("README.md"), /Which document should I read\?/);
-  assert.match(contents.get("SPEC.md"), /normative agent-facing contract/i);
-  assert.match(contents.get("docs/delegation-design.md"), /TaskChef 6\.x/);
+  assert.match(contents.get("docs/spec.md"), /normative agent-facing contract/i);
+  assert.match(contents.get("docs/workflows.md"), /TaskChef workflows/);
   const comparison = await readFile(path.resolve("docs/firstmate-taskchef-comparison.md"), "utf8");
   assert.match(comparison, /Research, not contract/);
   assert.match(comparison, /Access date:\*\* 2026-08-25/);
@@ -1690,46 +1585,6 @@ test("project add supports non-Git directories and explicit GitHub suppression",
     addProject(workspace, { path: path.join(root, "missing") }),
     /does not exist/,
   );
-});
-
-test("schemaVersion 1 configuration normalizes read-only and migrates on init", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-schema-migration-"));
-  const workspace = path.join(root, "workspace");
-  const first = await gitProject(root, "first");
-  const notes = path.join(root, "notes");
-  await mkdir(workspace);
-  await mkdir(notes);
-  await writeFile(path.join(workspace, "taskchef.json"), `${JSON.stringify({
-    schemaVersion: 1,
-    projects: [{
-      name: "first",
-      path: first,
-      isGitRepository: true,
-      githubRepo: "https://github.com/Example/first",
-    }, {
-      name: "notes",
-      path: notes,
-      isGitRepository: false,
-      githubRepo: null,
-    }],
-  }, null, 2)}\n`);
-  await writeFile(path.join(workspace, "tasks.jsonl"), "");
-
-  assert.deepEqual((await readConfig(workspace)).projects.map((project) => project.githubRepos), [
-    ["https://github.com/Example/first"],
-    [],
-  ]);
-  assert.equal(JSON.parse(await readFile(path.join(workspace, "taskchef.json"), "utf8")).schemaVersion, 1);
-
-  const initialized = await initializeWorkspace(workspace);
-  assert.equal(initialized.config.action, "migrated");
-  const persisted = JSON.parse(await readFile(path.join(workspace, "taskchef.json"), "utf8"));
-  assert.equal(persisted.schemaVersion, 2);
-  assert.equal(persisted.projects.some((project) => "githubRepo" in project), false);
-  assert.deepEqual(persisted.projects.map((project) => project.githubRepos), [
-    ["https://github.com/Example/first"],
-    [],
-  ]);
 });
 
 test("GitHub repository lists canonicalize and deduplicate common remote spellings", async () => {
@@ -1942,6 +1797,10 @@ test("moved projects can be removed or replaced through configuration repair", a
 
 test("configuration and dispatch schemas remain strict", async () => {
   await assert.rejects(
+    validateConfig({ schemaVersion: 1, projects: [] }),
+    /unsupported configuration schemaVersion/,
+  );
+  await assert.rejects(
     validateConfig({ schemaVersion: 1, projects: [], hostId: "forbidden" }),
     /unsupported field: hostId/,
   );
@@ -1954,6 +1813,12 @@ test("configuration and dispatch schemas remain strict", async () => {
     recordTask(workspace, dispatchInput(projects[0], "provisional", "local:client-id")),
     /provisional local ID/,
   );
+  const current = await recordTask(workspace, dispatchInput(projects[0], "current-schema"));
+  await writeFile(
+    path.join(workspace, "tasks.jsonl"),
+    `${JSON.stringify({ ...current, schemaVersion: 3 })}\n`,
+  );
+  await assert.rejects(listTasks(workspace), /unsupported task line 1 schemaVersion/);
   assert.throws(() => requireSafeId("../escape"), /unsupported characters/);
 });
 
@@ -1973,232 +1838,6 @@ test("dispatch recording appends one working task entry", async () => {
   const content = await readFile(path.join(workspace, "tasks.jsonl"), "utf8");
   assert.equal(content.split("\n").length, 2);
   assert.deepEqual(JSON.parse(content.trim()), recorded);
-});
-
-test("durable direct recording remains marker-independent", async () => {
-  const { workspace, projects } = await fixture(1);
-  const recorded = await recordTask(
-    workspace,
-    dispatchInput(projects[0], "direct-record", "durable-thread"),
-    { now: FIXED_TIME },
-  );
-
-  assert.equal(recorded.id, "direct-record");
-  assert.equal(recorded.instruction, "Create echo_input.py, test it, and report the result.");
-  assert.equal(recorded.threadId, "durable-thread");
-  await assert.rejects(
-    resolveTask(workspace, "direct-record", "durable-thread"),
-    /only available for legacy pre-self-linking records/,
-  );
-});
-
-test("old heading markers remain history-readable but cannot be newly recorded or resolved", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Historical unresolved task.", { taskId: TASK_ID });
-  const recorded = await recordTask(workspace, {
-    ...dispatchInput(projects[0], TASK_ID, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  const legacyInstruction = `# taskchef_id=${TASK_ID}\n\nHistorical unresolved task.`;
-  const historical = { ...recorded, instruction: legacyInstruction };
-  const logPath = path.join(workspace, "tasks.jsonl");
-  await writeFile(logPath, `${JSON.stringify(historical)}\n`);
-
-  assert.equal((await listTasks(workspace))[0].instruction, legacyInstruction);
-  await assert.rejects(
-    recordTask(workspace, {
-      ...dispatchInput(projects[0], SECOND_TASK_ID, null),
-      instruction: `# taskchef_id=${SECOND_TASK_ID}\n\nNew unresolved task.`,
-    }),
-    /null threadId must contain its exact TaskChef marker/,
-  );
-  await assert.rejects(
-    recordTask(workspace, {
-      ...dispatchInput(projects[0], SECOND_TASK_ID, null),
-      instruction: `<!-- taskchef_id=${SECOND_TASK_ID} -->\nMissing blank line.`,
-    }),
-    /null threadId must contain its exact TaskChef marker/,
-  );
-  await assert.rejects(
-    resolveTask(workspace, TASK_ID, "durable-thread"),
-    /only available for legacy pre-self-linking records/,
-  );
-});
-
-test("historical heading markers retain their prior first-line read compatibility", async () => {
-  for (const legacyInstruction of [
-    `# taskchef_id=${TASK_ID}\nHistorical body without a blank separator.`,
-    `# taskchef_id=${TASK_ID}`,
-  ]) {
-    const { workspace, projects } = await fixture(1);
-    const historical = {
-      schemaVersion: 2,
-      id: TASK_ID,
-      project: {
-        name: "project-1",
-        path: projects[0],
-        isGitRepository: true,
-        githubRepos: ["https://github.com/example/project-1"],
-        description: "Fixture project 1.",
-      },
-      title: "Historical unresolved task",
-      instruction: legacyInstruction,
-      threadId: null,
-      createdAt: FIXED_TIME,
-    };
-    await writeFile(
-      path.join(workspace, "tasks.jsonl"),
-      `${JSON.stringify(historical)}\n`,
-    );
-
-    assert.equal((await listTasks(workspace))[0].instruction, legacyInstruction);
-    await assert.rejects(
-      resolveTask(workspace, TASK_ID, "durable-thread"),
-      /does not contain its exact TaskChef marker/,
-    );
-  }
-});
-
-test("legacy task snapshots normalize repository scalars without eager log rewrites", async () => {
-  const { workspace, projects } = await fixture(1);
-  const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
-  const { githubRepos, ...legacyProject } = recorded.project;
-  const {
-    status, summary, turnId, updatedAt, updatedBy, ...legacyRecord
-  } = recorded;
-  const legacy = {
-    ...legacyRecord,
-    schemaVersion: 1,
-    project: { ...legacyProject, githubRepo: githubRepos[0] },
-  };
-  const logPath = path.join(workspace, "tasks.jsonl");
-  await writeFile(logPath, `${JSON.stringify(legacy)}\n`);
-
-  const [normalized] = await listTasks(workspace);
-  assert.equal(normalized.schemaVersion, 1);
-  assert.equal(normalized.status, null);
-  assert.deepEqual(normalized.project.githubRepos, ["https://github.com/example/project-1"]);
-  assert.deepEqual(JSON.parse((await readFile(logPath, "utf8")).trim()), legacy);
-});
-
-test("resolving a legacy task preserves every unrelated history line byte-for-byte", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Resolve the legacy task.", { taskId: TASK_ID });
-  const unresolved = await recordTask(workspace, {
-    ...dispatchInput(projects[0], prepared.id, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  const unrelated = await recordTask(
-    workspace,
-    dispatchInput(projects[0], "unrelated", "unrelated-thread"),
-  );
-  const { githubRepos, ...legacyProject } = unresolved.project;
-  const {
-    status, summary, turnId, updatedAt, updatedBy, ...legacyRecord
-  } = unresolved;
-  const legacy = {
-    ...legacyRecord,
-    schemaVersion: 1,
-    project: { ...legacyProject, githubRepo: githubRepos[0] },
-  };
-  const legacyLine = JSON.stringify(legacy);
-  const unrelatedLine = `  ${JSON.stringify(unrelated)}  `;
-  const logPath = path.join(workspace, "tasks.jsonl");
-  await writeFile(logPath, `${legacyLine}\n${unrelatedLine}\n`);
-
-  const resolved = await resolveTask(workspace, prepared.id, "resolved-legacy-thread");
-  assert.equal(resolved.schemaVersion, 1);
-  assert.deepEqual(resolved.project.githubRepos, githubRepos);
-  const [updatedLegacyLine, preservedUnrelatedLine] = (await readFile(logPath, "utf8"))
-    .slice(0, -1)
-    .split("\n");
-  assert.deepEqual(JSON.parse(updatedLegacyLine), {
-    ...legacy,
-    threadId: "resolved-legacy-thread",
-  });
-  assert.equal(preservedUnrelatedLine, unrelatedLine);
-});
-
-test("legacy resolution rejects a case-variant duplicate Codex UUID", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Resolve the legacy task.", { taskId: TASK_ID });
-  const unresolved = await recordTask(workspace, {
-    ...dispatchInput(projects[0], prepared.id, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  const occupied = await recordTask(
-    workspace,
-    dispatchInput(projects[0], SECOND_TASK_ID, SELF_LINK_THREAD_ID),
-    { now: FIXED_TIME },
-  );
-  const { status, summary, turnId, updatedAt, updatedBy, ...legacy } = unresolved;
-  await writeFile(
-    path.join(workspace, "tasks.jsonl"),
-    `${JSON.stringify({ ...legacy, schemaVersion: 2 })}\n${JSON.stringify(occupied)}\n`,
-  );
-  await assert.rejects(
-    resolveTask(workspace, TASK_ID, SELF_LINK_THREAD_ID.toUpperCase()),
-    /threadId is already recorded/,
-  );
-});
-
-test("schema 3 legacy resolution refreshes dispatcher state without upgrading history", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Resolve the stateful legacy task.", { taskId: TASK_ID });
-  const current = await recordTask(workspace, {
-    ...dispatchInput(projects[0], TASK_ID, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  const schema3 = { ...current, schemaVersion: 3 };
-  await writeFile(path.join(workspace, "tasks.jsonl"), `${JSON.stringify(schema3)}\n`);
-
-  const resolvedAt = "2026-08-24T03:00:00.000Z";
-  const resolved = await resolveTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
-    now: resolvedAt,
-  });
-  assert.equal(resolved.threadId, SELF_LINK_THREAD_ID);
-  assert.equal(resolved.updatedAt, resolvedAt);
-  assert.equal(resolved.updatedBy, "dispatcher");
-  const persisted = JSON.parse((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim());
-  assert.equal(persisted.schemaVersion, 3);
-  assert.equal(persisted.threadId, SELF_LINK_THREAD_ID);
-  assert.equal(persisted.updatedAt, resolvedAt);
-  assert.equal(persisted.updatedBy, "dispatcher");
-});
-
-test("marked legacy callbacks remain schema 3 across multiple opaque turns", async () => {
-  const { workspace, projects } = await fixture(1);
-  const prepared = prepareDelegation("Continue the marked legacy task.", { taskId: TASK_ID });
-  const current = await recordTask(workspace, {
-    ...dispatchInput(projects[0], TASK_ID, null),
-    instruction: prepared.instruction,
-  }, { now: FIXED_TIME });
-  await writeFile(
-    path.join(workspace, "tasks.jsonl"),
-    `${JSON.stringify({ ...current, schemaVersion: 3 })}\n`,
-  );
-  await resolveTask(workspace, TASK_ID, "legacy-thread", {
-    now: "2026-08-24T03:00:00.000Z",
-  });
-  await reportTaskResult(workspace, {
-    taskId: TASK_ID,
-    threadId: "legacy-thread",
-    turnId: "legacy-turn-1",
-    status: "needs_input",
-    summary: "A legacy decision is required.",
-  });
-  const completed = await reportTaskResult(workspace, {
-    taskId: TASK_ID,
-    threadId: "legacy-thread",
-    turnId: "legacy-turn-2",
-    status: "completed",
-    summary: "The legacy task completed.",
-  });
-  assert.equal(completed.turnId, "legacy-turn-2");
-  assert.equal(
-    JSON.parse((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim()).schemaVersion,
-    3,
-  );
 });
 
 test("dispatch recording rejects duplicate IDs and thread IDs", async () => {
@@ -2312,7 +1951,7 @@ test("task linking rejects dispatcher-prebound schema 4 identities", async () =>
     threadId: SELF_LINK_THREAD_ID,
     turnId: "direct-record-turn",
     status: "completed",
-    summary: "Direct records retain legacy result compatibility.",
+    summary: "Direct current-schema record completed.",
   });
   await assert.rejects(
     linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID),
@@ -2591,31 +2230,6 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
       instruction: prepared.instruction,
     }),
   });
-  await assert.rejects(
-    runCli([
-      "task", "resolve", prepared.id, "--thread-id", "local:client-id",
-      "--json", "--workspace", workspace,
-    ]),
-    (error) => error.code === 1 && /provisional local ID/.test(error.stderr),
-  );
-  await assert.rejects(
-    runCli([
-      "task", "resolve", prepared.id, "--thread-id", "cli-durable-thread",
-      "--json", "--workspace", workspace,
-    ]),
-    (error) => error.code === 1 && /only available for legacy pre-self-linking records/.test(error.stderr),
-  );
-  const cliTaskLog = path.join(workspace, "tasks.jsonl");
-  const cliRecords = (await readFile(cliTaskLog, "utf8")).trimEnd().split("\n").map(JSON.parse);
-  const legacyCliRecords = cliRecords.map((record) => record.id === prepared.id
-    ? { ...record, schemaVersion: 3 }
-    : record);
-  await writeFile(cliTaskLog, `${legacyCliRecords.map(JSON.stringify).join("\n")}\n`);
-  const resolved = await runCli([
-    "task", "resolve", prepared.id, "--thread-id", "cli-durable-thread",
-    "--json", "--workspace", workspace,
-  ]);
-  assert.equal(JSON.parse(resolved.stdout).threadId, "cli-durable-thread");
   const shown = await runCli(["task", "show", "dispatch-1", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(shown.stdout).id, "dispatch-1");
   const listed = await runCli([
@@ -2935,7 +2549,7 @@ test("CLI task show rejects missing, ambiguous, malformed, short, and wrong-case
   }
 });
 
-test("CLI rejects removed legacy commands", async () => {
+test("CLI rejects removed commands", async () => {
   for (const args of [
     ["workspace", "ensure-instructions", "--json"],
     ["workspace", "ensure-skills", "--json"],
@@ -2943,6 +2557,7 @@ test("CLI rejects removed legacy commands", async () => {
     ["task", "snapshot", "--json"],
     ["dispatch", "record", "--json"],
     ["dispatch", "list", "--json"],
+    ["task", "resolve", TASK_ID, "--thread-id", SELF_LINK_THREAD_ID, "--json"],
   ]) {
     await assert.rejects(
       runCli(args),

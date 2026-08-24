@@ -37,9 +37,9 @@ all deterministic workspace operations.
    CLI discovered from the current desktop environment; never invoke
    `codex add` or hard-code an application bundle path.
 3. `workspace init` takes no stdin, creates an empty
-   configuration when missing, creates the one-entry-per-task JSONL log, refreshes
-   managed instructions, and removes legacy TaskChef skill links. The installed
-   plugin provides all three TaskChef skills outside the dispatcher workspace.
+   configuration when missing, creates the one-entry-per-task JSONL log, and
+   refreshes managed instructions. The installed plugin provides all three
+   TaskChef skills outside the dispatcher workspace.
 4. Run `doctor --json` after setup or when the user asks to diagnose the
    workspace. Doctor is read-only. Rerun `workspace init --json` to repair the
    managed scaffold.
@@ -86,6 +86,5 @@ Example managed-workspace import entry:
 }
 ```
 
-`workspace init` safely migrates schema-version-1 configuration: a string
-`githubRepo` becomes a one-item `githubRepos` list and `null` becomes
-`githubRepos: []`. All subsequent configuration writes use schema version 2.
+TaskChef accepts configuration schema version 2 only. `githubRepos` is always
+an array; unsupported configuration is rejected without being rewritten.

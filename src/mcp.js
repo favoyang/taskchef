@@ -18,22 +18,22 @@ const projectSchema = z.object({
 });
 
 const taskSchema = z.object({
-  schemaVersion: z.number(),
+  schemaVersion: z.literal(4),
   id: z.string(),
   project: projectSchema,
   title: z.string(),
   instruction: z.string(),
   threadId: z.string().nullable(),
   createdAt: z.string(),
-  status: z.enum(["working", "needs_input", "completed", "failed"]).nullable(),
+  status: z.enum(["working", "needs_input", "completed", "failed"]),
   summary: z.string().nullable(),
   turnId: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-  updatedBy: z.enum(["dispatcher", "hook", "mcp"]).nullable(),
+  updatedAt: z.string(),
+  updatedBy: z.enum(["dispatcher", "mcp"]),
 });
 
 const preparationSchema = z.object({
-  schemaVersion: z.number(),
+  schemaVersion: z.literal(1),
   workspace: z.string(),
   taskId: z.string(),
   preparedAt: z.string(),

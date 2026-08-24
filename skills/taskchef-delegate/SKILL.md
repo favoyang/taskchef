@@ -78,10 +78,3 @@ user decision, not live approval UI.
 
 The filesystem watcher surfaces `link_task` and `report_result` writes to the
 dashboard. The linked child ID drives the exact Codex deep link.
-
-## Legacy recovery
-
-`taskchef task resolve` exists only for unresolved records created before the
-self-linking schema. Require an exact marker match and a unique durable child
-ID. The command rejects new self-linking records. Never edit `tasks.jsonl`
-directly.
