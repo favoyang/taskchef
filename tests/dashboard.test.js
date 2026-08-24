@@ -15,7 +15,6 @@ import {
   linkTask,
   recordTask,
   reportTaskResult,
-  resolveTask,
   sortTasksByMeaningfulUpdate,
 } from "../index.js";
 import {
@@ -406,49 +405,6 @@ test("executor self-linking advances meaningful ordering", async () => {
   monitor.close();
 });
 
-test("observed legacy resolution advances meaningful ordering", async () => {
-  const { workspace, project } = await fixture();
-  await recordTask(workspace, {
-    ...input(project, FIRST_ID, "Older legacy task", null),
-    instruction: `<!-- taskchef_id=${FIRST_ID} -->\n\nResolve this legacy task.`,
-  }, { now: "2026-08-20T10:00:00.000Z" });
-  await recordTask(workspace, input(project, SECOND_ID, "Newer task", "thread-two"), {
-    now: "2026-08-21T10:00:00.000Z",
-  });
-  const taskLog = path.join(workspace, "tasks.jsonl");
-  const records = (await readFile(taskLog, "utf8"))
-    .trimEnd()
-    .split("\n")
-    .map((line) => JSON.parse(line));
-  const { githubRepos, ...legacyProject } = records[0].project;
-  const {
-    status,
-    summary,
-    turnId,
-    updatedAt,
-    updatedBy,
-    ...legacyRecord
-  } = records[0];
-  records[0] = {
-    ...legacyRecord,
-    schemaVersion: 1,
-    project: { ...legacyProject, githubRepo: githubRepos[0] ?? null },
-  };
-  await writeFile(taskLog, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
-
-  const monitor = new DashboardMonitor(workspace, { pollIntervalMs: 60_000 });
-  await monitor.start();
-  assert.equal(monitor.snapshot().tasks[0].id, SECOND_ID);
-  const resolutionStartedAt = Date.now();
-  await resolveTask(workspace, FIRST_ID, "thread-one");
-  await waitFor(() => monitor.snapshot().tasks[0].id === FIRST_ID);
-  const resolvedTask = monitor.snapshot().tasks[0];
-  assert.equal(resolvedTask.updatedAt, null);
-  assert.ok(Date.parse(resolvedTask.meaningfulUpdatedAt) >= resolutionStartedAt);
-  assert.equal(taskWithinDateFilter(resolvedTask, "24h"), true);
-  monitor.close();
-});
-
 test("dashboard server serves independent clients without sessions and protects local actions", async () => {
   const { workspace, project } = await fixture();
   const staleProject = path.join(path.dirname(workspace), "stale-project");
@@ -546,7 +502,7 @@ test("dashboard server serves independent clients without sessions and protects 
 
     const forged = JSON.parse(validLog.trim());
     forged.project.path = workspace;
-    forged.threadId = "legacy-thread";
+    forged.threadId = "opaque-thread";
     await writeFile(taskLog, `${JSON.stringify(forged)}\n`);
     await server.monitor.refresh({ force: true });
     openedProject = null;

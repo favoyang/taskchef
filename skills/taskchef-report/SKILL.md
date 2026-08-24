@@ -29,8 +29,8 @@ all deterministic task-log operations.
    - Use the full list only when the user asks for an overview of the task history.
 2. For an overview, select only attention-worthy candidates before detailed
    reads:
-   - always include `working`, `needs_input`, null-status legacy entries, and
-     entries with a null `threadId`;
+   - always include `working`, `needs_input`, and entries with a null
+     `threadId`;
    - include `completed` and `failed` entries updated during the last seven
      days;
    - omit older terminal entries by default and report the omitted count;
@@ -75,12 +75,8 @@ all deterministic task-log operations.
    completed, failed, unresolved, or unknown. Show the cached summary when it
    remains fresh. If a newer turn exists without a callback, describe the live
    state and label the cached result stale rather than overwriting it.
-6. Never edit `tasks.jsonl` directly during reporting. The task API preserves
-   each record's persisted `schemaVersion`: a schema 4 null identity is executor
-   link-pending and must be retried by that executor, while a schema 1-3 null
-   identity is a legacy recovery candidate. Manual recovery may call
-   `task resolve` only for the latter after one exact structured marker match.
-   Never persist inferred status,
+6. Never edit `tasks.jsonl` directly during reporting. A null identity is
+   executor link-pending and must be retried by that executor. Never persist inferred status,
    transcripts, prose classifications, or hidden reasoning. Do not poll or wait.
 
 If the task history is empty, say that TaskChef has not recorded any tasks. If

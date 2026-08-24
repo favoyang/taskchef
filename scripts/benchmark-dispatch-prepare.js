@@ -33,10 +33,10 @@ function measure(operation) {
   return performance.now() - startedAt;
 }
 
-const legacy = [];
+const baseline = [];
 const prepared = [];
 for (let index = 0; index < sampleCount; index += 1) {
-  legacy.push(measure(() => {
+  baseline.push(measure(() => {
     runTaskChef(["workspace", "path", "--json", "--workspace", workspace]);
     runTaskChef(["project", "list", "--json", "--workspace", workspace]);
     execFileSync(process.execPath, [
@@ -66,15 +66,15 @@ function statistics(samples) {
   };
 }
 
-const legacyStats = statistics(legacy);
+const baselineStats = statistics(baseline);
 const preparedStats = statistics(prepared);
 process.stdout.write(`${JSON.stringify({
   schemaVersion: 1,
   comparison: {
-    legacy: {
+    baseline: {
       description: "workspace path + project list + external UUID/timestamp process",
       processCalls: 3,
-      ...legacyStats,
+      ...baselineStats,
     },
     dispatchPrepare: {
       description: "dispatch prepare",
@@ -82,9 +82,9 @@ process.stdout.write(`${JSON.stringify({
       ...preparedStats,
     },
     savedProcessCalls: 2,
-    medianSpeedup: Number((legacyStats.medianMs / preparedStats.medianMs).toFixed(2)),
+    medianSpeedup: Number((baselineStats.medianMs / preparedStats.medianMs).toFixed(2)),
     medianReductionPercent: Number(
-      ((1 - preparedStats.medianMs / legacyStats.medianMs) * 100).toFixed(1),
+      ((1 - preparedStats.medianMs / baselineStats.medianMs) * 100).toFixed(1),
     ),
   },
 }, null, 2)}\n`);

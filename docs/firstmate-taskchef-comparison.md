@@ -2,22 +2,23 @@
 
 > **Research, not contract.** This document compares two version-scoped
 > implementations. It does not define TaskChef behavior; the normative source
-> is [SPEC.md](../SPEC.md). Recheck the linked sources before relying on these
+> is the [TaskChef specification](spec.md). Recheck the linked sources before relying on these
 > conclusions after the access date.
 
 For TaskChef installation and everyday use, start with the
 [README](../README.md). For its current implementation flow, see
-[Delegation and result design](delegation-design.md).
+[TaskChef workflows](workflows.md).
 
 ## Scope and sources
 
 **Access date:** 2026-08-25
 
-**TaskChef scope:** `favoyang/taskchef` 6.1.1 at commit
-[`a3717de`](https://github.com/favoyang/taskchef/tree/a3717de). Current behavior
-was verified against this repository's [specification](../SPEC.md),
-[workflow](delegation-design.md), packaged skills, MCP implementation, CLI,
-workspace code, dashboard, and tests.
+**TaskChef scope:** the TaskChef 7 contract in this repository revision.
+Current behavior was verified against the [specification](spec.md),
+[workflows](workflows.md), packaged skills,
+[MCP implementation](https://github.com/favoyang/taskchef/blob/main/src/mcp.js),
+[workspace implementation](https://github.com/favoyang/taskchef/blob/main/src/workspace.js),
+CLI, dashboard, and tests.
 
 **FirstMate scope:**
 [`kunchenguid/firstmate`](https://github.com/kunchenguid/firstmate) at commit
@@ -44,7 +45,7 @@ Primary FirstMate sources:
   for the intended single-liaison, durable-fleet experience.
 
 Unless labeled **Inference** or **Recommendation**, statements below are facts
-supported by those version-scoped sources or the TaskChef 6.1.1 codebase.
+supported by those version-scoped sources or the TaskChef 7 codebase.
 
 ## Executive comparison
 
@@ -66,7 +67,7 @@ responsibility until an outcome is landed, transferred, or safely preserved.
 
 ## Architecture at a glance
 
-| Dimension | TaskChef 6.1.1 | FirstMate at `038d0f7` |
+| Dimension | TaskChef 7 | FirstMate at `038d0f7` |
 | --- | --- | --- |
 | Primary goal | Put multi-project work into the right visible Codex task and make it findable later. | Let one person direct a supervised crew across projects through one liaison. |
 | Product form | Codex plugin: three skills, local MCP server, data CLI, and loopback dashboard. | Cloneable agent distribution: instructions, internal skills, scripts, policies, and private on-disk state. |
@@ -160,7 +161,7 @@ backends have different verification or experimental status.
 ### TaskChef
 
 **Fact:** Persisted statuses are `working`, `needs_input`, `completed`, and
-`failed`; normalized legacy records may have null status. Executors report one
+`failed`. Executors report one
 latest semantic result with a concise summary. `needs_input` is reserved for a
 real semantic decision, not a native approval prompt.
 

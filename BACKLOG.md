@@ -1,6 +1,6 @@
 # TaskChef backlog
 
-`SPEC.md` is the current contract. These ideas need a concrete user case and a
+[`docs/spec.md`](docs/spec.md) is the current contract. These ideas need a concrete user case and a
 clear data model before implementation.
 
 ## Task history views
