@@ -15,8 +15,8 @@ all deterministic workspace operations.
 ## Boundaries
 
 - Keep implementation, tests, and reports in the TaskChef source repository.
-- Keep only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` in a dispatcher
-  workspace.
+- Create and manage only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` in a
+  dispatcher workspace. Preserve unrelated user-owned paths.
 - Do not dispatch tasks or report on executor threads during bootstrap unless
   the user separately requests those actions.
 - Never create hooks, schedules, polling, or daemons. TaskChef executors

@@ -23,8 +23,8 @@ reloaded or installed.
 
 ## Boundaries
 
-- Keep only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` in the dispatcher
-  workspace.
+- Treat only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` as TaskChef-managed
+  dispatcher files. Preserve unrelated user-owned paths.
 - Use real Codex tasks, never collaboration or subagent tools.
 - Never use hooks, schedules, daemons, background monitors, recent-task
   searches, transcripts, hidden reasoning, or polling for identity.

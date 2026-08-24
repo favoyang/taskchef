@@ -4,7 +4,26 @@ TaskChef stores a durable local task history while Codex owns execution. The
 dispatcher records intent, the executor registers its own identity, and only
 the executor reports semantic outcomes.
 
-## Key terminology
+This developer and advanced-agent workflow describes TaskChef 6.x. The
+[specification](../SPEC.md) owns required behavior and terminology; this
+document explains how the current code implements that contract. Start with the
+[README](../README.md) for normal use. The
+[FirstMate comparison](firstmate-taskchef-comparison.md) is separate,
+non-normative research.
+
+## Implementation surfaces
+
+| Surface | Current responsibility |
+| --- | --- |
+| `skills/taskchef-delegate/SKILL.md` | Agent routing, exact executor instruction scaffold, record-before-create, one native creation call, and immediate return. |
+| `src/mcp.js` and `mcp/server.js` | Zod-validated `prepare_dispatch`, `record_task`, `link_task`, and `report_result` MCP contracts over stdio. |
+| `src/delegation.js` | Marker parsing, canonical Codex UUIDv7 validation, executor paragraphs, and the library-level create-and-record helper. |
+| `src/workspace.js` | Project and task schemas, shared lock, atomic JSONL writes, self-linking, result freshness, and legacy resolution. |
+| `src/cli.js` | Workspace/project administration, data inspection, diagnostics, dashboard startup, and CLI-only legacy recovery. |
+| `skills/taskchef-report/SKILL.md` | Bounded live-report policy over cached results and native Codex metadata. |
+| `src/dashboard.js` and `src/dashboard/*` | Loopback server, bounded log monitor, server-sent updates, filtering, notifications, and open-in-Codex actions. |
+
+## Identity vocabulary used in the diagrams
 
 The central identity rule is: **the executor child links itself**. The
 dispatcher may create the child, but it never treats its own thread, a parent
@@ -20,7 +39,8 @@ thread, or a provisional creation handle as the executor's durable identity.
 | Turn ID | Current native turn UUIDv7 read from the exact executor thread; it proves result freshness. |
 | `tasks.jsonl` | Durable append/rewrite history whose latest snapshot is shown by TaskChef. |
 
-The diagrams below are intentionally small. Calls into **TaskChef MCP** name
+The complete normative glossary is in [SPEC.md](../SPEC.md#terminology). The
+diagrams below are intentionally small. Calls into **TaskChef MCP** name
 the MCP function being invoked. Notes beside `tasks.jsonl` name the fields that
 step populates or replaces.
 
@@ -197,7 +217,26 @@ sequenceDiagram
 | 5 | Executor | `report_result` | Exact `taskId`, self-linked `threadId`, current `turnId`, semantic `status`, concise `summary` | Replaces the latest `status`, `summary`, and `turnId`; refreshes `updatedAt` and sets `updatedBy: mcp`. Changed follow-up results require a newer UUIDv7 `turnId`. |
 | Failure | Dispatcher | `report_result` after native creation error | `taskId`, `threadId: null`, `turnId: null`, `status: failed`, bounded `summary` | Preserves the pre-created record and null identity while storing a terminal creation failure. |
 
-## Design boundaries
+## Concurrency and persistence
+
+Configuration and task-history mutation APIs enter `withWorkspaceLock` in
+`src/workspace.js`, backed by `proper-lockfile` on the dispatcher workspace.
+`initializeWorkspace` creates and permissions the directory first, then locks
+before writing managed file content. The exported `ensureWorkspaceInstructions`
+and `ensureWorkspaceSkills` compatibility helpers do not lock themselves and
+must not be called concurrently. New records are appended through an atomic
+whole-file replacement; identity and result updates replace exactly one JSONL
+line while retaining the others. Validation occurs again inside the lock, so
+concurrent dispatchers cannot reuse a task ID and concurrent executors cannot
+claim the same canonical Codex UUID. An abandoned lock is recoverable;
+permanent permission errors fail immediately.
+
+The task log is a snapshot collection, not an event log. `record_task` writes
+the initial state, `link_task` replaces identity state, and `report_result`
+replaces semantic state. `updatedAt` and `updatedBy` identify the latest
+persisted writer but do not describe every transition.
+
+## Trust and writer boundaries
 
 There is no task listing, candidate read, marker search, wait, polling loop,
 native creation retry, transcript read, or hook in the dispatch path. The
@@ -209,8 +248,15 @@ is therefore a cooperative assertion inside TaskChef's local single-user trust
 boundary. The design prevents accidental parent/child confusion but does not
 claim resistance to a deliberately forged local MCP call.
 
+The dashboard has a separate trust boundary. It binds to loopback, exposes the
+task history without browser authentication, and gates its open-in-Codex POST
+with exact Host and Origin checks. It never becomes an MCP caller or a task-log
+writer.
+
 Historical `updatedBy: hook` values remain readable, but new installations
-contain no hook and new writes use `dispatcher` or `mcp`.
+contain no hook and new writes use `dispatcher` or `mcp`. The 6.x runtime has
+no lifecycle hook, initial-prompt identity polling, recent-thread marker search,
+or dispatcher-side link repair.
 
 ## Legacy recovery
 
@@ -219,9 +265,65 @@ Operators must establish one exact marker match and one unique durable child
 ID. Schema 4 self-linking records reject manual resolution. History is read
 compatibly and is not eagerly rewritten.
 
+```mermaid
+sequenceDiagram
+  autonumber
+  actor O as Operator
+  participant C as TaskChef CLI
+  participant W as tasks.jsonl
+
+  O->>O: Verify exact marker and unique durable child ID
+  O->>C: taskchef task resolve legacyTaskId --thread-id childId
+  C->>W: Lock and read schema 1-3 record
+  alt Exact eligible legacy record
+    C->>W: Replace only legacy record identity
+    Note right of W: Preserve schema and unrelated lines<br>Schema 3 refreshes updatedAt and updatedBy=dispatcher
+    C-->>O: Resolved legacy snapshot
+  else Schema 4, duplicate, marked mismatch, or conflict
+    C--xO: Fail without mutation
+  end
+```
+
 ## Dashboard and reports
 
-The dashboard deep link uses only the stored self-linked child ID. File watcher
-events surface linking and results without user interaction. Reporting may
-compare current native metadata with cached semantic results, but it never
-writes inferred lifecycle state.
+The dashboard monitor opens one descriptor for a bounded read, uses
+`O_NOFOLLOW` on platforms that expose it, enforces file/task/display bounds,
+and verifies that the descriptor stayed stable before publishing a snapshot. A
+directory watcher catches TaskChef's atomic replacement; a
+low-frequency stat check recovers from missed watcher events. Invalid or racing
+reads leave the last valid snapshot visible. Server-sent events notify all
+bounded clients, and slow clients keep at most one queued snapshot.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as TaskChef MCP
+  participant W as tasks.jsonl
+  participant D as Dashboard monitor
+  participant B as Browser client
+  participant C as Codex desktop
+
+  M->>W: Atomic link_task or report_result rewrite
+  W-->>D: Directory watch or metadata fallback
+  D->>D: Bounded stable read and schema validation
+  D-->>B: Server-sent snapshot
+  B->>B: Reconcile filters, cards, and notifications
+  B->>D: POST exact task open action
+  alt Supported UUID-shaped stored thread ID
+    D->>C: Open codex://threads/threadId
+  else Null or opaque legacy identity
+    D->>D: Revalidate configured canonical project
+    D->>C: Open project fallback
+  end
+```
+
+The report skill is not part of this watcher flow. It reads TaskChef snapshots
+on demand, takes one bounded native metadata snapshot, and may perform one
+targeted exact-thread read when freshness is uncertain. It never writes
+inferred lifecycle state. The dashboard does not query native metadata, submit
+replies, or refresh semantic results.
+
+Direct navigation checks the stored ID's supported Codex UUID shape; it does
+not prove that a historical record passed the schema 4 self-link transition.
+This keeps UUID-shaped legacy records directly openable, while null or opaque
+legacy identities take the revalidated project fallback.

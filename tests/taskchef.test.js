@@ -728,14 +728,19 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   );
 });
 
-test("README task record and task show examples preserve exact executor lifecycle paragraphs", async () => {
+test("executor lifecycle paragraphs have one implementation owner and stay out of user docs", async () => {
   const readme = await readFile(path.resolve("README.md"), "utf8");
+  const delegateSkill = await readFile(
+    path.resolve("skills/taskchef-delegate/SKILL.md"),
+    "utf8",
+  );
   for (const paragraph of [
     EXECUTOR_OWNERSHIP_PARAGRAPH,
     EXECUTOR_LINK_PARAGRAPH,
     EXECUTOR_RESULT_PARAGRAPH,
   ]) {
-    assert.ok(readme.split(paragraph).length - 1 >= 2);
+    assert.equal(delegateSkill.split(paragraph).length - 1, 1);
+    assert.equal(readme.includes(paragraph), false);
   }
 });
 
@@ -1187,6 +1192,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(packageJson.files.includes(".mcp.json"), true);
   assert.equal(packageJson.files.includes("assets"), true);
   assert.equal(packageJson.files.includes("docs/delegation-design.md"), true);
+  assert.equal(packageJson.files.includes("docs/firstmate-taskchef-comparison.md"), true);
   assert.equal(packageJson.files.includes("mcp"), true);
   assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
   assert.equal(packageJson.files.includes("scripts/e2e-benchmark.js"), true);
@@ -1264,7 +1270,7 @@ test("delegation design documents MCP calls and field transitions as focused Mar
   const design = await readFile(path.resolve("docs/delegation-design.md"), "utf8");
   const diagrams = [...design.matchAll(/```mermaid\n(sequenceDiagram[\s\S]*?)```/g)]
     .map((match) => match[1]);
-  assert.equal(diagrams.length, 5, "each lifecycle logic point should have a focused diagram");
+  assert.equal(diagrams.length, 7, "each lifecycle logic point should have a focused diagram");
   for (const diagram of diagrams) {
     const parsed = await mermaidParser.parse(diagram);
     assert.equal(parsed.diagramType, "sequence");
@@ -1562,9 +1568,34 @@ test("plugin package omits lifecycle hooks", async () => {
   assert.equal((await readFile(path.resolve("package.json"), "utf8")).includes('"hooks"'), false);
 });
 
-test("comparison documentation describes executor self-linking instead of dispatcher search", async () => {
+test("documentation architecture keeps four audience owners linked and current", async () => {
+  const documents = [
+    "README.md",
+    "SPEC.md",
+    "docs/delegation-design.md",
+    "docs/firstmate-taskchef-comparison.md",
+  ];
+  const contents = new Map(await Promise.all(documents.map(async (file) => [
+    file,
+    await readFile(path.resolve(file), "utf8"),
+  ])));
+
+  for (const [file, content] of contents) {
+    for (const match of content.matchAll(/\[[^\]]+\]\(([^)]+\.md(?:#[^)]+)?)\)/g)) {
+      const target = match[1].split("#", 1)[0];
+      if (target.includes("://")) continue;
+      await readFile(path.resolve(path.dirname(file), target), "utf8");
+    }
+  }
+
+  assert.match(contents.get("README.md"), /Which document should I read\?/);
+  assert.match(contents.get("SPEC.md"), /normative agent-facing contract/i);
+  assert.match(contents.get("docs/delegation-design.md"), /TaskChef 6\.x/);
   const comparison = await readFile(path.resolve("docs/firstmate-taskchef-comparison.md"), "utf8");
-  assert.match(comparison, /executor registers its own\s+durable child identity through `link_task`/);
+  assert.match(comparison, /Research, not contract/);
+  assert.match(comparison, /Access date:\*\* 2026-08-25/);
+  assert.match(comparison, /`kunchenguid\/firstmate`/);
+  assert.match(comparison, /executor then reads its own `CODEX_THREAD_ID` and calls\s+`link_task`/);
   assert.match(comparison, /dispatcher neither searches recent tasks nor repairs identity/);
   assert.doesNotMatch(comparison, /briefly searches|tries briefly to find|repairs the link/);
 });
