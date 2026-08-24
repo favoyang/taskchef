@@ -68,7 +68,7 @@ export function createTaskChefMcpServer({
     { name: "taskchef", version: "1.0.0" },
     {
       instructions:
-        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. The executor must call link_task first, report_state working at the start of each execution turn, and report_state with a semantic outcome before ending.",
+        "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. Follow the active TaskChef skill for role-specific sequencing of the identity and state tools.",
     },
   );
 

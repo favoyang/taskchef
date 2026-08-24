@@ -20,6 +20,7 @@ const execFile = promisify(execFileCallback);
 const SKILL_NAMES = [
   "taskchef-bootstrap",
   "taskchef-delegate",
+  "taskchef-executor",
   "taskchef-report",
 ];
 const REQUIRED_PLUGIN_FILES = [

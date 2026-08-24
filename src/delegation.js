@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 
+/** @deprecated Historical v7 inline-prompt snapshot. New delegations use taskchef-executor. */
 export const EXECUTOR_OWNERSHIP_PARAGRAPH = "This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.";
+/** @deprecated Historical v7 inline-prompt snapshot. New delegations use taskchef-executor. */
 export const EXECUTOR_LINK_PARAGRAPH = "Before any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.";
+/** @deprecated Historical v7 inline-prompt snapshot. New delegations use taskchef-executor. */
 export const EXECUTOR_WORKING_PARAGRAPH = "After a successful initial link, and at the start of every follow-up turn before substantive work, read this exact Codex thread natively to obtain the current turn ID and call TaskChef report_state with the marked task ID, the self-linked thread ID, that current turn ID, status working, and summary omitted or null. link_task remains the first TaskChef action on the initial turn; do not report working before identity is linked. Never reuse a prior turn ID after a follow-up.";
+/** @deprecated Historical v7 inline-prompt snapshot. New delegations use taskchef-executor. */
 export const EXECUTOR_RESULT_PARAGRAPH = "Before ending, read this exact Codex thread again and call TaskChef report_state for the same current working turn with status completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
+export const EXECUTOR_SKILL_INVOCATION = "Use $taskchef-executor to execute and report this delegated TaskChef assignment.";
 
 const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
@@ -87,17 +92,23 @@ export function parseTaskChefMarker(instruction) {
   const firstLine = instruction.split(/\r?\n/, 1)[0];
   const currentMatch = firstLine.match(TASKCHEF_MARKER_PATTERN);
   if (currentMatch === null) return null;
-  const prefix = instruction.match(/^([^\r\n]*)(\r?\n)\2/);
-  return prefix === null ? null : currentMatch[1];
+  return /^[^\r\n]*\r?\n[\s\S]+$/.test(instruction) ? currentMatch[1] : null;
 }
 
 export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
-  requireString(instruction, "instruction");
-  if (parseTaskChefMarker(instruction) !== null) throw new Error("instruction already contains a TaskChef marker");
+  const rawBody = requireString(instruction, "instruction");
+  if (/^[^\S\r\n]*(?:\r\n|\r|\n)/.test(rawBody)) {
+    throw new Error("instruction must begin with useful task content on its first line");
+  }
+  const body = rawBody.replace(/(?:(?:\r\n|\r|\n)[^\S\r\n]*)+$/, "");
+  if (parseTaskChefMarker(body) !== null) throw new Error("instruction already contains a TaskChef marker");
+  if (/\$taskchef-executor\b/i.test(body)) {
+    throw new Error("instruction contains a reserved TaskChef executor skill reference");
+  }
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${taskChefMarker(id)}\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_WORKING_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\n${instruction}`,
+    instruction: `${taskChefMarker(id)}\n${body}\n\n${EXECUTOR_SKILL_INVOCATION}`,
   };
 }
 

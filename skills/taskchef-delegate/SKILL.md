@@ -16,11 +16,9 @@ assignment. Execute it in the current task. Do not re-dispatch it merely
 because it concerns TaskChef or a configured project. Explicit requests to
 delegate separate work remain valid.
 
-Use the bundled `prepare_dispatch`, `record_task`, `link_task`, and
-`report_state` MCP tools directly. `report_result` is a deprecated compatibility
-alias and must not be emitted into new executor instructions. Never fall back to shell writes. If a
-required tool is unavailable, stop and report that the TaskChef plugin must be
-reloaded or installed.
+Use the bundled `prepare_dispatch`, `record_task`, and `report_state` MCP tools
+directly. Never fall back to shell writes. If a required tool is unavailable,
+stop and report that the TaskChef plugin must be reloaded or installed.
 
 ## Boundaries
 
@@ -43,16 +41,15 @@ reloaded or installed.
 3. Route against configured project `name`, `description`, and canonical
    `githubRepos`; use `path` only as checkout identity. Require exactly one
    match and an exact native-project path. Ask instead of guessing.
-4. Prefix each executor instruction with the preparation's exact marker as the
-   first line, a blank line, and these required paragraphs before the body:
+4. Build each executor instruction in this exact shape:
 
-   > This task owns the delegated assignment. Execute it in this task; do not re-dispatch it merely because it concerns TaskChef or a configured project. Explicit requests to delegate separate work remain valid.
-
-   > Before any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.
-
-   > After a successful initial link, and at the start of every follow-up turn before substantive work, read this exact Codex thread natively to obtain the current turn ID and call TaskChef report_state with the marked task ID, the self-linked thread ID, that current turn ID, status working, and summary omitted or null. link_task remains the first TaskChef action on the initial turn; do not report working before identity is linked. Never reuse a prior turn ID after a follow-up.
-
-   > Before ending, read this exact Codex thread again and call TaskChef report_state for the same current working turn with status completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.
+   - Keep the preparation's exact marker as the first line.
+   - Begin the actual assignment on the second line, with no blank line after
+     the marker.
+   - End the instruction after one blank line with exactly:
+     `Use $taskchef-executor to execute and report this delegated TaskChef assignment.`
+   - Do not inline executor ownership, identity, linking, or result-reporting
+     protocol. The explicitly invoked executor skill owns those mechanics.
 
 5. Before creating each executor, call `record_task` exactly once with `id`,
    `project`, `title`, the exact marked `instruction`, and `threadId: null`.
@@ -63,23 +60,3 @@ reloaded or installed.
    when creation returns a durable ID; the child must self-link.
 8. If creation fails after recording, call `report_state` with `failed`, null
    thread/turn IDs, and a bounded summary before returning the failure.
-
-## Executor contract
-
-The executor must make `link_task(taskId, threadId)` its first TaskChef action.
-It obtains its own durable ID from the current task's `CODEX_THREAD_ID`, never
-from the delegation's `sourceThreadId`, `CODEX_SESSION_ID`, inherited session
-metadata, title matching, or a parent task.
-Identical retries are safe. A rejected link, unavailable tool, or interrupted
-initial turn leaves the record visibly link-pending and retryable; the executor
-must not guess or do substantive work first.
-
-After linking on the initial turn, and before substantive work on every later
-turn, the executor reads the exact thread and calls `report_state` with
-`working`, the current turn ID, and no summary. Before ending that same turn it
-reports a semantic state with the same turn ID and a summary. A follow-up must
-use the new turn ID. `needs_input` is only for a real user decision, not live
-approval UI.
-
-The filesystem watcher surfaces `link_task` and `report_state` writes to the
-dashboard. The linked child ID drives the exact Codex deep link.

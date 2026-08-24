@@ -11,10 +11,11 @@ research.
 | Surface | Responsibility |
 | --- | --- |
 | `skills/taskchef-delegate/SKILL.md` | Split, route, record-before-create, create, return. |
+| `skills/taskchef-executor/SKILL.md` | Own, self-link, execute, and report every executor turn. |
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize current workspace and configure projects. |
 | `skills/taskchef-report/SKILL.md` | Select cached tasks and perform bounded live checks. |
 | `src/mcp.js` | Four primary lifecycle tools, one deprecated alias, and MCP annotations. |
-| `src/delegation.js` | UUID marker, executor contract paragraphs, and creation-failure handling. |
+| `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
 | `src/cli.js` | Administration, inspection, diagnostics, and dashboard startup. |
 | `src/dashboard.js` | Validated snapshots, SSE fan-out, and bounded open actions. |
@@ -55,7 +56,7 @@ sequenceDiagram
   D->>C: Create executor with marked instruction
   C-->>D: Created-task reference
   D-->>U: Return immediately
-  C->>E: Start executor
+  C->>E: Start executor and load $taskchef-executor
   E->>E: Read own CODEX_THREAD_ID
   E->>M: link_task(taskId, threadId)
   M->>W: linkTask()
@@ -66,6 +67,11 @@ sequenceDiagram
 Record-before-create makes native creation failure observable. Executor
 self-linking removes dispatcher-side polling, task search, title matching, and
 parent/child identity inference.
+
+The generated task body begins immediately after the first-line marker and
+ends with one explicit `$taskchef-executor` invocation. Older recorded tasks
+whose marker is followed by a blank line and inline protocol remain readable;
+the deprecated `report_result` alias preserves their semantic callbacks.
 
 ## State reporting
 

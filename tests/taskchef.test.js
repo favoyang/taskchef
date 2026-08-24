@@ -27,10 +27,7 @@ import lockfile from "proper-lockfile";
 import * as taskchef from "../index.js";
 
 import {
-  EXECUTOR_OWNERSHIP_PARAGRAPH,
-  EXECUTOR_LINK_PARAGRAPH,
-  EXECUTOR_RESULT_PARAGRAPH,
-  EXECUTOR_WORKING_PARAGRAPH,
+  EXECUTOR_SKILL_INVOCATION,
   createAndRecordDelegation,
   createTaskChefMcpServer,
   prepareDispatch,
@@ -213,7 +210,6 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
   assert.equal(repeated.tasks.action, "unchanged");
   assert.equal(repeated.instructions.action, "unchanged");
 });
-
 test("workspace resolution prefers explicit, environment, then the per-user default", () => {
   const homedir = "/Users/example";
   assert.equal(defaultWorkspacePath({ homedir }), "/Users/example/.agents/taskchef");
@@ -702,11 +698,11 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_WORKING_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\nDo the work.`,
+    `<!-- taskchef_id=${TASK_ID} -->\nDo the work.\n\n${EXECUTOR_SKILL_INVOCATION}`,
   );
-  const [marker, blankLine] = prepared.instruction.split("\n", 2);
+  const [marker, taskBody] = prepared.instruction.split("\n", 2);
   assert.equal(marker, `<!-- taskchef_id=${TASK_ID} -->`);
-  assert.equal(blankLine, "");
+  assert.equal(taskBody, "Do the work.");
   assert.match(marker, /^<!-- [^-][\s\S]* -->$/);
   assert.doesNotMatch(marker, /^#{1,6}(?:\s|$)/);
   assert.equal(parseTaskChefMarker(prepared.instruction), TASK_ID);
@@ -716,8 +712,8 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID.toUpperCase()} -->`), null);
   assert.equal(parseTaskChefMarker(`<!--  taskchef_id=${TASK_ID} -->`), null);
   assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID}-->`), null);
-  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\nDo the work.`), null);
-  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\nDo the work.`), null);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\nDo the work.`), TASK_ID);
+  assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\nDo the work.`), TASK_ID);
   assert.equal(parseTaskChefMarker(`# taskchef_id=${TASK_ID}\n\nDo the work.`), null);
   assert.equal(
     parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} -->\r\n\r\nDo the work.`),
@@ -733,21 +729,90 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   );
 });
 
-test("executor lifecycle paragraphs have one implementation owner and stay out of user docs", async () => {
+test("delegated instructions keep the useful body visible and invoke one executor skill", async () => {
   const readme = await readFile(path.resolve("README.md"), "utf8");
-  const delegateSkill = await readFile(
-    path.resolve("skills/taskchef-delegate/SKILL.md"),
-    "utf8",
+  const prepared = prepareDelegation("Implement it.\n\nValidate it.", { taskId: TASK_ID });
+  const lines = prepared.instruction.split("\n");
+  assert.equal(lines[0], `<!-- taskchef_id=${TASK_ID} -->`);
+  assert.equal(lines[1], "Implement it.");
+  assert.equal(lines.at(-1), EXECUTOR_SKILL_INVOCATION);
+  assert.equal(prepared.instruction.split(EXECUTOR_SKILL_INVOCATION).length - 1, 1);
+  assert.equal(
+    prepareDelegation("    preserve this indentation\n", { taskId: TASK_ID }).instruction.split("\n")[1],
+    "    preserve this indentation",
   );
-  for (const paragraph of [
-    EXECUTOR_OWNERSHIP_PARAGRAPH,
-    EXECUTOR_LINK_PARAGRAPH,
-    EXECUTOR_WORKING_PARAGRAPH,
-    EXECUTOR_RESULT_PARAGRAPH,
+  assert.equal(
+    prepareDelegation("Preserve this Markdown hard break.  \n\n", { taskId: TASK_ID }).instruction.split("\n")[1],
+    "Preserve this Markdown hard break.  ",
+  );
+  assert.throws(
+    () => prepareDelegation("\nUseful content starts too late.", { taskId: TASK_ID }),
+    /must begin with useful task content on its first line/,
+  );
+  assert.throws(
+    () => prepareDelegation("  \r\nUseful content starts too late.", { taskId: TASK_ID }),
+    /must begin with useful task content on its first line/,
+  );
+  assert.throws(
+    () => prepareDelegation(
+      `Document this exact scaffold: ${EXECUTOR_SKILL_INVOCATION}`,
+      { taskId: TASK_ID },
+    ),
+    /reserved TaskChef executor skill reference/,
+  );
+  assert.throws(
+    () => prepareDelegation(
+      "Use $taskchef-executor to verify the lifecycle.",
+      { taskId: TASK_ID },
+    ),
+    /reserved TaskChef executor skill reference/,
+  );
+  for (const inlineProtocolFragment of [
+    "This task owns the delegated assignment.",
+    "Before any other work, read this executor's own durable Codex thread ID",
+    "After a successful initial link, and at the start of every follow-up turn",
+    "Before ending, read this exact Codex thread again",
   ]) {
-    assert.equal(delegateSkill.split(paragraph).length - 1, 1);
-    assert.equal(readme.includes(paragraph), false);
+    assert.equal(prepared.instruction.includes(inlineProtocolFragment), false);
+    assert.equal(readme.includes(inlineProtocolFragment), false);
   }
+});
+
+test("former inline executor instructions remain marker-readable and report_result-compatible", async () => {
+  for (const exportName of [
+    "EXECUTOR_OWNERSHIP_PARAGRAPH",
+    "EXECUTOR_LINK_PARAGRAPH",
+    "EXECUTOR_WORKING_PARAGRAPH",
+    "EXECUTOR_RESULT_PARAGRAPH",
+  ]) {
+    assert.equal(typeof taskchef[exportName], "string");
+  }
+  const { workspace, projects } = await fixture(1);
+  const legacyInstruction = [
+    `<!-- taskchef_id=${TASK_ID} -->`,
+    "",
+    "This task owns the delegated assignment. Execute it in this task.",
+    "",
+    "Before any other work, read CODEX_THREAD_ID and call link_task.",
+    "",
+    "Before ending, call report_result with the current turn ID.",
+    "",
+    "Complete the historical assignment.",
+  ].join("\n");
+  assert.equal(parseTaskChefMarker(legacyInstruction), TASK_ID);
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: legacyInstruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  const completed = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "completed",
+    summary: "The historical assignment completed.",
+  });
+  assert.equal(completed.status, "completed");
 });
 
 test("minimal delegation records before creation and leaves even durable creation self-link pending", async () => {
@@ -774,8 +839,9 @@ test("minimal delegation records before creation and leaves even durable creatio
   assert.equal(result.resolution, "executor-self-link");
   assert.equal(result.threadId, null);
   assert.deepEqual(resolved, []);
-  assert.match(recorded[0].instruction, /link_task MCP tool/);
-  assert.match(recorded[0].instruction, /report_state/);
+  assert.equal(recorded[0].instruction.split("\n")[1], "Implement and test it.");
+  assert.equal(recorded[0].instruction.split("\n").at(-1), EXECUTOR_SKILL_INVOCATION);
+  assert.doesNotMatch(recorded[0].instruction, /link_task MCP tool|report_state|report_result MCP tool/);
 });
 
 test("minimal delegation returns immediately with provisional creation link-pending", async () => {
@@ -835,7 +901,7 @@ test("split delegation records and creates one distinct task per outcome", async
   ].sort());
 });
 
-test("provisional executor self-links exact child and reports fresh follow-up turns", async () => {
+test("realistic generated executor self-links and reports working plus semantic follow-up states", async () => {
   const { workspace, projects } = await fixture(1);
   let childPrompt;
   const created = await createAndRecordDelegation({
@@ -857,13 +923,22 @@ test("provisional executor self-links exact child and reports fresh follow-up tu
   assert.equal(created.status, "recorded-link-pending");
   assert.equal(created.provisional, "local:provisional-child");
   assert.equal(parseTaskChefMarker(childPrompt), TASK_ID);
+  assert.equal(childPrompt.split("\n")[1], "Pause for approval, then complete.");
+  assert.equal(childPrompt.split("\n").at(-1), EXECUTOR_SKILL_INVOCATION);
   assert.equal((await readTask(workspace, TASK_ID)).threadId, null);
   await assert.rejects(linkTask(workspace, TASK_ID, "local:provisional-child"), /provisional/);
 
   const childThreadId = SELF_LINK_THREAD_ID;
   await linkTask(workspace, TASK_ID, childThreadId);
   await assert.rejects(linkTask(workspace, TASK_ID, OTHER_THREAD_ID), /different threadId/);
-  let result = await reportTaskResult(workspace, {
+  let result = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: childThreadId,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+  });
+  assert.equal(result.status, "working");
+  result = await reportTaskState(workspace, {
     taskId: TASK_ID,
     threadId: childThreadId,
     turnId: FIRST_RESULT_TURN_ID,
@@ -871,7 +946,15 @@ test("provisional executor self-links exact child and reports fresh follow-up tu
     summary: "Approval is required to continue.",
   });
   assert.equal(result.status, "needs_input");
-  result = await reportTaskResult(workspace, {
+  result = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: childThreadId,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+  });
+  assert.equal(result.status, "working");
+  assert.equal(result.lastResult.status, "needs_input");
+  result = await reportTaskState(workspace, {
     taskId: TASK_ID,
     threadId: childThreadId,
     turnId: SECOND_RESULT_TURN_ID,
@@ -1332,6 +1415,10 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.interface.composerIcon, "./assets/taskchef.svg");
   assert.equal(manifest.interface.logo, "./assets/taskchef.svg");
   assert.equal(manifest.interface.logoDark, "./assets/taskchef-dark.svg");
+  assert.equal(
+    manifest.interface.defaultPrompt.some((prompt) => prompt.includes("$taskchef-executor")),
+    true,
+  );
   for (const assetPath of [manifest.interface.logo, manifest.interface.logoDark]) {
     const asset = await readFile(path.resolve(assetPath));
     assert.ok(asset.length > 0, `${assetPath} must point to a non-empty packaged asset`);
@@ -1373,12 +1460,17 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     releaseGitPlugin[1].assets,
     [".codex-plugin/plugin.json", "package-lock.json", "package.json"],
   );
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-report"]) {
+  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-executor", "taskchef-report"]) {
     assert.equal(
       (await lstat(path.resolve("skills", skillName, "SKILL.md"))).isFile(),
       true,
     );
   }
+  const executorUi = await readFile(
+    path.resolve("skills/taskchef-executor/agents/openai.yaml"),
+    "utf8",
+  );
+  assert.match(executorUi, /default_prompt: "Use \$taskchef-executor/);
 
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-plugin-version-"));
   await mkdir(path.join(root, ".codex-plugin"));
@@ -1478,6 +1570,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
       { path: "skills/taskchef-delegate/SKILL.md" },
+      { path: "skills/taskchef-executor/SKILL.md" },
       { path: "skills/taskchef-report/SKILL.md" },
     ],
   }];
@@ -1604,7 +1697,7 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
-  for (const toolName of ["prepare_dispatch", "record_task", "link_task", "report_state", "report_result"]) {
+  for (const toolName of ["prepare_dispatch", "record_task", "link_task", "report_state"]) {
     assert.match(body, new RegExp(`\\b${toolName}\\b`));
   }
   assert.match(body, /Never fall back to shell writes/i);
@@ -1615,12 +1708,29 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.match(body, /Never reuse a task ID or marker/i);
   assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
   assert.match(body, /Do not call `link_task` from the dispatcher/i);
-  assert.match(body, /Never use CODEX_SESSION_ID or the parent or delegator thread ID/i);
-  assert.match(body, /reads the exact thread and calls `report_state`/i);
-  assert.match(body, /A follow-up must\s+use the new turn ID/i);
+  assert.match(body, /Begin the actual assignment on the second line/i);
+  assert.match(body, /Use \$taskchef-executor to execute and report/i);
+  assert.match(body, /Do not inline executor ownership, identity, linking, or result-reporting/i);
   assert.match(body, /return immediately/i);
   assert.match(body, /If creation fails after recording, call `report_state`/);
   assert.doesNotMatch(body, /bounded identity-resolution|Stop at 30 seconds|resolve_task immediately/i);
+});
+
+test("executor skill owns initial, follow-up, identity, reporting, and privacy protocol", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-executor/SKILL.md"), "utf8");
+  assert.match(content, /^name: taskchef-executor$/m);
+  assert.match(content, /exact first line[\s\S]+taskchef_id=<full UUID>/i);
+  assert.match(content, /Own and execute[\s\S]+Do not\s+re-dispatch/i);
+  assert.match(content, /CODEX_THREAD_ID/);
+  assert.match(content, /Never\s+use `CODEX_SESSION_ID`[\s\S]+parent or delegator/i);
+  assert.match(content, /initial turn[\s\S]+`link_task`[\s\S]+first TaskChef action/i);
+  assert.match(content, /follow-up[\s\S]+current turn ID/i);
+  assert.match(content, /`report_state`[\s\S]+`status: working`/i);
+  assert.match(content, /completed[\s\S]+needs_input[\s\S]+failed/i);
+  assert.match(content, /live native approval prompt[\s\S]+not semantic `needs_input`/i);
+  assert.match(content, /secrets, transcripts, raw command output, hidden reasoning/i);
+  assert.match(content, /Identical lifecycle retries are safe/i);
+  assert.match(content, /former inline[\s\S]+`report_result`[\s\S]+deprecated/i);
 });
 
 test("bootstrap skill initializes and verifies the canonical Codex project without hard-coded paths", async () => {
