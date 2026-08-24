@@ -1,6 +1,6 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, rely on the initial TaskChef hook for provisional identity, and never wait for executor completion."
+description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, resolve provisional identity by exact marker within a strict bound, and never wait for executor completion."
 ---
 
 # TaskChef Delegate
@@ -32,11 +32,13 @@ explicitly requested benchmark artifact.
 - Keep only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` in a dispatcher
   workspace.
 - Use real Codex tasks, never collaboration or subagent tools.
-- Use only TaskChef's `UserPromptSubmit` hook: it resolves initial identity and
-  provides read-only current-turn context on follow-up prompts. Never infer
+- Use only TaskChef's `UserPromptSubmit` hook: after identity is separately
+  verified, it records the initial turn and provides read-only current-turn
+  context on follow-up prompts. Never infer
   lifecycle state from hooks.
-- Never use schedules, daemons, polling, thread-discovery retries, or background
-  monitors.
+- Never use schedules, daemons, background monitors, or indefinite polling.
+  The only permitted thread discovery is the bounded exact-marker resolution
+  after a provisional creation result.
 - Never wait for delegated work after executor creation.
 - Never collect transcripts or hidden reasoning.
 
@@ -88,13 +90,32 @@ explicitly requested benchmark artifact.
    environment on its executor host, the marked instruction, and a short title.
 8. If creation returns a durable `threadId`, call `resolve_task` immediately.
    If creation returns only `clientThreadId`, `pendingWorktreeId`, or a `local:`
-   ID, retain it only for the created-thread directive. Return immediately; the
-   initial TaskChef hook will atomically fill the durable root thread ID. Never
-   list, read, wait for, or poll threads to resolve it.
+   ID, retain it only for the created-thread directive and run this one bounded
+   identity-resolution sequence:
+   - Check immediately, then at 10 and 30 seconds after creation. At each
+     checkpoint, call the native recent-task listing once.
+   - Restrict candidates to Codex tasks created no earlier than five seconds
+     before `preparedAt`, on the returned host and selected project when those
+     fields are available. Prefer the exact title only as an ordering hint.
+   - Read each remaining bounded candidate at most once per checkpoint and
+     accept only the single task whose structured initial
+     `codexDelegation.input` begins with this outcome's exact marker.
+   - Call `resolve_task` only for that one verified durable child ID. Never use
+     `session_id`, a source/parent ID, title similarity, or a provisional ID as
+     identity proof.
+   - Stop at 30 seconds. Zero matches remain unresolved; multiple exact matches
+     are an ambiguity and also remain unresolved. Never guess or continue
+     polling.
+
+   The initial hook may wait for this canonical record transition so it can
+   inject the verified child ID and current turn ID. Codex documents that
+   subagent hooks receive the parent `session_id`, so the hook must never write
+   that field into `threadId`.
 
 9. If executor creation fails, call `report_result` for the already-recorded
    task with `failed`, null thread/turn IDs, and a concise creation error.
-10. Emit the appropriate created-thread directive and return immediately.
+10. Emit the appropriate created-thread directive and return after the bounded
+    identity step.
     Treat a nullable record as preserved but not yet linked. Do not read an
     executor for progress and never wait for executor work completion.
 
@@ -107,17 +128,20 @@ Keep the CLI for bootstrap, manual inspection, and recovery outside delegation.
 
 ## Later resolution
 
-The trusted initial hook normally resolves an unresolved task. For manual
-recovery, require one exact structured marker match, then call `resolve_task`
-once. Never edit `tasks.jsonl` directly. Resolution is an idempotent one-way
-transition from `threadId: null` to one unique durable root thread ID.
+The trusted initial hook never resolves identity from its `session_id`. It uses
+only the child ID already stored by immediate or bounded exact-marker
+resolution. For manual recovery, require one exact structured marker match,
+then call `resolve_task` once. Never edit `tasks.jsonl` directly. Resolution is
+an idempotent one-way transition from `threadId: null` to one unique durable
+child thread ID.
 
 ## Legacy benchmark compatibility
 
 The schema-v1 benchmark fixtures below describe the removed snapshot resolver
 and remain only for historical-result validation. Do not use that resolver for
 new delegation benchmarks. A future benchmark schema should measure record,
-creation, initial-hook resolution, and result callback without polling. The
+creation, bounded exact-marker resolution, and result callback without
+indefinite polling. The
 legacy fixture starts from
 `<plugin-root>/assets/e2e-benchmark-example.json`. Capture one ISO start/end
 interval for the parallel preparation/project-list operation, followed by

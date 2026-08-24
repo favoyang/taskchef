@@ -43,6 +43,7 @@ import {
   filterTasks,
   handleInitialPromptHook,
   importProjects,
+  INITIAL_LINK_CHECKPOINTS_MS,
   initializeWorkspace,
   listProjects,
   readConfig,
@@ -991,7 +992,7 @@ test("minimal delegation records before creation and resolves only an immediate 
   assert.match(recorded[0].instruction, /report_result MCP tool/);
 });
 
-test("minimal delegation leaves provisional identity for the initial hook without polling", async () => {
+test("minimal delegation leaves provisional identity for bounded exact-marker resolution", async () => {
   let createCalls = 0;
   const result = await createAndRecordDelegation({
     project: "/projects/example",
@@ -1008,7 +1009,7 @@ test("minimal delegation leaves provisional identity for the initial hook withou
 
   assert.equal(createCalls, 1);
   assert.equal(result.status, "recorded-unresolved");
-  assert.equal(result.reason, "awaiting-initial-hook");
+  assert.equal(result.reason, "awaiting-bounded-marker-resolution");
   assert.equal(result.threadId, null);
   assert.equal(result.provisional, "local:pending");
 });
@@ -1157,7 +1158,7 @@ test("creation errors expose recovery identity when result reporting is unavaila
   });
 });
 
-test("initial hook links identity and MCP callbacks replace the latest semantic result", async () => {
+test("initial hook trusts only a separately verified child identity", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Wait for a decision, then finish.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1172,10 +1173,13 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
     summary: "Creation failed.",
   }), /accepts only failed with null thread\/turn IDs/);
 
+  await resolveTask(workspace, TASK_ID, "child-thread", {
+    now: "2026-08-19T00:59:59.000Z",
+  });
   const hookOutput = await handleInitialPromptHook({
     hook_event_name: "UserPromptSubmit",
     prompt: prepared.instruction,
-    session_id: "root-thread",
+    session_id: "parent-thread",
     turn_id: "turn-1",
   }, {
     workspace,
@@ -1186,7 +1190,7 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
   });
   assert.match(hookOutput.hookSpecificOutput.additionalContext, /report_result/);
   let current = await readTask(workspace, TASK_ID);
-  assert.equal(current.threadId, "root-thread");
+  assert.equal(current.threadId, "child-thread");
   assert.equal(current.status, "working");
   assert.equal(current.turnId, "turn-1");
   assert.equal(current.updatedBy, "hook");
@@ -1194,7 +1198,7 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
   const replay = await handleInitialPromptHook({
     hook_event_name: "UserPromptSubmit",
     prompt: prepared.instruction,
-    session_id: "root-thread",
+    session_id: "parent-thread",
     turn_id: "turn-replayed",
   }, {
     workspace,
@@ -1210,7 +1214,7 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
 
   current = await reportTaskResult(workspace, {
     taskId: TASK_ID,
-    threadId: "root-thread",
+    threadId: "child-thread",
     turnId: "turn-1",
     status: "needs_input",
     summary: "Approve deployment to continue.",
@@ -1220,7 +1224,7 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
   const followUp = await handleInitialPromptHook({
     hook_event_name: "UserPromptSubmit",
     prompt: "Approved. Continue the deployment.",
-    session_id: "root-thread",
+    session_id: "child-thread",
     turn_id: "turn-2",
   }, { workspace });
   assert.match(followUp.hookSpecificOutput.additionalContext, new RegExp(TASK_ID));
@@ -1233,7 +1237,7 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
 
   current = await reportTaskResult(workspace, {
     taskId: TASK_ID,
-    threadId: "root-thread",
+    threadId: "child-thread",
     turnId: "turn-2",
     status: "completed",
     summary: "Deployment approved and completed successfully.",
@@ -1242,6 +1246,65 @@ test("initial hook links identity and MCP callbacks replace the latest semantic 
   assert.equal(current.turnId, "turn-2");
   assert.equal(current.updatedBy, "mcp");
   assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 1);
+});
+
+test("initial hook leaves provisional identity unresolved instead of recording a parent session", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Run the child task.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  let startCalls = 0;
+
+  const output = await handleInitialPromptHook({
+    hook_event_name: "UserPromptSubmit",
+    prompt: prepared.instruction,
+    session_id: "parent-thread",
+    turn_id: "child-turn",
+  }, {
+    workspace,
+    linkCheckpoints: [0],
+    startTask: async () => { startCalls += 1; },
+  });
+
+  assert.equal(startCalls, 0);
+  assert.match(output.systemMessage, /durable child task ID could not be verified/);
+  const current = await readTask(workspace, TASK_ID);
+  assert.equal(current.threadId, null);
+  assert.equal(current.turnId, null);
+  assert.equal(current.status, "working");
+});
+
+test("initial hook observes a verified child link at its final checkpoint", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Run the delayed child task.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  let elapsed = 0;
+
+  const output = await handleInitialPromptHook({
+    hook_event_name: "UserPromptSubmit",
+    prompt: prepared.instruction,
+    session_id: "parent-thread",
+    turn_id: "child-turn",
+  }, {
+    workspace,
+    waitImpl: async (delayMs) => {
+      elapsed += delayMs;
+      if (elapsed === INITIAL_LINK_CHECKPOINTS_MS.at(-1)) {
+        await resolveTask(workspace, TASK_ID, "delayed-child-thread");
+      }
+    },
+  });
+
+  assert.equal(elapsed, INITIAL_LINK_CHECKPOINTS_MS.at(-1));
+  assert.match(output.hookSpecificOutput.additionalContext, /delayed-child-thread/);
+  const current = await readTask(workspace, TASK_ID);
+  assert.equal(current.threadId, "delayed-child-thread");
+  assert.equal(current.turnId, "child-turn");
 });
 
 test("non-TaskChef prompts ignore workspace resolution failures", async () => {
@@ -1626,7 +1689,7 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.equal(
     frontmatter.match(/^description:.*$/m)?.[0],
-    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, rely on the initial TaskChef hook for provisional identity, and never wait for executor completion."',
+    'description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, resolve provisional identity by exact marker within a strict bound, and never wait for executor completion."',
   );
   assert.doesNotMatch(frontmatter, /ordinary work requests in the TaskChef project/i);
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
@@ -1661,8 +1724,9 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
   assert.match(body, /without shell parsing, stdin, or\s+per-command filesystem escalation/);
   assert.match(body, /closes the hook race/);
-  assert.match(body, /initial TaskChef hook will atomically fill the durable root thread ID/);
-  assert.match(body, /Never\s+list, read, wait for, or poll threads to resolve it/);
+  assert.match(body, /bounded\s+identity-resolution sequence/i);
+  assert.match(body, /Never use\s+`session_id`/i);
+  assert.match(body, /Stop at 30 seconds/i);
   assert.match(body, /If executor creation fails, call `report_result`/);
 
   for (const file of ["SPEC.md", "README.md", "docs/delegation-design.md"]) {
@@ -1723,6 +1787,7 @@ test("bundled identity hook has portable plugin-root commands", async () => {
   const hook = config.hooks.UserPromptSubmit[0].hooks[0];
   assert.match(hook.command, /\$PLUGIN_ROOT\/hooks\/taskchef-initial-prompt\.js/);
   assert.match(hook.commandWindows, /%PLUGIN_ROOT%\\hooks\\taskchef-initial-prompt\.js/);
+  assert.ok(hook.timeout * 1_000 > INITIAL_LINK_CHECKPOINTS_MS.at(-1));
 });
 
 test("init fails safely on malformed managed instruction markers", async () => {

@@ -50,7 +50,8 @@ clear data model before implementation.
   `resolve_client_thread(clientThreadId) -> { status, threadId? }`. Returning a
   reserved durable ID from `create_thread`, or emitting a materialization event
   containing it, would also close the lifecycle gap.
-- Re-evaluate whether the initial-hook identity link and exact-marker manual
-  recovery can be simplified when Codex exposes one of these APIs. Keep exact
-  correlation verification before persisting the returned durable ID unless
-  the official contract provides equivalent guarantees.
+- Replace bounded exact-marker discovery when Codex exposes one of these APIs.
+  The initial hook intentionally never links from `session_id`, because Codex
+  documents that subagent hooks use the parent session ID. Keep exact
+  correlation verification unless an official contract provides equivalent
+  guarantees.
