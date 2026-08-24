@@ -1176,8 +1176,16 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.mcpServers, "./.mcp.json");
+  assert.equal(manifest.interface.composerIcon, "./assets/taskchef.svg");
+  assert.equal(manifest.interface.logo, "./assets/taskchef.svg");
+  assert.equal(manifest.interface.logoDark, "./assets/taskchef-dark.svg");
+  for (const assetPath of [manifest.interface.logo, manifest.interface.logoDark]) {
+    const asset = await readFile(path.resolve(assetPath));
+    assert.ok(asset.length > 0, `${assetPath} must point to a non-empty packaged asset`);
+  }
   assert.equal(packageJson.files.includes(".codex-plugin"), true);
   assert.equal(packageJson.files.includes(".mcp.json"), true);
+  assert.equal(packageJson.files.includes("assets"), true);
   assert.equal(packageJson.files.includes("docs/delegation-design.md"), true);
   assert.equal(packageJson.files.includes("mcp"), true);
   assert.equal(packageJson.files.includes("scripts/benchmark-dispatch-prepare.js"), true);
@@ -1345,6 +1353,8 @@ test("release automation pins the shared marketplace to the exact npm version", 
     files: [
       { path: ".codex-plugin/plugin.json" },
       { path: ".mcp.json" },
+      { path: "assets/taskchef-dark.svg" },
+      { path: "assets/taskchef.svg" },
       { path: "bin/taskchef.js", mode: 0o755 },
       { path: "mcp/server.js" },
       { path: "node_modules/@modelcontextprotocol/sdk/package.json" },

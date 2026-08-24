@@ -33,6 +33,9 @@
       "$taskchef-delegate Dispatch this request to the right project.",
       "$taskchef-report Report on work in the TaskChef task history."
     ],
-    "brandColor": "#D97706"
+    "brandColor": "#D97706",
+    "composerIcon": "./assets/taskchef.svg",
+    "logo": "./assets/taskchef.svg",
+    "logoDark": "./assets/taskchef-dark.svg"
   }
 }
