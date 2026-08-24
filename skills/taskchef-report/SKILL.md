@@ -44,37 +44,37 @@ all deterministic task-log operations.
    detailed read. Native approval is live Codex state, not a `needs_input`
    callback. An inactive status never proves semantic completion; it only
    permits a trustworthy cached MCP result to stand.
-4. Treat `updatedBy: mcp`, `status: failed`, and null thread/turn IDs as a fresh
-   executor-creation failure. No live read is possible or needed; report the
-   stored failure summary, not unresolved. Otherwise, only a snapshot with
-   `updatedBy: mcp`, a result status, a non-null summary, and a non-null turn ID
-   is a cached semantic result. Any `working` snapshot has no semantic
-   callback, including a self-linked `updatedBy: mcp` snapshot, and requires
-   one live task query when selected; if the task is inactive and no callback
-   exists, report the outcome as unknown rather than treating `working` as
-   fresh. When identity is certain and metadata says the thread is
-   inactive, trust the latest MCP result by default in a broad overview. Do not
-   read every idle terminal task in an overview merely because native
+4. In schema 5, treat `status`, `turnId`, and `updatedAt` as the latest reported
+   execution state and treat `lastResult` as the separately preserved semantic
+   result. A `working` state with a non-null `lastResult` means a newer executor
+   turn started after that result; show the prior result as history, not as the
+   current outcome. Treat a failed `lastResult` with null thread and turn IDs as
+   a fresh executor-creation failure. No live read is possible or needed.
+   Schema 4 snapshots normalize a structurally complete result into
+   `lastResult` without rewriting their log line. When identity is certain and
+   metadata says the thread is inactive, trust the latest semantic result by
+   default in a broad overview unless a newer working state makes it historical.
+   Do not read every idle terminal task in an overview merely because native
    `updatedAt` is later: callbacks normally run before Codex finalizes the same
    turn, and overview performance matters more than investigating every rare
    missed callback.
 
    For a focused task, title, or project report, perform at most one detailed
    read for each selected inactive task when matched metadata `updatedAt` is
-   later than the cached result `updatedAt`, by any amount. Read once as well
+   later than `lastResult.updatedAt`, by any amount. Read once as well
    when there is no semantic callback, identity or metadata is uncertain or
    contradictory, or the user explicitly requests a fully live result. If
    focused metadata is not newer, trust the cache. Absence from the bounded
    recent snapshot is not by itself a reason to read every cached terminal
    overview entry. Batch immediate native reads with no more than eight targets
    per call. When a detailed read occurs, compare the latest structured turn ID
-   and native turn state with stored `turnId`: a newer turn without a callback
+   and native turn state with `lastResult.turnId`: a newer turn without a callback
    makes the cache stale, while an interrupted or cancelled callback turn
    cannot prove completion. Never classify assistant prose.
 5. Report each task as one of: working, needs input, awaiting native approval,
    completed, failed, unresolved, or unknown. Show the cached summary when it
    remains fresh. If a newer turn exists without a callback, describe the live
-   state and label the cached result stale rather than overwriting it.
+   state and label the preserved result historical or stale rather than overwriting it.
 6. Never edit `tasks.jsonl` directly during reporting. A null identity is
    executor link-pending and must be retried by that executor. Never persist inferred status,
    transcripts, prose classifications, or hidden reasoning. Do not poll or wait.

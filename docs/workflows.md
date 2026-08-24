@@ -13,7 +13,7 @@ research.
 | `skills/taskchef-delegate/SKILL.md` | Split, route, record-before-create, create, return. |
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize current workspace and configure projects. |
 | `skills/taskchef-report/SKILL.md` | Select cached tasks and perform bounded live checks. |
-| `src/mcp.js` | Four structured lifecycle tools and MCP annotations. |
+| `src/mcp.js` | Four primary lifecycle tools, one deprecated alias, and MCP annotations. |
 | `src/delegation.js` | UUID marker, executor contract paragraphs, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
 | `src/cli.js` | Administration, inspection, diagnostics, and dashboard startup. |
@@ -49,7 +49,7 @@ sequenceDiagram
   D->>D: Choose one configured and native project
   D->>M: record_task(id, project, title, instruction, null)
   M->>W: recordTask()
-  W->>W: Lock, validate, append schema-4 snapshot
+  W->>W: Lock, validate, append schema-5 snapshot
   W-->>M: working link-pending task
   M-->>D: task
   D->>C: Create executor with marked instruction
@@ -67,10 +67,11 @@ Record-before-create makes native creation failure observable. Executor
 self-linking removes dispatcher-side polling, task search, title matching, and
 parent/child identity inference.
 
-## Result reporting
+## State reporting
 
 The executor obtains the turn identity from an exact native read of its own
-linked task. `report_result` updates only the latest semantic snapshot.
+linked task. `report_state` records live turn state while preserving the last
+semantic result separately.
 
 ```mermaid
 sequenceDiagram
@@ -79,14 +80,17 @@ sequenceDiagram
   participant C as Native Codex task API
   participant M as TaskChef MCP
   participant W as workspace.js
-  E->>E: Finish or reach semantic decision
   E->>C: Exact read of linked executor
   C-->>E: Current turn ID
-  E->>M: report_result(taskId, threadId, turnId, status, summary)
-  M->>W: reportTaskResult()
+  E->>M: report_state(..., working, null)
+  M->>W: reportTaskState()
+  W->>W: Store current turn and preserve lastResult
+  E->>E: Work, finish, or reach semantic decision
+  E->>M: report_state(..., semantic status, summary)
+  M->>W: reportTaskState()
   W->>W: Lock and validate identity and freshness
-  alt Fresh result
-    W->>W: Replace status, summary, turnId, updatedAt, updatedBy
+  alt Same current working turn
+    W->>W: Store semantic state and lastResult
     W-->>M: Updated task
     M-->>E: Recorded result
   else Same turn and same result
@@ -114,18 +118,26 @@ sequenceDiagram
   participant C as Native Codex task API
   participant M as TaskChef MCP
   participant W as workspace.js
-  E->>M: report_result(..., turnA, needs_input, summaryA)
-  M->>W: Store turnA
-  W-->>E: needs_input snapshot
+  E->>M: report_state(..., turnA, needs_input, summaryA)
+  M->>W: reportTaskState()
+  W-->>M: needs_input snapshot
+  M-->>E: needs_input snapshot
   U->>E: Provide decision
   E->>C: Read exact executor after follow-up
   C-->>E: turnB
-  E->>M: report_result(..., turnB, completed, summaryB)
-  M->>W: Require turnB greater than turnA
-  W-->>E: completed snapshot
-  E->>M: report_result(..., turnA, completed, staleSummary)
+  E->>M: report_state(..., turnB, working, null)
+  M->>W: reportTaskState()
+  W->>W: Require turnB greater and preserve result A
+  W-->>M: working snapshot plus lastResult A
+  M-->>E: working snapshot plus lastResult A
+  E->>M: report_state(..., turnB, completed, summaryB)
+  M->>W: reportTaskState()
+  W-->>M: completed snapshot plus result B
+  M-->>E: completed snapshot plus result B
+  E->>M: report_state(..., turnA, completed, staleSummary)
   M->>W: Validate freshness
-  W-->>E: Error: turn is not newer
+  W-->>M: Error: turn is not newer
+  M-->>E: Visible tool error
 ```
 
 The executor contract therefore requires a new exact read on every follow-up;
@@ -174,7 +186,7 @@ sequenceDiagram
   W-->>D: Recorded task
   D->>C: Create executor
   C--xD: Creation error
-  D->>M: report_result(taskId, null, null, failed, boundedSummary)
+  D->>M: report_state(taskId, null, null, failed, boundedSummary)
   M->>W: Lock and store creation failure
   W-->>D: Failed task with null IDs
   D-->>D: Preserve original creation error and task ID
@@ -198,7 +210,7 @@ sequenceDiagram
   participant D as Dashboard monitor
   participant B as Browser client
   participant C as Native Codex
-  M->>W: link_task or report_result
+  M->>W: link_task or report_state
   W->>W: Acquire shared lock
   W->>F: Atomic replacement
   W-->>M: Updated task
@@ -232,5 +244,6 @@ summary is cryptographically authenticated; this is a local single-user trust
 model. Managed files, instructions, project snapshots, MCP inputs, and dashboard
 requests are validated at every action boundary.
 
-Only current configuration schema 2 and task schema 4 are accepted.
-Unsupported data is rejected without rewrite.
+Configuration schema 2 and task schemas 4 and 5 are accepted. Schema 4 is
+read-only compatibility until a lifecycle mutation upgrades that record to
+schema 5. Other schemas are rejected without rewrite.

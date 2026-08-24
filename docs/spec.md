@@ -22,7 +22,8 @@ is dated research, not contract.
 | **Record-before-create** | Persisting a link-pending task before asking Codex to create its executor. |
 | **Self-linking** | The executor's one-way registration of its own canonical Codex UUIDv7 from `CODEX_THREAD_ID`. |
 | **Link-pending** | A working task whose `threadId` is null and `updatedBy` is `dispatcher`. |
-| **Semantic result** | The executor's latest `completed`, `needs_input`, or `failed` outcome with a concise summary and current turn identity. |
+| **Current execution state** | The latest reported executor turn and its `working`, `needs_input`, `completed`, or `failed` status. |
+| **Last semantic result** | The most recent `completed`, `needs_input`, or `failed` outcome, preserved separately while a newer turn is working. |
 | **Current turn ID** | The canonical Codex UUIDv7 returned by an exact native read of the linked executor for the turn being reported. |
 | **Dashboard** | The loopback, read-only UI derived from validated workspace snapshots and bounded native actions. |
 | **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, or `taskchef-report`. |
@@ -35,7 +36,8 @@ is dated research, not contract.
   It MUST return after creation and MUST NOT poll, supervise, or infer identity.
 - `taskchef-report` MUST own on-demand reporting. It MUST NOT poll or persist
   inferred state.
-- The MCP server MUST expose exactly the four lifecycle tools specified below.
+- The MCP server MUST expose four primary lifecycle tools plus the deprecated
+  `report_result` compatibility alias specified below.
 - The CLI MAY administer and inspect the workspace, but MUST NOT provide a
   second agent lifecycle protocol.
 - The dashboard MUST be read-only with respect to dispatcher files.
@@ -62,9 +64,11 @@ Names and paths MUST be unique. Git projects MUST be exact Git roots.
 Repository URLs MUST canonicalize to `https://github.com/<owner>/<repository>`
 and be case-insensitively deduplicated.
 
-`tasks.jsonl` MUST contain zero or more newline-terminated schema-4 records,
-one per line. Unsupported schemas or fields MUST be rejected without
-conversion. Reads and writes MUST reject symlinked managed files. Mutations
+`tasks.jsonl` MUST contain zero or more newline-terminated schema-4 or schema-5
+records, one per line. Schema 4 is read compatibility for the previously
+released format; every new record and state mutation MUST write schema 5.
+Other schemas or unsupported fields MUST be rejected without conversion.
+Reads and writes MUST reject symlinked managed files. Mutations
 MUST hold the shared workspace lock and replace state atomically; read-only
 operations MUST NOT require write permission.
 
@@ -74,7 +78,7 @@ Every record MUST contain exactly these fields:
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Integer `4`. |
+| `schemaVersion` | Integer `5`; schema-4 records remain readable until their next mutation. |
 | `id` | Unique safe TaskChef ID; delegation uses a lowercase full UUID. |
 | `project` | Immutable configured-project snapshot. |
 | `title` | Non-empty display title. |
@@ -82,10 +86,11 @@ Every record MUST contain exactly these fields:
 | `threadId` | Null while link-pending; after self-link, canonical Codex UUIDv7. Low-level current-schema direct records may hold another durable non-provisional ID but are outside the MCP delegation journey. |
 | `createdAt` | ISO 8601 creation timestamp. |
 | `status` | `working`, `needs_input`, `completed`, or `failed`. |
-| `summary` | Null while working; non-empty and at most 2,000 characters for a semantic result. |
-| `turnId` | Null before a result; linked MCP journeys use a canonical Codex UUIDv7 for the reporting turn. |
-| `updatedAt` | ISO 8601 timestamp not earlier than `createdAt`. |
+| `summary` | Null while working; otherwise the current semantic state's non-empty summary of at most 2,000 characters. |
+| `turnId` | Null before turn reporting; otherwise the current reported turn. Linked MCP journeys use a canonical Codex UUIDv7. |
+| `updatedAt` | ISO 8601 timestamp not earlier than `createdAt` or the prior `updatedAt`; clock rollback cannot backdate a transition. |
 | `updatedBy` | `dispatcher` or `mcp`. |
+| `lastResult` | Null before a semantic result; otherwise `{status, summary, turnId, updatedAt}` preserving the latest semantic result. |
 
 Task IDs and non-null thread identities MUST be unique. The immutable intent
 fields MUST NOT change after recording.
@@ -100,12 +105,15 @@ fields MUST NOT change after recording.
 5. It MUST create exactly one native Codex executor and return immediately.
 6. The executor MUST read its own `CODEX_THREAD_ID` and call `link_task`
    before substantive work. It MUST NOT use parent/session identity or guess.
-7. Before ending a semantic turn, the executor MUST exactly read its linked
-   task, use that turn's ID, and call `report_result`.
-8. A follow-up MUST use its new current turn ID. It MUST NOT reuse a prior turn.
+7. After initial linking, the executor MUST exactly read its linked task and
+   call `report_state` with that turn ID, `working`, and no summary before work.
+8. Before ending, it MUST call `report_state` for the same working turn with a
+   semantic status and concise summary.
+9. A follow-up MUST report `working` with its new current turn ID before work.
+   It MUST NOT reuse a prior turn.
 
 If native creation fails after recording, the dispatcher MUST call
-`report_result` with `failed`, null thread/turn IDs, and a bounded summary.
+`report_state` with `failed`, null thread/turn IDs, and a bounded summary.
 A link failure MUST remain visible and retryable; the executor MUST report it
 visibly and MUST NOT continue substantive work.
 
@@ -163,7 +171,7 @@ new preparation values, though it writes no state.
 
 **Structured output:** `{ task: Task }`.
 
-The returned task has schema 4, `working`, null summary/turn/thread,
+The returned task has schema 5, `working`, null summary/turn/thread/lastResult,
 `updatedBy: dispatcher`, and equal creation/update timestamps. Duplicate IDs,
 unknown projects, malformed markers, and invalid input fail. Repeating a
 successful call is not idempotent; it fails as a duplicate.
@@ -189,10 +197,10 @@ marker, or ineligible state fails.
 **Annotations:** `readOnlyHint: false`, `destructiveHint: false`,
 `openWorldHint: false`.
 
-### `report_result`
+### `report_state`
 
 **Caller:** executor, or dispatcher only for native creation failure.
-**Mutation:** replaces the latest semantic-result fields atomically.
+**Mutation:** replaces the current state atomically and preserves `lastResult`.
 
 **Input:**
 
@@ -201,19 +209,30 @@ marker, or ineligible state fails.
 | `taskId` | Non-empty string. |
 | `threadId` | Matching non-empty ID for a linked task; null only for creation failure. |
 | `turnId` | Current canonical Codex UUIDv7 for a linked MCP journey; null only for creation failure. Maximum 256 characters at the MCP boundary. |
-| `status` | `needs_input`, `completed`, or `failed`. |
-| `summary` | Non-empty string, at most 2,000 characters. |
+| `status` | `working`, `needs_input`, `completed`, or `failed`. |
+| `summary` | Omitted or null for `working`; required non-empty string of at most 2,000 characters otherwise. |
 
 **Structured output:** `{ task: Task }`.
 
-For a linked self-linking journey, the stored identity MUST match and the turn
-MUST be newer than the stored turn. Repeating the same turn with the same
-status and summary is idempotent; changing the result for that turn fails.
-A null-identity record accepts only `failed` with both IDs null. Success sets
-status, summary, turn, `updatedAt`, and `updatedBy: mcp`.
+For a linked self-linking journey, `working` MUST identify a turn newer than
+the current turn and last semantic result. A semantic state MUST match the
+current working turn. Repeating an identical state is idempotent; conflicting
+or older state fails. A null-identity record accepts only a fresh executor
+creation `failed` state with both IDs null. Success sets the current state and
+preserves the semantic state in `lastResult`; starting newer work does not erase
+that result.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`,
 `openWorldHint: false`.
+
+### `report_result` (deprecated)
+
+`report_result` retains the prior semantic-only input shape and statuses as a
+temporary compatibility alias. It implicitly accepts a fresh supplied turn and
+stores its semantic result, including for supported schema-4 records and
+low-level opaque direct records. It does not accept `working`. New executor
+instructions MUST use `report_state`. Successful mutation upgrades schema 4 to
+schema 5; unsupported schemas remain rejected.
 
 ## Reporting and dashboard
 

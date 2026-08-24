@@ -15,6 +15,7 @@ import {
   linkTask,
   recordTask,
   reportTaskResult,
+  reportTaskState,
   sortTasksByMeaningfulUpdate,
 } from "../index.js";
 import {
@@ -36,6 +37,8 @@ import { openTaskFromControl } from "../src/dashboard/actions.js";
 const FIRST_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_ID = "22222222-2222-4222-8222-222222222222";
 const FIRST_THREAD_ID = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
+const FIRST_TURN_ID = "01a03275-d530-7043-ab4a-513a1ad6ae1e";
+const SECOND_TURN_ID = "01a03275-d531-7043-ab4a-513a1ad6ae1e";
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-dashboard-"));
@@ -402,6 +405,44 @@ test("executor self-linking advances meaningful ordering", async () => {
   assert.equal(resolved.updatedAt, "2026-08-23T10:00:00.000Z");
   assert.equal(resolved.updatedBy, "mcp");
   await waitFor(() => monitor.snapshot().tasks[0].id === FIRST_ID);
+  monitor.close();
+});
+
+test("dashboard snapshot separates a working turn from its preserved semantic result", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, {
+    ...input(project, FIRST_ID, "Lifecycle task", null),
+    instruction: `<!-- taskchef_id=${FIRST_ID} -->\n\nTrack lifecycle state.`,
+  });
+  await linkTask(workspace, FIRST_ID, FIRST_THREAD_ID);
+  await reportTaskState(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "working",
+  });
+  await reportTaskState(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "needs_input",
+    summary: "Choose a region.",
+  });
+  await reportTaskState(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: SECOND_TURN_ID,
+    status: "working",
+  });
+
+  const monitor = new DashboardMonitor(workspace, { pollIntervalMs: 60_000 });
+  await monitor.start();
+  const [task] = monitor.snapshot().tasks;
+  assert.equal(task.status, "working");
+  assert.equal(task.turnId, SECOND_TURN_ID);
+  assert.equal(task.lastResult.status, "needs_input");
+  assert.equal(task.lastResult.turnId, FIRST_TURN_ID);
+  assert.equal(task.lastResult.summary, "Choose a region.");
   monitor.close();
 });
 

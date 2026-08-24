@@ -30,6 +30,7 @@ import {
   EXECUTOR_OWNERSHIP_PARAGRAPH,
   EXECUTOR_LINK_PARAGRAPH,
   EXECUTOR_RESULT_PARAGRAPH,
+  EXECUTOR_WORKING_PARAGRAPH,
   createAndRecordDelegation,
   createTaskChefMcpServer,
   prepareDispatch,
@@ -53,6 +54,7 @@ import {
   readTask,
   recordTask,
   reportTaskResult,
+  reportTaskState,
   removeProject,
   requireSafeId,
   parseTaskChefMarker,
@@ -86,6 +88,7 @@ const SELF_LINK_THREAD_ID = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
 const OTHER_THREAD_ID = "019ffb69-57a6-7801-8b7a-8ff4c32a398d";
 const FIRST_RESULT_TURN_ID = "01a03275-d530-7043-ab4a-513a1ad6ae1e";
 const SECOND_RESULT_TURN_ID = "01a03275-d531-7043-ab4a-513a1ad6ae1e";
+const THIRD_RESULT_TURN_ID = "01a03275-d532-7043-ab4a-513a1ad6ae1e";
 
 function e2eBenchmarkInput() {
   return {
@@ -451,6 +454,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
       "prepare_dispatch",
       "record_task",
       "link_task",
+      "report_state",
       "report_result",
     ]);
     assert.equal(listed.tools[0].annotations.readOnlyHint, true);
@@ -458,6 +462,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     assert.equal(listed.tools[1].annotations.destructiveHint, false);
     assert.equal(listed.tools[1].annotations.openWorldHint, false);
     assert.equal(listed.tools[3].annotations.destructiveHint, true);
+    assert.match(listed.tools[4].title, /deprecated/i);
     assert.deepEqual(Object.keys(listed.tools[3].inputSchema.properties).sort(), [
       "status", "summary", "taskId", "threadId", "turnId",
     ]);
@@ -503,8 +508,18 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
       arguments: { taskId: prepared.taskId, threadId: SELF_LINK_THREAD_ID },
     });
     assert.equal(resolvedResult.structuredContent.task.threadId, SELF_LINK_THREAD_ID);
+    const workingResult = await client.callTool({
+      name: "report_state",
+      arguments: {
+        taskId: prepared.taskId,
+        threadId: SELF_LINK_THREAD_ID,
+        turnId: FIRST_RESULT_TURN_ID,
+        status: "working",
+      },
+    });
+    assert.equal(workingResult.structuredContent.task.status, "working");
     const completedResult = await client.callTool({
-      name: "report_result",
+      name: "report_state",
       arguments: {
         taskId: prepared.taskId,
         threadId: SELF_LINK_THREAD_ID,
@@ -517,7 +532,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     assert.equal((await readTask(workspace, prepared.taskId)).summary,
       "Implemented and verified the change.");
     const missingTurnResult = await client.callTool({
-      name: "report_result",
+      name: "report_state",
       arguments: {
         taskId: prepared.taskId,
         threadId: SELF_LINK_THREAD_ID,
@@ -687,7 +702,7 @@ test("delegation marker parsing requires the exact first-line full UUID marker",
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\nDo the work.`,
+    `<!-- taskchef_id=${TASK_ID} -->\n\n${EXECUTOR_OWNERSHIP_PARAGRAPH}\n\n${EXECUTOR_LINK_PARAGRAPH}\n\n${EXECUTOR_WORKING_PARAGRAPH}\n\n${EXECUTOR_RESULT_PARAGRAPH}\n\nDo the work.`,
   );
   const [marker, blankLine] = prepared.instruction.split("\n", 2);
   assert.equal(marker, `<!-- taskchef_id=${TASK_ID} -->`);
@@ -727,6 +742,7 @@ test("executor lifecycle paragraphs have one implementation owner and stay out o
   for (const paragraph of [
     EXECUTOR_OWNERSHIP_PARAGRAPH,
     EXECUTOR_LINK_PARAGRAPH,
+    EXECUTOR_WORKING_PARAGRAPH,
     EXECUTOR_RESULT_PARAGRAPH,
   ]) {
     assert.equal(delegateSkill.split(paragraph).length - 1, 1);
@@ -759,7 +775,7 @@ test("minimal delegation records before creation and leaves even durable creatio
   assert.equal(result.threadId, null);
   assert.deepEqual(resolved, []);
   assert.match(recorded[0].instruction, /link_task MCP tool/);
-  assert.match(recorded[0].instruction, /report_result MCP tool/);
+  assert.match(recorded[0].instruction, /report_state/);
 });
 
 test("minimal delegation returns immediately with provisional creation link-pending", async () => {
@@ -1050,6 +1066,200 @@ test("executor self-linking rejects parent identity, retries idempotently, and k
   assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 1);
 });
 
+test("report_state preserves the last semantic result while a newer turn is working", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Pause, resume, and finish.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-19T01:00:00.000Z",
+  });
+
+  const firstWorking = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+  }, { now: "2026-08-19T02:00:00.000Z" });
+  assert.equal(firstWorking.summary, null);
+  assert.equal(firstWorking.lastResult, null);
+
+  const needsInput = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Choose the deployment region.",
+  }, { now: "2026-08-19T02:01:00.000Z" });
+  assert.equal(needsInput.lastResult.status, "needs_input");
+
+  const followUp = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+    summary: null,
+  }, { now: "2026-08-19T01:59:00.000Z" });
+  assert.equal(followUp.updatedAt, needsInput.updatedAt, "clock rollback must not backdate state");
+  assert.deepEqual(followUp.lastResult, needsInput.lastResult);
+
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "completed",
+    summary: "A stale turn cannot complete newer work.",
+  }), /current working turnId/);
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: THIRD_RESULT_TURN_ID,
+    status: "completed",
+    summary: "A result cannot skip its working transition.",
+  }), /current working turnId/);
+
+  const completed = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Deployed to the selected region.",
+  }, { now: "2026-08-19T01:58:00.000Z" });
+  assert.equal(completed.updatedAt, followUp.updatedAt, "result must not predate working state");
+  assert.equal(completed.lastResult.status, "completed");
+  assert.deepEqual(await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Deployed to the selected region.",
+  }), completed);
+});
+
+test("schema 4 records remain readable and upgrade to schema 5 on a new working turn", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Resume historical self-linked work.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  const semantic = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Historical input was required.",
+  });
+  const { lastResult, ...schema4 } = semantic;
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  await writeFile(taskLog, `${JSON.stringify({ ...schema4, schemaVersion: 4 })}\n`);
+
+  assert.deepEqual((await readTask(workspace, TASK_ID)).lastResult, lastResult);
+  const working = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+  });
+  assert.equal(working.schemaVersion, 5);
+  assert.deepEqual(working.lastResult, lastResult);
+});
+
+test("report_result remains a deprecated compatibility alias", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "direct-thread"));
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: "direct-thread",
+    turnId: "opaque-turn-z",
+    status: "working",
+  }), /accepts only self-linked task records/);
+
+  const first = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "direct-thread",
+    turnId: "opaque-turn-z",
+    status: "completed",
+    summary: "First opaque result.",
+  });
+  assert.equal(first.schemaVersion, 5);
+  const later = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "direct-thread",
+    turnId: "opaque-turn-a",
+    status: "failed",
+    summary: "Later opaque result.",
+  });
+  assert.equal(later.status, "failed");
+});
+
+test("report_state accepts only a fresh unlinked creation failure", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Create an executor.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  const input = {
+    taskId: TASK_ID,
+    threadId: null,
+    turnId: null,
+    status: "failed",
+    summary: "Executor creation failed before the executor started.",
+  };
+  const failed = await reportTaskState(workspace, input);
+  assert.deepEqual(await reportTaskState(workspace, input), failed);
+  await assert.rejects(linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID), /eligible link-pending/);
+});
+
+test("schema 5 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Finish with one outcome.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+  });
+  const settled = await Promise.allSettled([
+    reportTaskState(workspace, {
+      taskId: TASK_ID,
+      threadId: SELF_LINK_THREAD_ID,
+      turnId: FIRST_RESULT_TURN_ID,
+      status: "completed",
+      summary: "Completed once.",
+    }),
+    reportTaskState(workspace, {
+      taskId: TASK_ID,
+      threadId: SELF_LINK_THREAD_ID,
+      turnId: FIRST_RESULT_TURN_ID,
+      status: "failed",
+      summary: "Failed once.",
+    }),
+  ]);
+  assert.equal(settled.filter(({ status }) => status === "fulfilled").length, 1);
+  assert.equal(settled.filter(({ status }) => status === "rejected").length, 1);
+
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const semantic = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  await writeFile(taskLog, `${JSON.stringify({ ...semantic, summary: "Mismatch." })}\n`);
+  await assert.rejects(listTasks(workspace), /lastResult must match/);
+  await writeFile(taskLog, `${JSON.stringify({
+    ...semantic,
+    status: "working",
+    summary: null,
+  })}\n`);
+  await assert.rejects(listTasks(workspace), /turnId must be newer than lastResult/);
+});
+
 test("concurrent semantic callbacks update different tasks without duplicate lines or lost writes", async () => {
   const { workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "thread-one"), {
@@ -1215,7 +1425,7 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
     assert.equal(parsed.diagramType, "sequence");
     assert.ok(diagram.trim().split("\n").length <= 32);
   }
-  for (const call of ["prepare_dispatch", "record_task", "link_task", "report_result"]) {
+  for (const call of ["prepare_dispatch", "record_task", "link_task", "report_state"]) {
     assert.match(workflows, new RegExp(`\\b${call}\\(`));
   }
   assert.match(workflows, /Follow-up turns/);
@@ -1394,7 +1604,7 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
-  for (const toolName of ["prepare_dispatch", "record_task", "link_task", "report_result"]) {
+  for (const toolName of ["prepare_dispatch", "record_task", "link_task", "report_state", "report_result"]) {
     assert.match(body, new RegExp(`\\b${toolName}\\b`));
   }
   assert.match(body, /Never fall back to shell writes/i);
@@ -1406,10 +1616,10 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
   assert.match(body, /Do not call `link_task` from the dispatcher/i);
   assert.match(body, /Never use CODEX_SESSION_ID or the parent or delegator thread ID/i);
-  assert.match(body, /current turn ID obtained by reading that exact thread/i);
-  assert.match(body, /A follow-up must use the\s+new turn ID/i);
+  assert.match(body, /reads the exact thread and calls `report_state`/i);
+  assert.match(body, /A follow-up must\s+use the new turn ID/i);
   assert.match(body, /return immediately/i);
-  assert.match(body, /If creation fails after recording, call `report_result`/);
+  assert.match(body, /If creation fails after recording, call `report_state`/);
   assert.doesNotMatch(body, /bounded identity-resolution|Stop at 30 seconds|resolve_task immediately/i);
 });
 
@@ -1439,21 +1649,20 @@ test("report skill keeps overviews cheap and reads newer focused tasks once", as
   assert.match(content, /one recent `list_threads` metadata snapshot/);
   assert.match(content, /whole report/);
   assert.match(content, /active\s+or awaiting native approval immediately overrides a cached result without a\s+detailed read/i);
-  assert.match(content, /trust the latest MCP result by default in a broad overview/i);
+  assert.match(content, /trust the latest semantic result by\s+default in a broad overview/i);
   assert.match(content, /focused task, title, or project report/i);
-  assert.match(content, /later than the cached result `updatedAt`, by any amount/i);
+  assert.match(content, /later than `lastResult\.updatedAt`, by any amount/i);
   assert.match(content, /If\s+focused metadata is not newer, trust the cache/i);
   assert.doesNotMatch(content, /30-second|30 seconds newer/);
   assert.match(content, /newer turn without a callback\s+makes the cache stale/i);
   assert.match(content, /interrupted or cancelled callback turn\s+cannot prove completion/i);
-  assert.match(content, /only a snapshot with\s+`updatedBy: mcp`, a result status, a non-null summary, and a non-null turn ID\s+is a cached semantic result/i);
-  assert.match(content, /Any `working` snapshot has no semantic\s+callback, including a self-linked `updatedBy: mcp` snapshot/i);
-  assert.match(content, /task is inactive and no callback\s+exists, report the outcome as unknown/);
-  assert.match(content, /null thread\/turn IDs as a fresh\s+executor-creation failure/);
+  assert.match(content, /treat `lastResult` as the separately preserved semantic\s+result/i);
+  assert.match(content, /A `working` state with a non-null `lastResult` means a newer executor\s+turn started/i);
+  assert.match(content, /null thread and turn IDs as\s+a fresh executor-creation failure/i);
   assert.match(content, /A null identity is\s+executor link-pending/);
   assert.doesNotMatch(content, /schema 1-3|task resolve|legacy recovery/);
   assert.match(content, /No live read is possible or needed/);
-  assert.match(content, /no semantic callback/);
+  assert.match(content, /newer turn exists without a callback/);
   assert.doesNotMatch(content, /task update|reconcile-candidates/);
 });
 
@@ -1826,12 +2035,12 @@ test("dispatch recording appends one working task entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
-  assert.equal(recorded.schemaVersion, 4);
+  assert.equal(recorded.schemaVersion, 5);
   assert.equal(recorded.project.name, "project-1");
   assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [
     "schemaVersion", "id", "project", "title", "instruction", "threadId", "createdAt",
-    "status", "summary", "turnId", "updatedAt", "updatedBy",
+    "status", "summary", "turnId", "updatedAt", "updatedBy", "lastResult",
   ]);
   assert.equal(recorded.status, "working");
   assert.equal(recorded.updatedBy, "dispatcher");
@@ -2423,15 +2632,18 @@ test("CLI task show prints human details for full and unique short IDs", async (
   const expected = [
     "Title: Show by short ID",
     "Project: project-1",
-    "Status: working",
-    "Summary: -",
+    "Current status: working",
+    "Current turn ID: -",
+    "Last result status: -",
+    "Last result summary: -",
+    "Last result turn ID: -",
+    "Last result updated: -",
     `Project path: ${projects[0]}`,
     `Created: ${FIXED_TIME}`,
     `Updated: ${FIXED_TIME}`,
     "Updated by: dispatcher",
     `Task ID: ${TASK_ID}`,
     "Thread ID: show-thread",
-    "Turn ID: -",
     "Instruction:",
     recorded.instruction,
     "",
@@ -2501,15 +2713,18 @@ test("CLI task show escapes line breaks in labeled details", async () => {
   assert.equal(human.stdout, [
     "Title: First line\\nProject: forged",
     "Project: project\\r\\nInstruction: forged",
-    "Status: working",
-    "Summary: -",
+    "Current status: working",
+    "Current turn ID: -",
+    "Last result status: -",
+    "Last result summary: -",
+    "Last result turn ID: -",
+    "Last result updated: -",
     `Project path: ${project.replaceAll("\n", "\\n")}`,
     `Created: ${FIXED_TIME}`,
     `Updated: ${FIXED_TIME}`,
     "Updated by: dispatcher",
     `Task ID: ${TASK_ID}`,
     "Thread ID: show-thread",
-    "Turn ID: -",
     "Instruction:",
     recorded.instruction,
     "",

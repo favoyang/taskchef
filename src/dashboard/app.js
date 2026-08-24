@@ -123,14 +123,18 @@ function openDialog(task) {
   state.selectedTask = task;
   elements.dialogProject.textContent = task.project.name;
   elements.dialogTitle.textContent = task.title;
-  elements.dialogSummary.textContent = task.summary ?? "No semantic result has been reported yet.";
+  elements.dialogSummary.textContent = task.lastResult?.summary
+    ?? "No semantic result has been reported yet.";
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyThreadId.disabled = !task.threadId;
   elements.dialogMetadata.replaceChildren(
-    ...detailRow("Status", taskStatusLabel(task)),
+    ...detailRow("Current status", taskStatusLabel(task)),
+    ...detailRow("Current turn ID", task.turnId),
+    ...detailRow("Last result status", task.lastResult?.status?.replaceAll("_", " ")),
+    ...detailRow("Last result turn ID", task.lastResult?.turnId),
+    ...detailRow("Last result updated", formatTime(task.lastResult?.updatedAt)),
     ...detailRow("Task ID", task.id),
     ...detailRow("Thread ID", task.threadId),
-    ...detailRow("Turn ID", task.turnId),
     ...detailRow("Project path", task.project.path),
     ...detailRow("Created", formatTime(task.createdAt)),
     ...detailRow("Updated", formatTime(
@@ -160,7 +164,7 @@ function taskCard(task) {
   project.textContent = task.project.name;
   const summary = document.createElement("p");
   summary.className = "task-summary";
-  summary.textContent = task.summary ?? "No semantic result reported yet.";
+  summary.textContent = task.lastResult?.summary ?? "No semantic result reported yet.";
   const time = document.createElement("time");
   time.dateTime = task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt;
   time.textContent = `Updated ${formatTime(time.dateTime)}`;

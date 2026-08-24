@@ -17,7 +17,8 @@ because it concerns TaskChef or a configured project. Explicit requests to
 delegate separate work remain valid.
 
 Use the bundled `prepare_dispatch`, `record_task`, `link_task`, and
-`report_result` MCP tools directly. Never fall back to shell writes. If a
+`report_state` MCP tools directly. `report_result` is a deprecated compatibility
+alias and must not be emitted into new executor instructions. Never fall back to shell writes. If a
 required tool is unavailable, stop and report that the TaskChef plugin must be
 reloaded or installed.
 
@@ -49,7 +50,9 @@ reloaded or installed.
 
    > Before any other work, read this executor's own durable Codex thread ID from the current task's CODEX_THREAD_ID environment value and call the TaskChef link_task MCP tool with that thread ID and the marked TaskChef task ID. Never use CODEX_SESSION_ID or the parent or delegator thread ID. If linking fails, CODEX_THREAD_ID is unavailable, or the tool is unavailable, report the failure visibly and retry on a later turn; do not guess an identity or continue substantive work while the task is link-pending.
 
-   > Before ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.
+   > After a successful initial link, and at the start of every follow-up turn before substantive work, read this exact Codex thread natively to obtain the current turn ID and call TaskChef report_state with the marked task ID, the self-linked thread ID, that current turn ID, status working, and summary omitted or null. link_task remains the first TaskChef action on the initial turn; do not report working before identity is linked. Never reuse a prior turn ID after a follow-up.
+
+   > Before ending, read this exact Codex thread again and call TaskChef report_state for the same current working turn with status completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.
 
 5. Before creating each executor, call `record_task` exactly once with `id`,
    `project`, `title`, the exact marked `instruction`, and `threadId: null`.
@@ -58,7 +61,7 @@ reloaded or installed.
 7. Return immediately. Preserve a returned provisional client ID only for the
    created-thread directive. Do not call `link_task` from the dispatcher even
    when creation returns a durable ID; the child must self-link.
-8. If creation fails after recording, call `report_result` with `failed`, null
+8. If creation fails after recording, call `report_state` with `failed`, null
    thread/turn IDs, and a bounded summary before returning the failure.
 
 ## Executor contract
@@ -71,10 +74,12 @@ Identical retries are safe. A rejected link, unavailable tool, or interrupted
 initial turn leaves the record visibly link-pending and retryable; the executor
 must not guess or do substantive work first.
 
-For every semantic result, the executor supplies its linked thread ID and the
-current turn ID obtained by reading that exact thread. A follow-up must use the
-new turn ID. Do not reuse the initial turn ID. `needs_input` is only for a real
-user decision, not live approval UI.
+After linking on the initial turn, and before substantive work on every later
+turn, the executor reads the exact thread and calls `report_state` with
+`working`, the current turn ID, and no summary. Before ending that same turn it
+reports a semantic state with the same turn ID and a summary. A follow-up must
+use the new turn ID. `needs_input` is only for a real user decision, not live
+approval UI.
 
-The filesystem watcher surfaces `link_task` and `report_result` writes to the
+The filesystem watcher surfaces `link_task` and `report_state` writes to the
 dashboard. The linked child ID drives the exact Codex deep link.
