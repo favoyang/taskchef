@@ -31,7 +31,8 @@ Complete this lifecycle setup before substantive assignment work:
 3. Read this exact Codex thread natively and obtain the current turn ID. Do not
    infer it or reuse an earlier turn ID.
 4. Call TaskChef `report_state` with the marked task ID, self-linked thread ID,
-   current turn ID, `status: working`, and an omitted or null summary.
+   current turn ID, `status: working`, an omitted or null result summary, and a
+   concise `requestSummary` describing this turn's assignment or follow-up.
 
 If `CODEX_THREAD_ID`, exact native thread reading, or a required TaskChef tool
 is unavailable, or if linking or the working-state report fails, report the
@@ -56,7 +57,7 @@ turn, run the start lifecycle with its new current turn ID and report that
 turn's actual outcome. Say reporting failures visibly instead of claiming a
 tracked outcome.
 
-Summaries must omit secrets, transcripts, raw command output, hidden reasoning,
+Request and result summaries must omit secrets, transcripts, raw command output, hidden reasoning,
 and unnecessary personal data. Identical lifecycle retries are safe; never
 replace a same-turn report with different content or let an older turn
 overwrite newer state.

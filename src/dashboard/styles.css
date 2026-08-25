@@ -79,7 +79,8 @@ select { min-width: 180px; padding: 9px 34px 9px 11px; border: 1px solid var(--b
 .task-title:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .task-project { margin: 3px 0 12px; font-size: 0.86rem; }
 .task-title, .task-summary { overflow-wrap: anywhere; }
-.task-summary { max-width: 78ch; margin-bottom: 14px; }
+.task-summary { display: grid; max-width: 78ch; margin-bottom: 14px; gap: 3px; }
+.task-summary strong { margin-top: 5px; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
 time, .timestamp-missing { font-size: 0.78rem; }
 .timestamp-toggle { padding: 2px 0; border: 0; background: none; cursor: pointer; text-align: left; }
 .timestamp-toggle:hover time { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
@@ -133,6 +134,7 @@ dialog section + section { margin-top: 24px; }
 .result-history-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
 .result-history-item p { margin-bottom: 7px; }
 .result-history-item p:last-child { margin-bottom: 0; }
+.result-history-item h4 { margin: 10px 0 3px; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
 .result-history-turn, .result-history-empty { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
 .result-history-empty { margin: 0; }
 pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius: 7px; background: var(--surface-muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 0.86rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

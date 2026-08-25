@@ -44,15 +44,14 @@ all deterministic task-log operations.
    detailed read. Native approval is live Codex state, not a `needs_input`
    callback. An inactive status never proves semantic completion; it only
    permits a trustworthy cached MCP result to stand.
-4. In schema 6, treat `status`, `turnId`, and `updatedAt` as the latest reported
-   execution state and treat `results` as the ordered semantic history.
-   `lastResult` is the derived compatibility alias for `results.at(-1)`; prefer
-   the collection when full history matters and the alias for compact latest-state
-   reporting. A `working` state with a non-null `lastResult` means a newer executor
-   turn started after that result; show the prior result as history, not as the
-   current outcome. Treat a failed `lastResult` with null thread and turn IDs as
-   a fresh executor-creation failure. Schema 4/5 snapshots normalize zero or one
-   semantic result into `results` and `lastResult` without rewriting their log line.
+4. In schema 7, treat `turns` as the ordered request/result timeline. Each turn
+   pairs a bounded `requestSummary` with either one semantic `result` or null
+   while work is in progress. `latestTurn` is the compact current pair.
+   `results` and `lastResult` remain derived compatibility projections; do not
+   pair the latest request with an earlier result. Treat a failed result with
+   null thread and turn IDs as a fresh executor-creation failure. Schema 4/5/6
+   snapshots normalize their semantic results into legacy turns with a null
+   request summary without rewriting their log line.
    No live read is possible or needed for that creation failure. When identity is certain and
    metadata says the thread is inactive, trust the latest semantic result by
    default in a broad overview unless a newer working state makes it historical.

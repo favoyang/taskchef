@@ -3,6 +3,8 @@ import {
   dismissNotification,
   findCurrentTask,
   KNOWN_TASK_STATUSES,
+  latestTurnPresentation,
+  mergeProjectedTurns,
   nextDateFilterRefreshDelay,
   notificationDismissLabel,
   notificationOpenLabel,
@@ -222,34 +224,44 @@ function detailRow(term, value) {
   return [dt, dd];
 }
 
-function resultHistory(taskId, results) {
-  if (results.length === 0) {
+function turnTimeline(task) {
+  if (task.turns.length === 0) {
     const empty = document.createElement("p");
     empty.className = "result-history-empty";
-    empty.textContent = "No semantic result has been reported yet.";
+    empty.textContent = "No executor turn has been reported yet.";
     return [empty];
   }
-  return [...results].reverse().map((result, index) => {
+  return [...task.turns].reverse().map((turn, index) => {
     const item = document.createElement("article");
     item.className = `result-history-item${index === 0 ? " result-history-latest" : ""}`;
     const header = document.createElement("div");
     header.className = "result-history-header";
     const status = document.createElement("span");
-    status.className = `status status-${result.status}`;
-    status.textContent = result.status.replaceAll("_", " ");
-    const resultKey = result.turnId ?? `${result.status}:${index}`;
-    const timestamp = timestampControl(result.updatedAt, {
-      accessibleName: `Result updated time for ${result.status.replaceAll("_", " ")}`,
-      key: `detail:${taskId}:result:${resultKey}`,
+    const turnStatus = turn.result?.status ?? "working";
+    status.className = `status status-${turnStatus}`;
+    status.textContent = turnStatus.replaceAll("_", " ");
+    const turnKey = turn.turnId ?? `no-turn:${index}`;
+    const timestamp = timestampControl(turn.result?.updatedAt ?? turn.startedAt, {
+      accessibleName: `Turn updated time for ${turnStatus.replaceAll("_", " ")}`,
+      key: `detail:${task.id}:turn:${turnKey}`,
     });
     header.append(status, timestamp);
-    const summary = document.createElement("p");
-    summary.className = "preserve-lines";
-    summary.textContent = result.summary;
-    const turn = document.createElement("p");
-    turn.className = "result-history-turn";
-    turn.textContent = result.turnId ? `Turn ${result.turnId}` : "No turn ID (creation failure)";
-    item.append(header, summary, turn);
+    const requestLabel = document.createElement("h4");
+    requestLabel.textContent = "Request";
+    const request = document.createElement("p");
+    request.className = "preserve-lines";
+    request.textContent = turn.requestSummary ?? "Request not recorded by this TaskChef version.";
+    const resultLabel = document.createElement("h4");
+    resultLabel.textContent = "Result";
+    const result = document.createElement("p");
+    result.className = "preserve-lines";
+    result.textContent = turn.result?.summary ?? "In progress";
+    const turnMetadata = document.createElement("p");
+    turnMetadata.className = "result-history-turn";
+    turnMetadata.textContent = turn.turnId
+      ? `Turn ${turn.turnId}`
+      : "No turn ID (creation failure)";
+    item.append(header, requestLabel, request, resultLabel, result, turnMetadata);
     return item;
   });
 }
@@ -260,12 +272,13 @@ function renderDialog(task) {
     : null;
   const detailedTask = {
     ...task,
+    turns: mergeProjectedTurns(task, state.selectedTask?.turns ?? []),
     results: task.results ?? preservedResults ?? [],
   };
   state.selectedTask = detailedTask;
   elements.dialogProject.textContent = task.project.name;
   elements.dialogTitle.textContent = task.title;
-  elements.dialogResults.replaceChildren(...resultHistory(task.id, detailedTask.results));
+  elements.dialogResults.replaceChildren(...turnTimeline(detailedTask));
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyThreadId.disabled = !task.threadId;
   elements.dialogMetadata.replaceChildren(
@@ -313,7 +326,7 @@ async function openDialog(task) {
     }
   } catch {
     if (state.selectedTask?.id === task.id) {
-      showMessage("Task result history is temporarily unavailable.");
+      showMessage("Task activity timeline is temporarily unavailable.");
     }
   }
 }
@@ -337,7 +350,18 @@ function taskCard(task) {
   project.textContent = task.project.name;
   const summary = document.createElement("p");
   summary.className = "task-summary";
-  summary.textContent = task.lastResult?.summary ?? "No semantic result reported yet.";
+  const latest = latestTurnPresentation(task);
+  const requestLabel = document.createElement("strong");
+  requestLabel.textContent = "Request";
+  const request = document.createElement("span");
+  request.className = "preserve-lines";
+  request.textContent = latest.requestSummary;
+  const resultLabel = document.createElement("strong");
+  resultLabel.textContent = "Result";
+  const result = document.createElement("span");
+  result.className = "preserve-lines";
+  result.textContent = latest.resultSummary;
+  summary.replaceChildren(requestLabel, request, resultLabel, result);
   const time = timestampControl(
     task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt,
     {

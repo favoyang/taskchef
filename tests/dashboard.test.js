@@ -31,6 +31,8 @@ import {
   clearNotifications,
   dismissNotification,
   KNOWN_TASK_STATUSES,
+  latestTurnPresentation,
+  mergeProjectedTurns,
   MAX_NOTIFICATIONS,
   findCurrentTask,
   nextDateFilterRefreshDelay,
@@ -355,6 +357,79 @@ test("relative-time controller default scheduler remains callable through the co
 test("dashboard exposes stable task status filters", () => {
   assert.deepEqual(KNOWN_TASK_STATUSES, [
     "working", "needs input", "completed", "failed", "unresolved",
+  ]);
+});
+
+test("latest turn presentation keeps each request paired with its own result", () => {
+  const working = {
+    title: "Timeline task",
+    status: "working",
+    turnId: SECOND_TURN_ID,
+    latestTurn: {
+      turnId: SECOND_TURN_ID,
+      requestSummary: "Apply the selected region.",
+      startedAt: "2026-08-20T10:02:00.000Z",
+      result: null,
+    },
+    lastResult: {
+      status: "needs_input",
+      summary: "Choose a region.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  assert.deepEqual(latestTurnPresentation(working), {
+    turnId: SECOND_TURN_ID,
+    startedAt: "2026-08-20T10:02:00.000Z",
+    requestSummary: "Apply the selected region.",
+    resultStatus: "working",
+    resultSummary: "In progress",
+    resultUpdatedAt: null,
+  });
+  const completed = {
+    ...working,
+    status: "completed",
+    latestTurn: {
+      ...working.latestTurn,
+      result: {
+        status: "completed",
+        summary: "Applied the selected region.",
+        updatedAt: "2026-08-20T10:03:00.000Z",
+      },
+    },
+  };
+  assert.equal(latestTurnPresentation(completed).resultSummary, "Applied the selected region.");
+});
+
+test("projected working turns update an open dialog before detail refresh", () => {
+  const first = {
+    turnId: FIRST_TURN_ID,
+    requestSummary: "Choose a region.",
+    startedAt: "2026-08-20T10:00:00.000Z",
+    result: {
+      status: "needs_input",
+      summary: "Region required.",
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  const followUp = {
+    turnId: SECOND_TURN_ID,
+    requestSummary: "Use Singapore.",
+    startedAt: "2026-08-20T10:02:00.000Z",
+    result: null,
+  };
+  assert.deepEqual(mergeProjectedTurns({ latestTurn: followUp }, [first]), [first, followUp]);
+  const completed = {
+    ...followUp,
+    result: {
+      status: "completed",
+      summary: "Used Singapore.",
+      updatedAt: "2026-08-20T10:03:00.000Z",
+    },
+  };
+  assert.deepEqual(mergeProjectedTurns({ latestTurn: completed }, [first, followUp]), [
+    first,
+    completed,
   ]);
 });
 
@@ -1062,6 +1137,7 @@ test("dashboard snapshot separates a working turn from its preserved semantic re
     threadId: FIRST_THREAD_ID,
     turnId: FIRST_TURN_ID,
     status: "working",
+    requestSummary: "Choose a deployment region.",
   });
   await reportTaskState(workspace, {
     taskId: FIRST_ID,
@@ -1075,6 +1151,7 @@ test("dashboard snapshot separates a working turn from its preserved semantic re
     threadId: FIRST_THREAD_ID,
     turnId: SECOND_TURN_ID,
     status: "working",
+    requestSummary: "Apply the selected region.",
   });
 
   const monitor = new DashboardMonitor(workspace, { pollIntervalMs: 60_000 });
@@ -1085,7 +1162,11 @@ test("dashboard snapshot separates a working turn from its preserved semantic re
   assert.equal(task.lastResult.status, "needs_input");
   assert.equal(task.lastResult.turnId, FIRST_TURN_ID);
   assert.equal(task.lastResult.summary, "Choose a region.");
+  assert.equal(task.latestTurn.requestSummary, "Apply the selected region.");
+  assert.equal(task.latestTurn.result, null);
+  assert.equal("turns" in task, false, "snapshot/SSE list projection must omit full timeline");
   assert.equal("results" in task, false, "snapshot/SSE list projection must omit full history");
+  assert.equal(monitor.tasks[0].turns.length, 2, "monitor retains bounded detail timeline");
   assert.equal(monitor.tasks[0].results.length, 1, "monitor retains bounded detail history");
   monitor.close();
 });
@@ -1162,10 +1243,15 @@ test("dashboard server serves independent clients without sessions and protects 
     const snapshot = await snapshotResponse.json();
     assert.equal(snapshot.tasks[0].title, "<img src=x onerror=alert(1)>");
     assert.equal(snapshot.tasks[0].id, FIRST_ID);
+    assert.equal("turns" in snapshot.tasks[0], false);
     assert.equal("results" in snapshot.tasks[0], false);
+    assert.equal(snapshot.tasks[0].latestTurn.result.summary, "Dashboard fixture completed.");
     const detailResponse = await fetch(`${server.origin}/api/tasks/${FIRST_ID}`);
     assert.equal(detailResponse.status, 200);
     const detail = await detailResponse.json();
+    assert.equal(detail.task.turns.length, 1);
+    assert.equal(detail.task.turns[0].requestSummary, null);
+    assert.equal(detail.task.turns[0].result.summary, "Dashboard fixture completed.");
     assert.equal(detail.task.results.length, 1);
     assert.equal(detail.task.results[0].summary, "Dashboard fixture completed.");
     assert.deepEqual(detail.task.lastResult, detail.task.results[0]);
@@ -1360,7 +1446,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /<source srcset="\/assets\/taskchef-dark\.svg" media="\(prefers-color-scheme: dark\)">/);
   assert.match(html, /<img src="\/assets\/taskchef\.svg" alt="" width="48" height="48">/);
   assert.match(html, /<picture class="dashboard-icon" aria-hidden="true">/);
-  assert.match(html, /<h3>Result history<\/h3>/);
+  assert.match(html, /<h3>Activity timeline<\/h3>/);
   assert.match(html, /id="dialog-results"/);
   assert.match(html, /id="open-codex"[^>]+aria-label="Open this task in Codex"/);
   assert.match(html, /class="codex-icon" aria-hidden="true"/);
@@ -1368,11 +1454,13 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.doesNotMatch(html, />Open task in Codex</);
   assert.doesNotMatch(html, />Task dashboard</);
   assert.match(script, /textContent = task\.instruction/);
-  assert.match(script, /\[\.\.\.results\]\.reverse\(\)/);
+  assert.match(script, /\[\.\.\.task\.turns\]\.reverse\(\)/);
   assert.match(script, /result-history-latest/);
   assert.match(script, /fetch\(`\/api\/tasks\/\$\{encodeURIComponent\(task\.id\)\}`\)/);
   assert.match(script, /requestGeneration === detailRequestGeneration/);
   assert.match(script, /task\.results \?\? preservedResults \?\? \[\]/);
+  assert.match(script, /latestTurnPresentation\(task\)/);
+  assert.match(script, /mergeProjectedTurns\(task, state\.selectedTask\?\.turns \?\? \[\]\)/);
   assert.match(script, /openTask\.type = "button"/);
   assert.match(script, /configureOpenTaskControl\(openTask, `Open \$\{task\.title\} in Codex`\)/);
   assert.match(script, /configureOpenTaskControl\(elements\.openProject, `Open \$\{task\.title\} in Codex`\)/);

@@ -477,7 +477,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     assert.equal(listed.tools[4].annotations.destructiveHint, true);
     assert.match(listed.tools[5].title, /deprecated/i);
     assert.deepEqual(Object.keys(listed.tools[4].inputSchema.properties).sort(), [
-      "status", "summary", "taskId", "threadId", "turnId",
+      "requestSummary", "status", "summary", "taskId", "threadId", "turnId",
     ]);
     for (const tool of listed.tools) {
       assert.equal("workspace" in (tool.inputSchema.properties ?? {}), false);
@@ -534,9 +534,14 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
         threadId: SELF_LINK_THREAD_ID,
         turnId: FIRST_RESULT_TURN_ID,
         status: "working",
+        requestSummary: "Implement and test the requested change.",
       },
     });
     assert.equal(workingResult.structuredContent.task.status, "working");
+    assert.equal(
+      workingResult.structuredContent.task.latestTurn.requestSummary,
+      "Implement and test the requested change.",
+    );
     const completedResult = await client.callTool({
       name: "report_state",
       arguments: {
@@ -1392,6 +1397,7 @@ test("report_state preserves the last semantic result while a newer turn is work
     threadId: SELF_LINK_THREAD_ID,
     turnId: FIRST_RESULT_TURN_ID,
     status: "working",
+    requestSummary: "Choose a deployment region, then deploy.",
   }, { now: "2026-08-19T02:00:00.000Z" });
   assert.equal(firstWorking.summary, null);
   assert.equal(firstWorking.lastResult, null);
@@ -1411,9 +1417,26 @@ test("report_state preserves the last semantic result while a newer turn is work
     turnId: SECOND_RESULT_TURN_ID,
     status: "working",
     summary: null,
+    requestSummary: "Deploy to the selected region.",
   }, { now: "2026-08-19T01:59:00.000Z" });
   assert.equal(followUp.updatedAt, needsInput.updatedAt, "clock rollback must not backdate state");
   assert.deepEqual(followUp.lastResult, needsInput.lastResult);
+  assert.equal(followUp.latestTurn.requestSummary, "Deploy to the selected region.");
+  assert.equal(followUp.latestTurn.result, null);
+  assert.deepEqual(followUp.turns.map(({ requestSummary, result }) => ({
+    requestSummary,
+    result: result?.status ?? null,
+  })), [
+    { requestSummary: "Choose a deployment region, then deploy.", result: "needs_input" },
+    { requestSummary: "Deploy to the selected region.", result: null },
+  ]);
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "A conflicting request summary.",
+  }), /different requestSummary/);
 
   await assert.rejects(reportTaskState(workspace, {
     taskId: TASK_ID,
@@ -1443,6 +1466,16 @@ test("report_state preserves the last semantic result while a newer turn is work
     { status: "needs_input", turnId: FIRST_RESULT_TURN_ID },
     { status: "completed", turnId: SECOND_RESULT_TURN_ID },
   ]);
+  assert.deepEqual(completed.latestTurn, {
+    turnId: SECOND_RESULT_TURN_ID,
+    requestSummary: "Deploy to the selected region.",
+    startedAt: followUp.updatedAt,
+    result: {
+      status: "completed",
+      summary: "Deployed to the selected region.",
+      updatedAt: completed.updatedAt,
+    },
+  });
   assert.deepEqual(await reportTaskState(workspace, {
     taskId: TASK_ID,
     threadId: SELF_LINK_THREAD_ID,
@@ -1459,7 +1492,7 @@ test("report_state preserves the last semantic result while a newer turn is work
   }), completed, "an identical retry for an older settled turn must not duplicate history");
 });
 
-test("workspace migration converts schema 4/5 last results once with a validated backup", async () => {
+test("workspace migration converts schema 4/5 results into paired turns once with a validated backup", async () => {
   const { workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "thread-one"));
   await recordTask(workspace, dispatchInput(projects[0], SECOND_TASK_ID, "thread-two"));
@@ -1478,9 +1511,17 @@ test("workspace migration converts schema 4/5 last results once with a validated
     summary: "Second historical result.",
   });
   const taskLog = path.join(workspace, "tasks.jsonl");
-  const [first, second] = (await readFile(taskLog, "utf8")).trim().split("\n").map(JSON.parse);
-  const { results: firstResults, ...firstState } = first;
-  const { results: secondResults, ...secondState } = second;
+  const [first, second] = await listTasks(workspace);
+  const firstResults = first.results;
+  const secondResults = second.results;
+  const {
+    turns: _firstTurns, latestTurn: _firstLatestTurn, results: _firstResults,
+    lastResult: _firstLastResult, ...firstState
+  } = first;
+  const {
+    turns: _secondTurns, latestTurn: _secondLatestTurn, results: _secondResults,
+    lastResult: _secondLastResult, ...secondState
+  } = second;
   const legacyContent = [
     JSON.stringify({ ...firstState, schemaVersion: 4 }),
     JSON.stringify({
@@ -1498,13 +1539,14 @@ test("workspace migration converts schema 4/5 last results once with a validated
   assert.equal(migrated.migratedCount, 2);
   assert.equal(await readFile(migrated.backupPath, "utf8"), legacyContent);
   const persisted = (await readFile(taskLog, "utf8")).trim().split("\n").map(JSON.parse);
-  assert.deepEqual(persisted.map(({ schemaVersion, results, lastResult }) => ({
+  assert.deepEqual(persisted.map(({ schemaVersion, turns, results, lastResult }) => ({
     schemaVersion,
-    resultCount: results.length,
+    turnCount: turns.length,
+    results,
     lastResult,
   })), [
-    { schemaVersion: 6, resultCount: firstResults.length, lastResult: undefined },
-    { schemaVersion: 6, resultCount: secondResults.length, lastResult: undefined },
+    { schemaVersion: 7, turnCount: firstResults.length, results: undefined, lastResult: undefined },
+    { schemaVersion: 7, turnCount: secondResults.length, results: undefined, lastResult: undefined },
   ]);
   assert.deepEqual((await listTasks(workspace)).map((task) => task.lastResult.summary), [
     "First historical result.",
@@ -1515,7 +1557,7 @@ test("workspace migration converts schema 4/5 last results once with a validated
     "workspace", "migrate", "--json", "--workspace", workspace,
   ])).stdout);
   assert.deepEqual(repeated, {
-    schemaVersion: 6,
+    schemaVersion: 7,
     action: "unchanged",
     taskCount: 2,
     migratedCount: 0,
@@ -1523,7 +1565,7 @@ test("workspace migration converts schema 4/5 last results once with a validated
   });
 });
 
-test("schema 4 records remain readable and upgrade to schema 6 on a new working turn", async () => {
+test("schema 4 records remain readable and upgrade to schema 7 on a new working turn", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Resume historical self-linked work.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1538,7 +1580,9 @@ test("schema 4 records remain readable and upgrade to schema 6 on a new working 
     status: "needs_input",
     summary: "Historical input was required.",
   });
-  const { lastResult, results: _results, ...schema4 } = semantic;
+  const {
+    lastResult, results: _results, turns: _turns, latestTurn: _latestTurn, ...schema4
+  } = semantic;
   const taskLog = path.join(workspace, "tasks.jsonl");
   await writeFile(taskLog, `${JSON.stringify({ ...schema4, schemaVersion: 4 })}\n`);
 
@@ -1549,9 +1593,107 @@ test("schema 4 records remain readable and upgrade to schema 6 on a new working 
     turnId: SECOND_RESULT_TURN_ID,
     status: "working",
   });
-  assert.equal(working.schemaVersion, 6);
+  assert.equal(working.schemaVersion, 7);
   assert.deepEqual(working.results, [lastResult]);
   assert.deepEqual(working.lastResult, lastResult);
+  assert.equal(working.turns.length, 2);
+  assert.equal(working.latestTurn.result, null);
+});
+
+test("schema 6 migration preserves a result followed by an unfinished working turn", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Migrate an active follow-up.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Completed the original request.",
+  });
+  const working = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Complete the follow-up request.",
+  });
+  const {
+    turns: _turns, latestTurn: _latestTurn, results, lastResult: _lastResult,
+    ...state
+  } = working;
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  await writeFile(taskLog, `${JSON.stringify({ ...state, schemaVersion: 6, results })}\n`);
+
+  const before = await readTask(workspace, TASK_ID);
+  assert.equal(before.turns.length, 2);
+  assert.equal(before.latestTurn.result, null);
+  assert.equal(before.latestTurn.requestSummary, null);
+  const migrated = await migrateTaskLog(workspace);
+  assert.equal(migrated.action, "migrated");
+  const after = await readTask(workspace, TASK_ID);
+  assert.equal(after.schemaVersion, 7);
+  assert.deepEqual(after.results, results);
+  assert.equal(after.turns.length, 2);
+  assert.equal(after.turns[0].result.summary, "Completed the original request.");
+  assert.equal(after.turns[1].turnId, SECOND_RESULT_TURN_ID);
+  assert.equal(after.turns[1].result, null);
+});
+
+test("schema 6 migration preserves an opaque working state that reuses its last result turn ID", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(
+    workspace,
+    dispatchInput(projects[0], TASK_ID, "opaque-thread"),
+    { now: "2026-08-25T02:59:00.000Z" },
+  );
+  const completed = await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: "opaque-thread",
+    turnId: "opaque-turn",
+    status: "completed",
+    summary: "Legacy opaque result.",
+  }, { now: "2026-08-25T03:00:00.000Z" });
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const schema6 = {
+    schemaVersion: 6,
+    id: completed.id,
+    project: completed.project,
+    title: completed.title,
+    instruction: completed.instruction,
+    threadId: completed.threadId,
+    createdAt: completed.createdAt,
+    status: "working",
+    summary: null,
+    turnId: "opaque-turn",
+    updatedAt: "2026-08-25T03:01:00.000Z",
+    updatedBy: "mcp",
+    results: completed.results,
+  };
+  await writeFile(taskLog, `${JSON.stringify(schema6)}\n`);
+
+  const readable = (await listTasks(workspace))[0];
+  assert.deepEqual(readable.turns.map((turn) => ({
+    turnId: turn.turnId,
+    result: turn.result?.status ?? null,
+  })), [
+    { turnId: "opaque-turn", result: "completed" },
+    { turnId: "opaque-turn", result: null },
+  ]);
+  const migration = await migrateTaskLog(workspace, {
+    now: () => "2026-08-25T03:02:00.000Z",
+  });
+  assert.equal(migration.action, "migrated");
+  const migrated = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.turns.length, 2);
+  assert.equal(migrated.turns[1].turnId, "opaque-turn");
+  assert.equal(migrated.turns[1].result, null);
+  assert.equal((await migrateTaskLog(workspace)).action, "unchanged");
 });
 
 test("workspace migration rejects unsupported input without rewriting or backing it up", async () => {
@@ -1563,7 +1705,7 @@ test("workspace migration rejects unsupported input without rewriting or backing
   await writeFile(taskLog, unsupported);
   await assert.rejects(migrateTaskLog(workspace), /unsupported task line 1 schemaVersion/);
   assert.equal(await readFile(taskLog, "utf8"), unsupported);
-  assert.deepEqual((await readdir(workspace)).filter((name) => name.includes("pre-v6")), []);
+  assert.deepEqual((await readdir(workspace)).filter((name) => name.includes("pre-v7")), []);
 });
 
 test("workspace migration reports its recovery backup after a replacement failure", async () => {
@@ -1571,7 +1713,10 @@ test("workspace migration reports its recovery backup after a replacement failur
   await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "thread-one"));
   const taskLog = path.join(workspace, "tasks.jsonl");
   const current = JSON.parse((await readFile(taskLog, "utf8")).trim());
-  const { results: _results, ...schema4 } = current;
+  const {
+    turns: _turns, latestTurn: _latestTurn, results: _results,
+    lastResult: _lastResult, ...schema4
+  } = current;
   const legacyContent = `${JSON.stringify({ ...schema4, schemaVersion: 4 })}\n`;
   await writeFile(taskLog, legacyContent);
   let failure;
@@ -1583,13 +1728,13 @@ test("workspace migration reports its recovery backup after a replacement failur
   } catch (error) {
     failure = error;
   }
-  assert.match(failure?.message, /failed after recovery backup .*pre-v6.*injected replacement failure/);
+  assert.match(failure?.message, /failed after recovery backup .*pre-v7.*injected replacement failure/);
   const backupPath = failure.message.match(/backup (.+): injected replacement failure/)[1];
   assert.equal(await readFile(backupPath, "utf8"), legacyContent);
   assert.equal(await readFile(taskLog, "utf8"), legacyContent);
 });
 
-test("schema 6 canonicalizes result UUIDs before duplicate-turn validation", async () => {
+test("schema 7 canonicalizes turn UUIDs before duplicate-turn validation", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Reject duplicate result identities.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1612,15 +1757,15 @@ test("schema 6 canonicalizes result UUIDs before duplicate-turn validation", asy
   });
   const taskLog = path.join(workspace, "tasks.jsonl");
   const raw = JSON.parse((await readFile(taskLog, "utf8")).trim());
-  raw.results = [
-    { ...raw.results[0], turnId: FIRST_RESULT_TURN_ID.toUpperCase() },
-    raw.results[0],
+  raw.turns = [
+    { ...raw.turns[0], turnId: FIRST_RESULT_TURN_ID.toUpperCase() },
+    raw.turns[0],
   ];
   await writeFile(taskLog, `${JSON.stringify(raw)}\n`);
-  await assert.rejects(listTasks(workspace), /results contains duplicate turnId/);
+  await assert.rejects(listTasks(workspace), /turns contains duplicate turnId/);
 });
 
-test("schema 6 requires turn identity on every linked result", async () => {
+test("schema 7 requires turn identity on every linked result", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Preserve linked result identity.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1642,9 +1787,33 @@ test("schema 6 requires turn identity on every linked result", async () => {
   }
   const taskLog = path.join(workspace, "tasks.jsonl");
   const raw = JSON.parse((await readFile(taskLog, "utf8")).trim());
-  raw.results[0].turnId = null;
+  raw.turns[0].turnId = null;
   await writeFile(taskLog, `${JSON.stringify(raw)}\n`);
   await assert.rejects(listTasks(workspace), /results\[0\]\.turnId is required/);
+});
+
+test("schema 7 rejects unfinished turns before a linked task reports its first turn", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Reject an invalid pre-turn timeline.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const valid = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  assert.equal((await listTasks(workspace))[0].turns.length, 0);
+  valid.turns = [{
+    turnId: null,
+    requestSummary: "Malformed unfinished request.",
+    startedAt: valid.updatedAt,
+    result: null,
+  }];
+  await writeFile(taskLog, `${JSON.stringify(valid)}\n`);
+  await assert.rejects(
+    listTasks(workspace),
+    /turns must be empty before the first working turn/,
+  );
 });
 
 test("report_result remains a deprecated compatibility alias", async () => {
@@ -1664,7 +1833,7 @@ test("report_result remains a deprecated compatibility alias", async () => {
     status: "completed",
     summary: "First opaque result.",
   });
-  assert.equal(first.schemaVersion, 6);
+  assert.equal(first.schemaVersion, 7);
   assert.equal(first.results.length, 1);
   const later = await reportTaskResult(workspace, {
     taskId: TASK_ID,
@@ -1695,7 +1864,7 @@ test("report_state accepts only a fresh unlinked creation failure", async () => 
   await assert.rejects(linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID), /eligible link-pending/);
 });
 
-test("schema 6 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
+test("schema 7 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Finish with one outcome.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2168,6 +2337,7 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /initial turn[\s\S]+`link_task`[\s\S]+first TaskChef action/i);
   assert.match(content, /follow-up[\s\S]+current turn ID/i);
   assert.match(content, /`report_state`[\s\S]+`status: working`/i);
+  assert.match(content, /concise `requestSummary`/i);
   assert.match(content, /completed[\s\S]+needs_input[\s\S]+failed/i);
   assert.match(content, /live native approval prompt[\s\S]+not semantic `needs_input`/i);
   assert.match(content, /secrets, transcripts, raw command output, hidden reasoning/i);
@@ -2211,9 +2381,9 @@ test("report skill keeps overviews cheap and reads newer focused tasks once", as
   assert.doesNotMatch(content, /30-second|30 seconds newer/);
   assert.match(content, /newer turn without a callback\s+makes the cache stale/i);
   assert.match(content, /interrupted or cancelled callback turn\s+cannot prove completion/i);
-  assert.match(content, /treat `results` as the ordered semantic history/i);
-  assert.match(content, /`lastResult` is the derived compatibility alias/i);
-  assert.match(content, /A `working` state with a non-null `lastResult` means a newer executor\s+turn started/i);
+  assert.match(content, /treat `turns` as the ordered request\/result timeline/i);
+  assert.match(content, /`latestTurn` is the compact current pair/i);
+  assert.match(content, /`results` and `lastResult` remain derived compatibility projections/i);
   assert.match(content, /null thread and turn IDs as\s+a fresh executor-creation failure/i);
   assert.match(content, /A null identity is\s+executor link-pending/);
   assert.doesNotMatch(content, /schema 1-3|task resolve|legacy recovery/);
@@ -2591,18 +2761,21 @@ test("dispatch recording appends one working task entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
-  assert.equal(recorded.schemaVersion, 6);
+  assert.equal(recorded.schemaVersion, 7);
   assert.equal(recorded.project.name, "project-1");
   assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [
     "schemaVersion", "id", "project", "title", "instruction", "threadId", "createdAt",
-    "status", "summary", "turnId", "updatedAt", "updatedBy", "results", "lastResult",
+    "status", "summary", "turnId", "updatedAt", "updatedBy", "turns", "latestTurn",
+    "results", "lastResult",
   ]);
   assert.equal(recorded.status, "working");
   assert.equal(recorded.updatedBy, "dispatcher");
   const content = await readFile(path.join(workspace, "tasks.jsonl"), "utf8");
   assert.equal(content.split("\n").length, 2);
-  const { lastResult: _lastResult, ...persisted } = recorded;
+  const {
+    latestTurn: _latestTurn, results: _results, lastResult: _lastResult, ...persisted
+  } = recorded;
   assert.deepEqual(JSON.parse(content.trim()), persisted);
 });
 
@@ -2636,8 +2809,14 @@ test("task log validation rejects mixed-case duplicates of one Codex UUID", asyn
     id: SECOND_TASK_ID,
     threadId: SELF_LINK_THREAD_ID.toUpperCase(),
   };
-  const { lastResult: _firstLastResult, ...persistedFirst } = first;
-  const { lastResult: _duplicateLastResult, ...persistedDuplicate } = duplicate;
+  const {
+    latestTurn: _firstLatestTurn, results: _firstResults,
+    lastResult: _firstLastResult, ...persistedFirst
+  } = first;
+  const {
+    latestTurn: _duplicateLatestTurn, results: _duplicateResults,
+    lastResult: _duplicateLastResult, ...persistedDuplicate
+  } = duplicate;
   await writeFile(
     path.join(workspace, "tasks.jsonl"),
     `${JSON.stringify(persistedFirst)}\n${JSON.stringify(persistedDuplicate)}\n`,
@@ -3203,8 +3382,8 @@ test("CLI task show prints human details for full and unique short IDs", async (
     "Updated by: dispatcher",
     `Task ID: ${TASK_ID}`,
     "Thread ID: show-thread",
-    "Result count: 0",
-    "Result history (newest first):",
+    "Turn count: 0",
+    "Activity timeline (newest first):",
     "Instruction:",
     recorded.instruction,
     "",
@@ -3286,8 +3465,8 @@ test("CLI task show escapes line breaks in labeled details", async () => {
     "Updated by: dispatcher",
     `Task ID: ${TASK_ID}`,
     "Thread ID: show-thread",
-    "Result count: 0",
-    "Result history (newest first):",
+    "Turn count: 0",
+    "Activity timeline (newest first):",
     "Instruction:",
     recorded.instruction,
     "",

@@ -38,8 +38,8 @@ const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_CONFIG_SCHEMA_VERSION = 2;
-const CURRENT_TASK_SCHEMA_VERSION = 6;
-const PREVIOUS_TASK_SCHEMA_VERSION = 5;
+const CURRENT_TASK_SCHEMA_VERSION = 7;
+const PREVIOUS_TASK_SCHEMA_VERSION = 6;
 const FIRST_SELF_LINKING_TASK_SCHEMA_VERSION = 4;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
@@ -65,7 +65,8 @@ const STATEFUL_DISPATCH_FIELDS = new Set([
   "updatedBy",
 ]);
 const SCHEMA_5_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "lastResult"]);
-const DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "results"]);
+const SCHEMA_6_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "results"]);
+const DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "turns"]);
 const RECORD_DISPATCH_FIELDS = new Set([
   "id",
   "project",
@@ -77,7 +78,10 @@ const RESULT_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const TASK_STATUSES = new Set(["working", ...RESULT_STATUSES]);
 const TASK_UPDATE_SOURCES = new Set(["dispatcher", "mcp"]);
 const MAX_RESULT_SUMMARY_LENGTH = 2_000;
+const MAX_REQUEST_SUMMARY_LENGTH = 1_000;
 const RESULT_FIELDS = new Set(["status", "summary", "turnId", "updatedAt"]);
+const TURN_RESULT_FIELDS = new Set(["status", "summary", "updatedAt"]);
+const TURN_FIELDS = new Set(["turnId", "requestSummary", "startedAt", "result"]);
 
 function requireExactFields(value, fields, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -224,7 +228,7 @@ async function appendDispatchesAtomic(workspaceRoot, dispatches) {
   const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
   const content = await readFile(dispatchPath, "utf8");
   const appended = dispatches
-    .map((dispatch) => `${JSON.stringify(schema6Task(dispatch))}\n`)
+    .map((dispatch) => `${JSON.stringify(schema7Task(dispatch))}\n`)
     .join("");
   await writeTextAtomic(dispatchPath, `${content}${appended}`);
 }
@@ -684,6 +688,7 @@ export async function removeProject(workspaceRoot, name) {
 async function validateDispatchShape(dispatch, name = "task") {
   const supportedVersions = [
     FIRST_SELF_LINKING_TASK_SCHEMA_VERSION,
+    5,
     PREVIOUS_TASK_SCHEMA_VERSION,
     CURRENT_TASK_SCHEMA_VERSION,
   ];
@@ -695,6 +700,8 @@ async function validateDispatchShape(dispatch, name = "task") {
     dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
       ? DISPATCH_FIELDS
       : dispatch.schemaVersion === PREVIOUS_TASK_SCHEMA_VERSION
+        ? SCHEMA_6_DISPATCH_FIELDS
+        : dispatch.schemaVersion === 5
         ? SCHEMA_5_DISPATCH_FIELDS
         : STATEFUL_DISPATCH_FIELDS,
     name,
@@ -735,20 +742,77 @@ async function validateDispatchShape(dispatch, name = "task") {
     }
     return normalizedResult;
   };
-  let results = [];
+  const normalizeTurnResult = (result, resultName) => {
+    if (result === null) return null;
+    requireExactFields(result, TURN_RESULT_FIELDS, resultName);
+    const normalizedResult = {
+      status: requireEnum(result.status, RESULT_STATUSES, `${resultName}.status`),
+      summary: optionalString(result.summary, `${resultName}.summary`, {
+        maxLength: MAX_RESULT_SUMMARY_LENGTH,
+      }),
+      updatedAt: requireTimestamp(result.updatedAt, `${resultName}.updatedAt`),
+    };
+    if (normalizedResult.summary === null) {
+      throw new Error(`${resultName}.summary must be a non-empty string`);
+    }
+    return normalizedResult;
+  };
+  const normalizeTurn = (turn, turnName) => {
+    requireExactFields(turn, TURN_FIELDS, turnName);
+    return {
+      turnId: optionalString(turn.turnId, `${turnName}.turnId`, { maxLength: 256 }),
+      requestSummary: optionalString(turn.requestSummary, `${turnName}.requestSummary`, {
+        maxLength: MAX_REQUEST_SUMMARY_LENGTH,
+      }),
+      startedAt: requireTimestamp(turn.startedAt, `${turnName}.startedAt`),
+      result: normalizeTurnResult(turn.result, `${turnName}.result`),
+    };
+  };
+  let legacyResults = [];
+  let turns = [];
   if (dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
+    if (!Array.isArray(dispatch.turns)) throw new Error(`${name}.turns must be an array`);
+    turns = dispatch.turns.map((turn, index) => normalizeTurn(turn, `${name}.turns[${index}]`));
+  } else if (dispatch.schemaVersion === PREVIOUS_TASK_SCHEMA_VERSION) {
     if (!Array.isArray(dispatch.results)) throw new Error(`${name}.results must be an array`);
-    results = dispatch.results.map((result, index) => (
+    legacyResults = dispatch.results.map((result, index) => (
       normalizeResult(result, `${name}.results[${index}]`)
     ));
-  } else if (dispatch.schemaVersion === PREVIOUS_TASK_SCHEMA_VERSION) {
+  } else if (dispatch.schemaVersion === 5) {
     if (dispatch.lastResult !== null) {
-      results = [normalizeResult(dispatch.lastResult, `${name}.lastResult`)];
+      legacyResults = [normalizeResult(dispatch.lastResult, `${name}.lastResult`)];
     }
   } else if (RESULT_STATUSES.has(status)) {
-    results = [{ status, summary, turnId, updatedAt }];
+    legacyResults = [{ status, summary, turnId, updatedAt }];
   }
+  if (dispatch.schemaVersion !== CURRENT_TASK_SCHEMA_VERSION) {
+    turns = legacyResults.map((result) => ({
+      turnId: result.turnId,
+      requestSummary: null,
+      startedAt: result.updatedAt,
+      result: {
+        status: result.status,
+        summary: result.summary,
+        updatedAt: result.updatedAt,
+      },
+    }));
+    if (
+      status === "working"
+      && turnId !== null
+      && (
+        turns.at(-1)?.turnId !== turnId
+        || turns.at(-1)?.result !== null
+      )
+    ) {
+      turns.push({ turnId, requestSummary: null, startedAt: updatedAt, result: null });
+    }
+  }
+  const results = turns.flatMap((turn) => turn.result === null ? [] : [{
+    ...turn.result,
+    turnId: turn.turnId,
+  }]);
   const lastResult = results.at(-1) ?? null;
+  const latestTurn = turns.at(-1) ?? null;
   const normalized = {
     schemaVersion: dispatch.schemaVersion,
     id,
@@ -764,6 +828,8 @@ async function validateDispatchShape(dispatch, name = "task") {
     turnId,
     updatedAt,
     updatedBy: requireEnum(dispatch.updatedBy, TASK_UPDATE_SOURCES, `${name}.updatedBy`),
+    turns,
+    latestTurn,
     results,
     lastResult,
   };
@@ -773,14 +839,20 @@ async function validateDispatchShape(dispatch, name = "task") {
     if (normalized.turnId !== null) {
       normalized.turnId = normalizeCodexThreadId(normalized.turnId, `${name}.turnId`);
     }
-    for (const [index, result] of normalized.results.entries()) {
-      if (result.turnId != null) {
-        result.turnId = normalizeCodexThreadId(
-          result.turnId,
-          `${name}.results[${index}].turnId`,
+    for (const [index, turn] of normalized.turns.entries()) {
+      if (turn.turnId != null) {
+        turn.turnId = normalizeCodexThreadId(
+          turn.turnId,
+          `${name}.turns[${index}].turnId`,
         );
       }
     }
+    normalized.results = normalized.turns.flatMap((turn) => turn.result === null ? [] : [{
+      ...turn.result,
+      turnId: turn.turnId,
+    }]);
+    normalized.lastResult = normalized.results.at(-1) ?? null;
+    normalized.latestTurn = normalized.turns.at(-1) ?? null;
   }
   if (normalized.schemaVersion >= FIRST_SELF_LINKING_TASK_SCHEMA_VERSION) {
     if (normalized.threadId === null) {
@@ -814,7 +886,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   if (RESULT_STATUSES.has(normalized.status) && normalized.summary === null) {
     throw new Error(`${name}.summary is required for status ${normalized.status}`);
   }
-  if (normalized.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION) {
+  if (normalized.schemaVersion >= 5) {
     if (RESULT_STATUSES.has(normalized.status)) {
       if (
         normalized.lastResult === null
@@ -850,32 +922,76 @@ async function validateDispatchShape(dispatch, name = "task") {
       throw new Error(`${name}.turnId must be newer than lastResult.turnId while working`);
     }
   }
-  const seenResultTurns = new Set();
+  if (normalized.status === "working") {
+    if (normalized.turnId === null) {
+      if (normalized.turns.length !== 0) {
+        throw new Error(`${name}.turns must be empty before the first working turn`);
+      }
+    } else if (
+      normalized.latestTurn === null
+      || normalized.latestTurn.turnId !== normalized.turnId
+      || normalized.latestTurn.result !== null
+    ) {
+      throw new Error(`${name}.latestTurn must match the current working turn`);
+    }
+  }
+  if (RESULT_STATUSES.has(normalized.status)) {
+    if (
+      normalized.latestTurn === null
+      || normalized.latestTurn.turnId !== normalized.turnId
+      || normalized.latestTurn.result === null
+      || normalized.latestTurn.result.status !== normalized.status
+      || normalized.latestTurn.result.summary !== normalized.summary
+      || normalized.latestTurn.result.updatedAt !== normalized.updatedAt
+    ) {
+      throw new Error(`${name}.latestTurn must match the current semantic state`);
+    }
+  }
+  const seenTurnIds = new Set();
   const nullTurnKey = Symbol("null turn");
-  for (const [index, result] of normalized.results.entries()) {
-    const turnKey = result.turnId ?? nullTurnKey;
-    if (seenResultTurns.has(turnKey)) {
-      throw new Error(`${name}.results contains duplicate turnId: ${result.turnId ?? "null"}`);
+  for (const [index, turn] of normalized.turns.entries()) {
+    const turnKey = turn.turnId ?? nullTurnKey;
+    const isLegacyOpaqueWorkingReuse = (
+      !isSelfLinkingRecord
+      && normalized.status === "working"
+      && index === normalized.turns.length - 1
+      && turn.result === null
+      && index > 0
+      && normalized.turns[index - 1].turnId === turn.turnId
+      && normalized.turns[index - 1].result !== null
+    );
+    if (seenTurnIds.has(turnKey) && !isLegacyOpaqueWorkingReuse) {
+      throw new Error(`${name}.turns contains duplicate turnId: ${turn.turnId ?? "null"}`);
     }
-    seenResultTurns.add(turnKey);
-    if (Date.parse(result.updatedAt) < Date.parse(normalized.createdAt)) {
-      throw new Error(`${name}.results[${index}].updatedAt must not be earlier than createdAt`);
+    seenTurnIds.add(turnKey);
+    if (Date.parse(turn.startedAt) < Date.parse(normalized.createdAt)) {
+      throw new Error(`${name}.turns[${index}].startedAt must not be earlier than createdAt`);
     }
-    if (Date.parse(result.updatedAt) > Date.parse(normalized.updatedAt)) {
-      throw new Error(`${name}.results[${index}].updatedAt must not be later than updatedAt`);
+    if (Date.parse(turn.startedAt) > Date.parse(normalized.updatedAt)) {
+      throw new Error(`${name}.turns[${index}].startedAt must not be later than updatedAt`);
     }
     if (
       index > 0
-      && Date.parse(result.updatedAt) < Date.parse(normalized.results[index - 1].updatedAt)
+      && Date.parse(turn.startedAt) < Date.parse(normalized.turns[index - 1].startedAt)
     ) {
-      throw new Error(`${name}.results must be ordered by updatedAt`);
+      throw new Error(`${name}.turns must be ordered by startedAt`);
     }
     if (
       isSelfLinkingRecord
       && index > 0
-      && result.turnId <= normalized.results[index - 1].turnId
+      && turn.turnId <= normalized.turns[index - 1].turnId
     ) {
-      throw new Error(`${name}.results must be ordered by turnId`);
+      throw new Error(`${name}.turns must be ordered by turnId`);
+    }
+    if (turn.result !== null) {
+      if (Date.parse(turn.result.updatedAt) < Date.parse(turn.startedAt)) {
+        throw new Error(`${name}.turns[${index}].result.updatedAt must not be earlier than startedAt`);
+      }
+      if (Date.parse(turn.result.updatedAt) > Date.parse(normalized.updatedAt)) {
+        throw new Error(`${name}.turns[${index}].result.updatedAt must not be later than updatedAt`);
+      }
+    } else if (index !== normalized.turns.length - 1) {
+      throw new Error(`${name}.turns may contain an unfinished turn only at the end`);
     }
   }
   if (
@@ -960,12 +1076,17 @@ export async function parseTaskLogContent(workspaceRoot, content) {
   return (await parseDispatchRecordsUnlocked(root, content)).map((record) => record.normalized);
 }
 
-function schema6Task(dispatch, patch = {}) {
-  const { lastResult: _lastResult, ...persisted } = dispatch;
+function schema7Task(dispatch, patch = {}) {
+  const {
+    latestTurn: _latestTurn,
+    results: _results,
+    lastResult: _lastResult,
+    ...persisted
+  } = dispatch;
   return {
     ...persisted,
     schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
-    results: dispatch.results ?? [],
+    turns: dispatch.turns ?? [],
     ...patch,
   };
 }
@@ -994,13 +1115,13 @@ export async function migrateTaskLog(workspaceRoot, {
         backupPath: null,
       };
     }
-    const lines = records.map((record) => JSON.stringify(schema6Task(record.normalized)));
+    const lines = records.map((record) => JSON.stringify(schema7Task(record.normalized)));
     const migrated = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
     await parseDispatchRecordsUnlocked(root, migrated);
     const timestamp = requireTimestamp(now(), "migration timestamp")
       .replaceAll(":", "-")
       .replaceAll(".", "-");
-    const backupPath = `${dispatchPath}.pre-v6-${timestamp}-${randomUUID()}.bak`;
+    const backupPath = `${dispatchPath}.pre-v7-${timestamp}-${randomUUID()}.bak`;
     await writeFile(backupPath, original, { encoding: "utf8", mode: 0o600, flag: "wx" });
     if (await readFile(backupPath, "utf8") !== original) {
       throw new Error(`task log backup validation failed: ${backupPath}`);
@@ -1046,7 +1167,7 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
       turnId: null,
       updatedAt: createdAt,
       updatedBy: "dispatcher",
-      results: [],
+      turns: [],
     });
     const existing = await readDispatchesUnlocked(root);
     if (existing.some((item) => item.id === dispatch.id)) {
@@ -1088,7 +1209,7 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
         throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
       }
       if (dispatch.threadId === durableThreadId) return dispatch;
-      const canonical = await validateDispatchShape(schema6Task(dispatch, {
+      const canonical = await validateDispatchShape(schema7Task(dispatch, {
         threadId: durableThreadId,
         updatedAt: transitionTimestamp(now, dispatch.updatedAt),
         updatedBy: "mcp",
@@ -1117,7 +1238,7 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
     ))) {
       throw new Error(`threadId is already recorded: ${durableThreadId}`);
     }
-    const linked = await validateDispatchShape(schema6Task(dispatch, {
+    const linked = await validateDispatchShape(schema7Task(dispatch, {
       threadId: durableThreadId,
       updatedAt: transitionTimestamp(now, dispatch.updatedAt),
       updatedBy: "mcp",
@@ -1131,11 +1252,13 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
 }
 
 function dispatchLineWithState(dispatch, patch) {
-  return JSON.stringify(schema6Task(dispatch, patch));
+  return JSON.stringify(schema7Task(dispatch, patch));
 }
 
 function normalizeTaskStateInput(input, { allowWorking }) {
-  const fields = new Set(["taskId", "threadId", "turnId", "status", "summary"]);
+  const fields = new Set([
+    "taskId", "threadId", "turnId", "status", "summary", "requestSummary",
+  ]);
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("task state must be an object");
   }
@@ -1157,13 +1280,21 @@ function normalizeTaskStateInput(input, { allowWorking }) {
   const summary = optionalString("summary" in input ? input.summary : null, "summary", {
     maxLength: MAX_RESULT_SUMMARY_LENGTH,
   });
+  const requestSummary = optionalString(
+    "requestSummary" in input ? input.requestSummary : null,
+    "requestSummary",
+    { maxLength: MAX_REQUEST_SUMMARY_LENGTH },
+  );
   if (status === "working" && summary !== null) {
     throw new Error("summary must be null while status is working");
   }
   if (status !== "working" && summary === null) {
     throw new Error(`summary is required for status ${status}`);
   }
-  return { id, threadId, turnId, status, summary };
+  if (status !== "working" && requestSummary !== null) {
+    throw new Error(`requestSummary is accepted only for status working`);
+  }
+  return { id, threadId, turnId, status, summary, requestSummary };
 }
 
 function sameLastResult(lastResult, { status, summary, turnId }) {
@@ -1178,7 +1309,7 @@ async function reportTaskStateInternal(
   input,
   { now, compatibilityAlias = false } = {},
 ) {
-  const { id, threadId, turnId, status, summary } = normalizeTaskStateInput(input, {
+  const { id, threadId, turnId, status, summary, requestSummary } = normalizeTaskStateInput(input, {
     allowWorking: !compatibilityAlias,
   });
   const root = await realpath(path.resolve(workspaceRoot));
@@ -1242,22 +1373,51 @@ async function reportTaskStateInternal(
       }
     }
     if (status === "working") {
-      if (dispatch.status === "working" && stateTurnId === dispatch.turnId) return dispatch;
+      const sameWorkingTurn = dispatch.status === "working" && stateTurnId === dispatch.turnId;
+      if (sameWorkingTurn) {
+        const storedRequest = dispatch.latestTurn?.requestSummary ?? null;
+        if (
+          requestSummary !== null
+          && storedRequest !== null
+          && requestSummary !== storedRequest
+        ) {
+          throw new Error(`working turn already has a different requestSummary: ${id}`);
+        }
+        if (
+          records[index].raw.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+          && (requestSummary === null || storedRequest === requestSummary)
+        ) {
+          return dispatch;
+        }
+      }
       if (isSelfLinkingJourney) {
-        if (dispatch.turnId !== null && stateTurnId <= dispatch.turnId) {
+        if (!sameWorkingTurn && dispatch.turnId !== null && stateTurnId <= dispatch.turnId) {
           throw new Error(`working turnId must be newer than the current task turnId: ${id}`);
         }
-        if (dispatch.lastResult?.turnId != null && stateTurnId <= dispatch.lastResult.turnId) {
+        if (!sameWorkingTurn && dispatch.lastResult?.turnId != null && stateTurnId <= dispatch.lastResult.turnId) {
           throw new Error(`working turnId must be newer than the last result turnId: ${id}`);
         }
       }
-      const updatedAt = transitionTimestamp(now, dispatch.updatedAt);
-      const updated = await validateDispatchShape(schema6Task(dispatch, {
+      const updatedAt = sameWorkingTurn
+        ? dispatch.updatedAt
+        : transitionTimestamp(now, dispatch.updatedAt);
+      const turns = sameWorkingTurn
+        ? dispatch.turns.map((turn, turnIndex) => turnIndex === dispatch.turns.length - 1
+          ? { ...turn, requestSummary: turn.requestSummary ?? requestSummary }
+          : turn)
+        : [...dispatch.turns, {
+          turnId: stateTurnId,
+          requestSummary,
+          startedAt: updatedAt,
+          result: null,
+        }];
+      const updated = await validateDispatchShape(schema7Task(dispatch, {
         status,
         summary: null,
         turnId: stateTurnId,
         updatedAt,
         updatedBy: "mcp",
+        turns,
       }));
       const lines = records.map((record, recordIndex) => recordIndex === index
         ? dispatchLineWithState(updated, {})
@@ -1265,7 +1425,10 @@ async function reportTaskStateInternal(
       await writeDispatchLinesAtomic(root, lines);
       return updated;
     }
-    const priorTurnResult = dispatch.results.find((result) => result.turnId === stateTurnId);
+    const priorTurn = dispatch.turns.find((turn) => turn.turnId === stateTurnId);
+    const priorTurnResult = priorTurn?.result === null || priorTurn === undefined
+      ? null
+      : { ...priorTurn.result, turnId: priorTurn.turnId };
     if (priorTurnResult && sameLastResult(priorTurnResult, { status, summary, turnId: stateTurnId })) {
       return dispatch;
     }
@@ -1287,14 +1450,28 @@ async function reportTaskStateInternal(
       throw new Error(`task result must match the current working turnId: ${id}`);
     }
     const updatedAt = transitionTimestamp(now, dispatch.updatedAt);
-    const lastResult = { status, summary, turnId: stateTurnId, updatedAt };
-    const candidate = schema6Task(dispatch, {
+    const turnResult = { status, summary, updatedAt };
+    const currentTurnIndex = dispatch.turns.findIndex((turn) => turn.turnId === stateTurnId);
+    let turns;
+    if (currentTurnIndex === -1) {
+      turns = [...dispatch.turns, {
+        turnId: stateTurnId,
+        requestSummary: null,
+        startedAt: updatedAt,
+        result: turnResult,
+      }];
+    } else {
+      turns = dispatch.turns.map((turn, turnIndex) => turnIndex === currentTurnIndex
+        ? { ...turn, result: turnResult }
+        : turn);
+    }
+    const candidate = schema7Task(dispatch, {
       status,
       summary,
       turnId: stateTurnId,
       updatedAt,
       updatedBy: "mcp",
-      results: [...dispatch.results, lastResult],
+      turns,
     });
     const updated = await validateDispatchShape(candidate);
     const lines = records.map((record, recordIndex) => recordIndex === index
