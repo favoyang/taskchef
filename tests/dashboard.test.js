@@ -1598,6 +1598,12 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
+  const toolbarMarkup = html.match(/<section class="toolbar"[\s\S]*?<\/section>/)?.[0];
+  assert.ok(toolbarMarkup);
+  assert.match(
+    toolbarMarkup,
+    /<div class="toolbar-primary">[\s\S]*?id="project-filter"[\s\S]*?id="date-filter"[\s\S]*?<\/div>\s*<fieldset class="status-filter-fieldset">/,
+  );
   assert.match(html, /<fieldset class="status-filter-fieldset">/);
   assert.match(html, /<legend>Status<\/legend>/);
   const statusFilterMarkup = html.match(/<div id="status-filter"[\s\S]*?<\/div>/)?.[0];
@@ -1676,10 +1682,14 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styles, /\.task-title, \.task-summary \{ overflow-wrap: anywhere; \}/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
+  assert.match(styles, /\.toolbar \{[^}]*display: grid;/);
+  assert.match(styles, /\.toolbar-primary \{[^}]*grid-template-columns: repeat\(2, minmax\(180px, 240px\)\);/);
+  assert.match(styles, /\.status-filter-fieldset \{[^}]*width: 100%;/);
   assert.match(styles, /\.status-filter-options \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
   assert.match(styles, /\.status-filter-option:has\(input:checked\) span \{/);
   assert.match(styles, /\.status-filter-option:has\(input:focus-visible\) span \{/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
+  assert.match(styles, /@media \(max-width: 480px\)[\s\S]*\.toolbar-primary \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*\.status-filter-option:has\(input:checked\) span \{ color: var\(--background\); \}/);
 });
 
