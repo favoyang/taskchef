@@ -35,6 +35,9 @@ Complete this lifecycle setup before substantive assignment work:
 4. Call TaskChef `report_state` with the marked task ID, self-linked thread ID,
    current turn ID, `status: working`, an omitted or null result summary, and a
    concise `requestSummary` describing this turn's assignment or follow-up.
+   When the turn targets a known GitHub repository, include its canonical
+   `https://github.com/<owner>/<repository>` URL so multi-repository projects
+   retain the selected repository instead of leaving TaskChef to guess.
 
 If the preceding TaskChef turn is still unfinished because its terminal report
 was lost, this newer valid working report atomically records that predecessor
@@ -70,6 +73,30 @@ Request and result summaries must omit secrets, transcripts, raw command output,
 and unnecessary personal data. Identical lifecycle retries are safe; never
 replace a same-turn report with different content or let an older turn
 overwrite newer state.
+
+### Preserve repository and delivery links
+
+Treat lifecycle summaries as the durable TaskChef timeline; the dashboard does
+not scan the full Codex transcript later. Preserve known GitHub context in that
+timeline with canonical links:
+
+- Use `https://github.com/<owner>/<repository>` when identifying the repository
+  selected for a turn. Derive it from established project or Git remote
+  evidence; never guess from a similarly named directory.
+- Use the full canonical issue or pull-request URL whenever one is known. Do
+  not shorten it to bare `#123` or `PR #123` in a multi-repository project.
+- Include every delivered pull request in the result summary. If work produces
+  both a child-repository pull request and a workspace/root pull request,
+  preserve both URLs and state which repository each belongs to.
+- Keep references specific to the text being reported. Do not copy unrelated
+  links from earlier turns merely to make them visible.
+- Never invent an issue, pull request, or repository link. If repository
+  identity is genuinely unresolved, describe that ambiguity without a link.
+
+For example, a working summary may say `Update dashboard projection in
+https://github.com/favoyang/taskchef`. A terminal summary may say `Shipped the
+child change in https://github.com/favoyang/taskchef/pull/78 and the workspace
+plan in https://github.com/favoyang/skills-workspace/pull/62`.
 
 ## Compatibility
 

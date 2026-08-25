@@ -1,5 +1,5 @@
 const GITHUB_REPOSITORY = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]+$/;
-const REFERENCE_PATTERN = /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]+)\/(issues|pull)\/([1-9]\d*)(?![A-Za-z0-9_])|([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]+)#([1-9]\d*)(?![A-Za-z0-9_])|#([1-9]\d*)(?![A-Za-z0-9_])/gi;
+const REFERENCE_PATTERN = /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]+)\/(issues|pull)\/([1-9]\d*)(?![A-Za-z0-9_])|([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]+)#([1-9]\d*)(?![A-Za-z0-9_])|#([1-9]\d*)(?![A-Za-z0-9_])|https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?)\/?(?=$|[\s),.;:!?'"\]}>])/gi;
 export const MAX_RELATED_GITHUB_LINKS = 20;
 
 function canonicalRepository(owner, repository) {
@@ -28,13 +28,16 @@ function rawReferences(text) {
     const start = match.index;
     const preceding = start > 0 ? value[start - 1] : "";
     if (match[8] && /[\w&#/]/.test(preceding)) continue;
-    if ((match[5] || match[1]) && /[\w/]/.test(preceding)) continue;
+    if ((match[5] || match[1] || match[9]) && /[\w/]/.test(preceding)) continue;
 
-    let owner = match[1] ?? match[5] ?? null;
-    let repository = match[2] ?? match[6] ?? null;
-    const number = match[4] ?? match[7] ?? match[8];
+    let owner = match[1] ?? match[5] ?? match[9] ?? null;
+    let repository = match[2] ?? match[6] ?? match[10] ?? null;
+    if (match[9]) repository = repository.replace(/\.git$/i, "");
+    const number = match[4] ?? match[7] ?? match[8] ?? null;
     const pathType = match[3]?.toLowerCase();
-    const type = pathType === "pull" ? "pull" : pathType === "issues" ? "issue" : "generic";
+    const type = match[9]
+      ? "repository"
+      : pathType === "pull" ? "pull" : pathType === "issues" ? "issue" : "generic";
     const explicit = Boolean(owner && repository);
     if (explicit) {
       if (!validRepositoryName(repository)) continue;
@@ -77,6 +80,17 @@ function resolvedReference(reference, repositoryContext) {
     : repositoryContext;
   if (!repository) return null;
   const [owner, repositoryName] = repository.split("/");
+  if (reference.type === "repository") {
+    return {
+      kind: "link",
+      number: null,
+      owner,
+      repository: repositoryName,
+      text: reference.text,
+      type: reference.type,
+      url: `https://github.com/${owner}/${repositoryName}`,
+    };
+  }
   const path = reference.type === "pull" ? "pull" : "issues";
   return {
     kind: "link",
@@ -133,6 +147,7 @@ function taskTexts(task) {
 }
 
 function relatedLinkLabel(link, includeRepository, includeOwner) {
+  if (link.type === "repository") return `${link.owner}/${link.repository}`;
   const reference = link.type === "pull"
     ? `PR #${link.number}`
     : link.type === "issue"

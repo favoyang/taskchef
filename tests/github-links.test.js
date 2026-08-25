@@ -65,6 +65,62 @@ test("retains explicit issue and pull URL types while preserving surrounding pun
   assert.equal(segments.map(({ text: value }) => value).join(""), text);
 });
 
+test("links canonical repository URLs and uses them as bare-reference context", () => {
+  const text = "Work in (https://github.com/Acme/App), then ship #14.";
+  const segments = githubReferenceSegments(text, {
+    projectRepositories: [
+      "https://github.com/acme/app",
+      "https://github.com/acme/workspace",
+    ],
+  });
+  assert.deepEqual(links(segments).map(({ type, url }) => ({ type, url })), [
+    { type: "repository", url: "https://github.com/acme/app" },
+    { type: "generic", url: "https://github.com/acme/app/issues/14" },
+  ]);
+  assert.equal(segments.map(({ text: value }) => value).join(""), text);
+});
+
+test("preserves dotted repository names without consuming sentence punctuation", () => {
+  const text = "Work in https://github.com/Acme/App.github.io. Then fix #15.";
+  const segments = githubReferenceSegments(text);
+  assert.deepEqual(links(segments).map(({ url }) => url), [
+    "https://github.com/acme/app.github.io",
+    "https://github.com/acme/app.github.io/issues/15",
+  ]);
+  assert.equal(segments.map(({ text: value }) => value).join(""), text);
+
+  const projection = taskGitHubProjection({
+    instruction: text,
+    project: { githubRepos: [] },
+    turns: [],
+  });
+  assert.equal(projection.relatedGitHubRepository, "acme/app.github.io");
+  assert.equal(projection.relatedGitHubLinks[0].label, "acme/app.github.io");
+});
+
+test("projects workspace and child repository links alongside their pull requests", () => {
+  const projection = taskGitHubProjection({
+    instruction: "Change https://github.com/acme/child.",
+    project: {
+      githubRepos: [
+        "https://github.com/acme/child",
+        "https://github.com/acme/workspace",
+      ],
+    },
+    turns: [{
+      requestSummary: "Prepare delivery in https://github.com/acme/child.",
+      result: {
+        summary: "Merged https://github.com/acme/child/pull/12 and https://github.com/acme/workspace/pull/34.",
+      },
+    }],
+  });
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ label, type, url }) => ({ label, type, url })), [
+    { label: "acme/child", type: "repository", url: "https://github.com/acme/child" },
+    { label: "child PR #12", type: "pull", url: "https://github.com/acme/child/pull/12" },
+    { label: "workspace PR #34", type: "pull", url: "https://github.com/acme/workspace/pull/34" },
+  ]);
+});
+
 test("does not link numeric prefixes inside malformed issue-like identifiers", () => {
   for (const text of [
     "Do not link #12abc.",
