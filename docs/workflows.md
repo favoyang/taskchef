@@ -14,15 +14,54 @@ research.
 | `skills/taskchef-executor/SKILL.md` | Own, self-link, execute, and report every executor turn. |
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize current workspace and configure projects. |
 | `skills/taskchef-report/SKILL.md` | Select cached tasks and perform bounded live checks. |
-| `src/mcp.js` | Four primary lifecycle tools, one deprecated alias, and MCP annotations. |
+| `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, shutdown ownership, and MCP annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
 | `src/cli.js` | Administration, inspection, diagnostics, and dashboard startup. |
-| `src/dashboard.js` | Validated snapshots, SSE fan-out, and bounded open actions. |
+| `src/dashboard.js` | Versioned health identity, validated snapshots, SSE fan-out, and bounded open actions. |
+| `src/dashboard-manager.js` | Concurrent singleton ensure, exact listener reuse, conflicts, and owned shutdown. |
 
 The MCP process resolves `TASKCHEF_WORKSPACE` once and never accepts a model
 supplied path. The CLI resolves `--workspace`, then the environment, then the
 per-user default.
+
+## Dispatcher dashboard lifecycle
+
+The generated managed `AGENTS.md` block makes dashboard maintenance a
+best-effort prelude to every dispatcher turn and keeps response ordering
+centralized instead of duplicating it across delegate/report skills.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant D as Dispatcher
+  participant M as TaskChef MCP
+  participant H as Loopback health
+  participant S as Dashboard server
+  D->>M: ensure_dashboard()
+  M->>M: Serialize concurrent ensure calls
+  M->>H: GET 127.0.0.1:3210/api/health
+  alt Exact service, versions, and canonical workspace
+    H-->>M: Bounded compatible identity
+    M-->>D: reused, URL, workspace, versions
+  else No listener
+    H--xM: Connection refused
+    M->>S: Start in this MCP process on 127.0.0.1:3210
+    S-->>M: Owned server
+    M-->>D: started, URL, workspace, versions
+  else Unknown, stale, or different workspace
+    H-->>M: Missing or incompatible identity
+    M-->>D: Actionable conflict, listener untouched
+  end
+  Note over D: Continue even when ensure failed
+  D-->>D: Answer, report, or dispatch
+  Note over D: Created-thread directive, when any, precedes final dashboard link
+```
+
+When the MCP transport or plugin process closes, it closes only the server it
+started. A compatible foreground `taskchef dashboard` listener may be reused
+but remains owned by that CLI process. No TaskChef path terminates an unknown
+listener or installs OS persistence.
 
 ## Normal delegation and self-linking
 
@@ -235,8 +274,9 @@ sequenceDiagram
 ```
 
 The dashboard binds to `127.0.0.1`, has no shared session state, limits
-request bodies, and checks origin/authority for stateful local actions. Historical
-project paths are untrusted until matched against current configuration.
+request bodies, and checks origin/authority for stateful local actions. Its
+bounded identity endpoint contains no task data or secrets. Historical project
+paths are untrusted until matched against current configuration.
 
 ## Concurrency and trust boundaries
 

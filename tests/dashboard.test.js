@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import net from "node:net";
+import http from "node:http";
 import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import test from "node:test";
 import {
   DashboardMonitor,
   addProject,
+  createDashboardManager,
   createDashboardServer,
   dashboardAuthority,
   initializeWorkspace,
@@ -17,6 +19,7 @@ import {
   reportTaskResult,
   reportTaskState,
   sortTasksByMeaningfulUpdate,
+  readDashboardIdentity,
 } from "../index.js";
 import {
   createSseClient,
@@ -86,6 +89,18 @@ async function rawHttpRequest({ host, port, request }) {
   });
 }
 
+async function unusedPort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : null;
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return port;
+}
+
 test("dashboard ordering uses the latest meaningful update with stable ties", () => {
   const tasks = [
     { id: "old", createdAt: "2026-08-20T10:00:00.000Z", updatedAt: null },
@@ -101,6 +116,118 @@ test("dashboard authority omits the normalized HTTP default port", () => {
   assert.equal(dashboardAuthority("127.0.0.1", 80), "127.0.0.1");
   assert.equal(dashboardAuthority("127.0.0.1", 3210), "127.0.0.1:3210");
   assert.equal(dashboardAuthority("::1", 80), "[::1]");
+});
+
+test("dashboard manager starts once and repeated and concurrent ensures reuse it", async () => {
+  const { workspace } = await fixture();
+  const port = await unusedPort();
+  const manager = createDashboardManager({ workspace, port });
+  try {
+    const concurrent = await Promise.all([manager.ensure(), manager.ensure(), manager.ensure()]);
+    assert.deepEqual(concurrent.map((result) => result.action), ["started", "reused", "reused"]);
+    assert.equal(concurrent[0].url, `http://127.0.0.1:${port}/`);
+    assert.equal(concurrent[0].workspace, await realpath(workspace));
+    assert.equal((await manager.ensure()).action, "reused");
+  } finally {
+    await manager.close();
+  }
+});
+
+test("dashboard health exposes bounded service identity independently of task snapshots", async () => {
+  const { workspace } = await fixture();
+  const server = await createDashboardServer({ workspace, port: 0 });
+  try {
+    const identity = await readDashboardIdentity({ host: server.host, port: server.port });
+    assert.deepEqual(identity, server.identity);
+    assert.deepEqual(Object.keys(identity).sort(), [
+      "schemaVersion", "serverVersion", "service", "taskchefVersion", "workspace",
+    ]);
+    assert.equal(identity.workspace, await realpath(workspace));
+    assert.equal((await fetch(`${server.origin}/api/health`)).headers.get("cache-control"), "no-store");
+
+    await writeFile(path.join(workspace, "tasks.jsonl"), "not-json\n");
+    await server.monitor.refresh({ force: true });
+    assert.equal((await fetch(`${server.origin}/api/snapshot`).then((r) => r.json())).healthy, false);
+    assert.deepEqual(await readDashboardIdentity({ host: server.host, port: server.port }), identity);
+  } finally {
+    await server.close();
+  }
+});
+
+test("dashboard manager reuses only the same canonical workspace and exact version", async () => {
+  const { workspace } = await fixture();
+  const port = await unusedPort();
+  const server = await createDashboardServer({ workspace, port });
+  const manager = createDashboardManager({ workspace: path.join(workspace, "."), port });
+  try {
+    const result = await manager.ensure();
+    assert.equal(result.action, "reused");
+    assert.equal(manager.owned, false);
+
+    const staleManager = createDashboardManager({
+      workspace,
+      port,
+      taskchefVersion: "0.0.0-stale",
+    });
+    await assert.rejects(
+      staleManager.ensure(),
+      /unknown, stale, or different-workspace service[\s\S]+will not terminate it/,
+    );
+    await staleManager.close();
+  } finally {
+    await manager.close();
+    await server.close();
+  }
+});
+
+test("dashboard manager leaves unknown port occupants running", async () => {
+  const { workspace } = await fixture();
+  const listener = http.createServer((_request, response) => {
+    response.writeHead(404, { "Content-Type": "text/plain" });
+    response.end("unknown");
+  });
+  await new Promise((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(0, "127.0.0.1", resolve);
+  });
+  const address = listener.address();
+  const port = typeof address === "object" && address ? address.port : null;
+  const manager = createDashboardManager({ workspace, port });
+  try {
+    await assert.rejects(
+      manager.ensure(),
+      /port conflict[\s\S]+HTTP 404[\s\S]+will not terminate it/,
+    );
+    assert.equal(listener.listening, true);
+  } finally {
+    await manager.close();
+    listener.closeAllConnections?.();
+    await new Promise((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("dashboard manager rejects invalid initial logs without retaining a listener", async () => {
+  const { workspace } = await fixture();
+  const port = await unusedPort();
+  await writeFile(path.join(workspace, "tasks.jsonl"), "not-json\n");
+  const manager = createDashboardManager({ workspace, port });
+  await assert.rejects(manager.ensure(), /dashboard could not read a valid task log/);
+  assert.equal(manager.owned, false);
+  await manager.close();
+  await assert.rejects(readDashboardIdentity({ port }), /ECONNREFUSED/);
+});
+
+test("closing a dashboard manager releases only its in-process listener", async () => {
+  const { workspace } = await fixture();
+  const port = await unusedPort();
+  const manager = createDashboardManager({ workspace, port });
+  await manager.ensure();
+  assert.equal((await readDashboardIdentity({ port })).workspace, await realpath(workspace));
+  await manager.close();
+  await assert.rejects(
+    readDashboardIdentity({ port }),
+    (error) => error.code === "ECONNREFUSED" || error.code === "ECONNRESET",
+  );
 });
 
 test("dashboard date filters use each task's latest meaningful update", () => {

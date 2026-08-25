@@ -57,10 +57,19 @@ export {
 } from "./src/codex-app.js";
 
 export {
+  DASHBOARD_HEALTH_MAX_BYTES,
+  DASHBOARD_HEALTH_PATH,
   DashboardMonitor,
   createDashboardServer,
   dashboardAuthority,
   sortTasksByMeaningfulUpdate,
 } from "./src/dashboard.js";
+
+export {
+  createDashboardManager,
+  readDashboardIdentity,
+} from "./src/dashboard-manager.js";
+
+export { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./src/version.js";
 
 export { createTaskChefMcpServer } from "./src/mcp.js";

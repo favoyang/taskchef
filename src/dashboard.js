@@ -16,6 +16,7 @@ import {
   parseTaskLogContent,
   readConfig,
 } from "./workspace.js";
+import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 
 const TASKS_FILE_NAME = "tasks.jsonl";
 const STATIC_ROOT = fileURLToPath(new URL("./dashboard/", import.meta.url));
@@ -24,6 +25,8 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_TASKS = 2_000;
 const DEFAULT_MAX_EVENT_CLIENTS = 16;
+export const DASHBOARD_HEALTH_PATH = "/api/health";
+export const DASHBOARD_HEALTH_MAX_BYTES = 8 * 1024;
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'none'",
@@ -402,6 +405,8 @@ export async function createDashboardServer({
   monitorOptions = {},
   openProject = null,
   openThread = null,
+  taskchefVersion = TASKCHEF_VERSION,
+  serverVersion = DASHBOARD_SERVER_VERSION,
 } = {}) {
   if (!LOOPBACK_HOSTS.has(host)) {
     throw new Error("dashboard host must be a loopback address");
@@ -414,6 +419,17 @@ export async function createDashboardServer({
   }
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   await monitor.start();
+  const identity = Object.freeze({
+    schemaVersion: 1,
+    service: "taskchef-dashboard",
+    taskchefVersion,
+    serverVersion,
+    workspace: monitor.workspace,
+  });
+  if (Buffer.byteLength(`${JSON.stringify(identity)}\n`) > DASHBOARD_HEALTH_MAX_BYTES) {
+    monitor.close();
+    throw new Error("dashboard identity exceeds the health response limit");
+  }
   const clients = new Set();
   let allowedAuthority;
   let allowedOrigin;
@@ -443,6 +459,16 @@ export async function createDashboardServer({
     if (method !== "GET" && method !== "HEAD" && method !== "POST") {
       response.writeHead(405, { Allow: "GET, HEAD, POST" });
       response.end();
+      return;
+    }
+
+    if (url.pathname === DASHBOARD_HEALTH_PATH && (method === "GET" || method === "HEAD")) {
+      if (method === "HEAD") {
+        response.writeHead(200, securityHeaders("application/json; charset=utf-8"));
+        response.end();
+      } else {
+        sendJson(response, 200, identity);
+      }
       return;
     }
 
@@ -574,6 +600,7 @@ export async function createDashboardServer({
     port: boundPort,
     origin: allowedOrigin,
     url: `${allowedOrigin}/`,
+    identity,
     monitor,
     get eventClientCount() { return clients.size; },
     async close() {

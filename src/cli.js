@@ -409,10 +409,22 @@ async function dashboard(args) {
     values: ["--port", "--workspace"],
     switches: ["--json"],
   });
-  const server = await createDashboardServer({
-    workspace: workspaceRoot(args),
-    port: dashboardPort(args),
-  });
+  const port = dashboardPort(args);
+  let server;
+  try {
+    server = await createDashboardServer({
+      workspace: workspaceRoot(args),
+      port,
+    });
+  } catch (error) {
+    if (error?.code === "EADDRINUSE") {
+      throw new Error(
+        `dashboard port 127.0.0.1:${port} is already in use; `
+        + "stop the existing listener or choose another --port (TaskChef will not terminate it)",
+      );
+    }
+    throw error;
+  }
   print({
     schemaVersion: 1,
     url: server.url,
@@ -461,8 +473,10 @@ Project import reads a JSON
 array from a file, or from standard input when the source is '-' or omitted.
 Workspace resolution precedence is --workspace, TASKCHEF_WORKSPACE, then
 ~/.agents/taskchef.
-The dashboard binds to 127.0.0.1 and reads the canonical task log without
-modifying dispatcher-workspace files.
+The foreground dashboard binds to 127.0.0.1 and reads the canonical task log
+without modifying dispatcher-workspace files. The dispatcher MCP may reuse a
+compatible foreground server on port 3210; neither mode terminates a listener
+that already occupies its requested port.
 `);
 }
 
