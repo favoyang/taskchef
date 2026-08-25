@@ -1,8 +1,8 @@
 import {
   clearNotifications,
   dismissNotification,
+  filterTasks,
   findCurrentTask,
-  KNOWN_TASK_STATUSES,
   latestTurnPresentation,
   mergeProjectedTurns,
   nextDateFilterRefreshDelay,
@@ -10,8 +10,9 @@ import {
   notificationOpenLabel,
   notificationTitle,
   reconcileNotifications,
+  statusFilterCounts,
+  statusFilterText,
   taskStatusLabel,
-  taskWithinDateFilter,
   turnPresentation,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
@@ -388,18 +389,41 @@ function taskCard(task) {
 
 function render() {
   const project = elements.projectFilter.value;
-  const status = elements.statusFilter.value;
+  const status = elements.statusFilter.querySelector("input:checked")?.value ?? "";
   const date = elements.dateFilter.value;
-  const visible = state.tasks.filter((task) =>
-    (!project || task.project.name === project)
-    && (!status || taskStatusLabel(task) === status)
-    && taskWithinDateFilter(task, date));
+  const now = Date.now();
+  const contextualTasks = filterTasks(state.tasks, { project, date, now });
+  const visible = filterTasks(contextualTasks, { status, now });
+  const counts = statusFilterCounts(state.tasks, { project, date, now });
+  for (const label of elements.statusFilter.querySelectorAll("[data-status-label]")) {
+    const value = label.dataset.statusLabel;
+    label.textContent = statusFilterText(value, counts[value]);
+  }
   elements.taskList.replaceChildren(...visible.map(taskCard));
   elements.emptyState.hidden = visible.length > 0;
   elements.taskCount.textContent = `${visible.length} of ${state.tasks.length} task${state.tasks.length === 1 ? "" : "s"}`;
   clearTimeout(dateRefreshTimer);
-  const refreshDelay = nextDateFilterRefreshDelay(visible, date);
+  const refreshDelay = nextDateFilterRefreshDelay(contextualTasks, date, now);
   dateRefreshTimer = refreshDelay === null ? null : setTimeout(render, refreshDelay);
+}
+
+function selectStatusFromKeyboard(event) {
+  if (event.target?.name !== "status-filter") return;
+  const inputs = [...elements.statusFilter.querySelectorAll('input[name="status-filter"]')];
+  const currentIndex = inputs.indexOf(event.target);
+  if (currentIndex < 0) return;
+  let nextIndex = currentIndex;
+  if (["ArrowRight", "ArrowDown"].includes(event.key)) nextIndex = (currentIndex + 1) % inputs.length;
+  else if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+    nextIndex = (currentIndex - 1 + inputs.length) % inputs.length;
+  } else if (event.key === "Home") nextIndex = 0;
+  else if (event.key === "End") nextIndex = inputs.length - 1;
+  else if (![" ", "Enter"].includes(event.key)) return;
+  event.preventDefault();
+  for (const input of inputs) input.checked = false;
+  inputs[nextIndex].checked = true;
+  inputs[nextIndex].focus();
+  render();
 }
 
 function applySnapshot(snapshot) {
@@ -423,11 +447,6 @@ function applySnapshot(snapshot) {
     elements.projectFilter,
     [...new Set(state.tasks.map((task) => task.project.name))].sort(),
     "All projects",
-  );
-  replaceOptions(
-    elements.statusFilter,
-    [...new Set([...KNOWN_TASK_STATUSES, ...state.tasks.map(taskStatusLabel)])],
-    "All statuses",
   );
   if (state.selectedTask) {
     const updated = state.tasks.find((task) => task.id === state.selectedTask.id);
@@ -457,6 +476,7 @@ events.addEventListener("dashboard-error", (event) => {
 
 elements.projectFilter.addEventListener("change", render);
 elements.statusFilter.addEventListener("change", render);
+elements.statusFilter.addEventListener("keydown", selectStatusFromKeyboard);
 elements.dateFilter.addEventListener("change", render);
 elements.dismissDashboardMessage.addEventListener("click", () => {
   elements.dashboardMessage.hidden = true;
