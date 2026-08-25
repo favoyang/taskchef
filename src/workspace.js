@@ -1581,6 +1581,148 @@ export async function buildTaskSummary(workspaceRoot) {
   };
 }
 
+const COPILOT_RECENT_TERMINAL_DAYS = 7;
+
+function sortTasksByNewestUpdate(tasks) {
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .sort((left, right) => (
+      Date.parse(right.task.updatedAt) - Date.parse(left.task.updatedAt)
+      || left.index - right.index
+    ))
+    .map(({ task }) => task);
+}
+
+function taskBriefEntry(task) {
+  const linkPending = task.threadId === null && task.status === "working";
+  const creationFailure = task.threadId === null && task.status === "failed";
+  const interruptedTurnCount = task.turns.filter(
+    (turn) => turn.result?.status === "interrupted",
+  ).length;
+  let attention = null;
+  let nextAction;
+  if (linkPending) {
+    attention = {
+      kind: "link_pending",
+      reason: "The executor has not linked its durable Codex task identity yet.",
+    };
+    nextAction = {
+      kind: "wait",
+      instruction: "Wait for the existing executor to self-link; recover its exact identity before proposing any continuation.",
+      requiresExplicitAuthorization: false,
+    };
+  } else if (task.status === "needs_input") {
+    attention = {
+      kind: "needs_input",
+      reason: task.summary,
+    };
+    nextAction = {
+      kind: "continue_existing_task",
+      instruction: "Provide the missing decision or fact in the existing executor task.",
+      requiresExplicitAuthorization: true,
+    };
+  } else if (task.status === "failed") {
+    attention = {
+      kind: creationFailure ? "creation_failed" : "failed",
+      reason: task.summary,
+    };
+    nextAction = creationFailure ? {
+      kind: "inspect_creation_failure",
+      instruction: "Review the creation failure before deciding whether to dispatch new work.",
+      requiresExplicitAuthorization: true,
+    } : {
+      kind: "continue_existing_task",
+      instruction: "Review the failure and authorize a focused follow-up in the existing executor task if appropriate.",
+      requiresExplicitAuthorization: true,
+    };
+  } else if (task.status === "working") {
+    nextAction = {
+      kind: "wait",
+      instruction: "No action is recommended while the existing executor is working.",
+      requiresExplicitAuthorization: false,
+    };
+  } else {
+    nextAction = {
+      kind: "none",
+      instruction: "No follow-up is required unless the user has a new request.",
+      requiresExplicitAuthorization: false,
+    };
+  }
+  return {
+    id: task.id,
+    title: task.title,
+    project: {
+      name: task.project.name,
+      path: task.project.path,
+    },
+    threadId: task.threadId,
+    state: task.status,
+    summary: task.summary,
+    lastOutcome: task.lastResult === null ? null : {
+      status: task.lastResult.status,
+      summary: task.lastResult.summary,
+      turnId: task.lastResult.turnId,
+      updatedAt: task.lastResult.updatedAt,
+    },
+    requestSummary: task.latestTurn?.requestSummary ?? null,
+    updatedAt: task.updatedAt,
+    attention,
+    nextAction: {
+      ...nextAction,
+      taskId: task.id,
+      threadId: task.threadId,
+    },
+    liveCheck: {
+      recommended: false,
+      reason: null,
+    },
+    interruptedTurnCount,
+  };
+}
+
+export async function buildCopilotBrief(workspaceRoot, {
+  project = null,
+  taskId = null,
+  includeOldTerminal = false,
+  now = () => new Date().toISOString(),
+} = {}) {
+  if (project !== null && taskId !== null) {
+    throw new Error("copilot brief accepts either project or taskId, not both");
+  }
+  let tasks = project === null
+    ? await listTasks(workspaceRoot)
+    : await filterTasks(workspaceRoot, { project });
+  if (taskId !== null) {
+    const id = requireSafeId(taskId, "taskId");
+    tasks = tasks.filter((task) => task.id === id);
+    if (tasks.length === 0) throw new Error(`task not found: ${id}`);
+  }
+  const generatedAt = requireTimestamp(now(), "copilot brief timestamp");
+  const recentCutoff = Date.parse(generatedAt)
+    - COPILOT_RECENT_TERMINAL_DAYS * 24 * 60 * 60 * 1_000;
+  const focused = taskId !== null || project !== null;
+  const selected = [];
+  let omittedTerminalCount = 0;
+  for (const task of sortTasksByNewestUpdate(tasks)) {
+    const terminal = task.status === "completed" || task.status === "failed";
+    const oldTerminal = terminal && Date.parse(task.updatedAt) < recentCutoff;
+    if (!focused && !includeOldTerminal && oldTerminal) {
+      omittedTerminalCount += 1;
+      continue;
+    }
+    selected.push(taskBriefEntry(task));
+  }
+  return {
+    schemaVersion: 1,
+    mode: "cached",
+    scope: taskId !== null ? "task" : project !== null ? "project" : "overview",
+    generatedAt,
+    taskCount: selected.length,
+    omittedTerminalCount,
+    tasks: selected,
+  };
+}
+
 export async function doctorWorkspace(workspaceRoot) {
   const root = path.resolve(workspaceRoot);
   const checks = [];

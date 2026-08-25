@@ -38,7 +38,7 @@
     "skills/taskchef-bootstrap",
     "skills/taskchef-delegate",
     "skills/taskchef-executor",
-    "skills/taskchef-report"
+    "skills/taskchef-copilot"
   ],
   "engines": {
     "node": ">=18"

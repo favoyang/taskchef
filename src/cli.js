@@ -7,6 +7,7 @@ import { resolveWorkspacePath } from "./workspace-path.js";
 
 import {
   addProject,
+  buildCopilotBrief,
   buildTaskSummary,
   doctorWorkspace,
   filterTasks,
@@ -414,6 +415,43 @@ async function taskSummary(args) {
   return 0;
 }
 
+async function taskBrief(args) {
+  const hasTaskId = Boolean(args[2] && !args[2].startsWith("--"));
+  validateCommandArgs(args, hasTaskId ? 3 : 2, {
+    values: ["--workspace", "--project"],
+    switches: ["--all", "--json"],
+  });
+  if (hasTaskId && args.includes("--project")) {
+    throw new Error("task brief accepts either a task ID or --project, not both");
+  }
+  const taskId = hasTaskId
+    ? (await readTaskForShow(workspaceRoot(args), args[2])).id
+    : null;
+  const brief = await buildCopilotBrief(workspaceRoot(args), {
+    taskId,
+    project: option(args, "--project", null),
+    includeOldTerminal: args.includes("--all"),
+  });
+  print(brief, args, (value) => {
+    const rows = value.tasks.map((task) => [
+      task.title,
+      task.project.name,
+      task.state,
+      task.attention?.kind ?? "-",
+      task.nextAction.kind,
+      displayId(task.id, false),
+    ]);
+    return [
+      `Cached TaskChef brief (${value.scope})`,
+      table(["TITLE", "PROJECT", "STATE", "ATTENTION", "NEXT ACTION", "ID"], rows),
+      value.omittedTerminalCount > 0
+        ? `Omitted old terminal tasks: ${value.omittedTerminalCount}`
+        : null,
+    ].filter(Boolean).join("\n");
+  });
+  return 0;
+}
+
 function dashboardPort(args) {
   const value = option(args, "--port", "3210");
   if (!/^\d+$/.test(value)) throw new Error("--port must be an integer from 0 to 65535");
@@ -481,6 +519,7 @@ Usage:
   taskchef project remove <name> [--json] [--workspace <path>]
   taskchef dispatch prepare [--json] [--workspace <path>]
   taskchef task record [--json] [--workspace <path>]
+  taskchef task brief [<task-id-or-8-character-prefix> | --project <name-or-path>] [--all] [--json] [--workspace <path>]
   taskchef task show <task-id-or-8-character-prefix> [--json] [--workspace <path>]
   taskchef task list [--project <name-or-path>] [--ascending] [--full-id] [--json] [--workspace <path>]
   taskchef task summary [--json] [--workspace <path>]
@@ -515,6 +554,7 @@ export async function runCli(args) {
   if (args[0] === "project" && args[1] === "remove") return projectRemove(args);
   if (args[0] === "dispatch" && args[1] === "prepare") return dispatchPrepare(args);
   if (args[0] === "task" && args[1] === "record") return taskRecord(args);
+  if (args[0] === "task" && args[1] === "brief") return taskBrief(args);
   if (args[0] === "task" && args[1] === "show" && args[2]) return taskShow(args);
   if (args[0] === "task" && args[1] === "list") return taskList(args);
   if (args[0] === "task" && args[1] === "summary") return taskSummary(args);

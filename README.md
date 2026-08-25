@@ -136,27 +136,47 @@ inline executor protocol still parses, self-links, and may use the deprecated
 `report_result` alias. The v7 inline-paragraph named exports remain as deprecated
 historical snapshots, but new delegations use the executor skill and `report_state`.
 
-## View and report tasks
+## View tasks and ask copilot
 
-Ask the dispatcher for an on-demand report:
+The dashboard is the primary monitoring and browsing UI. Ask copilot when you
+want a concise explanation or recommendation:
 
 ```text
-Report on the work TaskChef has dispatched.
+$taskchef-copilot What finished, what needs attention, and what should I do next?
 ```
 
-The reporting skill combines cached semantic results with one bounded live
-metadata snapshot. It does not poll or write inferred status. File-backed
-inspection is also available:
+Copilot starts from TaskChef's normalized cached brief. It uses live Codex
+metadata only when you explicitly request fresh/live verification or a focused
+task presents a meaningful contradiction, and it never polls. It can identify
+the exact executor, explain or draft a same-assignment follow-up, and—with your
+explicit authorization—continue that existing task. It never automatically
+retries failures, interrupts working tasks, or redelegates an executor. New
+independent work still belongs to `$taskchef-delegate`. In the dispatcher, an
+explicit instruction to answer, resume, or continue a named existing task
+routes to copilot; it re-reads that exact task before sending.
+
+The former `$taskchef-report` skill is not packaged as an alias because a
+second discoverable skill would preserve ambiguous behavior. Explicit
+historical invocations are understood as requests for `$taskchef-copilot` and
+receive a brief rename notice.
+
+File-backed inspection is also available:
 
 ```sh
+taskchef task brief
+taskchef task brief c0f010ff
+taskchef task brief --project payments
 taskchef task list
 taskchef task list --project payments
 taskchef task show c0f010ff
 taskchef task summary
 ```
 
-Add `--json` for structured output. `task show` accepts a full task UUID or
-an unambiguous eight-character prefix.
+Add `--json` for structured output. `task brief` returns the stable schema-1
+cached coordination model and omits terminal tasks older than seven days from
+overviews unless `--all` is supplied. Focused task and project briefs retain
+their full selected scope. Task IDs accept a full UUID or an unambiguous
+eight-character prefix.
 
 ## Dashboard
 

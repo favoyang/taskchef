@@ -170,10 +170,10 @@ semantic `failed`.
 `needs_input` is reserved for a real semantic decision, not a native approval
 prompt.
 
-**Fact:** The report skill treats cached results as evidence, takes one recent
-Codex metadata snapshot, and performs targeted exact-thread reads only for
-selected anomalies or freshness checks. It never polls or writes inferred
-state.
+**Fact:** The copilot skill explains normalized cached briefs by default and
+uses live Codex metadata only for an explicit fresh/live request or a focused
+meaningful contradiction. It recommends safe next actions, never polls, and
+never writes inferred state.
 
 ### FirstMate
 
@@ -198,8 +198,9 @@ This navigation check does not prove schema 4 or 5 self-link provenance. The
 dashboard does not refresh native task state, submit replies, or show
 transcripts or token usage.
 
-**Fact:** The user can also ask for a live TaskChef report or inspect the data
-CLI. Executor work remains visible in normal Codex desktop tasks.
+**Fact:** The user can also ask TaskChef copilot for a concise cached brief or
+focused live verification, or inspect the data CLI. Executor work remains
+visible in normal Codex desktop tasks.
 
 ### FirstMate
 
@@ -218,7 +219,7 @@ harness adapter.
 | --- | --- | --- |
 | Codex | Built around native Codex projects, tasks, thread reads, and desktop deep links. | Codex is one verified harness; desktop tasks are not its worker runtime. |
 | GitHub | Configured repository URLs aid routing; delivery remains the executor project's concern. | GitHub CLI, PR state, and configured delivery modes are part of supervised shipping workflows. |
-| Skills | Four plugin skills with narrow bootstrap, delegate, executor, and report responsibilities. | Internal firstmate-only skills plus standalone public skills; AGENTS.md routes conditional procedures. |
+| Skills | Four plugin skills with narrow bootstrap, delegate, executor, and conversational coordination responsibilities. | Internal firstmate-only skills plus standalone public skills; AGENTS.md routes conditional procedures. |
 | MCP | Four primary local TaskChef tools plus one deprecated compatibility alias own deterministic identity and state writes. | FirstMate describes itself as an agent distribution rather than an MCP product; deterministic behavior lives largely in scripts. |
 | Runtime extensions | Extend plugin skills/MCP/CLI/dashboard or compose native Codex capabilities. | Add or verify harness adapters, session backends, dispatch profiles, operational scripts, and optional integrations. |
 

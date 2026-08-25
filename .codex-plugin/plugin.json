@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "TaskChef",
     "shortDescription": "Dispatch work to the right Codex project task.",
-    "longDescription": "Route work to visible Codex project tasks, cache their latest semantic result, and query fresh reports on demand.",
+    "longDescription": "Route work to visible Codex project tasks, monitor them in the dashboard, and get concise cached-first coordination briefs.",
     "developerName": "Favo Yang",
     "category": "Productivity",
     "capabilities": [
@@ -32,7 +32,7 @@
       "$taskchef-bootstrap Set up TaskChef in this folder.",
       "$taskchef-delegate Dispatch this request to the right project.",
       "$taskchef-executor Execute this delegated TaskChef assignment.",
-      "$taskchef-report Report on work in the TaskChef task history."
+      "$taskchef-copilot Explain TaskChef outcomes and recommend the next action."
     ],
     "brandColor": "#D97706",
     "composerIcon": "./assets/taskchef.svg",
