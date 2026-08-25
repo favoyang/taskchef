@@ -1341,18 +1341,16 @@ test("dashboard server serves independent clients without sessions and protects 
     description: "Unrelated moved project.",
     githubRepos: [],
   });
-  await recordTask(workspace, input(
-    project,
-    FIRST_ID,
-    "<img src=x onerror=alert(1)>",
-    FIRST_THREAD_ID,
-  ));
+  await recordTask(workspace, {
+    ...input(project, FIRST_ID, "<img src=x onerror=alert(1)>", FIRST_THREAD_ID),
+    instruction: "Address favoyang/taskchef#123 safely.",
+  });
   await reportTaskResult(workspace, {
     taskId: FIRST_ID,
     threadId: FIRST_THREAD_ID,
     turnId: FIRST_TURN_ID,
     status: "completed",
-    summary: "Dashboard fixture completed.",
+    summary: "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",
   });
   await rename(staleProject, `${staleProject}-moved`);
   let openedProject = null;
@@ -1398,6 +1396,10 @@ test("dashboard server serves independent clients without sessions and protects 
     assert.equal(timeModule.status, 200);
     assert.match(timeModule.headers.get("content-type"), /text\/javascript/);
     assert.match(await timeModule.text(), /class RelativeTimeController/);
+    const githubLinksModule = await fetch(`${server.origin}/github-links.js`);
+    assert.equal(githubLinksModule.status, 200);
+    assert.match(githubLinksModule.headers.get("content-type"), /text\/javascript/);
+    assert.match(await githubLinksModule.text(), /taskGitHubProjection/);
 
     const snapshotResponse = await fetch(`${server.origin}/api/snapshot`);
     const snapshot = await snapshotResponse.json();
@@ -1405,15 +1407,34 @@ test("dashboard server serves independent clients without sessions and protects 
     assert.equal(snapshot.tasks[0].id, FIRST_ID);
     assert.equal("turns" in snapshot.tasks[0], false);
     assert.equal("results" in snapshot.tasks[0], false);
-    assert.equal(snapshot.tasks[0].latestTurn.result.summary, "Dashboard fixture completed.");
+    assert.equal(
+      snapshot.tasks[0].latestTurn.result.summary,
+      "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",
+    );
+    assert.deepEqual(snapshot.tasks[0].relatedGitHubLinks, [{
+      label: "#123",
+      number: "123",
+      owner: "favoyang",
+      repository: "taskchef",
+      type: "generic",
+      url: "https://github.com/favoyang/taskchef/issues/123",
+    }]);
+    assert.equal(snapshot.tasks[0].relatedGitHubRepository, "favoyang/taskchef");
     const detailResponse = await fetch(`${server.origin}/api/tasks/${FIRST_ID}`);
     assert.equal(detailResponse.status, 200);
     const detail = await detailResponse.json();
     assert.equal(detail.task.turns.length, 1);
     assert.equal(detail.task.turns[0].requestSummary, null);
-    assert.equal(detail.task.turns[0].result.summary, "Dashboard fixture completed.");
+    assert.equal(
+      detail.task.turns[0].result.summary,
+      "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",
+    );
     assert.equal(detail.task.results.length, 1);
-    assert.equal(detail.task.results[0].summary, "Dashboard fixture completed.");
+    assert.equal(
+      detail.task.results[0].summary,
+      "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",
+    );
+    assert.deepEqual(detail.task.relatedGitHubLinks, snapshot.tasks[0].relatedGitHubLinks);
     assert.deepEqual(detail.task.lastResult, detail.task.results[0]);
 
     const rejected = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {

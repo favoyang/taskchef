@@ -80,12 +80,18 @@ test("dashboard renders a live notification with time and shared accessible desc
     clearInterval: globalThis.clearInterval,
     document: globalThis.document,
     EventSource: globalThis.EventSource,
+    fetch: globalThis.fetch,
     Node: globalThis.Node,
     setInterval: globalThis.setInterval,
   };
   const elements = new Map();
   const document = {
     createElement: (tagName) => new FakeElement(tagName),
+    createTextNode(text) {
+      const node = new FakeElement("#text");
+      node.textContent = text;
+      return node;
+    },
     querySelector(selector) {
       if (!elements.has(selector)) {
         const element = new FakeElement();
@@ -113,6 +119,47 @@ test("dashboard renders a live notification with time and shared accessible desc
     globalThis.document = document;
     globalThis.Node = FakeElement;
     globalThis.EventSource = FakeEventSource;
+    globalThis.fetch = async (url) => {
+      if (url === "/api/health") {
+        return { ok: true, json: async () => ({ taskchefVersion: "test" }) };
+      }
+      if (url === "/api/tasks/task-one") {
+        return {
+          ok: true,
+          json: async () => ({
+            task: {
+              createdAt: timestamp,
+              id: "task-one",
+              instruction: "Address the reported failures safely.",
+              meaningfulUpdatedAt: timestamp,
+              project: {
+                githubRepos: ["https://github.com/acme/app", "https://github.com/acme/api"],
+                name: "MarketLake",
+                path: "/tmp/marketlake",
+              },
+              relatedGitHubLinks: [{
+                label: "#12",
+                url: "https://github.com/acme/app/issues/12",
+              }],
+              relatedGitHubRepository: null,
+              status: "needs_input",
+              threadId: "thread-one",
+              title: "Continue MarketLake V1",
+              turnId: "turn-one",
+              turns: [{
+                requestSummary: "Review acme/app#12, not <script>bad()</script>.",
+                result: { status: "needs_input", summary: "Confirm #13.", updatedAt: timestamp },
+                startedAt: timestamp,
+                turnId: "turn-one",
+              }],
+              updatedAt: timestamp,
+              updatedBy: "executor",
+            },
+          }),
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
     globalThis.setInterval = () => 1;
     globalThis.clearInterval = () => {};
     await import(`../src/dashboard/app.js?dashboard-ui=${Date.now()}`);
@@ -132,7 +179,16 @@ test("dashboard renders a live notification with time and shared accessible desc
           updatedAt: timestamp,
         },
         meaningfulUpdatedAt: timestamp,
-        project: { name: "MarketLake", path: "/tmp/marketlake" },
+        project: {
+          githubRepos: ["https://github.com/acme/app", "https://github.com/acme/api"],
+          name: "MarketLake",
+          path: "/tmp/marketlake",
+        },
+        relatedGitHubLinks: [{
+          label: "Issue #11",
+          url: "https://github.com/acme/app/issues/11",
+        }],
+        relatedGitHubRepository: "acme/app",
         status: "needs_input",
         threadId: "thread-one",
         title: "Continue MarketLake V1",
@@ -165,6 +221,32 @@ test("dashboard renders a live notification with time and shared accessible desc
       open.getAttribute("aria-describedby"),
     );
 
+    const [firstCard] = elements.get("#task-list").children;
+    const relatedLinks = firstCard.children[3];
+    const [relatedLink] = relatedLinks.children;
+    assert.equal(relatedLink.textContent, "Issue #11");
+    assert.equal(relatedLink.target, "_blank");
+    assert.equal(relatedLink.rel, "noopener noreferrer");
+    assert.match(relatedLink.getAttribute("aria-label"), /opens in a new tab/);
+    let propagationStopped = false;
+    relatedLink.emit("click", { stopPropagation() { propagationStopped = true; } });
+    assert.equal(propagationStopped, true);
+
+    firstCard.children[0].children[0].emit("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "#12");
+    const [latestTurn] = elements.get("#dialog-results").children;
+    const request = latestTurn.children[2];
+    const result = latestTurn.children[4];
+    assert.equal(request.children[1].textContent, "acme/app#12");
+    assert.equal(request.children.map(({ textContent }) => textContent).join(""),
+      "Review acme/app#12, not <script>bad()</script>.");
+    assert.equal(result.children[1].textContent, "#13");
+    assert.equal(result.children[1].className, "github-reference-ambiguous");
+    assert.equal(result.children[1].tabIndex, 0);
+    assert.match(result.children[1].getAttribute("aria-label"), /repository is ambiguous/);
+    assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
+
     const statusFilter = elements.get("#status-filter");
     assert.deepEqual(
       statusFilter.statusLabels.map(({ textContent }) => textContent),
@@ -188,6 +270,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     globalThis.clearInterval = previous.clearInterval;
     globalThis.document = previous.document;
     globalThis.EventSource = previous.EventSource;
+    globalThis.fetch = previous.fetch;
     globalThis.Node = previous.Node;
     globalThis.setInterval = previous.setInterval;
   }

@@ -97,6 +97,15 @@ select { min-width: 180px; min-height: 36px; padding: 7px 32px 7px 10px; border:
 .task-title, .task-summary { overflow-wrap: anywhere; }
 .task-summary { display: grid; max-width: 82ch; margin-bottom: 12px; gap: 2px; font-size: 0.9rem; line-height: 1.45; }
 .task-summary strong { margin-top: 4px; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.github-links { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 18px; }
+.github-links[hidden] { display: none; }
+.github-links-compact { margin: -2px 0 12px; gap: 5px; }
+.github-link { color: var(--accent); font-weight: 700; text-decoration-thickness: 1px; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.github-link-compact { padding: 2px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-muted); font-size: 0.72rem; line-height: 1.35; text-decoration: none; }
+.github-link:hover { text-decoration-thickness: 2px; }
+.github-link-compact:hover { border-color: var(--accent); background: var(--accent-soft); }
+.github-links-more { align-self: center; color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+.github-reference-ambiguous { border-bottom: 2px dotted var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); cursor: help; }
 time, .timestamp-missing { font-size: 0.75rem; }
 .timestamp-toggle { padding: 2px 0; border: 0; background: none; cursor: pointer; text-align: left; }
 .timestamp-toggle:hover time { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
@@ -136,7 +145,7 @@ time, .timestamp-missing { font-size: 0.75rem; }
 
 dialog { width: min(760px, calc(100vw - 32px)); max-height: min(82vh, 900px); padding: 28px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); }
-.dialog-header { display: flex; justify-content: space-between; gap: 20px; }
+.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin-bottom: 12px; font-size: 1.6rem; }
 .dialog-actions { display: flex; gap: 8px; margin-bottom: 26px; }
 .primary-button, .secondary-button { padding: 8px 12px; border-radius: 7px; font-weight: 700; cursor: pointer; }
@@ -173,6 +182,8 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .task-heading { align-items: flex-start; }
   .task-title, .timestamp-toggle { display: flex; align-items: center; min-height: 36px; }
   .task-footer { align-items: flex-start; flex-direction: column; }
+  .github-links { max-width: 100%; }
+  .github-link-compact { padding-block: 5px; }
   .task-open { align-self: flex-start; }
   select { min-height: 40px; }
   .status-filter-option span { min-height: 38px; }
