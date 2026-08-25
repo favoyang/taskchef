@@ -29,6 +29,7 @@
     "docs/images/dashboard-identity.jpg",
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
+    "docs/images/interrupted-turn-recovery.jpg",
     "index.js",
     "mcp",
     "scripts/benchmark-dispatch-prepare.js",

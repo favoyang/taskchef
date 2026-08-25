@@ -44,14 +44,18 @@ all deterministic task-log operations.
    detailed read. Native approval is live Codex state, not a `needs_input`
    callback. An inactive status never proves semantic completion; it only
    permits a trustworthy cached MCP result to stand.
-4. In schema 7, treat `turns` as the ordered request/result timeline. Each turn
-   pairs a bounded `requestSummary` with either one semantic `result` or null
-   while work is in progress. `latestTurn` is the compact current pair.
+4. In schema 8, treat `turns` as the ordered request/result timeline. Each turn
+   pairs a bounded `requestSummary` with one semantic result, a TaskChef-generated
+   `interrupted` outcome, or null while work is in progress. Describe an
+   interrupted historical turn plainly as interrupted/abandoned, never failed.
+   `latestTurn` is the compact current pair.
    `results` and `lastResult` remain derived compatibility projections; do not
-   pair the latest request with an earlier result. Treat a failed result with
+   expect interrupted outcomes in either projection and do not pair the latest
+   request with an earlier result. Treat a failed result with
    null thread and turn IDs as a fresh executor-creation failure. Schema 4/5/6
    snapshots normalize their semantic results into legacy turns with a null
-   request summary without rewriting their log line.
+   request summary without rewriting their log line. Schema 7 timelines remain
+   readable but cannot contain the schema-8 interrupted outcome.
    No live read is possible or needed for that creation failure. When identity is certain and
    metadata says the thread is inactive, trust the latest semantic result by
    default in a broad overview unless a newer working state makes it historical.

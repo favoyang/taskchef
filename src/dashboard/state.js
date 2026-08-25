@@ -1,4 +1,5 @@
 export const MAX_NOTIFICATIONS = 50;
+const INTERRUPTED_TURN_SUMMARY = "Turn interrupted before a terminal report.";
 export const KNOWN_TASK_STATUSES = [
   "working",
   "needs input",
@@ -49,6 +50,15 @@ export function latestTurnPresentation(task) {
   };
 }
 
+export function turnPresentation(turn) {
+  const result = turn.result ?? null;
+  return {
+    status: result?.status ?? "working",
+    summary: result?.summary ?? "In progress",
+    updatedAt: result?.updatedAt ?? turn.startedAt,
+  };
+}
+
 export function mergeProjectedTurns(task, preservedTurns = []) {
   if (Array.isArray(task.turns)) return task.turns;
   if (!task.latestTurn) return preservedTurns;
@@ -57,6 +67,20 @@ export function mergeProjectedTurns(task, preservedTurns = []) {
   if (lastIndex >= 0 && turns[lastIndex].turnId === task.latestTurn.turnId) {
     turns[lastIndex] = task.latestTurn;
   } else {
+    if (
+      task.schemaVersion === 8
+      && lastIndex >= 0
+      && turns[lastIndex].result === null
+    ) {
+      turns[lastIndex] = {
+        ...turns[lastIndex],
+        result: {
+          status: "interrupted",
+          summary: INTERRUPTED_TURN_SUMMARY,
+          updatedAt: task.latestTurn.startedAt,
+        },
+      };
+    }
     turns.push(task.latestTurn);
   }
   return turns;

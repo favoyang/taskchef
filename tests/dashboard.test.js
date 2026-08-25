@@ -42,6 +42,7 @@ import {
   notificationTitle,
   reconcileNotifications,
   taskWithinDateFilter,
+  turnPresentation,
 } from "../src/dashboard/state.js";
 import { openTaskFromControl } from "../src/dashboard/actions.js";
 import {
@@ -401,6 +402,43 @@ test("latest turn presentation keeps each request paired with its own result", (
   assert.equal(latestTurnPresentation(completed).resultSummary, "Applied the selected region.");
 });
 
+test("dashboard projections show the recovered request in progress and the interrupted history honestly", () => {
+  const interrupted = {
+    turnId: FIRST_TURN_ID,
+    requestSummary: "Run the original deployment.",
+    startedAt: "2026-08-20T10:00:00.000Z",
+    result: {
+      status: "interrupted",
+      summary: "Turn interrupted before a terminal report.",
+      updatedAt: "2026-08-20T10:02:00.000Z",
+    },
+  };
+  assert.deepEqual(turnPresentation(interrupted), {
+    status: "interrupted",
+    summary: "Turn interrupted before a terminal report.",
+    updatedAt: "2026-08-20T10:02:00.000Z",
+  });
+  assert.deepEqual(latestTurnPresentation({
+    title: "Recovered deployment",
+    status: "working",
+    turnId: SECOND_TURN_ID,
+    latestTurn: {
+      turnId: SECOND_TURN_ID,
+      requestSummary: "Resume after restart.",
+      startedAt: "2026-08-20T10:02:00.000Z",
+      result: null,
+    },
+    lastResult: null,
+  }), {
+    turnId: SECOND_TURN_ID,
+    startedAt: "2026-08-20T10:02:00.000Z",
+    requestSummary: "Resume after restart.",
+    resultStatus: "working",
+    resultSummary: "In progress",
+    resultUpdatedAt: null,
+  });
+});
+
 test("projected working turns update an open dialog before detail refresh", () => {
   const first = {
     turnId: FIRST_TURN_ID,
@@ -430,6 +468,36 @@ test("projected working turns update an open dialog before detail refresh", () =
   assert.deepEqual(mergeProjectedTurns({ latestTurn: completed }, [first, followUp]), [
     first,
     completed,
+  ]);
+});
+
+test("a compact recovery snapshot immediately interrupts the preserved unfinished predecessor", () => {
+  const predecessor = {
+    turnId: FIRST_TURN_ID,
+    requestSummary: "Deploy before the app restart.",
+    startedAt: "2026-08-20T10:00:00.000Z",
+    result: null,
+  };
+  const recovery = {
+    turnId: SECOND_TURN_ID,
+    requestSummary: "Resume after restart.",
+    startedAt: "2026-08-20T10:02:00.000Z",
+    result: null,
+  };
+  assert.deepEqual(mergeProjectedTurns({
+    schemaVersion: 8,
+    status: "working",
+    latestTurn: recovery,
+  }, [predecessor]), [
+    {
+      ...predecessor,
+      result: {
+        status: "interrupted",
+        summary: "Turn interrupted before a terminal report.",
+        updatedAt: recovery.startedAt,
+      },
+    },
+    recovery,
   ]);
 });
 
@@ -653,6 +721,50 @@ test("notification reconciliation ignores replay and non-semantic rewrites", () 
     notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [replay]);
   }
   assert.deepEqual(notificationState.notifications, []);
+});
+
+test("starting interrupted-turn recovery emits no misleading failed-result notification", () => {
+  const previousSemanticResult = {
+    status: "failed",
+    summary: "A much earlier turn failed.",
+    turnId: "01a03275-d529-7043-ab4a-513a1ad6ae1e",
+    updatedAt: "2026-08-20T09:58:00.000Z",
+  };
+  const interruptedWorking = {
+    id: FIRST_ID,
+    title: "Recover deployment",
+    status: "working",
+    summary: null,
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:55:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: previousSemanticResult,
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [interruptedWorking]);
+  const recoveredWorking = {
+    ...interruptedWorking,
+    turnId: SECOND_TURN_ID,
+    updatedAt: "2026-08-20T10:02:00.000Z",
+    latestTurn: {
+      turnId: SECOND_TURN_ID,
+      requestSummary: "Resume after restart.",
+      startedAt: "2026-08-20T10:02:00.000Z",
+      result: null,
+    },
+  };
+  notificationState = reconcileNotifications({
+    initialized: true,
+    ...notificationState,
+  }, [recoveredWorking]);
+  assert.deepEqual(notificationState.additions.map(({ event, turnId }) => ({ event, turnId })), [
+    { event: "follow_up_started", turnId: SECOND_TURN_ID },
+  ]);
+  assert.equal(notificationState.additions.some(({ event }) => event === "failed"), false);
 });
 
 test("new task snapshots use a stable creation fallback and survive missing tasks", () => {

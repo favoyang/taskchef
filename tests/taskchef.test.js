@@ -542,12 +542,27 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
       workingResult.structuredContent.task.latestTurn.requestSummary,
       "Implement and test the requested change.",
     );
+    const recoveredResult = await client.callTool({
+      name: "report_state",
+      arguments: {
+        taskId: prepared.taskId,
+        threadId: SELF_LINK_THREAD_ID,
+        turnId: SECOND_RESULT_TURN_ID,
+        status: "working",
+        requestSummary: "Resume after the interrupted executor turn.",
+      },
+    });
+    assert.equal(recoveredResult.structuredContent.task.schemaVersion, 8);
+    assert.deepEqual(recoveredResult.structuredContent.task.turns.map((turn) => (
+      turn.result?.status ?? null
+    )), ["interrupted", null]);
+    assert.equal(recoveredResult.structuredContent.task.lastResult, null);
     const completedResult = await client.callTool({
       name: "report_state",
       arguments: {
         taskId: prepared.taskId,
         threadId: SELF_LINK_THREAD_ID,
-        turnId: FIRST_RESULT_TURN_ID,
+        turnId: SECOND_RESULT_TURN_ID,
         status: "completed",
         summary: "Implemented and verified the change.",
       },
@@ -1492,6 +1507,116 @@ test("report_state preserves the last semantic result while a newer turn is work
   }), completed, "an identical retry for an older settled turn must not duplicate history");
 });
 
+test("report_state atomically recovers an interrupted working turn without inventing a semantic result", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Recover after a crashed executor turn.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-25T05:59:00.000Z",
+  });
+  const firstInput = {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Run the original deployment.",
+  };
+  await reportTaskState(workspace, firstInput, { now: "2026-08-25T06:00:00.000Z" });
+
+  const recovered = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Resume the deployment after restart.",
+  }, { now: "2026-08-25T06:05:00.000Z" });
+  assert.equal(recovered.schemaVersion, 8);
+  assert.equal(recovered.status, "working");
+  assert.equal(recovered.turnId, SECOND_RESULT_TURN_ID);
+  assert.equal(recovered.summary, null);
+  assert.equal(recovered.latestTurn.turnId, SECOND_RESULT_TURN_ID);
+  assert.equal(recovered.latestTurn.requestSummary, "Resume the deployment after restart.");
+  assert.equal(recovered.latestTurn.result, null);
+  assert.deepEqual(recovered.turns[0].result, {
+    status: "interrupted",
+    summary: "Turn interrupted before a terminal report.",
+    updatedAt: "2026-08-25T06:05:00.000Z",
+  });
+  assert.deepEqual(recovered.results, []);
+  assert.equal(recovered.lastResult, null);
+  const shown = await runCli(["task", "show", TASK_ID, "--workspace", workspace]);
+  assert.match(shown.stdout, /interrupted .*Run the original deployment.*Turn interrupted before a terminal report\./);
+  assert.match(shown.stdout, /working .*Resume the deployment after restart\..*in progress/);
+
+  assert.deepEqual(
+    await reportTaskState(workspace, firstInput),
+    recovered,
+    "an exact retry of the recovered start must not resurrect or duplicate it",
+  );
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "failed",
+    summary: "Late crash callback.",
+  }), /different semantic result/);
+
+  const completed = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Deployment resumed and completed.",
+  });
+  assert.deepEqual(completed.results.map(({ status, turnId }) => ({ status, turnId })), [
+    { status: "completed", turnId: SECOND_RESULT_TURN_ID },
+  ]);
+  assert.equal(completed.lastResult.summary, "Deployment resumed and completed.");
+});
+
+test("concurrent recovery starts leave one ordered timeline with only the latest turn unfinished", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Serialize concurrent recovery starts.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Original request.",
+  });
+  const starts = [
+    [SECOND_RESULT_TURN_ID, "First recovery request."],
+    [THIRD_RESULT_TURN_ID, "Newest recovery request."],
+  ].map(([turnId, requestSummary]) => reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId,
+    status: "working",
+    requestSummary,
+  }));
+  const settled = await Promise.allSettled(starts);
+  assert.equal(settled.some(({ status }) => status === "fulfilled"), true);
+  const current = await readTask(workspace, TASK_ID);
+  assert.equal(current.turns.at(-1).result, null);
+  assert.equal(current.turnId, current.turns.at(-1).turnId);
+  assert.equal(current.latestTurn.turnId, current.turnId);
+  assert.equal(current.turns.slice(0, -1).every((turn) => turn.result !== null), true);
+  assert.equal(current.turns.slice(1).every((turn, index) => (
+    turn.turnId > current.turns[index].turnId
+  )), true);
+  assert.equal(current.turns.filter((turn) => turn.result?.status === "interrupted").length,
+    current.turns.length - 1);
+  assert.equal((await readFile(path.join(workspace, "tasks.jsonl"), "utf8")).trim().split("\n").length, 1);
+});
+
 test("workspace migration converts schema 4/5 results into paired turns once with a validated backup", async () => {
   const { workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "thread-one"));
@@ -1545,8 +1670,8 @@ test("workspace migration converts schema 4/5 results into paired turns once wit
     results,
     lastResult,
   })), [
-    { schemaVersion: 7, turnCount: firstResults.length, results: undefined, lastResult: undefined },
-    { schemaVersion: 7, turnCount: secondResults.length, results: undefined, lastResult: undefined },
+    { schemaVersion: 8, turnCount: firstResults.length, results: undefined, lastResult: undefined },
+    { schemaVersion: 8, turnCount: secondResults.length, results: undefined, lastResult: undefined },
   ]);
   assert.deepEqual((await listTasks(workspace)).map((task) => task.lastResult.summary), [
     "First historical result.",
@@ -1557,7 +1682,7 @@ test("workspace migration converts schema 4/5 results into paired turns once wit
     "workspace", "migrate", "--json", "--workspace", workspace,
   ])).stdout);
   assert.deepEqual(repeated, {
-    schemaVersion: 7,
+    schemaVersion: 8,
     action: "unchanged",
     taskCount: 2,
     migratedCount: 0,
@@ -1565,7 +1690,72 @@ test("workspace migration converts schema 4/5 results into paired turns once wit
   });
 });
 
-test("schema 4 records remain readable and upgrade to schema 7 on a new working turn", async () => {
+test("schema 7 remains readable and migrates losslessly to schema 8 with a validated backup", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Migrate a schema 7 active turn.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  const working = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Continue the active request.",
+  });
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const persisted = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  const schema7Content = `${JSON.stringify({ ...persisted, schemaVersion: 7 })}\n`;
+  await writeFile(taskLog, schema7Content);
+  assert.equal((await readTask(workspace, TASK_ID)).schemaVersion, 7);
+
+  const migrated = await migrateTaskLog(workspace, {
+    now: () => "2026-08-25T06:30:00.000Z",
+  });
+  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.action, "migrated");
+  assert.match(migrated.backupPath, /pre-v8/);
+  assert.equal(await readFile(migrated.backupPath, "utf8"), schema7Content);
+  const current = await readTask(workspace, TASK_ID);
+  assert.equal(current.schemaVersion, 8);
+  assert.deepEqual(current.turns, working.turns);
+  assert.equal((await migrateTaskLog(workspace)).action, "unchanged");
+});
+
+test("interrupted outcomes are schema-8-only and use the fixed privacy-safe representation", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Validate interrupted outcome storage.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+  });
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+  });
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const current = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  current.turns[0].result.summary = "Leaked crash details.";
+  await writeFile(taskLog, `${JSON.stringify(current)}\n`);
+  await assert.rejects(listTasks(workspace), /must use the TaskChef interrupted-turn summary/);
+  current.turns[0].result.summary = "Turn interrupted before a terminal report.";
+  current.schemaVersion = 7;
+  await writeFile(taskLog, `${JSON.stringify(current)}\n`);
+  await assert.rejects(listTasks(workspace), /turns\[0\]\.result\.status must be one of/);
+});
+
+test("schema 4 records remain readable and upgrade to schema 8 on a new working turn", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Resume historical self-linked work.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1593,7 +1783,7 @@ test("schema 4 records remain readable and upgrade to schema 7 on a new working 
     turnId: SECOND_RESULT_TURN_ID,
     status: "working",
   });
-  assert.equal(working.schemaVersion, 7);
+  assert.equal(working.schemaVersion, 8);
   assert.deepEqual(working.results, [lastResult]);
   assert.deepEqual(working.lastResult, lastResult);
   assert.equal(working.turns.length, 2);
@@ -1636,7 +1826,7 @@ test("schema 6 migration preserves a result followed by an unfinished working tu
   const migrated = await migrateTaskLog(workspace);
   assert.equal(migrated.action, "migrated");
   const after = await readTask(workspace, TASK_ID);
-  assert.equal(after.schemaVersion, 7);
+  assert.equal(after.schemaVersion, 8);
   assert.deepEqual(after.results, results);
   assert.equal(after.turns.length, 2);
   assert.equal(after.turns[0].result.summary, "Completed the original request.");
@@ -1689,7 +1879,7 @@ test("schema 6 migration preserves an opaque working state that reuses its last 
   });
   assert.equal(migration.action, "migrated");
   const migrated = JSON.parse((await readFile(taskLog, "utf8")).trim());
-  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.schemaVersion, 8);
   assert.equal(migrated.turns.length, 2);
   assert.equal(migrated.turns[1].turnId, "opaque-turn");
   assert.equal(migrated.turns[1].result, null);
@@ -1705,7 +1895,7 @@ test("workspace migration rejects unsupported input without rewriting or backing
   await writeFile(taskLog, unsupported);
   await assert.rejects(migrateTaskLog(workspace), /unsupported task line 1 schemaVersion/);
   assert.equal(await readFile(taskLog, "utf8"), unsupported);
-  assert.deepEqual((await readdir(workspace)).filter((name) => name.includes("pre-v7")), []);
+  assert.deepEqual((await readdir(workspace)).filter((name) => name.includes("pre-v8")), []);
 });
 
 test("workspace migration reports its recovery backup after a replacement failure", async () => {
@@ -1728,13 +1918,13 @@ test("workspace migration reports its recovery backup after a replacement failur
   } catch (error) {
     failure = error;
   }
-  assert.match(failure?.message, /failed after recovery backup .*pre-v7.*injected replacement failure/);
+  assert.match(failure?.message, /failed after recovery backup .*pre-v8.*injected replacement failure/);
   const backupPath = failure.message.match(/backup (.+): injected replacement failure/)[1];
   assert.equal(await readFile(backupPath, "utf8"), legacyContent);
   assert.equal(await readFile(taskLog, "utf8"), legacyContent);
 });
 
-test("schema 7 canonicalizes turn UUIDs before duplicate-turn validation", async () => {
+test("schema 8 canonicalizes turn UUIDs before duplicate-turn validation", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Reject duplicate result identities.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1765,7 +1955,7 @@ test("schema 7 canonicalizes turn UUIDs before duplicate-turn validation", async
   await assert.rejects(listTasks(workspace), /turns contains duplicate turnId/);
 });
 
-test("schema 7 requires turn identity on every linked result", async () => {
+test("schema 8 requires turn identity on every linked result", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Preserve linked result identity.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1792,7 +1982,7 @@ test("schema 7 requires turn identity on every linked result", async () => {
   await assert.rejects(listTasks(workspace), /results\[0\]\.turnId is required/);
 });
 
-test("schema 7 rejects unfinished turns before a linked task reports its first turn", async () => {
+test("schema 8 rejects unfinished turns before a linked task reports its first turn", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Reject an invalid pre-turn timeline.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -1833,7 +2023,7 @@ test("report_result remains a deprecated compatibility alias", async () => {
     status: "completed",
     summary: "First opaque result.",
   });
-  assert.equal(first.schemaVersion, 7);
+  assert.equal(first.schemaVersion, 8);
   assert.equal(first.results.length, 1);
   const later = await reportTaskResult(workspace, {
     taskId: TASK_ID,
@@ -1843,6 +2033,29 @@ test("report_result remains a deprecated compatibility alias", async () => {
     summary: "Later opaque result.",
   });
   assert.equal(later.status, "failed");
+});
+
+test("working retries do not reinterpret request-unknown legacy results as recorded starts", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Preserve legacy result semantics.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskResult(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Legacy result without a recorded request.",
+  });
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+  }), /working turnId must be newer/);
 });
 
 test("report_state accepts only a fresh unlinked creation failure", async () => {
@@ -1864,7 +2077,7 @@ test("report_state accepts only a fresh unlinked creation failure", async () => 
   await assert.rejects(linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID), /eligible link-pending/);
 });
 
-test("schema 7 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
+test("schema 8 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Finish with one outcome.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2079,6 +2292,7 @@ test("published package includes the README dashboard screenshots", async () => 
     "docs/images/dashboard-identity.jpg",
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
+    "docs/images/interrupted-turn-recovery.jpg",
   ]) {
     assert.ok(manifest.files.includes(screenshot));
     assert.equal((await stat(path.resolve(screenshot))).isFile(), true);
@@ -2089,7 +2303,7 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
   const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
   const diagrams = [...workflows.matchAll(/\`\`\`mermaid\n(sequenceDiagram[\s\S]*?)\`\`\`/g)]
     .map((match) => match[1]);
-  assert.equal(diagrams.length, 7);
+  assert.equal(diagrams.length, 8);
   for (const diagram of diagrams) {
     const parsed = await mermaidParser.parse(diagram);
     assert.equal(parsed.diagramType, "sequence");
@@ -2099,6 +2313,8 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
     assert.match(workflows, new RegExp(`\\b${call}\\(`));
   }
   assert.match(workflows, /Follow-up turns/);
+  assert.match(workflows, /Interrupted-turn recovery/);
+  assert.match(workflows, /Close unfinished turnA as interrupted/);
   assert.match(workflows, /Link-pending and failure paths/);
   assert.match(workflows, /Dashboard update flow/);
   assert.match(workflows, /Concurrency and trust boundaries/);
@@ -2342,6 +2558,9 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /live native approval prompt[\s\S]+not semantic `needs_input`/i);
   assert.match(content, /secrets, transcripts, raw command output, hidden reasoning/i);
   assert.match(content, /Identical lifecycle retries are safe/i);
+  assert.match(content, /atomically records that predecessor\s+as interrupted/i);
+  assert.match(content, /Do not manufacture a semantic `failed` result/i);
+  assert.match(content, /only the new turn may receive\s+a semantic result/i);
   assert.match(content, /former inline[\s\S]+`report_result`[\s\S]+deprecated/i);
   assert.match(content, /historical instructions[\s\S]+first-line `# taskchef_id=<full UUID>`/i);
   assert.match(content, /For either first-line form,[\s\S]+assignment follows the marker/i);
@@ -2384,6 +2603,8 @@ test("report skill keeps overviews cheap and reads newer focused tasks once", as
   assert.match(content, /treat `turns` as the ordered request\/result timeline/i);
   assert.match(content, /`latestTurn` is the compact current pair/i);
   assert.match(content, /`results` and `lastResult` remain derived compatibility projections/i);
+  assert.match(content, /schema 8[\s\S]+TaskChef-generated\s+`interrupted` outcome/i);
+  assert.match(content, /interrupted historical turn plainly as interrupted\/abandoned, never failed/i);
   assert.match(content, /null thread and turn IDs as\s+a fresh executor-creation failure/i);
   assert.match(content, /A null identity is\s+executor link-pending/);
   assert.doesNotMatch(content, /schema 1-3|task resolve|legacy recovery/);
@@ -2428,6 +2649,22 @@ test("documentation architecture keeps four audience owners linked and current",
   assert.match(comparison, /executor then reads its own `CODEX_THREAD_ID` and calls\s+`link_task`/);
   assert.match(comparison, /dispatcher neither searches recent tasks nor repairs identity/);
   assert.doesNotMatch(comparison, /briefly searches|tries briefly to find|repairs the link/);
+});
+
+test("interrupted-turn recovery documentation defines schema, privacy, migration, and compatibility", async () => {
+  const readme = await readFile(path.resolve("README.md"), "utf8");
+  const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
+  const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
+  for (const content of [readme, spec, workflows]) {
+    assert.match(content, /schema 8/i);
+    assert.match(content, /interrupted/i);
+    assert.match(content, /results[\s\S]{0,200}lastResult|lastResult[\s\S]{0,200}results/i);
+  }
+  assert.match(readme, /does not\s+store transcripts, hidden reasoning, crash output/i);
+  assert.match(readme, /tasks\.jsonl\.pre-v8-\*\.bak/);
+  assert.match(spec, /fixed summary[\s\S]{0,200}no crash output, transcript, user text/i);
+  assert.match(spec, /Interrupted outcomes MUST be excluded/i);
+  assert.match(workflows, /Concurrent\s+newer starts serialize under the lock/i);
 });
 
 test("init fails safely on malformed managed instruction markers", async () => {
@@ -2761,7 +2998,7 @@ test("dispatch recording appends one working task entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
-  assert.equal(recorded.schemaVersion, 7);
+  assert.equal(recorded.schemaVersion, 8);
   assert.equal(recorded.project.name, "project-1");
   assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [

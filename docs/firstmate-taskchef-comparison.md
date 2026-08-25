@@ -162,8 +162,11 @@ backends have different verification or experimental status.
 
 **Fact:** Persisted statuses are `working`, `needs_input`, `completed`, and
 `failed`. Executors report
-`working` at turn start and a semantic state before ending. Schema 5 preserves
-the last concise semantic result separately while a newer turn is working.
+`working` at turn start and a semantic state before ending. Schema 8 preserves
+the paired turn timeline and semantic-only compatibility results while a newer
+turn is working. If a terminal report is lost, the next valid working start
+closes the predecessor with a timeline-only `interrupted` outcome rather than
+semantic `failed`.
 `needs_input` is reserved for a real semantic decision, not a native approval
 prompt.
 

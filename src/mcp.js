@@ -21,7 +21,9 @@ const projectSchema = z.object({
 });
 
 const taskSchema = z.object({
-  schemaVersion: z.union([z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
+  schemaVersion: z.union([
+    z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8),
+  ]),
   id: z.string(),
   project: projectSchema,
   title: z.string(),
@@ -38,7 +40,7 @@ const taskSchema = z.object({
     requestSummary: z.string().nullable(),
     startedAt: z.string(),
     result: z.object({
-      status: z.enum(["needs_input", "completed", "failed"]),
+      status: z.enum(["needs_input", "completed", "failed", "interrupted"]),
       summary: z.string(),
       updatedAt: z.string(),
     }).nullable(),
@@ -48,7 +50,7 @@ const taskSchema = z.object({
     requestSummary: z.string().nullable(),
     startedAt: z.string(),
     result: z.object({
-      status: z.enum(["needs_input", "completed", "failed"]),
+      status: z.enum(["needs_input", "completed", "failed", "interrupted"]),
       summary: z.string(),
       updatedAt: z.string(),
     }).nullable(),
