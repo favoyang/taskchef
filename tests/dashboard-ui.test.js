@@ -7,14 +7,22 @@ class FakeElement {
     this.attributes = new Map();
     this.children = [];
     this.classList = { add() {}, toggle() {} };
+    this.dataset = {};
     this.hidden = false;
     this.isConnected = true;
     this.open = false;
     this.textContent = "";
     this.value = "";
+    this.listeners = new Map();
   }
 
-  addEventListener() {}
+  addEventListener(type, listener) {
+    this.listeners.set(type, listener);
+  }
+
+  emit(type, event = { target: this }) {
+    this.listeners.get(type)?.(event);
+  }
 
   append(...children) {
     this.children.push(...children);
@@ -38,6 +46,17 @@ class FakeElement {
 
   close() {
     this.open = false;
+  }
+
+  querySelector(selector) {
+    if (selector === "input:checked") return this.inputs?.find(({ checked }) => checked) ?? null;
+    return null;
+  }
+
+  querySelectorAll(selector) {
+    if (selector === "[data-status-label]") return this.statusLabels ?? [];
+    if (selector === 'input[name="status-filter"]') return this.inputs ?? [];
+    return [];
   }
 }
 
@@ -68,7 +87,25 @@ test("dashboard renders a live notification with time and shared accessible desc
   const document = {
     createElement: (tagName) => new FakeElement(tagName),
     querySelector(selector) {
-      if (!elements.has(selector)) elements.set(selector, new FakeElement());
+      if (!elements.has(selector)) {
+        const element = new FakeElement();
+        if (selector === "#status-filter") {
+          const values = ["", "working", "needs input", "completed", "failed"];
+          element.inputs = values.map((value, index) => ({
+            checked: index === 0,
+            focus() {},
+            name: "status-filter",
+            value,
+          }));
+          element.statusLabels = values.map((statusLabel) => {
+            const label = new FakeElement("span");
+            label.dataset.statusLabel = statusLabel;
+            return label;
+          });
+        }
+        if (selector === "#date-filter") element.value = "all";
+        elements.set(selector, element);
+      }
       return elements.get(selector);
     },
   };
@@ -102,6 +139,18 @@ test("dashboard renders a live notification with time and shared accessible desc
         turnId: "turn-one",
         updatedAt: timestamp,
         updatedBy: "executor",
+      }, {
+        createdAt: timestamp,
+        id: "task-two",
+        instruction: "Keep working",
+        meaningfulUpdatedAt: timestamp,
+        project: { name: "MarketLake", path: "/tmp/marketlake" },
+        status: "working",
+        threadId: "thread-two",
+        title: "Continue MarketLake V2",
+        turnId: "turn-two",
+        updatedAt: timestamp,
+        updatedBy: "executor",
       }],
     });
 
@@ -115,6 +164,26 @@ test("dashboard renders a live notification with time and shared accessible desc
       dismiss.getAttribute("aria-describedby"),
       open.getAttribute("aria-describedby"),
     );
+
+    const statusFilter = elements.get("#status-filter");
+    assert.deepEqual(
+      statusFilter.statusLabels.map(({ textContent }) => textContent),
+      ["All (2)", "Working (1)", "Needs input (1)", "Completed", "Failed"],
+    );
+    statusFilter.inputs[0].checked = false;
+    statusFilter.inputs[2].checked = true;
+    statusFilter.emit("change");
+    assert.equal(elements.get("#task-list").children.length, 1);
+    assert.match(elements.get("#task-count").textContent, /^1 of 2 tasks$/);
+    let prevented = false;
+    statusFilter.emit("keydown", {
+      key: "ArrowRight",
+      preventDefault() { prevented = true; },
+      target: statusFilter.inputs[2],
+    });
+    assert.equal(prevented, true);
+    assert.equal(statusFilter.inputs[3].checked, true);
+    assert.equal(elements.get("#task-list").children.length, 0);
   } finally {
     globalThis.clearInterval = previous.clearInterval;
     globalThis.document = previous.document;

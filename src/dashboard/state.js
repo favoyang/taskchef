@@ -4,7 +4,13 @@ export const KNOWN_TASK_STATUSES = [
   "needs input",
   "completed",
   "failed",
-  "unresolved",
+];
+export const STATUS_FILTERS = [
+  { value: "", label: "All" },
+  { value: "working", label: "Working" },
+  { value: "needs input", label: "Needs input" },
+  { value: "completed", label: "Completed" },
+  { value: "failed", label: "Failed" },
 ];
 
 const NOTIFICATION_TITLES = new Map([
@@ -72,6 +78,35 @@ export function taskWithinDateFilter(task, filter, now = Date.now()) {
   if (windowMs === undefined) return false;
   const meaningfulTime = taskMeaningfulTime(task);
   return Number.isFinite(meaningfulTime) && meaningfulTime >= now - windowMs;
+}
+
+export function filterTasks(
+  tasks,
+  { project = "", status = "", date = "all", now = Date.now() } = {},
+) {
+  return tasks.filter((task) =>
+    (!project || task.project.name === project)
+    && (!status || taskStatusLabel(task) === status)
+    && taskWithinDateFilter(task, date, now));
+}
+
+export function statusFilterCounts(
+  tasks,
+  { project = "", date = "all", now = Date.now() } = {},
+) {
+  const contextualTasks = filterTasks(tasks, { project, date, now });
+  return Object.fromEntries(STATUS_FILTERS.map(({ value }) => [
+    value,
+    value
+      ? contextualTasks.filter((task) => taskStatusLabel(task) === value).length
+      : contextualTasks.length,
+  ]));
+}
+
+export function statusFilterText(value, count) {
+  const option = STATUS_FILTERS.find((filter) => filter.value === value);
+  if (!option) return "";
+  return count > 0 ? `${option.label} (${count})` : option.label;
 }
 
 export function nextDateFilterRefreshDelay(tasks, filter, now = Date.now()) {

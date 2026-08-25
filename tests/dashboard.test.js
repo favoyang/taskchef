@@ -30,6 +30,7 @@ import {
 import {
   clearNotifications,
   dismissNotification,
+  filterTasks,
   KNOWN_TASK_STATUSES,
   latestTurnPresentation,
   mergeProjectedTurns,
@@ -41,6 +42,9 @@ import {
   notificationSnapshot,
   notificationTitle,
   reconcileNotifications,
+  STATUS_FILTERS,
+  statusFilterCounts,
+  statusFilterText,
   taskWithinDateFilter,
 } from "../src/dashboard/state.js";
 import { openTaskFromControl } from "../src/dashboard/actions.js";
@@ -356,8 +360,52 @@ test("relative-time controller default scheduler remains callable through the co
 
 test("dashboard exposes stable task status filters", () => {
   assert.deepEqual(KNOWN_TASK_STATUSES, [
-    "working", "needs input", "completed", "failed", "unresolved",
+    "working", "needs input", "completed", "failed",
   ]);
+  assert.deepEqual(STATUS_FILTERS, [
+    { value: "", label: "All" },
+    { value: "working", label: "Working" },
+    { value: "needs input", label: "Needs input" },
+    { value: "completed", label: "Completed" },
+    { value: "failed", label: "Failed" },
+  ]);
+});
+
+test("dashboard status counts are contextual to project and date before status selection", () => {
+  const now = Date.parse("2026-08-25T12:00:00.000Z");
+  const task = (id, project, status, hoursAgo) => ({
+    id,
+    project: { name: project },
+    status,
+    createdAt: new Date(now - hoursAgo * 60 * 60 * 1_000).toISOString(),
+  });
+  const tasks = [
+    task("a", "alpha", "working", 1),
+    task("b", "alpha", "needs_input", 2),
+    task("c", "alpha", "completed", 48),
+    task("d", "beta", "failed", 1),
+  ];
+
+  assert.deepEqual(statusFilterCounts(tasks, { project: "alpha", date: "24h", now }), {
+    "": 2,
+    working: 1,
+    "needs input": 1,
+    completed: 0,
+    failed: 0,
+  });
+  assert.deepEqual(
+    filterTasks(tasks, { project: "alpha", date: "24h", status: "needs input", now })
+      .map(({ id }) => id),
+    ["b"],
+  );
+});
+
+test("dashboard status labels retain zero-count options without empty parentheses", () => {
+  assert.equal(statusFilterText("", 45), "All (45)");
+  assert.equal(statusFilterText("working", 1), "Working (1)");
+  assert.equal(statusFilterText("needs input", 0), "Needs input");
+  assert.equal(statusFilterText("completed", 0), "Completed");
+  assert.equal(statusFilterText("unknown", 3), "");
 });
 
 test("latest turn presentation keeps each request paired with its own result", () => {
@@ -1438,6 +1486,23 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
+  assert.match(html, /<fieldset class="status-filter-fieldset">/);
+  assert.match(html, /<legend>Status<\/legend>/);
+  const statusFilterMarkup = html.match(/<div id="status-filter"[\s\S]*?<\/div>/)?.[0];
+  assert.ok(statusFilterMarkup);
+  assert.deepEqual(
+    [...statusFilterMarkup.matchAll(/<input type="radio" name="status-filter" value="([^"]*)"( checked)?>/g)]
+      .map((match) => ({ value: match[1], checked: Boolean(match[2]) })),
+    [
+      { value: "", checked: true },
+      { value: "working", checked: false },
+      { value: "needs input", checked: false },
+      { value: "completed", checked: false },
+      { value: "failed", checked: false },
+    ],
+  );
+  assert.match(statusFilterMarkup, /data-status-label="needs input">Needs input<\/span>/);
+  assert.doesNotMatch(statusFilterMarkup, /<select/);
   assert.match(html, /id="dashboard-message-text" role="status" aria-live="polite"/);
   assert.match(html, /id="dismiss-dashboard-message"[^>]+type="button"[^>]+aria-label="Dismiss dashboard message"/);
   assert.match(html, /<title>TaskChef Dashboard<\/title>/);
@@ -1472,6 +1537,11 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /control\.setAttribute\("aria-label"/);
   assert.match(script, /control\.title = action/);
   assert.match(script, /elements\.dashboardMessageText\.textContent = message/);
+  assert.match(script, /querySelector\("input:checked"\)\?\.value \?\? ""/);
+  assert.match(script, /elements\.statusFilter\.addEventListener\("keydown", selectStatusFromKeyboard\)/);
+  assert.match(script, /const contextualTasks = filterTasks\(state\.tasks, \{ project, date, now \}\)/);
+  assert.match(script, /statusFilterCounts\(state\.tasks, \{ project, date, now \}\)/);
+  assert.match(script, /statusFilterText\(value, counts\[value\]\)/);
   assert.match(script, /fetch\("\/api\/health"\)/);
   assert.match(script, /elements\.taskchefVersion\.textContent = `v\$\{identity\.taskchefVersion\}`/);
   assert.match(script, /`TaskChef version \$\{identity\.taskchefVersion\}`/);
@@ -1494,6 +1564,11 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styles, /\.task-title, \.task-summary \{ overflow-wrap: anywhere; \}/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
+  assert.match(styles, /\.status-filter-options \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
+  assert.match(styles, /\.status-filter-option:has\(input:checked\) span \{/);
+  assert.match(styles, /\.status-filter-option:has\(input:focus-visible\) span \{/);
+  assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*\.status-filter-option:has\(input:checked\) span \{ color: var\(--background\); \}/);
 });
 
 test("Open task controls use the shared authoritative Codex app assets", async () => {
