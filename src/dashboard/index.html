@@ -35,12 +35,31 @@
             <option value="">All projects</option>
           </select>
         </label>
-        <label>
-          Status
-          <select id="status-filter">
-            <option value="">All statuses</option>
-          </select>
-        </label>
+        <fieldset class="status-filter-fieldset">
+          <legend>Status</legend>
+          <div id="status-filter" class="status-filter-options">
+            <label class="status-filter-option">
+              <input type="radio" name="status-filter" value="" checked>
+              <span data-status-label="">All</span>
+            </label>
+            <label class="status-filter-option">
+              <input type="radio" name="status-filter" value="working">
+              <span data-status-label="working">Working</span>
+            </label>
+            <label class="status-filter-option">
+              <input type="radio" name="status-filter" value="needs input">
+              <span data-status-label="needs input">Needs input</span>
+            </label>
+            <label class="status-filter-option">
+              <input type="radio" name="status-filter" value="completed">
+              <span data-status-label="completed">Completed</span>
+            </label>
+            <label class="status-filter-option">
+              <input type="radio" name="status-filter" value="failed">
+              <span data-status-label="failed">Failed</span>
+            </label>
+          </div>
+        </fieldset>
         <label>
           Updated
           <select id="date-filter">

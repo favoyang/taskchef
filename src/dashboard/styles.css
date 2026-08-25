@@ -70,6 +70,15 @@ main { padding-block: 28px 80px; }
 
 label { display: grid; gap: 6px; color: var(--muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 select { min-width: 180px; padding: 9px 34px 9px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); }
+.status-filter-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.status-filter-fieldset legend { margin-bottom: 6px; padding: 0; color: var(--muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.status-filter-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.status-filter-option { position: relative; display: block; color: var(--text); font-size: 0.82rem; letter-spacing: 0; text-transform: none; cursor: pointer; }
+.status-filter-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.status-filter-option span { display: block; padding: 7px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); white-space: nowrap; }
+.status-filter-option:hover span { border-color: var(--accent); }
+.status-filter-option:has(input:checked) span { border-color: var(--accent); background: var(--accent); color: white; box-shadow: 0 1px 2px rgb(24 33 29 / 16%); }
+.status-filter-option:has(input:focus-visible) span { outline: 3px solid var(--accent); outline-offset: 3px; }
 .task-count { margin: 0 0 9px auto; color: var(--muted); font-size: 0.9rem; }
 
 .task-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -152,6 +161,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .title-row { align-items: flex-start; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar label, .toolbar select { width: 100%; }
+  .toolbar .status-filter-option { width: auto; }
   .task-count { margin: 0; }
   .task-heading { align-items: flex-start; }
   .task-footer { align-items: flex-start; flex-direction: column; }
@@ -176,6 +186,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
     --warning: #e4bd77;
   }
   .dashboard-message { border-color: #66592e; background: #38321d; color: #f1d98c; }
+  .status-filter-option:has(input:checked) span { color: var(--background); }
   .status-failed { background: #4e2927; }
   .status-needs_input { background: #4c3b20; }
   .status-interrupted { background: #37332f; color: #d6d0c7; }
