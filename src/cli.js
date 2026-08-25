@@ -183,10 +183,10 @@ function taskDetails(task) {
     `Updated by: ${singleLineDetail(task.updatedBy ?? "-")}`,
     `Task ID: ${singleLineDetail(task.id)}`,
     `Thread ID: ${singleLineDetail(task.threadId ?? "-")}`,
-    `Result count: ${task.results.length}`,
-    "Result history (newest first):",
-    ...[...task.results].reverse().map((result) => (
-      `- ${singleLineDetail(result.updatedAt)} | ${singleLineDetail(result.status)} | turn ${singleLineDetail(result.turnId ?? "-")} | ${singleLineDetail(result.summary)}`
+    `Turn count: ${task.turns.length}`,
+    "Activity timeline (newest first):",
+    ...[...task.turns].reverse().map((turn) => (
+      `- ${singleLineDetail(turn.startedAt)} | ${singleLineDetail(turn.result?.status ?? "working")} | turn ${singleLineDetail(turn.turnId ?? "-")} | request: ${singleLineDetail(turn.requestSummary ?? "not recorded")} | result: ${singleLineDetail(turn.result?.summary ?? "in progress")}`
     )),
     "Instruction:",
     task.instruction,

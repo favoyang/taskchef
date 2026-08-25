@@ -139,6 +139,17 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
     boundedText(task.turnId, 512, `${name} turn ID`);
     boundedText(task.lastResult?.summary, 2_000, `${name} last result summary`);
     boundedText(task.lastResult?.turnId, 512, `${name} last result turn ID`);
+    boundedText(task.latestTurn?.requestSummary, 1_000, `${name} latest request summary`);
+    boundedText(task.latestTurn?.turnId, 512, `${name} latest turn ID`);
+    const turns = task.turns ?? [];
+    if (turns.length > 10_000) {
+      throw new Error(`${name} has too many turns for the dashboard`);
+    }
+    for (const [turnIndex, turn] of turns.entries()) {
+      boundedText(turn.requestSummary, 1_000, `${name} turn ${turnIndex + 1} request summary`);
+      boundedText(turn.turnId, 512, `${name} turn ${turnIndex + 1} turn ID`);
+      boundedText(turn.result?.summary, 2_000, `${name} turn ${turnIndex + 1} result summary`);
+    }
     const results = task.results ?? [];
     if (results.length > 10_000) {
       throw new Error(`${name} has too many results for the dashboard`);
@@ -160,7 +171,7 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
 }
 
 function taskListProjection(task) {
-  const { results: _results, ...projection } = task;
+  const { turns: _turns, results: _results, ...projection } = task;
   return projection;
 }
 

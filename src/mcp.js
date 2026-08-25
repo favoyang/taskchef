@@ -21,7 +21,7 @@ const projectSchema = z.object({
 });
 
 const taskSchema = z.object({
-  schemaVersion: z.union([z.literal(4), z.literal(5), z.literal(6)]),
+  schemaVersion: z.union([z.literal(4), z.literal(5), z.literal(6), z.literal(7)]),
   id: z.string(),
   project: projectSchema,
   title: z.string(),
@@ -33,6 +33,26 @@ const taskSchema = z.object({
   turnId: z.string().nullable(),
   updatedAt: z.string(),
   updatedBy: z.enum(["dispatcher", "mcp"]),
+  turns: z.array(z.object({
+    turnId: z.string().nullable(),
+    requestSummary: z.string().nullable(),
+    startedAt: z.string(),
+    result: z.object({
+      status: z.enum(["needs_input", "completed", "failed"]),
+      summary: z.string(),
+      updatedAt: z.string(),
+    }).nullable(),
+  })),
+  latestTurn: z.object({
+    turnId: z.string().nullable(),
+    requestSummary: z.string().nullable(),
+    startedAt: z.string(),
+    result: z.object({
+      status: z.enum(["needs_input", "completed", "failed"]),
+      summary: z.string(),
+      updatedAt: z.string(),
+    }).nullable(),
+  }).nullable(),
   results: z.array(z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
     summary: z.string(),
@@ -203,13 +223,14 @@ export function createTaskChefMcpServer({
     {
       title: "Report TaskChef state",
       description:
-        "Report this self-linked executor turn's lifecycle state. Use working before substantive work in a newly linked or follow-up turn, with summary omitted or null. Before ending the same turn, report needs_input, completed, or failed with a concise semantic summary. Exact retries are idempotent; stale or mismatched turns are rejected.",
+        "Report this self-linked executor turn's lifecycle state. Use working before substantive work in a newly linked or follow-up turn, with summary omitted or null and a concise requestSummary. Before ending the same turn, report needs_input, completed, or failed with a concise semantic summary and requestSummary omitted. Exact retries are idempotent; stale or mismatched turns are rejected.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),
         turnId: z.string().min(1).max(256).nullable(),
         status: z.enum(["working", "needs_input", "completed", "failed"]),
         summary: z.string().min(1).max(2_000).nullable().optional(),
+        requestSummary: z.string().min(1).max(1_000).nullable().optional(),
       },
       outputSchema: { task: taskSchema },
       annotations: {

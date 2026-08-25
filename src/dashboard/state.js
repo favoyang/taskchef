@@ -31,6 +31,37 @@ export function taskStatusLabel(task) {
   return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
 }
 
+export function latestTurnPresentation(task) {
+  const turn = task.latestTurn ?? null;
+  const result = turn?.result ?? null;
+  const requestSummary = turn?.requestSummary
+    ?? (turn ? "Request not recorded by this TaskChef version." : task.title);
+  return {
+    turnId: turn?.turnId ?? task.turnId ?? null,
+    startedAt: turn?.startedAt ?? task.updatedAt ?? task.createdAt ?? null,
+    requestSummary,
+    resultStatus: result?.status ?? (task.status === "working" ? "working" : task.status),
+    resultSummary: result?.summary
+      ?? (task.status === "working"
+        ? "In progress"
+        : task.lastResult?.summary ?? task.summary ?? "No result reported."),
+    resultUpdatedAt: result?.updatedAt ?? null,
+  };
+}
+
+export function mergeProjectedTurns(task, preservedTurns = []) {
+  if (Array.isArray(task.turns)) return task.turns;
+  if (!task.latestTurn) return preservedTurns;
+  const turns = [...preservedTurns];
+  const lastIndex = turns.length - 1;
+  if (lastIndex >= 0 && turns[lastIndex].turnId === task.latestTurn.turnId) {
+    turns[lastIndex] = task.latestTurn;
+  } else {
+    turns.push(task.latestTurn);
+  }
+  return turns;
+}
+
 export function notificationTitle(notification) {
   return NOTIFICATION_TITLES.get(notification.event) ?? "Task updated";
 }
