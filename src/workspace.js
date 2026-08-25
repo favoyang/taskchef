@@ -737,7 +737,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     id,
     project,
     title: requireString(dispatch.title, `${name}.title`).trim(),
-    instruction: requireString(dispatch.instruction, `${name}.instruction`).trim(),
+    instruction: requireString(dispatch.instruction, `${name}.instruction`),
     threadId: dispatch.threadId === null
       ? null
       : normalizeDurableThreadId(dispatch.threadId, `${name}.threadId`),

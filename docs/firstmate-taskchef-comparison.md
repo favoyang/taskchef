@@ -108,7 +108,7 @@ also insert an interpretation layer between user and worker.
 
 ### TaskChef
 
-**Fact:** `prepare_dispatch` allocates a TaskChef UUID and exact first-line
+**Fact:** `prepare_dispatch` allocates a TaskChef UUID and exact correlation
 marker. `record_task` persists the marked instruction before native task
 creation. The executor then reads its own `CODEX_THREAD_ID` and calls
 `link_task`; the dispatcher neither searches recent tasks nor repairs identity.

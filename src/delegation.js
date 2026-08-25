@@ -9,11 +9,34 @@ export const EXECUTOR_WORKING_PARAGRAPH = "After a successful initial link, and 
 /** @deprecated Historical v7 inline-prompt snapshot. New delegations use taskchef-executor. */
 export const EXECUTOR_RESULT_PARAGRAPH = "Before ending, read this exact Codex thread again and call TaskChef report_state for the same current working turn with status completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
 export const EXECUTOR_SKILL_INVOCATION = "Use $taskchef-executor to execute and report this delegated TaskChef assignment.";
+const HISTORICAL_RESULT_WITH_TURN_PARAGRAPH = "Before ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
+const HISTORICAL_RESULT_PARAGRAPH = "Before ending, call the TaskChef report_result MCP tool with completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
+const HISTORICAL_EXECUTOR_SCAFFOLD_LINES = new Set([
+  EXECUTOR_OWNERSHIP_PARAGRAPH,
+  EXECUTOR_LINK_PARAGRAPH,
+  EXECUTOR_WORKING_PARAGRAPH,
+  EXECUTOR_RESULT_PARAGRAPH,
+  HISTORICAL_RESULT_WITH_TURN_PARAGRAPH,
+  HISTORICAL_RESULT_PARAGRAPH,
+]);
+const HISTORICAL_INLINE_PROTOCOLS = [
+  [EXECUTOR_OWNERSHIP_PARAGRAPH, EXECUTOR_LINK_PARAGRAPH, EXECUTOR_WORKING_PARAGRAPH, EXECUTOR_RESULT_PARAGRAPH],
+  [EXECUTOR_OWNERSHIP_PARAGRAPH, EXECUTOR_LINK_PARAGRAPH, HISTORICAL_RESULT_WITH_TURN_PARAGRAPH],
+  [EXECUTOR_OWNERSHIP_PARAGRAPH, HISTORICAL_RESULT_PARAGRAPH],
+  [EXECUTOR_OWNERSHIP_PARAGRAPH],
+];
+
+function hasTaskSpecificContent(lines) {
+  return lines.some((line) => (
+    line.trim().length > 0 && !HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line)
+  ));
+}
 
 const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
 const CODEX_UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TASKCHEF_MARKER_PATTERN = new RegExp(`^<!-- taskchef_id=(${UUID_SOURCE}) -->$`);
+const LEGACY_TASKCHEF_MARKER_PATTERN = new RegExp(`^# taskchef_id=(${UUID_SOURCE})$`);
 
 function requireObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object`);
@@ -89,10 +112,66 @@ export function taskChefMarker(taskId) {
 
 export function parseTaskChefMarker(instruction) {
   if (typeof instruction !== "string") return null;
-  const firstLine = instruction.split(/\r?\n/, 1)[0];
-  const currentMatch = firstLine.match(TASKCHEF_MARKER_PATTERN);
-  if (currentMatch === null) return null;
-  return /^[^\r\n]*\r?\n[\s\S]+$/.test(instruction) ? currentMatch[1] : null;
+  const lines = instruction.split(/\r\n|\r|\n/);
+  const hasHistoricalAssignment = () => {
+    const rest = lines.slice(1);
+    const executorSkillInvocationIndices = rest.flatMap((line, index) => (
+      line === EXECUTOR_SKILL_INVOCATION ? [index] : []
+    ));
+    if (executorSkillInvocationIndices.length > 0) {
+      const bodyLines = rest.slice(0, -2);
+      return executorSkillInvocationIndices.length === 1
+        && executorSkillInvocationIndices[0] === rest.length - 1
+        && lines.at(-1) === EXECUTOR_SKILL_INVOCATION
+        && lines.at(-2) === ""
+        && bodyLines.length > 0
+        && bodyLines[0].trim().length > 0
+        && bodyLines.at(-1).trim().length > 0
+        && hasTaskSpecificContent(bodyLines)
+        && !bodyLines.some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line));
+    }
+
+    const containsInlineScaffold = rest.some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line));
+    if (!containsInlineScaffold) return rest.join("\n").trim().length > 0;
+    return HISTORICAL_INLINE_PROTOCOLS.some((protocol) => {
+      const prefix = ["", ...protocol.flatMap((line) => [line, ""])];
+      if (!prefix.every((line, index) => rest[index] === line)) return false;
+      const bodyLines = rest.slice(prefix.length);
+      return hasTaskSpecificContent(bodyLines)
+        && !bodyLines.some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line));
+    });
+  };
+  const currentMatches = lines.flatMap((line, index) => {
+    const match = line.match(TASKCHEF_MARKER_PATTERN);
+    return match === null ? [] : [{ id: match[1], index }];
+  });
+  const legacyMatches = lines.flatMap((line, index) => {
+    const match = line.match(LEGACY_TASKCHEF_MARKER_PATTERN);
+    return match === null ? [] : [{ id: match[1], index }];
+  });
+  if (currentMatches.length + legacyMatches.length !== 1) return null;
+
+  if (legacyMatches.length === 1) {
+    const [{ id, index }] = legacyMatches;
+    if (index !== 0) return null;
+    return hasHistoricalAssignment() ? id : null;
+  }
+
+  const [{ id, index }] = currentMatches;
+  if (index === 0) {
+    return hasHistoricalAssignment() ? id : null;
+  }
+  const executorSkillReferences = instruction.match(/\$taskchef-executor\b/gi) ?? [];
+  const isTrailingScaffold = index === lines.length - 2
+    && index >= 2
+    && lines[0].trim().length > 0
+    && lines.at(-3) === ""
+    && lines.at(-4).trim().length > 0
+    && lines.at(-1) === EXECUTOR_SKILL_INVOCATION
+    && hasTaskSpecificContent(lines.slice(0, index - 1))
+    && !lines.slice(0, index - 1).some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line))
+    && executorSkillReferences.length === 1;
+  return isTrailingScaffold ? id : null;
 }
 
 export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
@@ -101,14 +180,25 @@ export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
     throw new Error("instruction must begin with useful task content on its first line");
   }
   const body = rawBody.replace(/(?:(?:\r\n|\r|\n)[^\S\r\n]*)+$/, "");
-  if (parseTaskChefMarker(body) !== null) throw new Error("instruction already contains a TaskChef marker");
+  if (body.split(/\r\n|\r|\n/).some((line) => (
+    TASKCHEF_MARKER_PATTERN.test(line) || LEGACY_TASKCHEF_MARKER_PATTERN.test(line)
+  ))) {
+    throw new Error("instruction already contains a TaskChef marker");
+  }
   if (/\$taskchef-executor\b/i.test(body)) {
     throw new Error("instruction contains a reserved TaskChef executor skill reference");
+  }
+  const bodyLines = body.split(/\r\n|\r|\n/);
+  if (!hasTaskSpecificContent(bodyLines)) {
+    throw new Error("instruction must contain task-specific content, not only TaskChef lifecycle scaffolding");
+  }
+  if (bodyLines.some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line))) {
+    throw new Error("instruction contains reserved historical TaskChef lifecycle scaffolding");
   }
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${taskChefMarker(id)}\n${body}\n\n${EXECUTOR_SKILL_INVOCATION}`,
+    instruction: `${body}\n\n${taskChefMarker(id)}\n${EXECUTOR_SKILL_INVOCATION}`,
   };
 }
 

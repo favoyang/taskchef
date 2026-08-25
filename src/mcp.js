@@ -114,7 +114,7 @@ export function createTaskChefMcpServer({
     },
     async (input) => {
       if (parseTaskChefMarker(input.instruction) !== input.id) {
-        throw new Error("record_task instruction must start with its exact TaskChef marker");
+        throw new Error("record_task instruction must contain its exact TaskChef marker in an accepted scaffold");
       }
       const task = await record(workspace, input);
       return toolResult("task", task, `Recorded TaskChef task ${task.id}.`);
