@@ -7,6 +7,16 @@ export const KNOWN_TASK_STATUSES = [
   "unresolved",
 ];
 
+const NOTIFICATION_TITLES = new Map([
+  ["created", "Task created"],
+  ["task_started", "Task started"],
+  ["follow_up_started", "Follow-up started"],
+  ["completed", "Task completed"],
+  ["needs_input", "Task needs input"],
+  ["failed", "Task failed"],
+  ["unresolved", "Task updated"],
+]);
+
 const DATE_WINDOWS_MS = new Map([
   ["24h", 24 * 60 * 60 * 1_000],
   ["7d", 7 * 24 * 60 * 60 * 1_000],
@@ -21,8 +31,8 @@ export function taskStatusLabel(task) {
   return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
 }
 
-export function notificationTitle(task, kind) {
-  return kind === "new" ? "New task" : `Task ${taskStatusLabel(task)}`;
+export function notificationTitle(notification) {
+  return NOTIFICATION_TITLES.get(notification.event) ?? "Task updated";
 }
 
 export function taskWithinDateFilter(task, filter, now = Date.now()) {
@@ -44,41 +54,143 @@ export function nextDateFilterRefreshDelay(tasks, filter, now = Date.now()) {
 }
 
 export function taskSignature(task) {
-  return JSON.stringify([
-    task.threadId,
-    task.status,
-    task.summary,
-    task.turnId,
-    task.updatedAt,
-    task.updatedBy,
-    task.lastResult,
-  ]);
+  return JSON.stringify([task.id, task.turnId ?? null, task.status ?? "unresolved"]);
 }
 
 export function findCurrentTask(tasks, taskId) {
   return tasks.find((task) => task.id === taskId) ?? null;
 }
 
+function lifecycleEvent(task) {
+  if (task.status === "working") {
+    return task.lastResult ? "follow_up_started" : "task_started";
+  }
+  return task.status ?? "unresolved";
+}
+
+function notificationIdentity(task, event) {
+  if (event === "created") {
+    return JSON.stringify([task.id, null, event, task.createdAt ?? null]);
+  }
+  return JSON.stringify([task.id, task.turnId ?? null, event]);
+}
+
+function eventTimestamp(task, event) {
+  if (event === "created") return task.createdAt ?? task.updatedAt ?? null;
+  if (
+    task.lastResult?.status === task.status
+    && task.lastResult?.turnId === task.turnId
+  ) {
+    return task.lastResult.updatedAt;
+  }
+  return task.updatedAt ?? task.createdAt ?? null;
+}
+
+function eventSummary(task, event) {
+  if (!["completed", "needs_input", "failed"].includes(event)) return null;
+  if (
+    task.lastResult?.status === task.status
+    && task.lastResult?.turnId === task.turnId
+  ) {
+    return task.lastResult.summary;
+  }
+  return task.summary ?? null;
+}
+
+export function notificationSnapshot(task, event = lifecycleEvent(task)) {
+  const created = event === "created";
+  return Object.freeze({
+    id: notificationIdentity(task, event),
+    taskId: task.id,
+    title: task.title,
+    status: created ? "working" : task.status,
+    event,
+    turnId: created ? null : task.turnId ?? null,
+    timestamp: eventTimestamp(task, event),
+    summary: eventSummary(task, event),
+  });
+}
+
+function resultNotificationSnapshot(task) {
+  const result = task.lastResult;
+  if (!result) return null;
+  return Object.freeze({
+    id: notificationIdentity({ ...task, turnId: result.turnId }, result.status),
+    taskId: task.id,
+    title: task.title,
+    status: result.status,
+    event: result.status,
+    turnId: result.turnId ?? null,
+    timestamp: result.updatedAt,
+    summary: result.summary,
+  });
+}
+
+export function notificationOpenLabel(notification, available) {
+  const action = available ? "Open current task details" : "Show task availability";
+  return `${action} for ${notification.title}: ${notificationTitle(notification)}`;
+}
+
+export function notificationDismissLabel(notification) {
+  return `Dismiss ${notificationTitle(notification)} notification for ${notification.title}`;
+}
+
+export function dismissNotification(notifications, notificationId) {
+  return notifications.filter(({ id }) => id !== notificationId);
+}
+
+export function clearNotifications() {
+  return [];
+}
+
 export function reconcileNotifications(
-  { initialized, notifications, signatures },
+  { initialized, notifications, seenIds = new Set(), signatures },
   tasks,
-  revision,
 ) {
-  const nextSignatures = new Map(tasks.map((task) => [task.id, taskSignature(task)]));
-  if (!initialized) return { notifications, signatures: nextSignatures };
+  const nextSignatures = new Map(signatures);
+  for (const task of tasks) nextSignatures.set(task.id, taskSignature(task));
+  const nextSeenIds = new Set(seenIds);
+  if (!initialized) {
+    for (const task of tasks) {
+      nextSeenIds.add(notificationSnapshot(task, "created").id);
+      const resultNotification = resultNotificationSnapshot(task);
+      if (resultNotification) nextSeenIds.add(resultNotification.id);
+      nextSeenIds.add(notificationSnapshot(task).id);
+    }
+    return {
+      additions: [],
+      notifications,
+      seenIds: nextSeenIds,
+      signatures: nextSignatures,
+    };
+  }
   const additions = [];
   for (const task of tasks) {
-    let kind = null;
-    if (!signatures.has(task.id)) kind = "new";
-    else if (signatures.get(task.id) !== nextSignatures.get(task.id)) kind = "changed";
-    if (kind) additions.push({
-      id: `${revision}:${task.id}`,
-      kind,
-      taskId: task.id,
-    });
+    const candidates = [];
+    if (!signatures.has(task.id)) {
+      const resultNotification = resultNotificationSnapshot(task);
+      if (task.turnId || task.status !== "working" || resultNotification) {
+        candidates.push(notificationSnapshot(task));
+        if (resultNotification) candidates.push(resultNotification);
+      }
+      candidates.push(notificationSnapshot(task, "created"));
+    } else if (signatures.get(task.id) !== nextSignatures.get(task.id)) {
+      candidates.push(notificationSnapshot(task));
+      const resultNotification = resultNotificationSnapshot(task);
+      if (resultNotification) candidates.push(resultNotification);
+    }
+    for (const notification of candidates) {
+      if (!nextSeenIds.has(notification.id)) additions.push(notification);
+      nextSeenIds.add(notification.id);
+    }
+    const resultNotification = resultNotificationSnapshot(task);
+    if (resultNotification) nextSeenIds.add(resultNotification.id);
+    nextSeenIds.add(notificationSnapshot(task).id);
   }
   return {
+    additions,
     notifications: [...additions, ...notifications].slice(0, MAX_NOTIFICATIONS),
+    seenIds: nextSeenIds,
     signatures: nextSignatures,
   };
 }

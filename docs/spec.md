@@ -327,6 +327,34 @@ current configuration before use.
 Snapshot and SSE list payloads MUST omit full `results` history and include the
 derived latest-result projection. The bounded per-task detail endpoint MAY
 return the full validated task so the dialog can render history newest first.
+Dashboard notifications MUST capture an immutable event-time projection of the
+task title, lifecycle state and event, turn ID when present, event timestamp,
+and relevant concise summary. Rendering MUST NOT resolve historical notice text
+from the task's later current state. Notice identity and deduplication MUST use
+task ID, turn ID, and lifecycle event; a creation notice without a turn ID MUST
+fall back to task ID plus the immutable creation timestamp. Dashboard revision
+MUST NOT be the sole identity. Identical snapshots, SSE reconnects, idempotent
+reports, schema normalization, and non-semantic rewrites MUST NOT add notices.
+Distinct working and semantic-result events for one turn MAY each be retained.
+When one compact snapshot first exposes both a latest semantic result and a
+newer working turn, the browser MUST reconcile both events. Temporary task
+absence MUST NOT discard the prior semantic signature or turn a later
+reappearance into another creation event. The first page snapshot MUST establish
+a quiet baseline rather than replay existing history. After that baseline, a
+new task first observed with a turn or semantic result MUST retain its creation
+event and each lifecycle event observable in that compact projection.
+
+Working with no prior result SHOULD be labeled as a task start. Working on a
+newer turn while a prior result remains projected SHOULD be labeled as a
+follow-up start. Creation, completion, input-needed, and failure labels MUST be
+distinct. The Updates panel MUST remain bounded and support individual dismiss
+and clear-all without resetting replay protection. A retained notice whose task
+is absent from the current list MUST remain readable; selecting it MUST NOT
+navigate or mutate data and SHOULD explain that current details are unavailable.
+The retained notice list MUST NOT be a live region that re-announces old notices
+when it rerenders. A separate polite status region MUST announce only newly
+reconciled events. Each notice control's accessible description MUST include
+its displayed summary when present, event time, and missing-task state.
 
 ## Task-log migration
 

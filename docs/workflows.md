@@ -284,6 +284,28 @@ unnecessary history. A read-only per-task endpoint returns full history only
 when the dialog opens. Historical project paths are untrusted until matched
 against current configuration.
 
+The browser derives one immutable Updates-panel snapshot when it first observes
+a semantic lifecycle transition. The snapshot keeps its event-time title,
+state/event, turn ID, timestamp, and relevant summary. Its identity combines
+task ID, turn ID, and event, with creation time as the fallback when creation
+has no turn. A separate seen-identity set outlives the bounded visible notices,
+individual dismissals, and Clear all, preventing replay after reconnect,
+normalization, or disappearance and reappearance. Per-task semantic signatures
+also remain as tombstones while a task is absent. When one compact snapshot
+first reveals a latest semantic result plus a newer working turn, the browser
+captures both. The first page snapshot is a quiet baseline so opening or
+refreshing the dashboard does not replay existing history. If a task is first
+observed in a progressed state after that baseline, creation is retained
+alongside the observable result and working events. The current task list is
+used only as the navigation target: if the task is gone, the notice stays
+readable and selection reports that current details are unavailable.
+
+The retained toast list is not live. Reconciliation passes only its newly added
+snapshots to a separate polite status region, so reconnect, dismissal, Clear
+all, and ordinary rerendering do not re-announce retained history. Toast action
+labels remain concise while `aria-describedby` connects the visible summary,
+event time, and missing-task explanation for assistive technology.
+
 ## Schema 4/5 migration
 
 `taskchef workspace migrate` acquires the same workspace lock as lifecycle

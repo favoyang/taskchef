@@ -27,10 +27,15 @@ import {
   writeSseEvent,
 } from "../src/dashboard.js";
 import {
+  clearNotifications,
+  dismissNotification,
   KNOWN_TASK_STATUSES,
   MAX_NOTIFICATIONS,
   findCurrentTask,
   nextDateFilterRefreshDelay,
+  notificationDismissLabel,
+  notificationOpenLabel,
+  notificationSnapshot,
   notificationTitle,
   reconcileNotifications,
   taskWithinDateFilter,
@@ -396,48 +401,461 @@ test("dashboard task controls preserve open fallback and failure messages", asyn
   assert.deepEqual(messages, responses);
 });
 
-test("dashboard notification titles describe the task's latest state", () => {
-  assert.equal(notificationTitle({ status: "completed" }, "changed"), "Task completed");
-  assert.equal(notificationTitle({ status: "needs_input" }, "changed"), "Task needs input");
-  assert.equal(notificationTitle({ status: null }, "changed"), "Task unresolved");
-  assert.equal(notificationTitle({ status: "working" }, "new"), "New task");
+test("dashboard notification labels describe immutable lifecycle events", () => {
+  assert.equal(notificationTitle({ event: "created" }), "Task created");
+  assert.equal(notificationTitle({ event: "task_started" }), "Task started");
+  assert.equal(notificationTitle({ event: "follow_up_started" }), "Follow-up started");
+  assert.equal(notificationTitle({ event: "completed" }), "Task completed");
+  assert.equal(notificationTitle({ event: "needs_input" }), "Task needs input");
+  assert.equal(notificationTitle({ event: "failed" }), "Task failed");
+  const mutableTask = {
+    id: FIRST_ID,
+    title: "Captured title",
+    status: "completed",
+    summary: "Captured summary.",
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: {
+      status: "completed",
+      summary: "Captured summary.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:00:00.000Z",
+    },
+  };
+  const captured = notificationSnapshot(mutableTask);
+  mutableTask.title = "Later title";
+  mutableTask.status = "working";
+  mutableTask.summary = null;
+  assert.equal(captured.title, "Captured title");
+  assert.equal(captured.status, "completed");
+  assert.equal(captured.summary, "Captured summary.");
 });
 
-test("notification state stays bounded and resolves older notices to current tasks", () => {
+test("notification snapshots stay immutable across the MarketLake follow-up sequence", () => {
   const baseTask = {
     id: FIRST_ID,
-    threadId: "thread-one",
+    title: "Continue MarketLake V1",
+    threadId: FIRST_THREAD_ID,
     status: "working",
     summary: null,
-    turnId: null,
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
-    updatedBy: "dispatcher",
+    updatedBy: "mcp",
+    lastResult: null,
   };
   let notificationState = reconcileNotifications({
     initialized: false,
     notifications: [],
+    seenIds: new Set(),
     signatures: new Map(),
-  }, [baseTask], 1);
-  const snapshots = [];
-  for (let revision = 2; revision <= MAX_NOTIFICATIONS + 12; revision += 1) {
-    const task = {
-      ...baseTask,
-      status: "completed",
-      summary: `Result ${revision}`,
-      turnId: `turn-${revision}`,
-      updatedAt: `2026-08-23T10:${String(revision).padStart(2, "0")}:00.000Z`,
-      updatedBy: "mcp",
-    };
-    snapshots.push(task);
+  }, [baseTask]);
+  const sequence = [
+    {
+      status: "needs_input",
+      summary: "Choose the MarketLake import source.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+      lastResult: {
+        status: "needs_input",
+        summary: "Choose the MarketLake import source.",
+        turnId: FIRST_TURN_ID,
+        updatedAt: "2026-08-20T10:01:00.000Z",
+      },
+    },
+    {
+      status: "working",
+      summary: null,
+      turnId: SECOND_TURN_ID,
+      updatedAt: "2026-08-20T10:02:00.000Z",
+      lastResult: {
+        status: "needs_input",
+        summary: "Choose the MarketLake import source.",
+        turnId: FIRST_TURN_ID,
+        updatedAt: "2026-08-20T10:01:00.000Z",
+      },
+    },
+    {
+      status: "needs_input",
+      summary: "Confirm the revised retention window.",
+      turnId: SECOND_TURN_ID,
+      updatedAt: "2026-08-20T10:03:00.000Z",
+      lastResult: {
+        status: "needs_input",
+        summary: "Confirm the revised retention window.",
+        turnId: SECOND_TURN_ID,
+        updatedAt: "2026-08-20T10:03:00.000Z",
+      },
+    },
+    {
+      status: "working",
+      summary: null,
+      turnId: "01a03275-d532-7043-ab4a-513a1ad6ae1e",
+      updatedAt: "2026-08-20T10:04:00.000Z",
+      lastResult: {
+        status: "needs_input",
+        summary: "Confirm the revised retention window.",
+        turnId: SECOND_TURN_ID,
+        updatedAt: "2026-08-20T10:03:00.000Z",
+      },
+    },
+  ];
+  for (const update of sequence) {
+    const task = { ...baseTask, ...update };
     notificationState = reconcileNotifications({
       initialized: true,
       ...notificationState,
-    }, [task], revision);
+    }, [task]);
+  }
+  assert.deepEqual(notificationState.notifications.map((notification) => ({
+    event: notification.event,
+    turnId: notification.turnId,
+    summary: notification.summary,
+    timestamp: notification.timestamp,
+  })), [
+    {
+      event: "follow_up_started",
+      turnId: "01a03275-d532-7043-ab4a-513a1ad6ae1e",
+      summary: null,
+      timestamp: "2026-08-20T10:04:00.000Z",
+    },
+    {
+      event: "needs_input",
+      turnId: SECOND_TURN_ID,
+      summary: "Confirm the revised retention window.",
+      timestamp: "2026-08-20T10:03:00.000Z",
+    },
+    {
+      event: "follow_up_started",
+      turnId: SECOND_TURN_ID,
+      summary: null,
+      timestamp: "2026-08-20T10:02:00.000Z",
+    },
+    {
+      event: "needs_input",
+      turnId: FIRST_TURN_ID,
+      summary: "Choose the MarketLake import source.",
+      timestamp: "2026-08-20T10:01:00.000Z",
+    },
+  ]);
+  assert.equal(notificationState.notifications.at(-1).title, "Continue MarketLake V1");
+});
+
+test("notification reconciliation ignores replay and non-semantic rewrites", () => {
+  const task = {
+    id: FIRST_ID,
+    title: "Stable title",
+    status: "working",
+    summary: null,
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    updatedBy: "mcp",
+    lastResult: null,
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [task]);
+  for (const replay of [
+    task,
+    { ...task, title: "Renamed without a lifecycle event" },
+    { ...task, updatedAt: "2026-08-20T10:00:01.000Z", updatedBy: "dispatcher" },
+    {
+      ...task,
+      lastResult: {
+        status: "needs_input",
+        summary: "Normalized previous result.",
+        turnId: "01a03275-d529-7043-ab4a-513a1ad6ae1e",
+        updatedAt: "2026-08-20T09:59:30.000Z",
+      },
+    },
+  ]) {
+    notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [replay]);
+  }
+  assert.deepEqual(notificationState.notifications, []);
+});
+
+test("new task snapshots use a stable creation fallback and survive missing tasks", () => {
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, []);
+  const task = {
+    id: FIRST_ID,
+    title: "New recorded task",
+    status: "working",
+    summary: null,
+    turnId: null,
+    createdAt: "2026-08-20T10:00:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: null,
+  };
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [task]);
+  const [created] = notificationState.notifications;
+  assert.equal(created.id, JSON.stringify([
+    FIRST_ID,
+    null,
+    "created",
+    "2026-08-20T10:00:00.000Z",
+  ]));
+  assert.equal(created.turnId, null);
+  assert.equal(created.title, "New recorded task");
+  assert.equal(findCurrentTask([], created.taskId), null);
+  assert.equal(notificationOpenLabel(created, true), "Open current task details for New recorded task: Task created");
+  assert.equal(notificationOpenLabel(created, false), "Show task availability for New recorded task: Task created");
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, []);
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [task]);
+  assert.equal(notificationState.notifications.length, 1, "reappearing task must not replay creation");
+});
+
+test("newly observed terminal tasks retain creation and terminal events", () => {
+  const task = {
+    id: FIRST_ID,
+    title: "Completed before observation",
+    status: "completed",
+    summary: "Completed quickly.",
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:01:00.000Z",
+    lastResult: {
+      status: "completed",
+      summary: "Completed quickly.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  const notificationState = reconcileNotifications({
+    initialized: true,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [task]);
+  assert.deepEqual(notificationState.notifications.map(({ event, turnId }) => ({ event, turnId })), [
+    { event: "completed", turnId: FIRST_TURN_ID },
+    { event: "created", turnId: null },
+  ]);
+});
+
+test("initial progressed tasks establish a quiet baseline without later replay", () => {
+  const task = {
+    id: FIRST_ID,
+    title: "Completed before page load",
+    status: "completed",
+    summary: "Existing result.",
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:01:00.000Z",
+    lastResult: {
+      status: "completed",
+      summary: "Existing result.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [task]);
+  assert.deepEqual(notificationState.notifications, []);
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [task]);
+  assert.deepEqual(notificationState.notifications, [], "baseline replay must remain quiet");
+});
+
+test("newly observed follow-up tasks retain result, working, and creation events", () => {
+  const task = {
+    id: FIRST_ID,
+    title: "Follow-up before observation",
+    status: "working",
+    summary: null,
+    turnId: SECOND_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:02:00.000Z",
+    lastResult: {
+      status: "needs_input",
+      summary: "Choose the MarketLake import source.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  const notificationState = reconcileNotifications({
+    initialized: true,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [task]);
+  assert.deepEqual(notificationState.notifications.map(({ event, turnId }) => ({ event, turnId })), [
+    { event: "follow_up_started", turnId: SECOND_TURN_ID },
+    { event: "needs_input", turnId: FIRST_TURN_ID },
+    { event: "created", turnId: null },
+  ]);
+});
+
+test("null and literal no-turn turn identities never collide", () => {
+  const unlinked = {
+    id: FIRST_ID,
+    title: "Opaque turn identity",
+    status: "working",
+    summary: null,
+    turnId: null,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: null,
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [unlinked]);
+  const opaqueTurn = {
+    ...unlinked,
+    turnId: "no-turn",
+    updatedAt: "2026-08-20T10:01:00.000Z",
+  };
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [opaqueTurn]);
+  assert.deepEqual(notificationState.notifications.map(({ event, turnId }) => ({ event, turnId })), [
+    { event: "task_started", turnId: "no-turn" },
+  ]);
+});
+
+test("coalesced snapshots recover the latest result before the newer working turn", () => {
+  const initial = {
+    id: FIRST_ID,
+    title: "Continue MarketLake V1",
+    status: "working",
+    summary: null,
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: null,
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [initial]);
+  const coalesced = {
+    ...initial,
+    turnId: SECOND_TURN_ID,
+    updatedAt: "2026-08-20T10:02:00.000Z",
+    lastResult: {
+      status: "needs_input",
+      summary: "Choose the MarketLake import source.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [coalesced]);
+  assert.deepEqual(notificationState.notifications.map(({ event, turnId }) => ({ event, turnId })), [
+    { event: "follow_up_started", turnId: SECOND_TURN_ID },
+    { event: "needs_input", turnId: FIRST_TURN_ID },
+  ]);
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [coalesced]);
+  assert.equal(notificationState.notifications.length, 2, "replayed coalesced snapshot must deduplicate");
+  assert.deepEqual(notificationState.additions, [], "replay must not trigger an announcement");
+});
+
+test("task reappearance retains its tombstone and emits progressed lifecycle events", () => {
+  const initial = {
+    id: FIRST_ID,
+    title: "Continue MarketLake V1",
+    status: "working",
+    summary: null,
+    turnId: FIRST_TURN_ID,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: null,
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [initial]);
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, []);
+  const progressed = {
+    ...initial,
+    turnId: SECOND_TURN_ID,
+    updatedAt: "2026-08-20T10:02:00.000Z",
+    lastResult: {
+      status: "needs_input",
+      summary: "Choose the MarketLake import source.",
+      turnId: FIRST_TURN_ID,
+      updatedAt: "2026-08-20T10:01:00.000Z",
+    },
+  };
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [progressed]);
+  assert.deepEqual(notificationState.notifications.map(({ event }) => event), [
+    "follow_up_started",
+    "needs_input",
+  ]);
+  assert.equal(notificationState.notifications.some(({ event }) => event === "created"), false);
+});
+
+test("notification state stays bounded and dismiss and clear do not reset deduplication", () => {
+  const baseTask = {
+    id: FIRST_ID,
+    title: "Bounded notifications",
+    status: "working",
+    summary: null,
+    turnId: "turn-0",
+    createdAt: "2026-08-20T10:00:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    lastResult: null,
+  };
+  let notificationState = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [baseTask]);
+  for (let index = 1; index <= MAX_NOTIFICATIONS + 12; index += 1) {
+    const task = {
+      ...baseTask,
+      status: "completed",
+      summary: `Result ${index}`,
+      turnId: `turn-${index}`,
+      updatedAt: new Date(Date.parse(baseTask.updatedAt) + index * 1_000).toISOString(),
+      lastResult: {
+        status: "completed",
+        summary: `Result ${index}`,
+        turnId: `turn-${index}`,
+        updatedAt: new Date(Date.parse(baseTask.updatedAt) + index * 1_000).toISOString(),
+      },
+    };
+    notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [task]);
   }
   assert.equal(notificationState.notifications.length, MAX_NOTIFICATIONS);
-  const oldestRetained = notificationState.notifications.at(-1);
-  const currentTask = findCurrentTask([snapshots.at(-1)], oldestRetained.taskId);
-  assert.equal(currentTask.summary, `Result ${MAX_NOTIFICATIONS + 12}`);
+  const newest = notificationState.notifications[0];
+  assert.equal(notificationDismissLabel(newest), "Dismiss Task completed notification for Bounded notifications");
+  notificationState.notifications = dismissNotification(notificationState.notifications, newest.id);
+  assert.equal(notificationState.notifications.length, MAX_NOTIFICATIONS - 1);
+  notificationState.notifications = clearNotifications();
+  assert.deepEqual(notificationState.notifications, []);
+  const replay = {
+    ...baseTask,
+    status: "completed",
+    summary: `Result ${MAX_NOTIFICATIONS + 12}`,
+    turnId: `turn-${MAX_NOTIFICATIONS + 12}`,
+    updatedAt: newest.timestamp,
+    lastResult: {
+      status: "completed",
+      summary: `Result ${MAX_NOTIFICATIONS + 12}`,
+      turnId: `turn-${MAX_NOTIFICATIONS + 12}`,
+      updatedAt: newest.timestamp,
+    },
+  };
+  notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [replay]);
+  assert.deepEqual(notificationState.notifications, []);
 });
 
 test("SSE backpressure coalesces writes and disconnects clients that never drain", async () => {
@@ -921,6 +1339,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   const styles = await readFile(path.resolve("src/dashboard/styles.css"), "utf8");
   const codexIcon = await readFile(path.resolve("assets/codex.svg"), "utf8");
   assert.match(html, /aria-live="polite"/);
+  assert.match(html, /id="notification-announcer"[^>]+role="status"[^>]+aria-live="polite"/);
+  assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
   assert.match(html, /id="dashboard-message-text" role="status" aria-live="polite"/);
@@ -956,6 +1376,14 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /elements\.dashboardMessageText\.textContent = message/);
   assert.match(script, /elements\.dismissDashboardMessage\.addEventListener\("click", \(\) => \{/);
   assert.match(script, /elements\.dashboardMessage\.hidden = true/);
+  assert.match(script, /notificationOpenLabel\(notification, Boolean\(task\)\)/);
+  assert.match(script, /notificationDismissLabel\(notification\)/);
+  assert.match(script, /text\.setAttribute\("aria-describedby", describedBy\.join\(" "\)\)/);
+  assert.match(script, /dismiss\.setAttribute\("aria-describedby", describedBy\.join\(" "\)\)/);
+  assert.match(script, /if \(additions\.length > 0\) \{\s+elements\.notificationAnnouncer\.textContent/);
+  assert.match(script, /renderNotifications\(reconciled\.additions\)/);
+  assert.match(script, /Task no longer available/);
+  assert.match(script, /timestamp\.dateTime = notification\.timestamp/);
   assert.match(actionScript, /event\.stopPropagation\(\)/);
   assert.doesNotMatch(script, /\bstatusLabel\(/);
   assert.doesNotMatch(script, /innerHTML/);
