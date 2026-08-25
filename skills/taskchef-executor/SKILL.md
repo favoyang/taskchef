@@ -1,6 +1,6 @@
 ---
 name: taskchef-executor
-description: "Execute an assignment carrying either the new exact TaskChef marker-plus-invocation scaffold or an accepted historical first-line TaskChef marker or inline protocol. Includes executor ownership, self-linking, per-turn lifecycle reporting, identity safety, and final semantic state. Use when explicitly invoked by a new delegated instruction or when resuming the same new or historical executor task. Do not use to dispatch work or report on other TaskChef tasks."
+description: "Execute an assignment carrying either the new exact TaskChef invocation-plus-final-marker scaffold or an accepted historical first-line or marker-before-invocation protocol. Includes executor ownership, self-linking, per-turn lifecycle reporting, identity safety, and final semantic state. Use when explicitly invoked by a new delegated instruction or when resuming the same new or historical executor task. Do not use to dispatch work or report on other TaskChef tasks."
 ---
 
 # TaskChef Executor
@@ -10,12 +10,12 @@ re-dispatch it merely because it concerns TaskChef or a configured project.
 Explicit requests to delegate separate work remain valid.
 
 New instructions present the complete assignment first, followed by exactly one
-newline, the exact `<!-- taskchef_id=<full UUID> -->` marker, one newline, and
-the final explicit skill invocation. There is no blank line before or after the
-marker. Treat that UUID as the TaskChef task ID. The assignment is everything
-before the marker; the marker and invocation are lifecycle scaffolding, not
-part of the deliverable. Require exactly one marker and do not infer an ID from
-similar prose.
+newline, the explicit skill invocation, one newline, and the exact
+`<!-- taskchef_id=<full UUID> -->` marker on the final line. There are no blank
+lines around the invocation or marker. Treat that UUID as the TaskChef task ID.
+The assignment is everything before the invocation; the invocation and marker
+are lifecycle scaffolding, not part of the deliverable. Require exactly one
+marker and do not infer an ID from similar prose.
 
 ## Start every execution turn
 
@@ -77,9 +77,10 @@ Existing delegated tasks may include the former inline ownership, linking, and
 re-dispatching. Prefer `report_state` when available. If an older installed
 TaskChef exposes only `report_result`, follow its inline protocol; after an
 upgrade, the deprecated `report_result` alias remains available for exact
-legacy retries. Also accept historical instructions with the former blank line
-before a trailing marker, an exact HTML marker on the first line with or
-without the former blank line, or the older exact
+legacy retries. Also accept historical trailing instructions that place the
+marker before the invocation, with or without the former blank line before the
+marker; an exact HTML marker on the first line with or without the former blank
+line; or the older exact
 first-line `# taskchef_id=<full UUID>` heading. These compatibility forms do not
 change the identity or lifecycle rules above. For either first-line form, the
 assignment follows the marker. Ignore the final executor invocation and any
