@@ -18,7 +18,7 @@ is dated research, not contract.
 | **Delegated task** | One independently useful outcome represented by one TaskChef task UUID and snapshot. |
 | **Executor** | The native Codex task created to own and perform one delegated task. |
 | **Task record** | One complete JSON object in `tasks.jsonl`; it contains immutable intent/project fields and mutable identity/result fields. |
-| **Marker** | The exact first instruction line `<!-- taskchef_id=<lowercase full UUID> -->`; new instructions begin the assignment on the next line. |
+| **Marker** | The exact correlation line `<!-- taskchef_id=<lowercase full UUID> -->`; new instructions place it after the complete assignment and immediately before the executor-skill invocation. |
 | **Record-before-create** | Persisting a link-pending task before asking Codex to create its executor. |
 | **Self-linking** | The executor's one-way registration of its own canonical Codex UUIDv7 from `CODEX_THREAD_ID`. |
 | **Link-pending** | A working task whose `threadId` is null and `updatedBy` is `dispatcher`. |
@@ -102,10 +102,11 @@ fields MUST NOT change after recording.
 
 1. The dispatcher MUST call `prepare_dispatch` once per outcome.
 2. It MUST choose exactly one configured project and exact native-project path.
-3. It MUST build the instruction with the returned marker as line 1, the user's
-   outcome beginning on line 2, and exactly one concise explicit
-   `$taskchef-executor` invocation at the end after one blank line. It MUST NOT
-   inline the executor protocol into a new instruction.
+3. It MUST build the instruction with the user's outcome beginning on line 1
+   and remaining uninterrupted, followed by one blank line, the returned
+   marker, and exactly one concise explicit `$taskchef-executor` invocation on
+   the final line. It MUST NOT inline the executor protocol into a new
+   instruction.
 4. It MUST call `record_task` with `threadId: null` before native creation.
 5. It MUST create exactly one native Codex executor and return immediately.
 6. The executor MUST read its own `CODEX_THREAD_ID` and call `link_task`
@@ -122,10 +123,15 @@ If native creation fails after recording, the dispatcher MUST call
 A link failure MUST remain visible and retryable; the executor MUST report it
 visibly and MUST NOT continue substantive work.
 
-Previously recorded instructions with the former blank line and inline
-executor protocol MUST remain marker-readable and executable. Their
+Previously recorded instructions with a first-line HTML marker, the older
+first-line `# taskchef_id=<full UUID>` heading, or the former blank line and
+inline executor protocol MUST remain marker-readable and executable. Their
 `report_result` calls MUST remain supported by the deprecated alias. New
-instructions MUST use the explicit executor skill contract above.
+instructions MUST use the trailing marker and explicit executor skill contract
+above. A historical first-line instruction with an executor-skill invocation
+MUST contain exactly one invocation as its final line. A former inline-protocol
+instruction MUST retain non-whitespace task-specific content beyond its known
+lifecycle paragraphs.
 
 `needs_input` MUST mean a semantic user decision or missing fact. A native
 approval prompt MUST remain live Codex state and MUST NOT be stored as
@@ -176,7 +182,7 @@ new preparation values, though it writes no state.
 | `id` | Non-empty string; MUST equal the instruction marker. |
 | `project` | Non-empty configured project path. |
 | `title` | Non-empty string. |
-| `instruction` | Non-empty string beginning with the exact marker and at least one following instruction line. |
+| `instruction` | Non-empty string containing exactly one accepted marker and a non-empty assignment. New instructions use the required trailing marker and executor-invocation scaffold; historical first-line forms remain accepted. |
 | `threadId` | Literal null. |
 
 **Structured output:** `{ task: Task }`.

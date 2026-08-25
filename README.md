@@ -87,17 +87,18 @@ $taskchef-delegate In payments, add structured logs for failed retries and test 
 
 TaskChef prepares a UUID and marker, persists the task before native creation,
 creates the executor, and returns its task link. New executor instructions keep
-the assignment visible immediately after the marker and end with an explicit
-`$taskchef-executor` invocation. That skill reads the executor's own
-`CODEX_THREAD_ID`, self-links, and reports lifecycle state. Independent outcomes
-may become separate executors; dependent work should stay together.
+the assignment visible from the first line, then place the correlation marker
+immediately before an explicit `$taskchef-executor` invocation. That skill
+reads the executor's own `CODEX_THREAD_ID`, self-links, and reports lifecycle
+state. Independent outcomes may become separate executors; dependent work
+should stay together.
 
 For example, TaskChef generates this shape:
 
 ```text
-<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
 Fix duplicate charges after a retry and add a regression test.
 
+<!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
 Use $taskchef-executor to execute and report this delegated TaskChef assignment.
 ```
 

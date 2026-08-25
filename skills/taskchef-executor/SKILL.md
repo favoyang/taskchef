@@ -1,6 +1,6 @@
 ---
 name: taskchef-executor
-description: "Execute an assignment whose first instruction line is an exact TaskChef task marker, including executor ownership, self-linking, per-turn lifecycle reporting, identity safety, and final semantic state. Use when explicitly invoked by a delegated TaskChef instruction or when resuming that same executor task. Do not use to dispatch work or report on other TaskChef tasks."
+description: "Execute an assignment carrying either the new exact TaskChef marker-plus-invocation scaffold or an accepted historical first-line TaskChef marker or inline protocol. Includes executor ownership, self-linking, per-turn lifecycle reporting, identity safety, and final semantic state. Use when explicitly invoked by a new delegated instruction or when resuming the same new or historical executor task. Do not use to dispatch work or report on other TaskChef tasks."
 ---
 
 # TaskChef Executor
@@ -9,10 +9,12 @@ Own and execute the delegated assignment in the current Codex task. Do not
 re-dispatch it merely because it concerns TaskChef or a configured project.
 Explicit requests to delegate separate work remain valid.
 
-The instruction's exact first line is
-`<!-- taskchef_id=<full UUID> -->`. Treat that UUID as the TaskChef task ID.
-The assignment is the remaining instruction body; the final explicit skill
-invocation is lifecycle scaffolding, not part of the requested deliverable.
+New instructions present the complete assignment first, followed by one blank
+line, the exact `<!-- taskchef_id=<full UUID> -->` marker, and the final
+explicit skill invocation. Treat that UUID as the TaskChef task ID. The
+assignment is everything before the blank line that precedes the marker; the
+marker and invocation are lifecycle scaffolding, not part of the deliverable.
+Require exactly one marker and do not infer an ID from similar prose.
 
 ## Start every execution turn
 
@@ -66,4 +68,12 @@ Existing delegated tasks may include the former inline ownership, linking, and
 re-dispatching. Prefer `report_state` when available. If an older installed
 TaskChef exposes only `report_result`, follow its inline protocol; after an
 upgrade, the deprecated `report_result` alias remains available for exact
-legacy retries.
+legacy retries. Also accept historical instructions whose exact HTML marker is
+the first line, with or without the former blank line, and the older exact
+first-line `# taskchef_id=<full UUID>` heading. These compatibility forms do
+not change the identity or lifecycle rules above. For either first-line form,
+the assignment follows the marker. Ignore the final executor invocation and
+any recognizable former inline ownership, linking, working-state, or
+result-reporting paragraphs as lifecycle scaffolding; execute the remaining
+task-specific body. Require non-whitespace task-specific content and never
+treat an invocation by itself as an assignment.
