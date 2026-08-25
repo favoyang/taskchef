@@ -11,17 +11,18 @@ and return immediately.
 ## Invocation boundary
 
 A task whose initial structured `codexDelegation.input` contains either the
-exact new trailing TaskChef marker plus final `$taskchef-executor` invocation,
-an exact first-line HTML marker, or the historical first-line
+exact new trailing `$taskchef-executor` invocation plus final TaskChef marker,
+an accepted former trailing marker-plus-invocation scaffold, an exact
+first-line HTML marker, or the historical first-line
 `# taskchef_id=<full UUID>` heading already owns that delegated assignment.
 This includes former inline-protocol tasks that lack the skill invocation.
 An owned instruction must have exactly one accepted marker and a non-whitespace
 task-specific assignment. If it contains an executor-skill invocation, require
-exactly one as the final line. Marker-only, duplicate-marker, scaffold-only, or
-misplaced-invocation inputs are not valid delegated tasks. Execute a valid one
-in the current task. Do not re-dispatch it merely because it concerns TaskChef
-or a configured project. Explicit requests to delegate separate work remain
-valid.
+exactly one adjacent to the marker in an accepted order. Marker-only,
+duplicate-marker, scaffold-only, or misplaced-invocation inputs are not valid
+delegated tasks. Execute a valid one in the current task. Do not re-dispatch it
+merely because it concerns TaskChef or a configured project. Explicit requests
+to delegate separate work remain valid.
 
 Use the bundled `prepare_dispatch`, `record_task`, and `report_state` MCP tools
 directly. Never fall back to shell writes. If a required tool is unavailable,
@@ -52,11 +53,12 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 
    - Begin with the actual assignment on the first line and keep its complete
      body uninterrupted.
-   - After the assignment's final character, add exactly one newline and the
-     preparation's exact marker on its own line. Do not add a blank line before
-     or after the marker.
-   - Immediately after the marker, end the instruction with exactly:
+   - After the assignment's final character, add exactly one newline and this
+     invocation on its own line:
      `Use $taskchef-executor to execute and report this delegated TaskChef assignment.`
+   - Immediately after the invocation, end the instruction with one newline
+     and the preparation's exact marker on its own final line. Do not add blank
+     lines around the invocation or marker.
    - Include exactly one marker and exactly one executor-skill invocation.
    - Do not inline executor ownership, identity, linking, or result-reporting
      protocol. The explicitly invoked executor skill owns those mechanics.
