@@ -742,11 +742,11 @@ test("delegation marker parsing accepts the exact final-marker scaffold and hist
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `Do the work.\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
+    `Do the work.\n\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
   );
   assert.equal(
     prepared.instruction.slice("Do the work.".length),
-    `\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
+    `\n\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
   );
   const lines = prepared.instruction.split("\n");
   const marker = lines.at(-1);
@@ -758,10 +758,16 @@ test("delegation marker parsing accepts the exact final-marker scaffold and hist
   assert.equal(parseTaskChefMarker(prepared.instruction), TASK_ID);
   assert.equal(
     parseTaskChefMarker(
-      `Do the work.\r\n${EXECUTOR_SKILL_INVOCATION}\r\n<!-- taskchef_id=${TASK_ID} -->`,
+      `Do the work.\r\n\r\n${EXECUTOR_SKILL_INVOCATION}\r\n<!-- taskchef_id=${TASK_ID} -->`,
     ),
     TASK_ID,
   );
+  for (const formerCompactInstruction of [
+    `Do the work.\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
+    `Do the work.\r\n${EXECUTOR_SKILL_INVOCATION}\r\n<!-- taskchef_id=${TASK_ID} -->`,
+  ]) {
+    assert.equal(parseTaskChefMarker(formerCompactInstruction), TASK_ID);
+  }
   assert.equal(parseTaskChefMarker(`prefix\n<!-- taskchef_id=${TASK_ID} -->`), null);
   assert.equal(parseTaskChefMarker("<!-- taskchef_id=short -->"), null);
   assert.equal(parseTaskChefMarker(`<!-- taskchef_id=${TASK_ID} --> trailing`), null);
@@ -977,7 +983,8 @@ test("delegated instructions keep the useful body visible and invoke one executo
   const prepared = prepareDelegation("Implement it.\n\nValidate it.", { taskId: TASK_ID });
   const lines = prepared.instruction.split("\n");
   assert.equal(lines[0], "Implement it.");
-  assert.equal(lines.at(-3), "Validate it.");
+  assert.equal(lines.at(-4), "Validate it.");
+  assert.equal(lines.at(-3), "");
   assert.equal(lines.at(-2), EXECUTOR_SKILL_INVOCATION);
   assert.equal(lines.at(-1), `<!-- taskchef_id=${TASK_ID} -->`);
   assert.equal(prepared.instruction.split(EXECUTOR_SKILL_INVOCATION).length - 1, 1);
@@ -2549,6 +2556,8 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
   assert.match(body, /Do not call `link_task` from the dispatcher/i);
   assert.match(body, /Begin with the actual assignment on the first line/i);
+  assert.match(body, /exactly two newline characters[\s\S]+one blank line/i);
+  assert.match(body, /Do not add a[\s\S]+blank line between the invocation and marker/i);
   assert.match(body, /invocation on its own line[\s\S]+marker on its own final line/i);
   assert.match(body, /Use \$taskchef-executor to execute and report/i);
   assert.match(body, /Do not inline executor ownership, identity, linking, or result-reporting/i);
@@ -2563,7 +2572,9 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
   assert.match(frontmatter, /new exact TaskChef invocation-plus-final-marker scaffold/i);
   assert.match(frontmatter, /historical first-line or marker-before-invocation protocol/i);
-  assert.match(content, /complete assignment first[\s\S]+explicit skill invocation[\s\S]+taskchef_id=<full UUID>[\s\S]+final line/i);
+  assert.match(content, /complete assignment first[\s\S]+explicit skill invocation[\s\S]+taskchef_id=<full UUID>[\s\S]+final\s+line/i);
+  assert.match(content, /exactly two[\s\S]+newline characters \(one blank line\)/i);
+  assert.match(content, /no blank line between the invocation and marker/i);
   assert.match(content, /Own and execute[\s\S]+Do not\s+re-dispatch/i);
   assert.match(content, /CODEX_THREAD_ID/);
   assert.match(content, /Never\s+use `CODEX_SESSION_ID`[\s\S]+parent or delegator/i);

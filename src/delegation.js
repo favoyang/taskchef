@@ -162,13 +162,18 @@ export function parseTaskChefMarker(instruction) {
     return hasHistoricalAssignment() ? id : null;
   }
   const executorSkillReferences = instruction.match(/\$taskchef-executor\b/gi) ?? [];
+  const hasCurrentCompactBoundary = index >= 2
+    && lines.at(index - 2).trim().length > 0;
+  const hasCurrentBlankBoundary = index >= 3
+    && lines.at(index - 2) === ""
+    && lines.at(index - 3).trim().length > 0;
+  const currentAssignmentEnd = hasCurrentCompactBoundary ? index - 1 : index - 2;
   const isFinalMarkerScaffold = index === lines.length - 1
-    && index >= 2
+    && (hasCurrentCompactBoundary || hasCurrentBlankBoundary)
     && lines[0].trim().length > 0
     && lines.at(-2) === EXECUTOR_SKILL_INVOCATION
-    && lines.at(-3).trim().length > 0
-    && hasTaskSpecificContent(lines.slice(0, index - 1))
-    && !lines.slice(0, index - 1).some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line))
+    && hasTaskSpecificContent(lines.slice(0, currentAssignmentEnd))
+    && !lines.slice(0, currentAssignmentEnd).some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line))
     && executorSkillReferences.length === 1;
   if (isFinalMarkerScaffold) return id;
 
@@ -212,7 +217,7 @@ export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${body}\n${EXECUTOR_SKILL_INVOCATION}\n${taskChefMarker(id)}`,
+    instruction: `${body}\n\n${EXECUTOR_SKILL_INVOCATION}\n${taskChefMarker(id)}`,
   };
 }
 

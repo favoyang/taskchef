@@ -53,12 +53,12 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 
    - Begin with the actual assignment on the first line and keep its complete
      body uninterrupted.
-   - After the assignment's final character, add exactly one newline and this
-     invocation on its own line:
+   - After the assignment's final character, add exactly two newline characters
+     so there is one blank line before this invocation on its own line:
      `Use $taskchef-executor to execute and report this delegated TaskChef assignment.`
    - Immediately after the invocation, end the instruction with one newline
-     and the preparation's exact marker on its own final line. Do not add blank
-     lines around the invocation or marker.
+     and the preparation's exact marker on its own final line. Do not add a
+     blank line between the invocation and marker.
    - Include exactly one marker and exactly one executor-skill invocation.
    - Do not inline executor ownership, identity, linking, or result-reporting
      protocol. The explicitly invoked executor skill owns those mechanics.
