@@ -9,12 +9,13 @@ Own and execute the delegated assignment in the current Codex task. Do not
 re-dispatch it merely because it concerns TaskChef or a configured project.
 Explicit requests to delegate separate work remain valid.
 
-New instructions present the complete assignment first, followed by one blank
-line, the exact `<!-- taskchef_id=<full UUID> -->` marker, and the final
-explicit skill invocation. Treat that UUID as the TaskChef task ID. The
-assignment is everything before the blank line that precedes the marker; the
-marker and invocation are lifecycle scaffolding, not part of the deliverable.
-Require exactly one marker and do not infer an ID from similar prose.
+New instructions present the complete assignment first, followed by exactly one
+newline, the exact `<!-- taskchef_id=<full UUID> -->` marker, one newline, and
+the final explicit skill invocation. There is no blank line before or after the
+marker. Treat that UUID as the TaskChef task ID. The assignment is everything
+before the marker; the marker and invocation are lifecycle scaffolding, not
+part of the deliverable. Require exactly one marker and do not infer an ID from
+similar prose.
 
 ## Start every execution turn
 
@@ -69,12 +70,13 @@ Existing delegated tasks may include the former inline ownership, linking, and
 re-dispatching. Prefer `report_state` when available. If an older installed
 TaskChef exposes only `report_result`, follow its inline protocol; after an
 upgrade, the deprecated `report_result` alias remains available for exact
-legacy retries. Also accept historical instructions whose exact HTML marker is
-the first line, with or without the former blank line, and the older exact
-first-line `# taskchef_id=<full UUID>` heading. These compatibility forms do
-not change the identity or lifecycle rules above. For either first-line form,
-the assignment follows the marker. Ignore the final executor invocation and
-any recognizable former inline ownership, linking, working-state, or
+legacy retries. Also accept historical instructions with the former blank line
+before a trailing marker, an exact HTML marker on the first line with or
+without the former blank line, or the older exact
+first-line `# taskchef_id=<full UUID>` heading. These compatibility forms do not
+change the identity or lifecycle rules above. For either first-line form, the
+assignment follows the marker. Ignore the final executor invocation and any
+recognizable former inline ownership, linking, working-state, or
 result-reporting paragraphs as lifecycle scaffolding; execute the remaining
 task-specific body. Require non-whitespace task-specific content and never
 treat an invocation by itself as an assignment.

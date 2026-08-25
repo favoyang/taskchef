@@ -116,10 +116,10 @@ the final link, preserving the delegate skill's immediate-return contract.
 1. The dispatcher MUST call `prepare_dispatch` once per outcome.
 2. It MUST choose exactly one configured project and exact native-project path.
 3. It MUST build the instruction with the user's outcome beginning on line 1
-   and remaining uninterrupted, followed by one blank line, the returned
-   marker, and exactly one concise explicit `$taskchef-executor` invocation on
-   the final line. It MUST NOT inline the executor protocol into a new
-   instruction.
+   and remaining uninterrupted, followed by exactly one newline, the returned
+   marker, one newline, and exactly one concise explicit `$taskchef-executor`
+   invocation on the final line. It MUST NOT place a blank line before or after
+   the marker or inline the executor protocol into a new instruction.
 4. It MUST call `record_task` with `threadId: null` before native creation.
 5. It MUST create exactly one native Codex executor and return immediately.
 6. The executor MUST read its own `CODEX_THREAD_ID` and call `link_task`
@@ -136,9 +136,10 @@ If native creation fails after recording, the dispatcher MUST call
 A link failure MUST remain visible and retryable; the executor MUST report it
 visibly and MUST NOT continue substantive work.
 
-Previously recorded instructions with a first-line HTML marker, the older
-first-line `# taskchef_id=<full UUID>` heading, or the former blank line and
-inline executor protocol MUST remain marker-readable and executable. Their
+Previously recorded instructions with the former blank line before a trailing
+marker, a first-line HTML marker, the older first-line
+`# taskchef_id=<full UUID>` heading, or the former blank line and inline
+executor protocol MUST remain marker-readable and executable. Their
 `report_result` calls MUST remain supported by the deprecated alias. New
 instructions MUST use the trailing marker and explicit executor skill contract
 above. A historical first-line instruction with an executor-skill invocation

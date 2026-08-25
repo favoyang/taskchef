@@ -52,8 +52,9 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 
    - Begin with the actual assignment on the first line and keep its complete
      body uninterrupted.
-   - After the assignment, add one blank line and the preparation's exact
-     marker on its own line.
+   - After the assignment's final character, add exactly one newline and the
+     preparation's exact marker on its own line. Do not add a blank line before
+     or after the marker.
    - Immediately after the marker, end the instruction with exactly:
      `Use $taskchef-executor to execute and report this delegated TaskChef assignment.`
    - Include exactly one marker and exactly one executor-skill invocation.

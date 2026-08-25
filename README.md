@@ -104,7 +104,6 @@ For example, TaskChef generates this shape:
 
 ```text
 Fix duplicate charges after a retry and add a regression test.
-
 <!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
 Use $taskchef-executor to execute and report this delegated TaskChef assignment.
 ```
