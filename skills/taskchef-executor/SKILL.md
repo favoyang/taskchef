@@ -35,6 +35,12 @@ Complete this lifecycle setup before substantive assignment work:
    current turn ID, `status: working`, an omitted or null result summary, and a
    concise `requestSummary` describing this turn's assignment or follow-up.
 
+If the preceding TaskChef turn is still unfinished because its terminal report
+was lost, this newer valid working report atomically records that predecessor
+as interrupted and starts the current turn. Continue the real assignment from
+the current request. Do not manufacture a semantic `failed` result for the old
+turn and do not retry an old terminal report.
+
 If `CODEX_THREAD_ID`, exact native thread reading, or a required TaskChef tool
 is unavailable, or if linking or the working-state report fails, report the
 failure visibly and stop before substantive work. Retry on a later turn. Never
@@ -53,10 +59,11 @@ the current turn with one semantic status and a concise summary:
 A live native approval prompt is Codex state, not semantic `needs_input`; leave
 the approval live instead of storing it as a TaskChef result. Never invent or
 reuse a turn ID after a follow-up. If a final-report response is lost, an
-identical retry is safe only while the same turn remains current. On a later
-turn, run the start lifecycle with its new current turn ID and report that
-turn's actual outcome. Say reporting failures visibly instead of claiming a
-tracked outcome.
+identical terminal retry is safe only while the same turn remains current. On
+a later turn, run the start lifecycle with its new current turn ID; TaskChef
+will preserve the predecessor as interrupted, and only the new turn may receive
+a semantic result. Say reporting failures visibly instead of claiming a tracked
+outcome.
 
 Request and result summaries must omit secrets, transcripts, raw command output, hidden reasoning,
 and unnecessary personal data. Identical lifecycle retries are safe; never

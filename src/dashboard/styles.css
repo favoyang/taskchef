@@ -94,6 +94,7 @@ time, .timestamp-missing { font-size: 0.78rem; }
 .status-completed { background: var(--accent-soft); color: var(--accent); }
 .status-failed { background: #f3dfdd; color: var(--danger); }
 .status-needs_input { background: #f4e9ce; color: var(--warning); }
+.status-interrupted { background: #e8e5df; color: #625d54; }
 
 .empty-state { padding: 60px 20px; border: 1px dashed var(--border); border-radius: 10px; text-align: center; color: var(--muted); }
 .empty-state h2 { margin-bottom: 6px; color: var(--text); }
@@ -177,4 +178,5 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .dashboard-message { border-color: #66592e; background: #38321d; color: #f1d98c; }
   .status-failed { background: #4e2927; }
   .status-needs_input { background: #4c3b20; }
+  .status-interrupted { background: #37332f; color: #d6d0c7; }
 }

@@ -12,6 +12,7 @@ import {
   reconcileNotifications,
   taskStatusLabel,
   taskWithinDateFilter,
+  turnPresentation,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
@@ -237,11 +238,12 @@ function turnTimeline(task) {
     const header = document.createElement("div");
     header.className = "result-history-header";
     const status = document.createElement("span");
-    const turnStatus = turn.result?.status ?? "working";
+    const presentation = turnPresentation(turn);
+    const turnStatus = presentation.status;
     status.className = `status status-${turnStatus}`;
     status.textContent = turnStatus.replaceAll("_", " ");
     const turnKey = turn.turnId ?? `no-turn:${index}`;
-    const timestamp = timestampControl(turn.result?.updatedAt ?? turn.startedAt, {
+    const timestamp = timestampControl(presentation.updatedAt, {
       accessibleName: `Turn updated time for ${turnStatus.replaceAll("_", " ")}`,
       key: `detail:${task.id}:turn:${turnKey}`,
     });
@@ -255,7 +257,7 @@ function turnTimeline(task) {
     resultLabel.textContent = "Result";
     const result = document.createElement("p");
     result.className = "preserve-lines";
-    result.textContent = turn.result?.summary ?? "In progress";
+    result.textContent = presentation.summary;
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
     turnMetadata.textContent = turn.turnId

@@ -49,7 +49,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 configured projects and routing metadata
-tasks.jsonl     one task snapshot per line (schema 7; schema 4/5/6 migration supported)
+tasks.jsonl     one task snapshot per line (schema 8; schema 4/5/6/7 migration supported)
 ```
 
 List or change routing targets conversationally:
@@ -123,7 +123,12 @@ appends a `turns` entry that pairs that request with a null result while working
 then fills the same entry with the semantic outcome. A follow-up therefore shows
 its own request with “In progress,” never the preceding turn's result. Returned
 tasks still derive `results` and `lastResult` as compatibility projections.
-TaskChef does not store transcripts, hidden reasoning, or non-semantic events.
+If Codex crashes, an MCP call is lost, or the app restarts before that terminal
+report, the next newer `working` report atomically marks the unfinished turn
+`interrupted` and appends the new active turn. `interrupted` is TaskChef-authored
+timeline evidence, not semantic `failed`, and it never enters `results` or
+`lastResult`. TaskChef stores only a fixed interruption summary; it does not
+store transcripts, hidden reasoning, crash output, or other non-semantic events.
 
 Delegated tasks created by earlier TaskChef versions remain compatible: their
 inline executor protocol still parses, self-links, and may use the deprecated
@@ -175,7 +180,7 @@ taskchef dashboard --port 3211
 The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
 linked Codex tasks. List snapshots and SSE events carry only the latest
 request/result pair; opening task details fetches the full newest-first activity
-timeline.
+timeline, including clearly labeled interrupted turns.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
 Task and result times are relative through 29 days (with minute detail for the
@@ -205,6 +210,8 @@ no task data, credentials, environment variables, process control, or secrets.
 
 ![Task detail activity timeline](docs/images/result-history-dashboard.jpg)
 
+![Interrupted turn followed by active recovery](docs/images/interrupted-turn-recovery.jpg)
+
 ## Common recovery
 
 Check the managed workspace:
@@ -218,8 +225,8 @@ taskchef doctor
 
 `doctor` is read-only. `workspace init` creates missing files and refreshes
 managed instructions. `workspace migrate` explicitly upgrades supported schema
-4/5/6 task lines to schema 7 under the workspace lock. It validates the complete
-source and converted log before writing, creates an exclusive `tasks.jsonl.pre-v7-*.bak`
+4/5/6/7 task lines to schema 8 under the workspace lock. It validates the complete
+source and converted log before writing, creates an exclusive `tasks.jsonl.pre-v8-*.bak`
 backup, atomically replaces the log, validates the result, and becomes an
 idempotent no-op after migration. If replacement fails, the original remains
 or the reported backup can be restored; unsupported or invalid input is rejected
@@ -230,7 +237,7 @@ executor so its first action can retry `link_task`. Do not guess an identity
 or edit `tasks.jsonl`. If native task creation failed, the record is retained
 as `failed` with null thread and turn IDs.
 
-Schemas other than 4, 5, 6, and 7 remain unsupported. Retain such a workspace
+Schemas other than 4, 5, 6, 7, and 8 remain unsupported. Retain such a workspace
 unchanged and create a current workspace; the migration command deliberately
 does not guess how to convert unknown formats.
 

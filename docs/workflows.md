@@ -89,7 +89,7 @@ sequenceDiagram
   D->>D: Choose one configured and native project
   D->>M: record_task(id, project, title, instruction, null)
   M->>W: recordTask()
-  W->>W: Lock, validate, append schema-7 snapshot
+  W->>W: Lock, validate, append schema-8 snapshot
   W-->>M: working link-pending task
   M-->>D: task
   D->>C: Create executor with marked instruction
@@ -188,6 +188,43 @@ sequenceDiagram
 
 The executor contract therefore requires a new exact read on every follow-up;
 cached or inherited turn IDs are invalid.
+
+## Interrupted-turn recovery
+
+A crash, MCP failure, app restart, or upgrade can leave the latest turn with a
+null result. A newer valid `working` report is the durable recovery signal. The
+workspace handles it inside the same lock and atomic replacement as every
+other lifecycle mutation:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant E as Resumed executor
+  participant M as TaskChef MCP
+  participant W as workspace.js
+  participant F as tasks.jsonl
+  E->>M: report_state(..., turnB, working, requestB)
+  M->>W: reportTaskState()
+  W->>W: Acquire workspace lock and validate turnB > turnA
+  W->>W: Close unfinished turnA as interrupted
+  W->>W: Append turnB with requestB and null result
+  W->>F: One atomic schema-8 replacement
+  W-->>M: working task projected from turnB
+  M-->>E: Idempotent recovery success
+  E->>M: late semantic result for turnA
+  M->>W: Validate active turn and historical outcome
+  W-->>M: Reject stale result
+  M-->>E: Visible tool error
+```
+
+The interrupted outcome uses only the fixed TaskChef-authored summary. It is
+visible in CLI and detail timelines but excluded from semantic `results` and
+`lastResult`. Compact dashboard cards therefore show request B with “In
+progress.” Notification reconciliation observes one new working event and does
+not manufacture a failed-result event. Exact retries of either working start
+return the current snapshot without reopening or duplicating a turn. Concurrent
+newer starts serialize under the lock, leaving one ordered timeline whose only
+unfinished entry is the latest turn.
 
 ## Link-pending and failure paths
 
@@ -306,14 +343,15 @@ all, and ordinary rerendering do not re-announce retained history. Toast action
 labels remain concise while `aria-describedby` connects the visible summary,
 event time, and missing-task explanation for assistive technology.
 
-## Schema 4/5/6 migration
+## Schema 4/5/6/7 migration
 
 `taskchef workspace migrate` acquires the same workspace lock as lifecycle
 writers, validates the complete legacy log, converts schema-4/5/6 results into
 request-unknown completed turns and preserves a newer working turn, then validates the
 complete candidate. Before replacement it writes and reads back an exclusive
-`tasks.jsonl.pre-v7-*.bak` file. The task log is replaced atomically and
-validated again. A second run sees only schema 7 and returns unchanged without
+`tasks.jsonl.pre-v8-*.bak` file. Schema-7 timelines are copied losslessly into
+schema 8. The task log is replaced atomically and validated again. A second run
+sees only schema 8 and returns unchanged without
 another backup. Unsupported or malformed input fails before backup/rewrite;
 after a later filesystem failure, the reported backup is the recovery source.
 
@@ -330,8 +368,9 @@ summary is cryptographically authenticated; this is a local single-user trust
 model. Managed files, instructions, project snapshots, MCP inputs, and dashboard
 requests are validated at every action boundary.
 
-Configuration schema 2 and task schemas 4, 5, 6, and 7 are accepted. Schemas
-4/5/6 are read/migration compatibility until an explicit migration or lifecycle
-mutation upgrades each record to schema 7. Schema 7 persists `turns` and derives
-`results`, `lastResult`, and `latestTurn` for compact compatibility. Other schemas
+Configuration schema 2 and task schemas 4, 5, 6, 7, and 8 are accepted. Schemas
+4/5/6/7 are read/migration compatibility until an explicit migration or lifecycle
+mutation upgrades each record to schema 8. Schema 8 persists `turns`, including
+timeline-only interrupted outcomes, and derives semantic-only `results` and
+`lastResult` plus `latestTurn` for compact compatibility. Other schemas
 are rejected without rewrite.
