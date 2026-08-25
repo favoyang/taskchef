@@ -136,6 +136,14 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
     boundedText(task.turnId, 512, `${name} turn ID`);
     boundedText(task.lastResult?.summary, 2_000, `${name} last result summary`);
     boundedText(task.lastResult?.turnId, 512, `${name} last result turn ID`);
+    const results = task.results ?? [];
+    if (results.length > 10_000) {
+      throw new Error(`${name} has too many results for the dashboard`);
+    }
+    for (const [resultIndex, result] of results.entries()) {
+      boundedText(result.summary, 2_000, `${name} result ${resultIndex + 1} summary`);
+      boundedText(result.turnId, 512, `${name} result ${resultIndex + 1} turn ID`);
+    }
     boundedText(task.project.name, 1_000, `${name} project name`);
     boundedText(task.project.path, 8_192, `${name} project path`);
     boundedText(task.project.description, 4_000, `${name} project description`);
@@ -146,6 +154,11 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
       boundedText(repository, 2_048, `${name} GitHub repository`);
     }
   }
+}
+
+function taskListProjection(task) {
+  const { results: _results, ...projection } = task;
+  return projection;
 }
 
 export class DashboardMonitor extends EventEmitter {
@@ -197,7 +210,7 @@ export class DashboardMonitor extends EventEmitter {
       generatedAt: new Date().toISOString(),
       healthy: !this.unhealthy,
       tasks: this.tasks.map((task) => ({
-        ...task,
+        ...taskListProjection(task),
         meaningfulUpdatedAt: new Date(
           meaningfulUpdateTime(task, this.observedUpdateTimes),
         ).toISOString(),
@@ -507,6 +520,22 @@ export async function createDashboardServer({
       heartbeat.unref?.();
       request.on("close", () => client.close());
       response.on("error", () => client.close());
+      return;
+    }
+
+    const detailMatch = url.pathname.match(/^\/api\/tasks\/([a-zA-Z0-9._-]+)$/);
+    if (detailMatch && (method === "GET" || method === "HEAD")) {
+      const task = monitor.tasks.find((candidate) => candidate.id === detailMatch[1]);
+      if (!task) {
+        sendJson(response, 404, { message: "Task not found." });
+        return;
+      }
+      if (method === "HEAD") {
+        response.writeHead(200, securityHeaders("application/json; charset=utf-8"));
+        response.end();
+      } else {
+        sendJson(response, 200, { schemaVersion: 1, task });
+      }
       return;
     }
 

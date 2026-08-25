@@ -38,8 +38,9 @@ const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_CONFIG_SCHEMA_VERSION = 2;
-const CURRENT_TASK_SCHEMA_VERSION = 5;
-const PREVIOUS_SELF_LINKING_TASK_SCHEMA_VERSION = 4;
+const CURRENT_TASK_SCHEMA_VERSION = 6;
+const PREVIOUS_TASK_SCHEMA_VERSION = 5;
+const FIRST_SELF_LINKING_TASK_SCHEMA_VERSION = 4;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
 const PROJECT_FIELDS = new Set([
   "name",
@@ -63,7 +64,8 @@ const STATEFUL_DISPATCH_FIELDS = new Set([
   "updatedAt",
   "updatedBy",
 ]);
-const DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "lastResult"]);
+const SCHEMA_5_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "lastResult"]);
+const DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "results"]);
 const RECORD_DISPATCH_FIELDS = new Set([
   "id",
   "project",
@@ -75,7 +77,7 @@ const RESULT_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const TASK_STATUSES = new Set(["working", ...RESULT_STATUSES]);
 const TASK_UPDATE_SOURCES = new Set(["dispatcher", "mcp"]);
 const MAX_RESULT_SUMMARY_LENGTH = 2_000;
-const LAST_RESULT_FIELDS = new Set(["status", "summary", "turnId", "updatedAt"]);
+const RESULT_FIELDS = new Set(["status", "summary", "turnId", "updatedAt"]);
 
 function requireExactFields(value, fields, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -221,7 +223,9 @@ async function appendDispatchesAtomic(workspaceRoot, dispatches) {
   if (dispatches.length === 0) return;
   const dispatchPath = path.join(workspaceRoot, DISPATCH_FILE_NAME);
   const content = await readFile(dispatchPath, "utf8");
-  const appended = dispatches.map((dispatch) => `${JSON.stringify(dispatch)}\n`).join("");
+  const appended = dispatches
+    .map((dispatch) => `${JSON.stringify(schema6Task(dispatch))}\n`)
+    .join("");
   await writeTextAtomic(dispatchPath, `${content}${appended}`);
 }
 
@@ -679,7 +683,8 @@ export async function removeProject(workspaceRoot, name) {
 
 async function validateDispatchShape(dispatch, name = "task") {
   const supportedVersions = [
-    PREVIOUS_SELF_LINKING_TASK_SCHEMA_VERSION,
+    FIRST_SELF_LINKING_TASK_SCHEMA_VERSION,
+    PREVIOUS_TASK_SCHEMA_VERSION,
     CURRENT_TASK_SCHEMA_VERSION,
   ];
   if (!supportedVersions.includes(dispatch?.schemaVersion)) {
@@ -687,9 +692,11 @@ async function validateDispatchShape(dispatch, name = "task") {
   }
   requireExactFields(
     dispatch,
-    dispatch.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION
+    dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
       ? DISPATCH_FIELDS
-      : STATEFUL_DISPATCH_FIELDS,
+      : dispatch.schemaVersion === PREVIOUS_TASK_SCHEMA_VERSION
+        ? SCHEMA_5_DISPATCH_FIELDS
+        : STATEFUL_DISPATCH_FIELDS,
     name,
   );
   const id = requireSafeId(dispatch.id, `${name}.id`);
@@ -700,38 +707,48 @@ async function validateDispatchShape(dispatch, name = "task") {
   });
   const turnId = optionalString(dispatch.turnId, `${name}.turnId`, { maxLength: 256 });
   const updatedAt = requireTimestamp(dispatch.updatedAt, `${name}.updatedAt`);
-  let lastResult = null;
-  if (dispatch.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION) {
-    if (dispatch.lastResult !== null) {
-      requireExactFields(dispatch.lastResult, LAST_RESULT_FIELDS, `${name}.lastResult`);
-      lastResult = {
+  const normalizeResult = (result, resultName) => {
+    requireExactFields(result, RESULT_FIELDS, resultName);
+    const normalizedResult = {
         status: requireEnum(
-          dispatch.lastResult.status,
+          result.status,
           RESULT_STATUSES,
-          `${name}.lastResult.status`,
+          `${resultName}.status`,
         ),
         summary: optionalString(
-          dispatch.lastResult.summary,
-          `${name}.lastResult.summary`,
+          result.summary,
+          `${resultName}.summary`,
           { maxLength: MAX_RESULT_SUMMARY_LENGTH },
         ),
         turnId: optionalString(
-          dispatch.lastResult.turnId,
-          `${name}.lastResult.turnId`,
+          result.turnId,
+          `${resultName}.turnId`,
           { maxLength: 256 },
         ),
         updatedAt: requireTimestamp(
-          dispatch.lastResult.updatedAt,
-          `${name}.lastResult.updatedAt`,
+          result.updatedAt,
+          `${resultName}.updatedAt`,
         ),
-      };
-      if (lastResult.summary === null) {
-        throw new Error(`${name}.lastResult.summary must be a non-empty string`);
-      }
+    };
+    if (normalizedResult.summary === null) {
+      throw new Error(`${resultName}.summary must be a non-empty string`);
+    }
+    return normalizedResult;
+  };
+  let results = [];
+  if (dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
+    if (!Array.isArray(dispatch.results)) throw new Error(`${name}.results must be an array`);
+    results = dispatch.results.map((result, index) => (
+      normalizeResult(result, `${name}.results[${index}]`)
+    ));
+  } else if (dispatch.schemaVersion === PREVIOUS_TASK_SCHEMA_VERSION) {
+    if (dispatch.lastResult !== null) {
+      results = [normalizeResult(dispatch.lastResult, `${name}.lastResult`)];
     }
   } else if (RESULT_STATUSES.has(status)) {
-    lastResult = { status, summary, turnId, updatedAt };
+    results = [{ status, summary, turnId, updatedAt }];
   }
+  const lastResult = results.at(-1) ?? null;
   const normalized = {
     schemaVersion: dispatch.schemaVersion,
     id,
@@ -747,22 +764,25 @@ async function validateDispatchShape(dispatch, name = "task") {
     turnId,
     updatedAt,
     updatedBy: requireEnum(dispatch.updatedBy, TASK_UPDATE_SOURCES, `${name}.updatedBy`),
+    results,
     lastResult,
   };
   const isSelfLinkingRecord = normalized.threadId !== null
     && parseTaskChefMarker(normalized.instruction) === normalized.id;
   if (isSelfLinkingRecord) {
     if (normalized.turnId !== null) {
-      normalizeCodexThreadId(normalized.turnId, `${name}.turnId`);
+      normalized.turnId = normalizeCodexThreadId(normalized.turnId, `${name}.turnId`);
     }
-    if (normalized.lastResult?.turnId != null) {
-      normalizeCodexThreadId(
-        normalized.lastResult.turnId,
-        `${name}.lastResult.turnId`,
-      );
+    for (const [index, result] of normalized.results.entries()) {
+      if (result.turnId != null) {
+        result.turnId = normalizeCodexThreadId(
+          result.turnId,
+          `${name}.results[${index}].turnId`,
+        );
+      }
     }
   }
-  if (normalized.schemaVersion >= PREVIOUS_SELF_LINKING_TASK_SCHEMA_VERSION) {
+  if (normalized.schemaVersion >= FIRST_SELF_LINKING_TASK_SCHEMA_VERSION) {
     if (normalized.threadId === null) {
       const isLinkPending = normalized.status === "working"
         && normalized.summary === null
@@ -782,8 +802,9 @@ async function validateDispatchShape(dispatch, name = "task") {
       if (RESULT_STATUSES.has(normalized.status) && normalized.turnId === null) {
         throw new Error(`${name}.turnId is required for a linked semantic state`);
       }
-      if (normalized.lastResult !== null && normalized.lastResult.turnId === null) {
-        throw new Error(`${name}.lastResult.turnId is required for a linked result`);
+      const resultWithoutTurn = normalized.results.findIndex((result) => result.turnId === null);
+      if (resultWithoutTurn !== -1) {
+        throw new Error(`${name}.results[${resultWithoutTurn}].turnId is required for a linked result`);
       }
     }
   }
@@ -793,7 +814,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   if (RESULT_STATUSES.has(normalized.status) && normalized.summary === null) {
     throw new Error(`${name}.summary is required for status ${normalized.status}`);
   }
-  if (normalized.schemaVersion >= CURRENT_TASK_SCHEMA_VERSION) {
+  if (normalized.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION) {
     if (RESULT_STATUSES.has(normalized.status)) {
       if (
         normalized.lastResult === null
@@ -827,6 +848,34 @@ async function validateDispatchShape(dispatch, name = "task") {
       )
     ) {
       throw new Error(`${name}.turnId must be newer than lastResult.turnId while working`);
+    }
+  }
+  const seenResultTurns = new Set();
+  const nullTurnKey = Symbol("null turn");
+  for (const [index, result] of normalized.results.entries()) {
+    const turnKey = result.turnId ?? nullTurnKey;
+    if (seenResultTurns.has(turnKey)) {
+      throw new Error(`${name}.results contains duplicate turnId: ${result.turnId ?? "null"}`);
+    }
+    seenResultTurns.add(turnKey);
+    if (Date.parse(result.updatedAt) < Date.parse(normalized.createdAt)) {
+      throw new Error(`${name}.results[${index}].updatedAt must not be earlier than createdAt`);
+    }
+    if (Date.parse(result.updatedAt) > Date.parse(normalized.updatedAt)) {
+      throw new Error(`${name}.results[${index}].updatedAt must not be later than updatedAt`);
+    }
+    if (
+      index > 0
+      && Date.parse(result.updatedAt) < Date.parse(normalized.results[index - 1].updatedAt)
+    ) {
+      throw new Error(`${name}.results must be ordered by updatedAt`);
+    }
+    if (
+      isSelfLinkingRecord
+      && index > 0
+      && result.turnId <= normalized.results[index - 1].turnId
+    ) {
+      throw new Error(`${name}.results must be ordered by turnId`);
     }
   }
   if (
@@ -911,6 +960,70 @@ export async function parseTaskLogContent(workspaceRoot, content) {
   return (await parseDispatchRecordsUnlocked(root, content)).map((record) => record.normalized);
 }
 
+function schema6Task(dispatch, patch = {}) {
+  const { lastResult: _lastResult, ...persisted } = dispatch;
+  return {
+    ...persisted,
+    schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+    results: dispatch.results ?? [],
+    ...patch,
+  };
+}
+
+export async function migrateTaskLog(workspaceRoot, {
+  now = () => new Date().toISOString(),
+  writeTaskLog = writeTextAtomic,
+} = {}) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
+    if (!(await managedRegularFileExists(dispatchPath))) {
+      throw new Error(`task log does not exist: ${dispatchPath}`);
+    }
+    const original = await readFile(dispatchPath, "utf8");
+    const records = await parseDispatchRecordsUnlocked(root, original);
+    const migratedCount = records.filter(
+      (record) => record.raw.schemaVersion !== CURRENT_TASK_SCHEMA_VERSION,
+    ).length;
+    if (migratedCount === 0) {
+      return {
+        schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+        action: "unchanged",
+        taskCount: records.length,
+        migratedCount: 0,
+        backupPath: null,
+      };
+    }
+    const lines = records.map((record) => JSON.stringify(schema6Task(record.normalized)));
+    const migrated = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+    await parseDispatchRecordsUnlocked(root, migrated);
+    const timestamp = requireTimestamp(now(), "migration timestamp")
+      .replaceAll(":", "-")
+      .replaceAll(".", "-");
+    const backupPath = `${dispatchPath}.pre-v6-${timestamp}-${randomUUID()}.bak`;
+    await writeFile(backupPath, original, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    if (await readFile(backupPath, "utf8") !== original) {
+      throw new Error(`task log backup validation failed: ${backupPath}`);
+    }
+    try {
+      await writeTaskLog(dispatchPath, migrated);
+      await parseDispatchRecordsUnlocked(root, await readFile(dispatchPath, "utf8"));
+    } catch (error) {
+      throw new Error(
+        `task log migration failed after recovery backup ${backupPath}: ${error.message}`,
+        { cause: error },
+      );
+    }
+    return {
+      schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+      action: "migrated",
+      taskCount: records.length,
+      migratedCount,
+      backupPath,
+    };
+  });
+}
+
 export async function recordTask(workspaceRoot, input, { now } = {}) {
   requireExactFields(input, RECORD_DISPATCH_FIELDS, "task input");
   const root = await realpath(path.resolve(workspaceRoot));
@@ -933,7 +1046,7 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
       turnId: null,
       updatedAt: createdAt,
       updatedBy: "dispatcher",
-      lastResult: null,
+      results: [],
     });
     const existing = await readDispatchesUnlocked(root);
     if (existing.some((item) => item.id === dispatch.id)) {
@@ -975,13 +1088,11 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
         throw new Error(`task instruction does not contain its exact TaskChef marker: ${id}`);
       }
       if (dispatch.threadId === durableThreadId) return dispatch;
-      const canonical = await validateDispatchShape({
-        ...dispatch,
-        schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+      const canonical = await validateDispatchShape(schema6Task(dispatch, {
         threadId: durableThreadId,
         updatedAt: transitionTimestamp(now, dispatch.updatedAt),
         updatedBy: "mcp",
-      });
+      }));
       const lines = records.map((record, recordIndex) => recordIndex === index
         ? dispatchLineWithState(canonical, {})
         : record.line);
@@ -1006,13 +1117,11 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
     ))) {
       throw new Error(`threadId is already recorded: ${durableThreadId}`);
     }
-    const linked = await validateDispatchShape({
-      ...dispatch,
-      schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+    const linked = await validateDispatchShape(schema6Task(dispatch, {
       threadId: durableThreadId,
       updatedAt: transitionTimestamp(now, dispatch.updatedAt),
       updatedBy: "mcp",
-    });
+    }));
     const lines = records.map((record, recordIndex) => recordIndex === index
       ? dispatchLineWithState(linked, {})
       : record.line);
@@ -1022,11 +1131,7 @@ export async function linkTask(workspaceRoot, taskId, threadId, { now } = {}) {
 }
 
 function dispatchLineWithState(dispatch, patch) {
-  return JSON.stringify({
-    ...dispatch,
-    schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
-    ...patch,
-  });
+  return JSON.stringify(schema6Task(dispatch, patch));
 }
 
 function normalizeTaskStateInput(input, { allowWorking }) {
@@ -1108,7 +1213,7 @@ async function reportTaskStateInternal(
       if (!compatibilityAlias) {
         const rawSchemaVersion = records[index].raw.schemaVersion;
         const hasCurrentMarker = rawSchemaVersion
-          >= PREVIOUS_SELF_LINKING_TASK_SCHEMA_VERSION
+          >= FIRST_SELF_LINKING_TASK_SCHEMA_VERSION
           && parseTaskChefMarker(dispatch.instruction) === dispatch.id;
         const isFreshCreationFailure = hasCurrentMarker
           && dispatch.status === "working"
@@ -1147,31 +1252,24 @@ async function reportTaskStateInternal(
         }
       }
       const updatedAt = transitionTimestamp(now, dispatch.updatedAt);
-      const updated = await validateDispatchShape({
-        ...dispatch,
-        schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+      const updated = await validateDispatchShape(schema6Task(dispatch, {
         status,
         summary: null,
         turnId: stateTurnId,
         updatedAt,
         updatedBy: "mcp",
-        lastResult: dispatch.lastResult,
-      });
+      }));
       const lines = records.map((record, recordIndex) => recordIndex === index
         ? dispatchLineWithState(updated, {})
         : record.line);
       await writeDispatchLinesAtomic(root, lines);
       return updated;
     }
-    if (
-      dispatch.status === status
-      && dispatch.turnId === stateTurnId
-      && dispatch.summary === summary
-      && sameLastResult(dispatch.lastResult, { status, summary, turnId: stateTurnId })
-    ) {
+    const priorTurnResult = dispatch.results.find((result) => result.turnId === stateTurnId);
+    if (priorTurnResult && sameLastResult(priorTurnResult, { status, summary, turnId: stateTurnId })) {
       return dispatch;
     }
-    if (dispatch.turnId === stateTurnId && dispatch.status !== "working") {
+    if (priorTurnResult || (dispatch.turnId === stateTurnId && dispatch.status !== "working")) {
       throw new Error(`task turn already has a different semantic result: ${id}`);
     }
     if (compatibilityAlias) {
@@ -1190,16 +1288,14 @@ async function reportTaskStateInternal(
     }
     const updatedAt = transitionTimestamp(now, dispatch.updatedAt);
     const lastResult = { status, summary, turnId: stateTurnId, updatedAt };
-    const candidate = {
-      ...dispatch,
-      schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
+    const candidate = schema6Task(dispatch, {
       status,
       summary,
       turnId: stateTurnId,
       updatedAt,
       updatedBy: "mcp",
-      lastResult,
-    };
+      results: [...dispatch.results, lastResult],
+    });
     const updated = await validateDispatchShape(candidate);
     const lines = records.map((record, recordIndex) => recordIndex === index
       ? dispatchLineWithState(updated, {})

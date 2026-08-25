@@ -117,6 +117,14 @@ dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); 
 .primary-button:disabled, .secondary-button:disabled { opacity: 0.5; cursor: not-allowed; }
 dialog section + section { margin-top: 24px; }
 .preserve-lines { white-space: pre-wrap; }
+.result-history { display: grid; gap: 10px; }
+.result-history-item { padding: 13px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
+.result-history-latest { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+.result-history-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.result-history-item p { margin-bottom: 7px; }
+.result-history-item p:last-child { margin-bottom: 0; }
+.result-history-turn, .result-history-empty { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+.result-history-empty { margin: 0; }
 pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius: 7px; background: var(--surface-muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 0.86rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .metadata { display: grid; grid-template-columns: minmax(100px, 150px) 1fr; margin: 0; font-size: 0.88rem; }
 .metadata dt, .metadata dd { padding: 7px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
