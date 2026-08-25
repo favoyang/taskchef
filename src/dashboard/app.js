@@ -16,6 +16,7 @@ import {
   turnPresentation,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
+import { githubReferenceSegments } from "./github-links.js";
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
 
 const state = {
@@ -43,6 +44,7 @@ const elements = {
   dialogInstruction: document.querySelector("#dialog-instruction"),
   dialogMetadata: document.querySelector("#dialog-metadata"),
   dialogProject: document.querySelector("#dialog-project"),
+  dialogRelatedLinks: document.querySelector("#dialog-related-links"),
   dialogResults: document.querySelector("#dialog-results"),
   dialogTitle: document.querySelector("#dialog-title"),
   dismissDashboardMessage: document.querySelector("#dismiss-dashboard-message"),
@@ -58,6 +60,58 @@ const elements = {
   toastList: document.querySelector("#toast-list"),
 };
 let notificationDescriptionSerial = 0;
+
+function githubLink(link, { compact = false } = {}) {
+  const anchor = document.createElement("a");
+  anchor.className = compact ? "github-link github-link-compact" : "github-link";
+  anchor.href = link.url;
+  anchor.target = "_blank";
+  anchor.rel = "noopener noreferrer";
+  anchor.textContent = link.label ?? link.text;
+  anchor.setAttribute(
+    "aria-label",
+    `${link.label ?? link.text} on GitHub (opens in a new tab)`,
+  );
+  anchor.addEventListener("click", (event) => event.stopPropagation());
+  return anchor;
+}
+
+function appendGitHubText(container, text, task) {
+  const children = githubReferenceSegments(text, {
+    projectRepositories: task.project?.githubRepos,
+    taskRepository: task.relatedGitHubRepository,
+  }).map((segment) => {
+    if (segment.kind === "text") return document.createTextNode(segment.text);
+    if (segment.kind === "link") return githubLink(segment);
+    const ambiguous = document.createElement("span");
+    ambiguous.className = "github-reference-ambiguous";
+    ambiguous.textContent = segment.text;
+    ambiguous.tabIndex = 0;
+    ambiguous.title = segment.reason;
+    ambiguous.setAttribute("aria-label", segment.reason);
+    return ambiguous;
+  });
+  container.replaceChildren(...children);
+}
+
+function relatedGitHubLinks(task, { compact = false } = {}) {
+  const links = task.relatedGitHubLinks ?? [];
+  const container = document.createElement("nav");
+  container.className = `github-links${compact ? " github-links-compact" : ""}`;
+  container.setAttribute("aria-label", `Related GitHub links for ${task.title}`);
+  const children = links.map((link) => githubLink(link, { compact }));
+  if (task.relatedGitHubLinksTruncated) {
+    const more = document.createElement("span");
+    more.className = "github-links-more";
+    more.textContent = "+ more";
+    more.title = "Additional related GitHub references are omitted from this bounded dashboard view.";
+    more.setAttribute("aria-label", more.title);
+    children.push(more);
+  }
+  container.hidden = children.length === 0;
+  container.replaceChildren(...children);
+  return container;
+}
 
 function timestampControl(value, { accessibleName, key, prefix = "" }) {
   if (!parsedTimestamp(value)) {
@@ -253,12 +307,16 @@ function turnTimeline(task) {
     requestLabel.textContent = "Request";
     const request = document.createElement("p");
     request.className = "preserve-lines";
-    request.textContent = turn.requestSummary ?? "Request not recorded by this TaskChef version.";
+    appendGitHubText(
+      request,
+      turn.requestSummary ?? "Request not recorded by this TaskChef version.",
+      task,
+    );
     const resultLabel = document.createElement("h4");
     resultLabel.textContent = "Result";
     const result = document.createElement("p");
     result.className = "preserve-lines";
-    result.textContent = presentation.summary;
+    appendGitHubText(result, presentation.summary, task);
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
     turnMetadata.textContent = turn.turnId
@@ -281,6 +339,14 @@ function renderDialog(task) {
   state.selectedTask = detailedTask;
   elements.dialogProject.textContent = task.project.name;
   elements.dialogTitle.textContent = task.title;
+  elements.dialogRelatedLinks.replaceChildren(...relatedGitHubLinks(detailedTask).children);
+  elements.dialogRelatedLinks.setAttribute(
+    "aria-label",
+    `Related GitHub links for ${task.title}`,
+  );
+  elements.dialogRelatedLinks.hidden = (
+    (task.relatedGitHubLinks?.length ?? 0) === 0 && !task.relatedGitHubLinksTruncated
+  );
   elements.dialogResults.replaceChildren(...turnTimeline(detailedTask));
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyThreadId.disabled = !task.threadId;
@@ -365,6 +431,7 @@ function taskCard(task) {
   result.className = "preserve-lines";
   result.textContent = latest.resultSummary;
   summary.replaceChildren(requestLabel, request, resultLabel, result);
+  const relatedLinks = relatedGitHubLinks(task, { compact: true });
   const time = timestampControl(
     task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt,
     {
@@ -383,7 +450,7 @@ function taskCard(task) {
     showMessage,
   }));
   footer.append(time, openTask);
-  article.append(heading, project, summary, footer);
+  article.append(heading, project, summary, relatedLinks, footer);
   return article;
 }
 

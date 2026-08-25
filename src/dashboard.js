@@ -17,6 +17,7 @@ import {
   readConfig,
 } from "./workspace.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
+import { taskGitHubProjection } from "./dashboard/github-links.js";
 
 const TASKS_FILE_NAME = "tasks.jsonl";
 const STATIC_ROOT = fileURLToPath(new URL("./dashboard/", import.meta.url));
@@ -43,6 +44,7 @@ const STATIC_FILES = new Map([
   ["/", [path.join(STATIC_ROOT, "index.html"), "text/html; charset=utf-8"]],
   ["/actions.js", [path.join(STATIC_ROOT, "actions.js"), "text/javascript; charset=utf-8"]],
   ["/app.js", [path.join(STATIC_ROOT, "app.js"), "text/javascript; charset=utf-8"]],
+  ["/github-links.js", [path.join(STATIC_ROOT, "github-links.js"), "text/javascript; charset=utf-8"]],
   ["/time.js", [path.join(STATIC_ROOT, "time.js"), "text/javascript; charset=utf-8"]],
   ["/state.js", [path.join(STATIC_ROOT, "state.js"), "text/javascript; charset=utf-8"]],
   ["/styles.css", [path.join(STATIC_ROOT, "styles.css"), "text/css; charset=utf-8"]],
@@ -171,8 +173,15 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
 }
 
 function taskListProjection(task) {
-  const { turns: _turns, results: _results, ...projection } = task;
+  const { turns: _turns, results: _results, ...projection } = {
+    ...task,
+    ...taskGitHubProjection(task),
+  };
   return projection;
+}
+
+function taskDetailProjection(task) {
+  return { ...task, ...taskGitHubProjection(task) };
 }
 
 export class DashboardMonitor extends EventEmitter {
@@ -548,7 +557,7 @@ export async function createDashboardServer({
         response.writeHead(200, securityHeaders("application/json; charset=utf-8"));
         response.end();
       } else {
-        sendJson(response, 200, { schemaVersion: 1, task });
+        sendJson(response, 200, { schemaVersion: 1, task: taskDetailProjection(task) });
       }
       return;
     }
