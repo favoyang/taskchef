@@ -78,10 +78,19 @@ function timestampControl(value, { accessibleName, key, prefix = "" }) {
 }
 
 function codexIcon() {
-  const icon = document.createElement("span");
-  icon.className = "codex-icon";
-  icon.setAttribute("aria-hidden", "true");
-  return icon;
+  const picture = document.createElement("picture");
+  picture.className = "codex-icon";
+  picture.setAttribute("aria-hidden", "true");
+  const dark = document.createElement("source");
+  dark.srcset = "/assets/codex-app-dark.png";
+  dark.media = "(prefers-color-scheme: dark)";
+  const image = document.createElement("img");
+  image.src = "/assets/codex-app-light.png";
+  image.alt = "";
+  image.width = 16;
+  image.height = 16;
+  picture.append(dark, image);
+  return picture;
 }
 
 function configureOpenTaskControl(control, ariaLabel) {

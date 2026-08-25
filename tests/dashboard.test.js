@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import net from "node:net";
 import http from "node:http";
@@ -1134,13 +1135,22 @@ test("dashboard server serves independent clients without sessions and protects 
     const html = await page.text();
     assert.doesNotMatch(html, /onerror=alert/);
 
-    for (const assetName of ["taskchef.svg", "taskchef-dark.svg", "codex.svg"]) {
+    for (const assetName of ["taskchef.svg", "taskchef-dark.svg"]) {
       const assetResponse = await fetch(`${server.origin}/assets/${assetName}`);
       assert.equal(assetResponse.status, 200);
       assert.equal(assetResponse.headers.get("content-type"), "image/svg+xml");
       assert.equal(
         await assetResponse.text(),
         await readFile(path.resolve("assets", assetName), "utf8"),
+      );
+    }
+    for (const assetName of ["codex-app-dark.png", "codex-app-light.png"]) {
+      const assetResponse = await fetch(`${server.origin}/assets/${assetName}`);
+      assert.equal(assetResponse.status, 200);
+      assert.equal(assetResponse.headers.get("content-type"), "image/png");
+      assert.deepEqual(
+        Buffer.from(await assetResponse.arrayBuffer()),
+        await readFile(path.resolve("assets", assetName)),
       );
     }
     const timeModule = await fetch(`${server.origin}/time.js`);
@@ -1337,7 +1347,6 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   const stateScript = await readFile(path.resolve("src/dashboard/state.js"), "utf8");
   const timeScript = await readFile(path.resolve("src/dashboard/time.js"), "utf8");
   const styles = await readFile(path.resolve("src/dashboard/styles.css"), "utf8");
-  const codexIcon = await readFile(path.resolve("assets/codex.svg"), "utf8");
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /id="notification-announcer"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
@@ -1366,7 +1375,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /openTask\.type = "button"/);
   assert.match(script, /configureOpenTaskControl\(openTask, `Open \$\{task\.title\} in Codex`\)/);
   assert.match(script, /configureOpenTaskControl\(elements\.openProject, `Open \$\{task\.title\} in Codex`\)/);
-  assert.match(script, /icon\.setAttribute\("aria-hidden", "true"\)/);
+  assert.match(script, /picture\.setAttribute\("aria-hidden", "true"\)/);
   assert.match(script, /openTaskFromControl\(event, task\.id/);
   assert.match(script, /relativeTimes\.register\(/);
   assert.match(script, /relativeTimes\.toggle\(key\)/);
@@ -1389,8 +1398,44 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.doesNotMatch(script, /innerHTML/);
   assert.match(stateScript, /MAX_NOTIFICATIONS = 50/);
   assert.match(timeScript, /RELATIVE_TIME_REFRESH_MS = 30_000/);
-  assert.match(styles, /mask: url\("\/assets\/codex\.svg"\)/);
   assert.match(styles, /\.task-open \{ align-self: flex-start; \}/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
-  assert.match(codexIcon, /viewBox="0 0 16 16"/);
+});
+
+test("Open task controls use the shared authoritative Codex app assets", async () => {
+  const html = await readFile(path.resolve("src/dashboard/index.html"), "utf8");
+  const script = await readFile(path.resolve("src/dashboard/app.js"), "utf8");
+  const styles = await readFile(path.resolve("src/dashboard/styles.css"), "utf8");
+  const source = `${html}\n${script}\n${styles}`;
+  const expectedAssets = new Map([
+    ["codex-app-dark.png", "69fb4384e161be8a20dcb94a9ac34aea4fbfaeb67514110a71e7b0732eccb0fc"],
+    ["codex-app-light.png", "de7d43f3386105ab20952958c2c25beb0d903e2aeb6e1aef57c49a648c0d1c07"],
+  ]);
+
+  for (const [assetName, expectedDigest] of expectedAssets) {
+    const asset = await readFile(path.resolve("assets", assetName));
+    assert.equal(asset.readUInt32BE(16), 1024);
+    assert.equal(asset.readUInt32BE(20), 1024);
+    assert.equal(createHash("sha256").update(asset).digest("hex"), expectedDigest);
+  }
+
+  const sharedIcon = script.match(/function codexIcon\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups?.body;
+  assert.ok(sharedIcon);
+  assert.match(sharedIcon, /dark\.srcset = "\/assets\/codex-app-dark\.png"/);
+  assert.match(sharedIcon, /image\.src = "\/assets\/codex-app-light\.png"/);
+  assert.match(sharedIcon, /picture\.setAttribute\("aria-hidden", "true"\)/);
+  assert.match(sharedIcon, /image\.alt = ""/);
+  assert.match(script, /configureOpenTaskControl\(openTask,/);
+  assert.match(script, /configureOpenTaskControl\(elements\.openProject,/);
+
+  const detailControl = html.match(/<button id="open-codex"[\s\S]*?<\/button>/)?.[0];
+  assert.ok(detailControl);
+  assert.match(detailControl, /<source srcset="\/assets\/codex-app-dark\.png"/);
+  assert.match(detailControl, /<img src="\/assets\/codex-app-light\.png" alt="" width="16" height="16">/);
+  assert.match(detailControl, /<picture class="codex-icon" aria-hidden="true">/);
+  assert.match(styles, /\.codex-icon \{[^}]*width: 16px; height: 16px;/);
+  assert.match(styles, /\.codex-icon img \{[^}]*object-fit: contain;/);
+
+  await assert.rejects(readFile(path.resolve("assets/codex.svg")), { code: "ENOENT" });
+  assert.doesNotMatch(source, /codex\.svg|mask:\s*url\(|background:\s*currentColor/);
 });
