@@ -85,7 +85,10 @@
       </div>
       <div class="dialog-actions">
         <button id="open-codex" class="primary-button task-action" type="button" aria-label="Open this task in Codex">
-          <span class="codex-icon" aria-hidden="true"></span>
+          <picture class="codex-icon" aria-hidden="true">
+            <source srcset="/assets/codex-app-dark.png" media="(prefers-color-scheme: dark)">
+            <img src="/assets/codex-app-light.png" alt="" width="16" height="16">
+          </picture>
           <span>Open task</span>
         </button>
         <button id="copy-thread-id" class="secondary-button" type="button">Copy thread ID</button>

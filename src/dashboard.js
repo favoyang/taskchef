@@ -48,7 +48,8 @@ const STATIC_FILES = new Map([
   ["/styles.css", [path.join(STATIC_ROOT, "styles.css"), "text/css; charset=utf-8"]],
   ["/assets/taskchef-dark.svg", [path.join(ASSET_ROOT, "taskchef-dark.svg"), "image/svg+xml"]],
   ["/assets/taskchef.svg", [path.join(ASSET_ROOT, "taskchef.svg"), "image/svg+xml"]],
-  ["/assets/codex.svg", [path.join(ASSET_ROOT, "codex.svg"), "image/svg+xml"]],
+  ["/assets/codex-app-dark.png", [path.join(ASSET_ROOT, "codex-app-dark.png"), "image/png"]],
+  ["/assets/codex-app-light.png", [path.join(ASSET_ROOT, "codex-app-light.png"), "image/png"]],
 ]);
 
 export function dashboardAuthority(host, port) {
