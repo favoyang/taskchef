@@ -138,6 +138,13 @@ the final link, preserving the delegate skill's immediate-return contract.
    TaskChef MUST atomically close it as `interrupted` before appending the new
    working turn; the executor MUST NOT report semantic `failed` for recovery.
 
+Request and result summaries are the durable source for dashboard related-link
+projection; TaskChef does not scan full Codex transcripts. When known, an
+executor MUST preserve the selected repository as a canonical GitHub repository
+URL and issues or pull requests as canonical URLs. A result spanning both a
+managed child repository and its workspace/root repository MUST include both
+pull-request URLs. Executors MUST NOT guess unresolved repository identity.
+
 If native creation fails after recording, the dispatcher MUST call
 `report_state` with `failed`, null thread/turn IDs, and a bounded summary.
 A link failure MUST remain visible and retryable; the executor MUST report it
@@ -287,8 +294,8 @@ marker, or ineligible state fails.
 | `threadId` | Matching non-empty ID for a linked task; null only for creation failure. |
 | `turnId` | Current canonical Codex UUIDv7 for a linked MCP journey; null only for creation failure. Maximum 256 characters at the MCP boundary. |
 | `status` | `working`, `needs_input`, `completed`, or `failed`. |
-| `summary` | Omitted or null for `working`; required non-empty string of at most 2,000 characters otherwise. |
-| `requestSummary` | Concise current request of at most 1,000 characters for `working`; optional for backward compatibility and omitted for semantic states. |
+| `summary` | Omitted or null for `working`; required non-empty string of at most 2,000 characters otherwise. Known GitHub issues and pull requests use canonical URLs. |
+| `requestSummary` | Concise current request of at most 1,000 characters for `working`; optional for backward compatibility and omitted for semantic states. A known selected GitHub repository uses its canonical URL. |
 
 **Structured output:** `{ task: Task }`.
 

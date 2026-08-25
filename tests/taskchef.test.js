@@ -2745,6 +2745,11 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /follow-up[\s\S]+current turn ID/i);
   assert.match(content, /`report_state`[\s\S]+`status: working`/i);
   assert.match(content, /concise `requestSummary`/i);
+  assert.match(content, /durable TaskChef timeline[\s\S]+does\s+not scan the full Codex transcript/i);
+  assert.match(content, /known GitHub repository[\s\S]+https:\/\/github\.com\/<owner>\/<repository>/i);
+  assert.match(content, /both a child-repository pull request and a workspace\/root pull request/i);
+  assert.match(content, /full canonical issue or pull-request\s+URL/i);
+  assert.match(content, /Never invent an issue, pull request, or repository link/i);
   assert.match(content, /completed[\s\S]+needs_input[\s\S]+failed/i);
   assert.match(content, /live native approval prompt[\s\S]+not semantic `needs_input`/i);
   assert.match(content, /secrets, transcripts, raw command output, hidden reasoning/i);

@@ -120,6 +120,13 @@ The executor obtains the turn identity from an exact native read of its own
 linked task. `report_state` records live turn state as a paired request/result
 timeline.
 
+That timeline is also the durable GitHub-link source. A working request names a
+known selected repository with its canonical GitHub URL. A terminal result
+keeps full issue and pull-request URLs, including separate child-repository and
+workspace/root pull requests. The dashboard does not recover omitted links by
+scanning the native Codex transcript, and the executor does not guess an
+ambiguous repository.
+
 ```mermaid
 sequenceDiagram
   autonumber

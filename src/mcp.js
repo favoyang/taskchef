@@ -225,7 +225,7 @@ export function createTaskChefMcpServer({
     {
       title: "Report TaskChef state",
       description:
-        "Report this self-linked executor turn's lifecycle state. Use working before substantive work in a newly linked or follow-up turn, with summary omitted or null and a concise requestSummary. Before ending the same turn, report needs_input, completed, or failed with a concise semantic summary and requestSummary omitted. Exact retries are idempotent; stale or mismatched turns are rejected.",
+        "Report this self-linked executor turn's lifecycle state. Use working before substantive work in a newly linked or follow-up turn, with summary omitted or null and a concise requestSummary. Preserve known repository context and delivered issues or pull requests as canonical GitHub URLs, including both child-repository and workspace pull requests when applicable. Before ending the same turn, report needs_input, completed, or failed with a concise semantic summary and requestSummary omitted. Exact retries are idempotent; stale or mismatched turns are rejected.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),
