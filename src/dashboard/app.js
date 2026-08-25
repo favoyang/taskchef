@@ -17,6 +17,7 @@ const state = {
   selectedTask: null,
 };
 let dateRefreshTimer = null;
+let detailRequestGeneration = 0;
 
 const elements = {
   clearNotifications: document.querySelector("#clear-notifications"),
@@ -31,7 +32,7 @@ const elements = {
   dialogInstruction: document.querySelector("#dialog-instruction"),
   dialogMetadata: document.querySelector("#dialog-metadata"),
   dialogProject: document.querySelector("#dialog-project"),
-  dialogSummary: document.querySelector("#dialog-summary"),
+  dialogResults: document.querySelector("#dialog-results"),
   dialogTitle: document.querySelector("#dialog-title"),
   dismissDashboardMessage: document.querySelector("#dismiss-dashboard-message"),
   emptyState: document.querySelector("#empty-state"),
@@ -119,12 +120,48 @@ function detailRow(term, value) {
   return [dt, dd];
 }
 
-function openDialog(task) {
-  state.selectedTask = task;
+function resultHistory(results) {
+  if (results.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "result-history-empty";
+    empty.textContent = "No semantic result has been reported yet.";
+    return [empty];
+  }
+  return [...results].reverse().map((result, index) => {
+    const item = document.createElement("article");
+    item.className = `result-history-item${index === 0 ? " result-history-latest" : ""}`;
+    const header = document.createElement("div");
+    header.className = "result-history-header";
+    const status = document.createElement("span");
+    status.className = `status status-${result.status}`;
+    status.textContent = result.status.replaceAll("_", " ");
+    const timestamp = document.createElement("time");
+    timestamp.dateTime = result.updatedAt;
+    timestamp.textContent = formatTime(result.updatedAt);
+    header.append(status, timestamp);
+    const summary = document.createElement("p");
+    summary.className = "preserve-lines";
+    summary.textContent = result.summary;
+    const turn = document.createElement("p");
+    turn.className = "result-history-turn";
+    turn.textContent = result.turnId ? `Turn ${result.turnId}` : "No turn ID (creation failure)";
+    item.append(header, summary, turn);
+    return item;
+  });
+}
+
+function renderDialog(task) {
+  const preservedResults = state.selectedTask?.id === task.id
+    ? state.selectedTask.results
+    : null;
+  const detailedTask = {
+    ...task,
+    results: task.results ?? preservedResults ?? [],
+  };
+  state.selectedTask = detailedTask;
   elements.dialogProject.textContent = task.project.name;
   elements.dialogTitle.textContent = task.title;
-  elements.dialogSummary.textContent = task.lastResult?.summary
-    ?? "No semantic result has been reported yet.";
+  elements.dialogResults.replaceChildren(...resultHistory(detailedTask.results));
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyThreadId.disabled = !task.threadId;
   elements.dialogMetadata.replaceChildren(
@@ -142,7 +179,28 @@ function openDialog(task) {
     )),
     ...detailRow("Updated by", task.updatedBy),
   );
+}
+
+async function openDialog(task) {
+  const requestGeneration = ++detailRequestGeneration;
+  renderDialog(task);
   if (!elements.dialog.open) elements.dialog.showModal();
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`);
+    if (!response.ok) throw new Error("Task details are unavailable.");
+    const detail = await response.json();
+    if (
+      requestGeneration === detailRequestGeneration
+      && state.selectedTask?.id === task.id
+      && elements.dialog.open
+    ) {
+      renderDialog(detail.task);
+    }
+  } catch {
+    if (state.selectedTask?.id === task.id) {
+      showMessage("Task result history is temporarily unavailable.");
+    }
+  }
 }
 
 function taskCard(task) {

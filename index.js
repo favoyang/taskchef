@@ -10,6 +10,7 @@ export {
   initializeWorkspace,
   linkTask,
   listProjects,
+  migrateTaskLog,
   prepareDispatch,
   readConfig,
   listTasks,

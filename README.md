@@ -3,11 +3,11 @@
 TaskChef is a local dispatch desk for Codex. Give one dispatcher a request and
 it records each independently useful outcome, creates a normal Codex task in
 the right project, and returns immediately. The executor task is where live
-work, approvals, and follow-ups happen; TaskChef keeps the latest compact
-snapshot for navigation and reporting.
+work, approvals, and follow-ups happen; TaskChef keeps every semantic result
+while projecting the latest one for compact navigation and reporting.
 
 ```text
-request -> recorded TaskChef task -> Codex executor -> current state + last result
+request -> recorded TaskChef task -> Codex executor -> current state + result history
 ```
 
 ## Which document should I read?
@@ -49,7 +49,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 configured projects and routing metadata
-tasks.jsonl     one schema-4/5 snapshot per task (new writes use schema 5)
+tasks.jsonl     one task snapshot per line (schema 6; schema 4/5 migration supported)
 ```
 
 List or change routing targets conversationally:
@@ -119,10 +119,12 @@ when a turn starts and one semantic outcome before that same turn ends:
 - `failed`: the executor or creation attempt ended unsuccessfully.
 
 A native approval prompt is live Codex state, not `needs_input`.
-TaskChef stores the current reported execution state and separately preserves
-the last concise semantic result. A follow-up therefore appears as `working`
-immediately without erasing the previous outcome. TaskChef does not store the
-transcript or a lifecycle event log.
+TaskChef stores the current reported execution state and appends every concise
+semantic result to `results`. A follow-up therefore appears as `working`
+immediately without erasing any prior outcome. The final entry is exposed as a
+derived `lastResult` compatibility alias; it is not persisted independently and
+is planned for removal in the next major version after callers move to
+`results.at(-1)`. TaskChef does not store transcripts or non-semantic events.
 
 Delegated tasks created by earlier TaskChef versions remain compatible: their
 inline executor protocol still parses, self-links, and may use the deprecated
@@ -172,7 +174,9 @@ taskchef dashboard --port 3211
 ```
 
 The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
-linked Codex tasks. It does not mutate TaskChef data and prints its local URL.
+linked Codex tasks. List snapshots and SSE events carry only the latest-result
+projection; opening task details fetches the full newest-first result history.
+It does not mutate TaskChef data and prints its local URL.
 When a compatible foreground dashboard already owns port 3210,
 `ensure_dashboard` reuses it but does not take ownership. If an unknown,
 different-workspace, or stale-version process owns the port, TaskChef reports a
@@ -183,6 +187,8 @@ The health endpoint contains only a fixed service marker, health schema,
 TaskChef version, dashboard-server version, and canonical workspace. It exposes
 no task data, credentials, environment variables, process control, or secrets.
 
+![Task detail result history](docs/images/result-history-dashboard.jpg)
+
 ## Common recovery
 
 Check the managed workspace:
@@ -190,20 +196,27 @@ Check the managed workspace:
 ```sh
 taskchef doctor
 taskchef workspace init
+taskchef workspace migrate
 taskchef doctor
 ```
 
-`doctor` is read-only. `workspace init` creates missing current-schema files
-and refreshes managed instructions; it does not migrate unsupported
-configuration or task records.
+`doctor` is read-only. `workspace init` creates missing files and refreshes
+managed instructions. `workspace migrate` explicitly upgrades supported schema
+4/5 task lines to schema 6 under the workspace lock. It validates the complete
+source and converted log before writing, creates an exclusive `tasks.jsonl.pre-v6-*.bak`
+backup, atomically replaces the log, validates the result, and becomes an
+idempotent no-op after migration. If replacement fails, the original remains
+or the reported backup can be restored; unsupported or invalid input is rejected
+before a backup or rewrite.
 
 If a new record has no thread ID, the executor is link-pending. Reopen that
 executor so its first action can retry `link_task`. Do not guess an identity
 or edit `tasks.jsonl`. If native task creation failed, the record is retained
 as `failed` with null thread and turn IDs.
 
-If an unsupported workspace must be retained, keep it as a backup and create a
-new current workspace. TaskChef provides no conversion or merge command.
+Schemas other than 4, 5, and 6 remain unsupported. Retain such a workspace
+unchanged and create a current workspace; the migration command deliberately
+does not guess how to convert unknown formats.
 
 ## Boundaries
 
