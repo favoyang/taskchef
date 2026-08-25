@@ -9,10 +9,11 @@ Own and execute the delegated assignment in the current Codex task. Do not
 re-dispatch it merely because it concerns TaskChef or a configured project.
 Explicit requests to delegate separate work remain valid.
 
-New instructions present the complete assignment first, followed by exactly one
-newline, the explicit skill invocation, one newline, and the exact
-`<!-- taskchef_id=<full UUID> -->` marker on the final line. There are no blank
-lines around the invocation or marker. Treat that UUID as the TaskChef task ID.
+New instructions present the complete assignment first, followed by exactly two
+newline characters (one blank line), the explicit skill invocation, one
+newline, and the exact `<!-- taskchef_id=<full UUID> -->` marker on the final
+line. There is no blank line between the invocation and marker. Treat that UUID
+as the TaskChef task ID.
 The assignment is everything before the invocation; the invocation and marker
 are lifecycle scaffolding, not part of the deliverable. Require exactly one
 marker and do not infer an ID from similar prose.
@@ -79,7 +80,8 @@ TaskChef exposes only `report_result`, follow its inline protocol; after an
 upgrade, the deprecated `report_result` alias remains available for exact
 legacy retries. Also accept historical trailing instructions that place the
 marker before the invocation, with or without the former blank line before the
-marker; an exact HTML marker on the first line with or without the former blank
+marker; the former compact assignment-to-invocation boundary with the marker
+last; an exact HTML marker on the first line with or without the former blank
 line; or the older exact
 first-line `# taskchef_id=<full UUID>` heading. These compatibility forms do not
 change the identity or lifecycle rules above. For either first-line form, the
