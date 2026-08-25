@@ -21,7 +21,7 @@ const SKILL_NAMES = [
   "taskchef-bootstrap",
   "taskchef-delegate",
   "taskchef-executor",
-  "taskchef-report",
+  "taskchef-copilot",
 ];
 const REQUIRED_PLUGIN_FILES = [
   ".codex-plugin/plugin.json",

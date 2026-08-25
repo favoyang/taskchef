@@ -28,7 +28,7 @@ is dated research, not contract.
 | **Last semantic result** | The final result-history entry, exposed through the derived `lastResult` compatibility alias. |
 | **Current turn ID** | The canonical Codex UUIDv7 returned by an exact native read of the linked executor for the turn being reported. |
 | **Dashboard** | The loopback, read-only UI derived from validated workspace snapshots and bounded native actions. |
-| **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-report`. |
+| **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-copilot`. |
 
 ## Components and ownership
 
@@ -39,8 +39,9 @@ is dated research, not contract.
 - `taskchef-executor` MUST own executor assignment ownership, self-linking,
   exact thread/turn identity, per-turn state reporting, failure behavior,
   privacy, and idempotency. It MUST NOT dispatch the owned assignment again.
-- `taskchef-report` MUST own on-demand reporting. It MUST NOT poll or persist
-  inferred state.
+- `taskchef-copilot` MUST own conversational outcome explanation, attention,
+  and next-action recommendations. It MUST use cached normalized briefs by
+  default and MUST NOT poll or persist inferred state.
 - The MCP server MUST expose `ensure_dashboard`, four primary lifecycle tools,
   and the deprecated `report_result` compatibility alias specified below.
 - The CLI MAY administer and inspect the workspace, but MUST NOT provide a
@@ -320,15 +321,40 @@ low-level opaque direct records. It does not accept `working`. New executor
 instructions MUST use `report_state`. Successful mutation upgrades schema 4/5/6/7
 to schema 8; unsupported schemas remain rejected.
 
-## Reporting and dashboard
+## Copilot and dashboard
 
-A semantic result is cached evidence, not permanent live truth. Reports SHOULD
-use one bounded native metadata snapshot. Active or approval-waiting native
-state overrides cache. An inactive task does not prove completion. Focused
-reports MAY read a selected task once when metadata is newer or evidence is
-uncertain. Reports MUST NOT poll or classify assistant prose.
+A semantic result is cached evidence, not permanent live truth. The dashboard
+MUST remain the primary monitoring and browsing UI. Copilot MUST start from the
+schema-1 normalized cached brief and explain what finished, what needs
+attention, why, and the recommended next action. It MUST NOT need to interpret
+historical task schema versions. A working task's current summary MUST remain
+null; any prior semantic result MUST be exposed separately as a clearly
+historical `lastOutcome`. A link-pending task with no exact thread identity MUST
+recommend passive waiting or inspection, never retry or continuation.
 
-Task lists, summaries, and broad reports MUST use the final result by default.
+Copilot MAY take one bounded native metadata snapshot only when the user
+explicitly requests fresh/live verification or a focused task presents a
+meaningful contradiction. Active or approval-waiting native state overrides
+cache. An inactive task does not prove completion. Copilot MAY read the exact
+selected task once for an explicit focused live-verification request or to
+resolve a focused contradiction. It MUST NOT poll, wait, perform exhaustive
+live audits, or classify assistant prose.
+
+Copilot MAY identify the exact existing executor, explain or draft a
+same-assignment follow-up, and continue that executor only with explicit user
+authorization. It MUST NOT automatically retry failures, interrupt working
+tasks, or redelegate an existing executor. Independent new work MUST route
+through delegation. Managed dispatcher routing MUST give same-assignment
+answer, follow-up, resume, and continue requests precedence over the blanket
+new-work delegation rule. A direct imperative naming the exact existing task
+MAY constitute send authorization, but copilot MUST re-read that exact task
+immediately before sending.
+
+The published plugin MUST NOT package `taskchef-report` as a discoverable alias.
+Its historical explicit name is a documented rename hint handled by copilot,
+not a second workflow.
+
+Task lists, summaries, and broad briefs MUST use the final result by default.
 The dashboard MUST bind only to loopback, validate the current workspace
 snapshot, and avoid sessions or shared client state. `GET /api/health` MUST
 return only the bounded service identity, health schema, exact TaskChef and

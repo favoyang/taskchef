@@ -13,11 +13,11 @@ research.
 | `skills/taskchef-delegate/SKILL.md` | Split, route, record-before-create, create, return. |
 | `skills/taskchef-executor/SKILL.md` | Own, self-link, execute, and report every executor turn. |
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize current workspace and configure projects. |
-| `skills/taskchef-report/SKILL.md` | Select cached tasks and perform bounded live checks. |
+| `skills/taskchef-copilot/SKILL.md` | Explain normalized cached briefs and coordinate safe next actions. |
 | `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, shutdown ownership, and MCP annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
-| `src/cli.js` | Administration, inspection, diagnostics, and dashboard startup. |
+| `src/cli.js` | Administration, normalized cached briefs, inspection, diagnostics, and dashboard startup. |
 | `src/dashboard.js` | Versioned health identity, validated compact snapshots, SSE fan-out, on-demand details, and bounded open actions. |
 | `src/dashboard-manager.js` | Concurrent singleton ensure, exact listener reuse, conflicts, and owned shutdown. |
 
@@ -29,7 +29,7 @@ per-user default.
 
 The generated managed `AGENTS.md` block makes dashboard maintenance a
 best-effort prelude to every dispatcher turn and keeps response ordering
-centralized instead of duplicating it across delegate/report skills.
+centralized instead of duplicating it across delegate/copilot skills.
 
 ```mermaid
 sequenceDiagram

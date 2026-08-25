@@ -1,0 +1,4 @@
+interface:
+  display_name: "TaskChef Copilot"
+  short_description: "Explain outcomes and recommend next actions"
+  default_prompt: "Use $taskchef-copilot to give a concise cached brief of TaskChef work and recommend the safest next action."

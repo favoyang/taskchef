@@ -32,6 +32,7 @@ import {
   createTaskChefMcpServer,
   prepareDispatch,
   addProject,
+  buildCopilotBrief,
   buildTaskSummary,
   canonicalGithubRepository,
   canonicalDirectory,
@@ -1601,6 +1602,157 @@ test("report_state atomically recovers an interrupted working turn without inven
   assert.equal(completed.lastResult.summary, "Deployment resumed and completed.");
 });
 
+test("copilot cached briefs normalize attention, next actions, and overview age filtering", async () => {
+  const { workspace, projects } = await fixture(1);
+  const needsInputInstruction = prepareDelegation("Choose a rollout region.", {
+    taskId: TASK_ID,
+  }).instruction;
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    title: "Choose rollout region",
+    instruction: needsInputInstruction,
+  }, { now: "2026-08-24T08:00:00.000Z" });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-24T08:01:00.000Z",
+  });
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Prepare the rollout after a region is selected.",
+  }, { now: "2026-08-24T08:02:00.000Z" });
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Choose either Singapore or Tokyo.",
+  }, { now: "2026-08-24T08:03:00.000Z" });
+
+  const completedInstruction = prepareDelegation("Finish an old migration.", {
+    taskId: SECOND_TASK_ID,
+  }).instruction;
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], SECOND_TASK_ID, null),
+    title: "Old migration",
+    instruction: completedInstruction,
+  }, { now: "2026-08-01T08:00:00.000Z" });
+  await linkTask(workspace, SECOND_TASK_ID, OTHER_THREAD_ID, {
+    now: "2026-08-01T08:01:00.000Z",
+  });
+  await reportTaskState(workspace, {
+    taskId: SECOND_TASK_ID,
+    threadId: OTHER_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Finish the old migration.",
+  }, { now: "2026-08-01T08:02:00.000Z" });
+  await reportTaskState(workspace, {
+    taskId: SECOND_TASK_ID,
+    threadId: OTHER_THREAD_ID,
+    turnId: SECOND_RESULT_TURN_ID,
+    status: "completed",
+    summary: "Migration completed.",
+  }, { now: "2026-08-01T08:03:00.000Z" });
+
+  const failureId = "f6bd97ee-21c7-4c6b-a617-9da5c8f08df0";
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], failureId, null),
+    title: "Executor creation failure",
+    instruction: prepareDelegation("Start the executor.", { taskId: failureId }).instruction,
+  }, { now: "2026-08-25T08:00:00.000Z" });
+  await reportTaskState(workspace, {
+    taskId: failureId,
+    threadId: null,
+    turnId: null,
+    status: "failed",
+    summary: "Executor creation failed before the executor started.",
+  }, { now: "2026-08-25T08:01:00.000Z" });
+
+  const overview = await buildCopilotBrief(workspace, {
+    now: () => "2026-08-25T10:00:00.000Z",
+  });
+  assert.equal(overview.schemaVersion, 1);
+  assert.equal(overview.mode, "cached");
+  assert.equal(overview.scope, "overview");
+  assert.equal(overview.taskCount, 2);
+  assert.equal(overview.omittedTerminalCount, 1);
+  const needsInput = overview.tasks.find((task) => task.id === TASK_ID);
+  assert.equal(needsInput.attention.kind, "needs_input");
+  assert.equal(needsInput.nextAction.kind, "continue_existing_task");
+  assert.equal(needsInput.nextAction.threadId, SELF_LINK_THREAD_ID);
+  assert.equal(needsInput.nextAction.requiresExplicitAuthorization, true);
+  assert.equal(needsInput.liveCheck.recommended, false);
+  assert.equal("schemaVersion" in needsInput, false);
+  const failed = overview.tasks.find((task) => task.id === failureId);
+  assert.equal(failed.attention.kind, "creation_failed");
+  assert.equal(failed.nextAction.kind, "inspect_creation_failure");
+  assert.equal(failed.nextAction.requiresExplicitAuthorization, true);
+
+  const focused = await buildCopilotBrief(workspace, {
+    taskId: SECOND_TASK_ID,
+    now: () => "2026-08-25T10:00:00.000Z",
+  });
+  assert.equal(focused.taskCount, 1);
+  assert.equal(focused.omittedTerminalCount, 0);
+  assert.equal(focused.tasks[0].state, "completed");
+  assert.equal(focused.tasks[0].nextAction.kind, "none");
+
+  await reportTaskState(workspace, {
+    taskId: SECOND_TASK_ID,
+    threadId: OTHER_THREAD_ID,
+    turnId: THIRD_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Run a distinct post-migration check.",
+  }, { now: "2026-08-25T09:00:00.000Z" });
+  const workingFollowUp = await buildCopilotBrief(workspace, {
+    taskId: SECOND_TASK_ID,
+    now: () => "2026-08-25T10:00:00.000Z",
+  });
+  assert.equal(workingFollowUp.tasks[0].state, "working");
+  assert.equal(workingFollowUp.tasks[0].summary, null);
+  assert.equal(
+    workingFollowUp.tasks[0].requestSummary,
+    "Run a distinct post-migration check.",
+  );
+  assert.deepEqual(workingFollowUp.tasks[0].lastOutcome, {
+    status: "completed",
+    summary: "Migration completed.",
+    turnId: SECOND_RESULT_TURN_ID,
+    updatedAt: "2026-08-01T08:03:00.000Z",
+  });
+  assert.equal(workingFollowUp.tasks[0].nextAction.kind, "wait");
+
+  const cli = await runCli([
+    "task", "brief", TASK_ID.slice(0, 8), "--json", "--workspace", workspace,
+  ]);
+  const parsed = JSON.parse(cli.stdout);
+  assert.equal(parsed.scope, "task");
+  assert.equal(parsed.tasks[0].attention.kind, "needs_input");
+});
+
+test("copilot link-pending briefs remain passive without an exact executor identity", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Start existing executor work.", {
+      taskId: TASK_ID,
+    }).instruction,
+  }, { now: FIXED_TIME });
+  const brief = await buildCopilotBrief(workspace, {
+    taskId: TASK_ID,
+    now: () => "2026-08-25T10:00:00.000Z",
+  });
+  const [task] = brief.tasks;
+  assert.equal(task.threadId, null);
+  assert.equal(task.attention.kind, "link_pending");
+  assert.equal(task.nextAction.kind, "wait");
+  assert.equal(task.nextAction.threadId, null);
+  assert.equal(task.nextAction.requiresExplicitAuthorization, false);
+  assert.match(task.nextAction.instruction, /recover its exact identity before proposing/i);
+});
+
 test("concurrent recovery starts leave one ordered timeline with only the latest turn unfinished", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Serialize concurrent recovery starts.", { taskId: TASK_ID });
@@ -2263,12 +2415,16 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     releaseGitPlugin[1].assets,
     [".codex-plugin/plugin.json", "package-lock.json", "package.json"],
   );
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-executor", "taskchef-report"]) {
+  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-executor", "taskchef-copilot"]) {
     assert.equal(
       (await lstat(path.resolve("skills", skillName, "SKILL.md"))).isFile(),
       true,
     );
   }
+  await assert.rejects(
+    lstat(path.resolve("skills/taskchef-report/SKILL.md")),
+    { code: "ENOENT" },
+  );
   const executorUi = await readFile(
     path.resolve("skills/taskchef-executor/agents/openai.yaml"),
     "utf8",
@@ -2389,7 +2545,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: "skills/taskchef-bootstrap/SKILL.md" },
       { path: "skills/taskchef-delegate/SKILL.md" },
       { path: "skills/taskchef-executor/SKILL.md" },
-      { path: "skills/taskchef-report/SKILL.md" },
+      { path: "skills/taskchef-copilot/SKILL.md" },
     ],
   }];
   assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
@@ -2503,7 +2659,14 @@ test("init preserves existing configuration and merges managed instructions", as
   assert.match(content, /Every final response[\s\S]+must end with this exact[\s\S]+\[TaskChef Dashboard\]\(http:\/\/127\.0\.0\.1:3210\/\)/i);
   assert.match(content, /`::created-thread\{\.\.\.\}`[\s\S]+immediately before the dashboard link/i);
   assert.doesNotMatch(content, /For every ordinary user prompt/);
-  assert.ok(content.indexOf("$taskchef-report") > content.indexOf("Answer directly only"));
+  assert.match(content, /Use `\$taskchef-copilot`/);
+  assert.doesNotMatch(content, /Use `\$taskchef-report`/);
+  assert.ok(
+    content.indexOf("asks to answer, follow up, resume, or continue")
+      < content.indexOf("For every other actionable request"),
+  );
+  assert.match(content, /direct imperative that names the exact\s+existing task is explicit send authorization/i);
+  assert.match(content, /independent new outcome[\s\S]+`\$taskchef-delegate`/i);
 
   const project = await gitProject(root, "project");
   await addProject(workspace, { name: "project", path: project });
@@ -2605,40 +2768,27 @@ test("bootstrap skill initializes and verifies the canonical Codex project witho
   assert.doesNotMatch(content, /\/Applications\/[^\s]+\.app\/Contents\/Resources\/codex/);
 });
 
-test("report skill keeps overviews cheap and reads newer focused tasks once", async () => {
-  const content = await readFile(path.resolve("skills/taskchef-report/SKILL.md"), "utf8");
-  assert.match(content, /^name: taskchef-report$/m);
-  assert.match(content, /taskchef\.js workspace path --json/);
-  assert.match(content, /taskchef\.js task show <task-id> --json/);
-  assert.match(content, /taskchef\.js task list --project <name-or-path> --json/);
-  assert.match(content, /Use the full list only when the user asks for an overview/);
-  assert.doesNotMatch(content, /`# taskchef_id=/);
-  assert.match(content, /no more than\s+eight targets\s+per call/);
-  assert.match(content, /Never edit `tasks\.jsonl` directly/);
-  assert.match(content, /Do not poll or wait/);
-  assert.match(content, /last seven\s+days/);
-  assert.match(content, /omit older terminal entries by default/);
-  assert.match(content, /one recent `list_threads` metadata snapshot/);
-  assert.match(content, /whole report/);
-  assert.match(content, /active\s+or awaiting native approval immediately overrides a cached result without a\s+detailed read/i);
-  assert.match(content, /trust the latest semantic result by\s+default in a broad overview/i);
-  assert.match(content, /focused task, title, or project report/i);
-  assert.match(content, /later than `lastResult\.updatedAt`, by any amount/i);
-  assert.match(content, /If\s+focused metadata is not newer, trust the cache/i);
-  assert.doesNotMatch(content, /30-second|30 seconds newer/);
-  assert.match(content, /newer turn without a callback\s+makes the cache stale/i);
-  assert.match(content, /interrupted or cancelled callback turn\s+cannot prove completion/i);
-  assert.match(content, /treat `turns` as the ordered request\/result timeline/i);
-  assert.match(content, /`latestTurn` is the compact current pair/i);
-  assert.match(content, /`results` and `lastResult` remain derived compatibility projections/i);
-  assert.match(content, /schema 8[\s\S]+TaskChef-generated\s+`interrupted` outcome/i);
-  assert.match(content, /interrupted historical turn plainly as interrupted\/abandoned, never failed/i);
-  assert.match(content, /null thread and turn IDs as\s+a fresh executor-creation failure/i);
-  assert.match(content, /A null identity is\s+executor link-pending/);
-  assert.doesNotMatch(content, /schema 1-3|task resolve|legacy recovery/);
-  assert.match(content, /No live read is possible or needed/);
-  assert.match(content, /newer turn exists without a callback/);
-  assert.doesNotMatch(content, /task update|reconcile-candidates/);
+test("copilot skill is cached-first, live-explicit, and guards continuation boundaries", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-copilot/SKILL.md"), "utf8");
+  assert.match(content, /^name: taskchef-copilot$/m);
+  assert.match(content, /task brief <task-id> --json/);
+  assert.match(content, /task brief --project <name-or-path> --json/);
+  assert.match(content, /task brief --json/);
+  assert.match(content, /stable model[\s\S]+Do not interpret raw\s+task-log schema versions/i);
+  assert.match(content, /historical `lastOutcome`[\s\S]+Never present `lastOutcome` as the\s+result of a newer working request/i);
+  assert.match(content, /dashboard\s+is the primary place to browse and monitor/i);
+  assert.match(content, /explicitly asks for a fresh,\s+current, or live verification/i);
+  assert.match(content, /focused task has a meaningful\s+contradiction/i);
+  assert.match(content, /one bounded metadata snapshot/i);
+  assert.match(content, /read that exact existing task once[\s\S]+explicitly requests live verification/i);
+  assert.match(content, /Never poll, wait, repeatedly refresh/i);
+  assert.match(content, /Continue that task only after the user explicitly authorizes/i);
+  assert.match(content, /direct imperative naming the exact existing task is explicit\s+send authorization/i);
+  assert.match(content, /Never automatically retry a failure, interrupt a working task, or redelegate/i);
+  assert.match(content, /missing executor link[\s\S]+passive waiting or identity inspection/i);
+  assert.match(content, /same-assignment follow-up in the existing executor task/i);
+  assert.match(content, /Independent new\s+work[\s\S]+`\$taskchef-delegate`/i);
+  assert.match(content, /`taskchef-report` was renamed rather than retained as a packaged alias/i);
 });
 
 test("plugin package omits lifecycle hooks", async () => {
