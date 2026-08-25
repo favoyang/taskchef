@@ -1356,6 +1356,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /id="dismiss-dashboard-message"[^>]+type="button"[^>]+aria-label="Dismiss dashboard message"/);
   assert.match(html, /<title>TaskChef Dashboard<\/title>/);
   assert.match(html, /<h1>TaskChef Dashboard<\/h1>/);
+  assert.match(html, /id="taskchef-version" class="dashboard-version"/);
   assert.match(html, /<source srcset="\/assets\/taskchef-dark\.svg" media="\(prefers-color-scheme: dark\)">/);
   assert.match(html, /<img src="\/assets\/taskchef\.svg" alt="" width="48" height="48">/);
   assert.match(html, /<picture class="dashboard-icon" aria-hidden="true">/);
@@ -1383,6 +1384,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /control\.setAttribute\("aria-label"/);
   assert.match(script, /control\.title = action/);
   assert.match(script, /elements\.dashboardMessageText\.textContent = message/);
+  assert.match(script, /fetch\("\/api\/health"\)/);
+  assert.match(script, /elements\.taskchefVersion\.textContent = `v\$\{identity\.taskchefVersion\}`/);
+  assert.match(script, /`TaskChef version \$\{identity\.taskchefVersion\}`/);
   assert.match(script, /elements\.dismissDashboardMessage\.addEventListener\("click", \(\) => \{/);
   assert.match(script, /elements\.dashboardMessage\.hidden = true/);
   assert.match(script, /notificationOpenLabel\(notification, Boolean\(task\)\)/);
@@ -1399,6 +1403,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(stateScript, /MAX_NOTIFICATIONS = 50/);
   assert.match(timeScript, /RELATIVE_TIME_REFRESH_MS = 30_000/);
   assert.match(styles, /\.task-open \{ align-self: flex-start; \}/);
+  assert.match(styles, /\.task-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(styles, /\.task-title, \.task-summary \{ overflow-wrap: anywhere; \}/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
 });
 
@@ -1431,9 +1437,9 @@ test("Open task controls use the shared authoritative Codex app assets", async (
   const detailControl = html.match(/<button id="open-codex"[\s\S]*?<\/button>/)?.[0];
   assert.ok(detailControl);
   assert.match(detailControl, /<source srcset="\/assets\/codex-app-dark\.png"/);
-  assert.match(detailControl, /<img src="\/assets\/codex-app-light\.png" alt="" width="16" height="16">/);
+  assert.match(detailControl, /<img src="\/assets\/codex-app-light\.png" alt="" width="18" height="18">/);
   assert.match(detailControl, /<picture class="codex-icon" aria-hidden="true">/);
-  assert.match(styles, /\.codex-icon \{[^}]*width: 16px; height: 16px;/);
+  assert.match(styles, /\.codex-icon \{[^}]*width: 18px; height: 18px;/);
   assert.match(styles, /\.codex-icon img \{[^}]*object-fit: contain;/);
 
   await assert.rejects(readFile(path.resolve("assets/codex.svg")), { code: "ENOENT" });
