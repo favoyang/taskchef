@@ -105,6 +105,9 @@ time, .timestamp-missing { font-size: 0.78rem; }
 .toast { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 7px; background: var(--surface-muted); }
 .toast-content { display: grid; flex: 1; gap: 2px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
 .toast-content span { color: var(--muted); font-size: 0.85rem; }
+.toast-content .toast-summary { color: var(--text); }
+.toast-content .toast-metadata { font-size: 0.75rem; }
+.toast-missing { border: 1px dashed var(--border); }
 
 .text-button, .icon-button { border: 0; background: none; cursor: pointer; }
 .text-button { color: var(--accent); font-size: 0.82rem; font-weight: 700; }

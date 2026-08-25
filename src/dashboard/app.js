@@ -1,19 +1,24 @@
 import {
+  clearNotifications,
+  dismissNotification,
   findCurrentTask,
   KNOWN_TASK_STATUSES,
   nextDateFilterRefreshDelay,
+  notificationDismissLabel,
+  notificationOpenLabel,
   notificationTitle,
   reconcileNotifications,
   taskStatusLabel,
   taskWithinDateFilter,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
-import { RelativeTimeController, parsedTimestamp } from "./time.js";
+import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
 
 const state = {
   tasks: [],
   signatures: new Map(),
   notifications: [],
+  seenNotificationIds: new Set(),
   initialized: false,
   selectedTask: null,
 };
@@ -39,6 +44,7 @@ const elements = {
   dismissDashboardMessage: document.querySelector("#dismiss-dashboard-message"),
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
+  notificationAnnouncer: document.querySelector("#notification-announcer"),
   openProject: document.querySelector("#open-codex"),
   projectFilter: document.querySelector("#project-filter"),
   statusFilter: document.querySelector("#status-filter"),
@@ -46,6 +52,7 @@ const elements = {
   taskList: document.querySelector("#task-list"),
   toastList: document.querySelector("#toast-list"),
 };
+let notificationDescriptionSerial = 0;
 
 function timestampControl(value, { accessibleName, key, prefix = "" }) {
   if (!parsedTimestamp(value)) {
@@ -108,17 +115,37 @@ function replaceOptions(select, values, allLabel) {
 
 function notificationToast(notification) {
   const task = findCurrentTask(state.tasks, notification.taskId);
-  if (!task) return null;
   const toast = document.createElement("div");
-  toast.className = "toast";
+  toast.className = `toast${task ? "" : " toast-missing"}`;
   const text = document.createElement("button");
   text.type = "button";
   text.className = "toast-content";
+  text.setAttribute("aria-label", notificationOpenLabel(notification, Boolean(task)));
+  const describedBy = [];
   const title = document.createElement("strong");
-  title.textContent = notificationTitle(task, notification.kind);
+  title.textContent = notificationTitle(notification);
   const description = document.createElement("span");
-  description.textContent = `${task.title} · ${taskStatusLabel(task)}`;
+  description.textContent = notification.title;
   text.append(title, description);
+  if (notification.summary) {
+    const summary = document.createElement("span");
+    summary.className = "toast-summary preserve-lines";
+    summary.id = `notification-description-${notificationDescriptionSerial += 1}`;
+    summary.textContent = notification.summary;
+    text.append(summary);
+    describedBy.push(summary.id);
+  }
+  const metadata = document.createElement("span");
+  metadata.className = "toast-metadata";
+  metadata.id = `notification-description-${notificationDescriptionSerial += 1}`;
+  const timestamp = document.createElement("time");
+  timestamp.dateTime = notification.timestamp ?? "";
+  timestamp.textContent = formatRelativeTime(notification.timestamp);
+  metadata.append(timestamp);
+  if (!task) metadata.append(" · Task no longer available");
+  text.append(metadata);
+  describedBy.push(metadata.id);
+  text.setAttribute("aria-describedby", describedBy.join(" "));
   text.addEventListener("click", () => {
     const current = findCurrentTask(state.tasks, notification.taskId);
     if (current) openDialog(current);
@@ -127,21 +154,37 @@ function notificationToast(notification) {
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "icon-button";
-  dismiss.setAttribute("aria-label", `Dismiss notification for ${task.title}`);
+  dismiss.setAttribute("aria-label", notificationDismissLabel(notification));
+  dismiss.setAttribute("aria-describedby", describedBy.join(" "));
   dismiss.textContent = "×";
   dismiss.addEventListener("click", () => {
-    state.notifications = state.notifications.filter(({ id }) => id !== notification.id);
+    state.notifications = dismissNotification(state.notifications, notification.id);
     renderNotifications();
   });
   toast.append(text, dismiss);
   return toast;
 }
 
-function renderNotifications() {
+function notificationAnnouncement(notification) {
+  return [
+    notificationTitle(notification),
+    notification.title,
+    notification.summary,
+    notification.turnId ? `Turn ${notification.turnId}` : null,
+    formatRelativeTime(notification.timestamp),
+  ].filter(Boolean).join(". ");
+}
+
+function renderNotifications(additions = []) {
   elements.toastList.replaceChildren(
-    ...state.notifications.map(notificationToast).filter(Boolean),
+    ...state.notifications.map(notificationToast),
   );
   elements.notifications.hidden = state.notifications.length === 0;
+  if (additions.length > 0) {
+    elements.notificationAnnouncer.textContent = additions
+      .map(notificationAnnouncement)
+      .join(". ");
+  }
 }
 
 function detailRow(term, value) {
@@ -311,11 +354,13 @@ function applySnapshot(snapshot) {
   const reconciled = reconcileNotifications({
     initialized: state.initialized,
     notifications: state.notifications,
+    seenIds: state.seenNotificationIds,
     signatures: state.signatures,
-  }, snapshot.tasks, snapshot.revision);
+  }, snapshot.tasks);
   state.tasks = snapshot.tasks;
   state.signatures = reconciled.signatures;
   state.notifications = reconciled.notifications;
+  state.seenNotificationIds = reconciled.seenIds;
   state.initialized = true;
   if (snapshot.healthy === false) {
     showMessage("The task log is temporarily unavailable. Showing the last valid snapshot.");
@@ -336,7 +381,7 @@ function applySnapshot(snapshot) {
     const updated = state.tasks.find((task) => task.id === state.selectedTask.id);
     if (updated && elements.dialog.open) openDialog(updated);
   }
-  renderNotifications();
+  renderNotifications(reconciled.additions);
   render();
 }
 
@@ -363,7 +408,7 @@ elements.dismissDashboardMessage.addEventListener("click", () => {
   elements.dashboardMessage.hidden = true;
 });
 elements.clearNotifications.addEventListener("click", () => {
-  state.notifications = [];
+  state.notifications = clearNotifications();
   renderNotifications();
 });
 elements.closeDialog.addEventListener("click", () => elements.dialog.close());

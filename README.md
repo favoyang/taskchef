@@ -180,6 +180,12 @@ Task and result times are relative through 29 days (with minute detail for the
 first six hours), then use a locale-aware calendar date. Each time is a keyboard-
 accessible toggle for its full locale-aware date and time, and one shared
 30-second timer keeps relative labels current without reloading the page.
+The Updates panel captures immutable event-time lifecycle notices. It identifies
+them by task, turn when available, and lifecycle event rather than dashboard
+revision, so reconnects and non-semantic rewrites do not replay a notice and a
+later task state cannot rewrite an older notice. A notice remains readable if
+its task disappears; selecting it then explains that current details are no
+longer available.
 It does not mutate TaskChef data and prints its local URL.
 When a compatible foreground dashboard already owns port 3210,
 `ensure_dashboard` reuses it but does not take ownership. If an unknown,
@@ -190,6 +196,8 @@ similarly asks you to stop the listener or choose another `--port`.
 The health endpoint contains only a fixed service marker, health schema,
 TaskChef version, dashboard-server version, and canonical workspace. It exposes
 no task data, credentials, environment variables, process control, or secrets.
+
+![Immutable event-time dashboard notifications](docs/images/notification-event-snapshots.jpg)
 
 ![Task detail result history](docs/images/result-history-dashboard.jpg)
 
