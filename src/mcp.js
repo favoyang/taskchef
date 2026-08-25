@@ -19,7 +19,7 @@ const projectSchema = z.object({
 });
 
 const taskSchema = z.object({
-  schemaVersion: z.union([z.literal(4), z.literal(5)]),
+  schemaVersion: z.union([z.literal(4), z.literal(5), z.literal(6)]),
   id: z.string(),
   project: projectSchema,
   title: z.string(),
@@ -31,6 +31,12 @@ const taskSchema = z.object({
   turnId: z.string().nullable(),
   updatedAt: z.string(),
   updatedBy: z.enum(["dispatcher", "mcp"]),
+  results: z.array(z.object({
+    status: z.enum(["needs_input", "completed", "failed"]),
+    summary: z.string(),
+    turnId: z.string().nullable(),
+    updatedAt: z.string(),
+  })),
   lastResult: z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
     summary: z.string(),

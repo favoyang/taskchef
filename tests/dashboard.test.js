@@ -443,6 +443,8 @@ test("dashboard snapshot separates a working turn from its preserved semantic re
   assert.equal(task.lastResult.status, "needs_input");
   assert.equal(task.lastResult.turnId, FIRST_TURN_ID);
   assert.equal(task.lastResult.summary, "Choose a region.");
+  assert.equal("results" in task, false, "snapshot/SSE list projection must omit full history");
+  assert.equal(monitor.tasks[0].results.length, 1, "monitor retains bounded detail history");
   monitor.close();
 });
 
@@ -462,6 +464,13 @@ test("dashboard server serves independent clients without sessions and protects 
     "<img src=x onerror=alert(1)>",
     FIRST_THREAD_ID,
   ));
+  await reportTaskResult(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "completed",
+    summary: "Dashboard fixture completed.",
+  });
   await rename(staleProject, `${staleProject}-moved`);
   let openedProject = null;
   let openedThread = null;
@@ -498,6 +507,13 @@ test("dashboard server serves independent clients without sessions and protects 
     const snapshot = await snapshotResponse.json();
     assert.equal(snapshot.tasks[0].title, "<img src=x onerror=alert(1)>");
     assert.equal(snapshot.tasks[0].id, FIRST_ID);
+    assert.equal("results" in snapshot.tasks[0], false);
+    const detailResponse = await fetch(`${server.origin}/api/tasks/${FIRST_ID}`);
+    assert.equal(detailResponse.status, 200);
+    const detail = await detailResponse.json();
+    assert.equal(detail.task.results.length, 1);
+    assert.equal(detail.task.results[0].summary, "Dashboard fixture completed.");
+    assert.deepEqual(detail.task.lastResult, detail.task.results[0]);
 
     const rejected = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/open-codex`, {
       method: "POST",
@@ -684,8 +700,15 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /<source srcset="\/assets\/taskchef-dark\.svg" media="\(prefers-color-scheme: dark\)">/);
   assert.match(html, /<img src="\/assets\/taskchef\.svg" alt="" width="48" height="48">/);
   assert.match(html, /<picture class="dashboard-icon" aria-hidden="true">/);
+  assert.match(html, /<h3>Result history<\/h3>/);
+  assert.match(html, /id="dialog-results"/);
   assert.doesNotMatch(html, />Task dashboard</);
   assert.match(script, /textContent = task\.instruction/);
+  assert.match(script, /\[\.\.\.results\]\.reverse\(\)/);
+  assert.match(script, /result-history-latest/);
+  assert.match(script, /fetch\(`\/api\/tasks\/\$\{encodeURIComponent\(task\.id\)\}`\)/);
+  assert.match(script, /requestGeneration === detailRequestGeneration/);
+  assert.match(script, /task\.results \?\? preservedResults \?\? \[\]/);
   assert.match(script, /openTask\.type = "button"/);
   assert.match(script, /openTask\.textContent = "Open task"/);
   assert.match(script, /openTask\.setAttribute\("aria-label", `Open \$\{task\.title\} in Codex`\)/);

@@ -14,6 +14,7 @@ import {
   initializeWorkspace,
   listProjects,
   listTasks,
+  migrateTaskLog,
   prepareDispatch,
   recordTask,
   removeProject,
@@ -182,9 +183,26 @@ function taskDetails(task) {
     `Updated by: ${singleLineDetail(task.updatedBy ?? "-")}`,
     `Task ID: ${singleLineDetail(task.id)}`,
     `Thread ID: ${singleLineDetail(task.threadId ?? "-")}`,
+    `Result count: ${task.results.length}`,
+    "Result history (newest first):",
+    ...[...task.results].reverse().map((result) => (
+      `- ${singleLineDetail(result.updatedAt)} | ${singleLineDetail(result.status)} | turn ${singleLineDetail(result.turnId ?? "-")} | ${singleLineDetail(result.summary)}`
+    )),
     "Instruction:",
     task.instruction,
   ].join("\n");
+}
+
+async function migrate(args) {
+  validateCommandArgs(args, 2, { values: ["--workspace"], switches: ["--json"] });
+  const result = await migrateTaskLog(workspaceRoot(args));
+  print(result, args, (value) => [
+    `Task log: ${value.action}`,
+    `Tasks: ${value.taskCount}`,
+    `Migrated: ${value.migratedCount}`,
+    `Backup: ${value.backupPath ?? "not needed"}`,
+  ].join("\n"));
+  return 0;
 }
 
 async function readTaskForShow(workspace, taskId) {
@@ -444,6 +462,7 @@ Usage:
   taskchef doctor [--json] [--workspace <path>]
   taskchef workspace path [--json] [--workspace <path>]
   taskchef workspace init [--register-codex] [--codex-cli <path>] [--json] [--workspace <path>]
+  taskchef workspace migrate [--json] [--workspace <path>]
   taskchef project add <path> [--name <name>] [--description <text>] [--github-repo <url> ... | --no-github] [--json] [--workspace <path>]
   taskchef project import [<file> | -] [--replace] [--json] [--workspace <path>]
   taskchef project list [--json] [--workspace <path>]
@@ -475,6 +494,7 @@ export async function runCli(args) {
   if (args[0] === "doctor") return doctor(args);
   if (args[0] === "workspace" && args[1] === "path") return workspacePath(args);
   if (args[0] === "workspace" && args[1] === "init") return initialize(args);
+  if (args[0] === "workspace" && args[1] === "migrate") return migrate(args);
   if (args[0] === "project" && args[1] === "add") return projectAdd(args);
   if (args[0] === "project" && args[1] === "import") return projectImport(args);
   if (args[0] === "project" && args[1] === "list") return projectList(args);

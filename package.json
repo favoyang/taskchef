@@ -26,6 +26,7 @@
     "docs/spec.md",
     "docs/workflows.md",
     "docs/firstmate-taskchef-comparison.md",
+    "docs/images/result-history-dashboard.jpg",
     "index.js",
     "mcp",
     "scripts/benchmark-dispatch-prepare.js",

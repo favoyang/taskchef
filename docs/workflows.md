@@ -18,7 +18,7 @@ research.
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
 | `src/cli.js` | Administration, inspection, diagnostics, and dashboard startup. |
-| `src/dashboard.js` | Validated snapshots, SSE fan-out, and bounded open actions. |
+| `src/dashboard.js` | Validated compact snapshots, SSE fan-out, on-demand details, and bounded open actions. |
 
 The MCP process resolves `TASKCHEF_WORKSPACE` once and never accepts a model
 supplied path. The CLI resolves `--workspace`, then the environment, then the
@@ -50,7 +50,7 @@ sequenceDiagram
   D->>D: Choose one configured and native project
   D->>M: record_task(id, project, title, instruction, null)
   M->>W: recordTask()
-  W->>W: Lock, validate, append schema-5 snapshot
+  W->>W: Lock, validate, append schema-6 snapshot
   W-->>M: working link-pending task
   M-->>D: task
   D->>C: Create executor with marked instruction
@@ -77,8 +77,8 @@ semantic callbacks.
 ## State reporting
 
 The executor obtains the turn identity from an exact native read of its own
-linked task. `report_state` records live turn state while preserving the last
-semantic result separately.
+linked task. `report_state` records live turn state while preserving the ordered
+semantic result history.
 
 ```mermaid
 sequenceDiagram
@@ -91,13 +91,13 @@ sequenceDiagram
   C-->>E: Current turn ID
   E->>M: report_state(..., working, null)
   M->>W: reportTaskState()
-  W->>W: Store current turn and preserve lastResult
+  W->>W: Store current turn and preserve results
   E->>E: Work, finish, or reach semantic decision
   E->>M: report_state(..., semantic status, summary)
   M->>W: reportTaskState()
   W->>W: Lock and validate identity and freshness
   alt Same current working turn
-    W->>W: Store semantic state and lastResult
+    W->>W: Append semantic result and derive lastResult
     W-->>M: Updated task
     M-->>E: Recorded result
   else Same turn and same result
@@ -134,9 +134,9 @@ sequenceDiagram
   C-->>E: turnB
   E->>M: report_state(..., turnB, working, null)
   M->>W: reportTaskState()
-  W->>W: Require turnB greater and preserve result A
-  W-->>M: working snapshot plus lastResult A
-  M-->>E: working snapshot plus lastResult A
+  W->>W: Require turnB greater and preserve results
+  W-->>M: working snapshot plus history A
+  M-->>E: working snapshot plus history A
   E->>M: report_state(..., turnB, completed, summaryB)
   M->>W: reportTaskState()
   W-->>M: completed snapshot plus result B
@@ -224,7 +224,9 @@ sequenceDiagram
   F-->>D: Filesystem change
   D->>F: Bounded read from one descriptor
   D->>D: Validate current schema and sort
-  D-->>B: SSE snapshot
+  D-->>B: Compact SSE snapshot without results
+  B->>D: GET task detail on demand
+  D-->>B: Full validated history
   B->>D: Open task action
   alt Canonical Codex UUIDv7
     D->>C: Direct thread navigation
@@ -234,9 +236,24 @@ sequenceDiagram
   end
 ```
 
-The dashboard binds to `127.0.0.1`, has no shared session state, limits
-request bodies, and checks origin/authority for stateful local actions. Historical
-project paths are untrusted until matched against current configuration.
+The dashboard binds to `127.0.0.1`, has no shared session state, limits task
+count, file size, result count, and display fields, and checks origin/authority
+for stateful local actions. The monitor already validates the complete log, but
+snapshot/SSE list projections omit `results` so repeated updates do not resend
+unnecessary history. A read-only per-task endpoint returns full history only
+when the dialog opens. Historical project paths are untrusted until matched
+against current configuration.
+
+## Schema 4/5 migration
+
+`taskchef workspace migrate` acquires the same workspace lock as lifecycle
+writers, validates the complete legacy log, converts each schema-4/5 latest
+result into zero or one initial schema-6 `results` entry, then validates the
+complete candidate. Before replacement it writes and reads back an exclusive
+`tasks.jsonl.pre-v6-*.bak` file. The task log is replaced atomically and
+validated again. A second run sees only schema 6 and returns unchanged without
+another backup. Unsupported or malformed input fails before backup/rewrite;
+after a later filesystem failure, the reported backup is the recovery source.
 
 ## Concurrency and trust boundaries
 
@@ -251,6 +268,7 @@ summary is cryptographically authenticated; this is a local single-user trust
 model. Managed files, instructions, project snapshots, MCP inputs, and dashboard
 requests are validated at every action boundary.
 
-Configuration schema 2 and task schemas 4 and 5 are accepted. Schema 4 is
-read-only compatibility until a lifecycle mutation upgrades that record to
-schema 5. Other schemas are rejected without rewrite.
+Configuration schema 2 and task schemas 4, 5, and 6 are accepted. Schemas 4/5
+are read/migration compatibility until an explicit migration or lifecycle
+mutation upgrades each record to schema 6. Schema 6 persists `results` only and
+derives `lastResult` for compatibility. Other schemas are rejected without rewrite.
