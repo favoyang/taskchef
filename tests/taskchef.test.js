@@ -727,7 +727,11 @@ test("delegation marker parsing accepts the exact trailing scaffold and historic
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `Do the work.\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+    `Do the work.\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+  );
+  assert.equal(
+    prepared.instruction.slice("Do the work.".length),
+    `\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
   );
   const lines = prepared.instruction.split("\n");
   const marker = lines.at(-2);
@@ -842,7 +846,7 @@ test("delegation marker parsing accepts the exact trailing scaffold and historic
   for (const lifecycleParagraph of new Set(releasedInlineProtocols.flat())) {
     assert.equal(
       parseTaskChefMarker(
-        `${lifecycleParagraph}\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+        `${lifecycleParagraph}\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
       ),
       null,
     );
@@ -852,7 +856,7 @@ test("delegation marker parsing accepts the exact trailing scaffold and historic
     );
     assert.equal(
       parseTaskChefMarker(
-        `Do actual work.\n${lifecycleParagraph}\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+        `Do actual work.\n${lifecycleParagraph}\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
       ),
       null,
     );
@@ -885,7 +889,13 @@ test("delegation marker parsing accepts the exact trailing scaffold and historic
   );
   assert.equal(
     parseTaskChefMarker(
-      `<!-- taskchef_id=${TASK_ID} -->\nDo the work.\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+      `Do the work.\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+    ),
+    TASK_ID,
+  );
+  assert.equal(
+    parseTaskChefMarker(
+      `<!-- taskchef_id=${TASK_ID} -->\nDo the work.\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
     ),
     null,
   );
@@ -899,7 +909,7 @@ test("delegation marker parsing accepts the exact trailing scaffold and historic
     parseTaskChefMarker(
       `Do the work.\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
     ),
-    null,
+    TASK_ID,
   );
   assert.equal(
     parseTaskChefMarker(
@@ -915,13 +925,13 @@ test("delegation marker parsing accepts the exact trailing scaffold and historic
   );
   assert.equal(
     parseTaskChefMarker(
-      ` \nUseful text.\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+      ` \nUseful text.\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
     ),
     null,
   );
   assert.equal(
     parseTaskChefMarker(
-      `Mention $taskchef-executor in the assignment.\n\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
+      `Mention $taskchef-executor in the assignment.\n<!-- taskchef_id=${TASK_ID} -->\n${EXECUTOR_SKILL_INVOCATION}`,
     ),
     null,
   );
@@ -946,6 +956,7 @@ test("delegated instructions keep the useful body visible and invoke one executo
   const prepared = prepareDelegation("Implement it.\n\nValidate it.", { taskId: TASK_ID });
   const lines = prepared.instruction.split("\n");
   assert.equal(lines[0], "Implement it.");
+  assert.equal(lines.at(-3), "Validate it.");
   assert.equal(lines.at(-2), `<!-- taskchef_id=${TASK_ID} -->`);
   assert.equal(lines.at(-1), EXECUTOR_SKILL_INVOCATION);
   assert.equal(prepared.instruction.split(EXECUTOR_SKILL_INVOCATION).length - 1, 1);
