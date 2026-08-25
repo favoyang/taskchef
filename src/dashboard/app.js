@@ -8,6 +8,7 @@ import {
   taskWithinDateFilter,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
+import { RelativeTimeController, parsedTimestamp } from "./time.js";
 
 const state = {
   tasks: [],
@@ -18,6 +19,7 @@ const state = {
 };
 let dateRefreshTimer = null;
 let detailRequestGeneration = 0;
+const relativeTimes = new RelativeTimeController();
 
 const elements = {
   clearNotifications: document.querySelector("#clear-notifications"),
@@ -45,12 +47,42 @@ const elements = {
   toastList: document.querySelector("#toast-list"),
 };
 
-function formatTime(value) {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+function timestampControl(value, { accessibleName, key, prefix = "" }) {
+  if (!parsedTimestamp(value)) {
+    const missing = document.createElement("span");
+    missing.className = "timestamp-missing";
+    missing.textContent = `${prefix}—`;
+    return missing;
+  }
+  const control = document.createElement("button");
+  control.type = "button";
+  control.className = "timestamp-toggle";
+  const time = document.createElement("time");
+  control.append(time);
+  relativeTimes.register(key, value, ({ exact, iso, label }) => {
+    time.dateTime = iso;
+    time.textContent = `${prefix}${label}`;
+    const action = exact ? "Show relative time" : "Show exact date and time";
+    control.title = action;
+    control.setAttribute("aria-label", `${accessibleName}: ${label}. ${action}.`);
+  }, { isActive: () => control.isConnected });
+  control.addEventListener("click", () => relativeTimes.toggle(key));
+  return control;
+}
+
+function codexIcon() {
+  const icon = document.createElement("span");
+  icon.className = "codex-icon";
+  icon.setAttribute("aria-hidden", "true");
+  return icon;
+}
+
+function configureOpenTaskControl(control, ariaLabel) {
+  control.classList.add("task-action");
+  control.setAttribute("aria-label", ariaLabel);
+  const label = document.createElement("span");
+  label.textContent = "Open task";
+  control.replaceChildren(codexIcon(), label);
 }
 
 function setConnection(connected) {
@@ -116,11 +148,12 @@ function detailRow(term, value) {
   const dt = document.createElement("dt");
   dt.textContent = term;
   const dd = document.createElement("dd");
-  dd.textContent = value ?? "—";
+  if (value instanceof Node) dd.append(value);
+  else dd.textContent = value ?? "—";
   return [dt, dd];
 }
 
-function resultHistory(results) {
+function resultHistory(taskId, results) {
   if (results.length === 0) {
     const empty = document.createElement("p");
     empty.className = "result-history-empty";
@@ -135,9 +168,11 @@ function resultHistory(results) {
     const status = document.createElement("span");
     status.className = `status status-${result.status}`;
     status.textContent = result.status.replaceAll("_", " ");
-    const timestamp = document.createElement("time");
-    timestamp.dateTime = result.updatedAt;
-    timestamp.textContent = formatTime(result.updatedAt);
+    const resultKey = result.turnId ?? `${result.status}:${index}`;
+    const timestamp = timestampControl(result.updatedAt, {
+      accessibleName: `Result updated time for ${result.status.replaceAll("_", " ")}`,
+      key: `detail:${taskId}:result:${resultKey}`,
+    });
     header.append(status, timestamp);
     const summary = document.createElement("p");
     summary.className = "preserve-lines";
@@ -161,7 +196,7 @@ function renderDialog(task) {
   state.selectedTask = detailedTask;
   elements.dialogProject.textContent = task.project.name;
   elements.dialogTitle.textContent = task.title;
-  elements.dialogResults.replaceChildren(...resultHistory(detailedTask.results));
+  elements.dialogResults.replaceChildren(...resultHistory(task.id, detailedTask.results));
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyThreadId.disabled = !task.threadId;
   elements.dialogMetadata.replaceChildren(
@@ -169,16 +204,27 @@ function renderDialog(task) {
     ...detailRow("Current turn ID", task.turnId),
     ...detailRow("Last result status", task.lastResult?.status?.replaceAll("_", " ")),
     ...detailRow("Last result turn ID", task.lastResult?.turnId),
-    ...detailRow("Last result updated", formatTime(task.lastResult?.updatedAt)),
+    ...detailRow("Last result updated", timestampControl(task.lastResult?.updatedAt, {
+      accessibleName: `Last result updated time for ${task.title}`,
+      key: `detail:${task.id}:last-result-updated`,
+    })),
     ...detailRow("Task ID", task.id),
     ...detailRow("Thread ID", task.threadId),
     ...detailRow("Project path", task.project.path),
-    ...detailRow("Created", formatTime(task.createdAt)),
-    ...detailRow("Updated", formatTime(
+    ...detailRow("Created", timestampControl(task.createdAt, {
+      accessibleName: `Created time for ${task.title}`,
+      key: `detail:${task.id}:created`,
+    })),
+    ...detailRow("Updated", timestampControl(
       task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt,
+      {
+        accessibleName: `Updated time for ${task.title}`,
+        key: `detail:${task.id}:updated`,
+      },
     )),
     ...detailRow("Updated by", task.updatedBy),
   );
+  configureOpenTaskControl(elements.openProject, `Open ${task.title} in Codex`);
 }
 
 async function openDialog(task) {
@@ -223,16 +269,20 @@ function taskCard(task) {
   const summary = document.createElement("p");
   summary.className = "task-summary";
   summary.textContent = task.lastResult?.summary ?? "No semantic result reported yet.";
-  const time = document.createElement("time");
-  time.dateTime = task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt;
-  time.textContent = `Updated ${formatTime(time.dateTime)}`;
+  const time = timestampControl(
+    task.meaningfulUpdatedAt ?? task.updatedAt ?? task.createdAt,
+    {
+      accessibleName: `Updated time for ${task.title}`,
+      key: `list:${task.id}:updated`,
+      prefix: "Updated ",
+    },
+  );
   const footer = document.createElement("div");
   footer.className = "task-footer";
   const openTask = document.createElement("button");
   openTask.type = "button";
   openTask.className = "secondary-button task-open";
-  openTask.textContent = "Open task";
-  openTask.setAttribute("aria-label", `Open ${task.title} in Codex`);
+  configureOpenTaskControl(openTask, `Open ${task.title} in Codex`);
   openTask.addEventListener("click", (event) => openTaskFromControl(event, task.id, {
     showMessage,
   }));
