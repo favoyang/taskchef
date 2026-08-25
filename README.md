@@ -176,6 +176,8 @@ taskchef dashboard --port 3211
 The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
 linked Codex tasks. List snapshots and SSE events carry only the latest-result
 projection; opening task details fetches the full newest-first result history.
+The header shows the running TaskChef package version reported by the same
+bounded health identity used for compatible-listener checks.
 Task and result times are relative through 29 days (with minute detail for the
 first six hours), then use a locale-aware calendar date. Each time is a keyboard-
 accessible toggle for its full locale-aware date and time, and one shared
@@ -196,6 +198,8 @@ similarly asks you to stop the listener or choose another `--port`.
 The health endpoint contains only a fixed service marker, health schema,
 TaskChef version, dashboard-server version, and canonical workspace. It exposes
 no task data, credentials, environment variables, process control, or secrets.
+
+![TaskChef dashboard identity and version](docs/images/dashboard-identity.jpg)
 
 ![Immutable event-time dashboard notifications](docs/images/notification-event-snapshots.jpg)
 

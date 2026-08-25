@@ -49,6 +49,7 @@ const elements = {
   projectFilter: document.querySelector("#project-filter"),
   statusFilter: document.querySelector("#status-filter"),
   taskCount: document.querySelector("#task-count"),
+  taskchefVersion: document.querySelector("#taskchef-version"),
   taskList: document.querySelector("#task-list"),
   toastList: document.querySelector("#toast-list"),
 };
@@ -87,8 +88,8 @@ function codexIcon() {
   const image = document.createElement("img");
   image.src = "/assets/codex-app-light.png";
   image.alt = "";
-  image.width = 16;
-  image.height = 16;
+  image.width = 18;
+  image.height = 18;
   picture.append(dark, image);
   return picture;
 }
@@ -104,6 +105,22 @@ function configureOpenTaskControl(control, ariaLabel) {
 function setConnection(connected) {
   elements.connectionDot.classList.toggle("connected", connected);
   elements.connectionLabel.textContent = connected ? "Live" : "Reconnecting…";
+}
+
+async function loadDashboardVersion() {
+  try {
+    const response = await fetch("/api/health");
+    if (!response.ok) return;
+    const identity = await response.json();
+    if (typeof identity.taskchefVersion !== "string" || !identity.taskchefVersion) return;
+    elements.taskchefVersion.textContent = `v${identity.taskchefVersion}`;
+    elements.taskchefVersion.setAttribute(
+      "aria-label",
+      `TaskChef version ${identity.taskchefVersion}`,
+    );
+  } catch {
+    // The live connection state already communicates dashboard availability.
+  }
 }
 
 function replaceOptions(select, values, allLabel) {
@@ -398,6 +415,8 @@ function showMessage(message) {
   elements.dashboardMessageText.textContent = message;
   elements.dashboardMessage.hidden = false;
 }
+
+void loadDashboardVersion();
 
 const events = new EventSource("/api/events");
 events.addEventListener("open", () => setConnection(true));
