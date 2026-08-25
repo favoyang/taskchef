@@ -1688,7 +1688,13 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.status-filter-options \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
   assert.match(styles, /\.status-filter-option:has\(input:checked\) span \{/);
   assert.match(styles, /\.status-filter-option:has\(input:focus-visible\) span \{/);
+  assert.match(styles, /h1 \{[^}]*font-size: clamp\(1\.9rem, 4\.5vw, 3\.1rem\);/);
+  assert.match(styles, /\.task-card \{[^}]*padding: 16px 18px;/);
+  assert.match(styles, /\.task-summary \{[^}]*font-size: 0\.9rem;[^}]*line-height: 1\.45;/);
+  assert.match(styles, /\.status-filter-option span \{[^}]*min-height: 34px;[^}]*padding: 5px 10px;/);
+  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]*min-height: 34px;/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
+  assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.status-filter-option span \{ min-height: 38px; \}/);
   assert.match(styles, /@media \(max-width: 480px\)[\s\S]*\.toolbar-primary \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*\.status-filter-option:has\(input:checked\) span \{ color: var\(--background\); \}/);
 });
