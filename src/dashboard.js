@@ -43,10 +43,12 @@ const STATIC_FILES = new Map([
   ["/", [path.join(STATIC_ROOT, "index.html"), "text/html; charset=utf-8"]],
   ["/actions.js", [path.join(STATIC_ROOT, "actions.js"), "text/javascript; charset=utf-8"]],
   ["/app.js", [path.join(STATIC_ROOT, "app.js"), "text/javascript; charset=utf-8"]],
+  ["/time.js", [path.join(STATIC_ROOT, "time.js"), "text/javascript; charset=utf-8"]],
   ["/state.js", [path.join(STATIC_ROOT, "state.js"), "text/javascript; charset=utf-8"]],
   ["/styles.css", [path.join(STATIC_ROOT, "styles.css"), "text/css; charset=utf-8"]],
   ["/assets/taskchef-dark.svg", [path.join(ASSET_ROOT, "taskchef-dark.svg"), "image/svg+xml"]],
   ["/assets/taskchef.svg", [path.join(ASSET_ROOT, "taskchef.svg"), "image/svg+xml"]],
+  ["/assets/codex.svg", [path.join(ASSET_ROOT, "codex.svg"), "image/svg+xml"]],
 ]);
 
 export function dashboardAuthority(host, port) {

@@ -176,6 +176,10 @@ taskchef dashboard --port 3211
 The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
 linked Codex tasks. List snapshots and SSE events carry only the latest-result
 projection; opening task details fetches the full newest-first result history.
+Task and result times are relative through 29 days (with minute detail for the
+first six hours), then use a locale-aware calendar date. Each time is a keyboard-
+accessible toggle for its full locale-aware date and time, and one shared
+30-second timer keeps relative labels current without reloading the page.
 It does not mutate TaskChef data and prints its local URL.
 When a compatible foreground dashboard already owns port 3210,
 `ensure_dashboard` reuses it but does not take ownership. If an unknown,

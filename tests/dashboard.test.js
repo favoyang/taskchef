@@ -36,6 +36,14 @@ import {
   taskWithinDateFilter,
 } from "../src/dashboard/state.js";
 import { openTaskFromControl } from "../src/dashboard/actions.js";
+import {
+  RELATIVE_DATE_LIMIT_DAYS,
+  RELATIVE_TIME_REFRESH_MS,
+  RelativeTimeController,
+  formatExactTime,
+  formatRelativeTime,
+  timestampPresentation,
+} from "../src/dashboard/time.js";
 
 const FIRST_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_ID = "22222222-2222-4222-8222-222222222222";
@@ -248,6 +256,94 @@ test("dashboard date filters use each task's latest meaningful update", () => {
   assert.equal(nextDateFilterRefreshDelay([recent], "24h", now), 23 * 60 * 60 * 1_000 + 1);
   assert.equal(nextDateFilterRefreshDelay([threeDaysOld], "24h", now), null);
   assert.equal(nextDateFilterRefreshDelay([recent], "all", now), null);
+});
+
+test("relative task times use deterministic readable thresholds", () => {
+  const now = Date.parse("2026-08-25T12:00:00.000Z");
+  const ago = (milliseconds) => new Date(now - milliseconds).toISOString();
+  assert.equal(formatRelativeTime(ago(59_999), { now }), "just now");
+  assert.equal(formatRelativeTime(ago(60_000), { now }), "1 minute ago");
+  assert.equal(formatRelativeTime(ago(2 * 60_000), { now }), "2 minutes ago");
+  assert.equal(formatRelativeTime(ago(60 * 60_000), { now }), "1 hour ago");
+  assert.equal(formatRelativeTime(ago(2 * 60 * 60_000 + 17 * 60_000), { now }),
+    "2 hours 17 minutes ago");
+  assert.equal(formatRelativeTime(ago(7 * 60 * 60_000 + 17 * 60_000), { now }),
+    "7 hours ago");
+  assert.equal(formatRelativeTime(ago(24 * 60 * 60_000), { now }), "1 day ago");
+  assert.equal(formatRelativeTime(ago(12 * 24 * 60 * 60_000), { now }), "12 days ago");
+  assert.equal(RELATIVE_DATE_LIMIT_DAYS, 30);
+  assert.equal(formatRelativeTime(ago(30 * 24 * 60 * 60_000), {
+    now,
+    locale: "en-US",
+    timeZone: "UTC",
+  }), "Jul 26, 2026");
+});
+
+test("task time formatting is locale aware and handles future, missing, and invalid values", () => {
+  const now = Date.parse("2026-08-25T12:00:00.000Z");
+  assert.equal(formatRelativeTime("2026-08-25T12:04:01.000Z", { now }), "in 5 minutes");
+  assert.equal(formatRelativeTime("2026-08-25T12:00:30.000Z", { now }), "just now");
+  assert.equal(formatRelativeTime(null, { now }), "—");
+  assert.equal(formatRelativeTime("not-a-date", { now }), "—");
+  assert.equal(formatExactTime("2026-08-25T12:34:00.000Z", {
+    locale: "en-GB",
+    timeZone: "UTC",
+  }), "25 Aug 2026, 12:34");
+  assert.deepEqual(timestampPresentation("invalid", { now }), {
+    valid: false,
+    label: "—",
+    iso: null,
+  });
+});
+
+test("one relative-time timer refreshes controls and preserves independent toggles across rerenders", () => {
+  let now = Date.parse("2026-08-25T12:00:30.000Z");
+  let scheduled = null;
+  let intervalCount = 0;
+  const controller = new RelativeTimeController({
+    now: () => now,
+    setIntervalFn(callback, delay) {
+      intervalCount += 1;
+      assert.equal(delay, RELATIVE_TIME_REFRESH_MS);
+      scheduled = callback;
+      return 7;
+    },
+  });
+  const firstLabels = [];
+  const secondLabels = [];
+  let firstActive = true;
+  controller.register("task:first", "2026-08-25T12:00:00.000Z",
+    (value) => firstLabels.push(value), { isActive: () => firstActive });
+  controller.register("task:second", "2026-08-25T11:00:30.000Z",
+    (value) => secondLabels.push(value));
+  assert.equal(intervalCount, 1, "all timestamp controls share one timer");
+  assert.equal(firstLabels.at(-1).label, "just now");
+  assert.equal(secondLabels.at(-1).label, "1 hour ago");
+
+  now += 60_000;
+  scheduled();
+  assert.equal(firstLabels.at(-1).label, "1 minute ago");
+  controller.toggle("task:first");
+  assert.equal(firstLabels.at(-1).exact, true);
+  assert.equal(secondLabels.at(-1).exact, false, "each control toggles independently");
+
+  firstActive = false;
+  const rerendered = [];
+  controller.register("task:first", "2026-08-25T12:00:00.000Z",
+    (value) => rerendered.push(value));
+  assert.equal(rerendered.at(-1).exact, true, "exact mode survives snapshot rerendering");
+  controller.toggle("task:first");
+  assert.equal(rerendered.at(-1).exact, false);
+  controller.refresh();
+  assert.equal(controller.entries.size, 2, "disconnected controls are pruned");
+  controller.stop();
+});
+
+test("relative-time controller default scheduler remains callable through the controller", () => {
+  const controller = new RelativeTimeController({ refreshEveryMs: 60_000 });
+  controller.register("default-scheduler", "2026-08-25T12:00:00.000Z", () => {});
+  assert.notEqual(controller.timer, null);
+  controller.stop();
 });
 
 test("dashboard exposes stable task status filters", () => {
@@ -620,7 +716,7 @@ test("dashboard server serves independent clients without sessions and protects 
     const html = await page.text();
     assert.doesNotMatch(html, /onerror=alert/);
 
-    for (const assetName of ["taskchef.svg", "taskchef-dark.svg"]) {
+    for (const assetName of ["taskchef.svg", "taskchef-dark.svg", "codex.svg"]) {
       const assetResponse = await fetch(`${server.origin}/assets/${assetName}`);
       assert.equal(assetResponse.status, 200);
       assert.equal(assetResponse.headers.get("content-type"), "image/svg+xml");
@@ -629,6 +725,10 @@ test("dashboard server serves independent clients without sessions and protects 
         await readFile(path.resolve("assets", assetName), "utf8"),
       );
     }
+    const timeModule = await fetch(`${server.origin}/time.js`);
+    assert.equal(timeModule.status, 200);
+    assert.match(timeModule.headers.get("content-type"), /text\/javascript/);
+    assert.match(await timeModule.text(), /class RelativeTimeController/);
 
     const snapshotResponse = await fetch(`${server.origin}/api/snapshot`);
     const snapshot = await snapshotResponse.json();
@@ -817,6 +917,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   const script = await readFile(path.resolve("src/dashboard/app.js"), "utf8");
   const actionScript = await readFile(path.resolve("src/dashboard/actions.js"), "utf8");
   const stateScript = await readFile(path.resolve("src/dashboard/state.js"), "utf8");
+  const timeScript = await readFile(path.resolve("src/dashboard/time.js"), "utf8");
+  const styles = await readFile(path.resolve("src/dashboard/styles.css"), "utf8");
+  const codexIcon = await readFile(path.resolve("assets/codex.svg"), "utf8");
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="date-filter"/);
@@ -829,6 +932,10 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /<picture class="dashboard-icon" aria-hidden="true">/);
   assert.match(html, /<h3>Result history<\/h3>/);
   assert.match(html, /id="dialog-results"/);
+  assert.match(html, /id="open-codex"[^>]+aria-label="Open this task in Codex"/);
+  assert.match(html, /class="codex-icon" aria-hidden="true"/);
+  assert.match(html, /<span>Open task<\/span>/);
+  assert.doesNotMatch(html, />Open task in Codex</);
   assert.doesNotMatch(html, />Task dashboard</);
   assert.match(script, /textContent = task\.instruction/);
   assert.match(script, /\[\.\.\.results\]\.reverse\(\)/);
@@ -837,9 +944,15 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /requestGeneration === detailRequestGeneration/);
   assert.match(script, /task\.results \?\? preservedResults \?\? \[\]/);
   assert.match(script, /openTask\.type = "button"/);
-  assert.match(script, /openTask\.textContent = "Open task"/);
-  assert.match(script, /openTask\.setAttribute\("aria-label", `Open \$\{task\.title\} in Codex`\)/);
+  assert.match(script, /configureOpenTaskControl\(openTask, `Open \$\{task\.title\} in Codex`\)/);
+  assert.match(script, /configureOpenTaskControl\(elements\.openProject, `Open \$\{task\.title\} in Codex`\)/);
+  assert.match(script, /icon\.setAttribute\("aria-hidden", "true"\)/);
   assert.match(script, /openTaskFromControl\(event, task\.id/);
+  assert.match(script, /relativeTimes\.register\(/);
+  assert.match(script, /relativeTimes\.toggle\(key\)/);
+  assert.match(script, /time\.dateTime = iso/);
+  assert.match(script, /control\.setAttribute\("aria-label"/);
+  assert.match(script, /control\.title = action/);
   assert.match(script, /elements\.dashboardMessageText\.textContent = message/);
   assert.match(script, /elements\.dismissDashboardMessage\.addEventListener\("click", \(\) => \{/);
   assert.match(script, /elements\.dashboardMessage\.hidden = true/);
@@ -847,4 +960,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.doesNotMatch(script, /\bstatusLabel\(/);
   assert.doesNotMatch(script, /innerHTML/);
   assert.match(stateScript, /MAX_NOTIFICATIONS = 50/);
+  assert.match(timeScript, /RELATIVE_TIME_REFRESH_MS = 30_000/);
+  assert.match(styles, /mask: url\("\/assets\/codex\.svg"\)/);
+  assert.match(styles, /\.task-open \{ align-self: flex-start; \}/);
+  assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
+  assert.match(codexIcon, /viewBox="0 0 16 16"/);
 });
