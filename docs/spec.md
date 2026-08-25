@@ -39,8 +39,8 @@ is dated research, not contract.
   privacy, and idempotency. It MUST NOT dispatch the owned assignment again.
 - `taskchef-report` MUST own on-demand reporting. It MUST NOT poll or persist
   inferred state.
-- The MCP server MUST expose four primary lifecycle tools plus the deprecated
-  `report_result` compatibility alias specified below.
+- The MCP server MUST expose `ensure_dashboard`, four primary lifecycle tools,
+  and the deprecated `report_result` compatibility alias specified below.
 - The CLI MAY administer and inspect the workspace, but MUST NOT provide a
   second agent lifecycle protocol.
 - The dashboard MUST be read-only with respect to dispatcher files.
@@ -100,6 +100,13 @@ fields MUST NOT change after recording.
 
 ## Required lifecycle
 
+At the start of every dispatcher turn, the dispatcher SHOULD call
+`ensure_dashboard` best-effort. Failure MUST NOT block direct TaskChef answers,
+reporting, or delegation. Every dispatcher final response MUST end with the
+exact clickable `[TaskChef Dashboard](http://127.0.0.1:3210/)` link even when
+ensure failed. A created-thread directive MUST remain on its own line before
+the final link, preserving the delegate skill's immediate-return contract.
+
 1. The dispatcher MUST call `prepare_dispatch` once per outcome.
 2. It MUST choose exactly one configured project and exact native-project path.
 3. It MUST build the instruction with the user's outcome beginning on line 1
@@ -143,6 +150,43 @@ All tools resolve the workspace internally. Callers MUST NOT supply a workspace
 path. Success returns both one text content item and the stated structured
 object. Validation, marker, identity, uniqueness, freshness, or filesystem
 failures are surfaced as tool errors and MUST NOT partially mutate the log.
+
+### `ensure_dashboard`
+
+**Caller:** dispatcher. **Mutation:** starts at most one in-process loopback
+HTTP server; it does not mutate dispatcher workspace files.
+
+**Input:** empty object.
+
+**Structured output:**
+
+```text
+{ dashboard: {
+  action: "started" | "reused",
+  url: "http://127.0.0.1:3210/",
+  workspace: string,
+  taskchefVersion: string,
+  serverVersion: string
+} }
+```
+
+Calls MUST serialize within one MCP process. The first call starts an owned
+dashboard or reuses an exact compatible listener; later and concurrent calls
+are idempotent and report reuse after the single start. The stable default MUST
+bind only to `127.0.0.1:3210` and MUST NOT accept a model-supplied workspace,
+host, or port.
+
+Before reuse, TaskChef MUST query a bounded loopback identity endpoint and
+require the exact fixed service/schema, TaskChef version, dashboard-server
+version, and canonical workspace. An unknown, malformed, different-workspace,
+or stale-version listener MUST produce a concise actionable conflict. TaskChef
+MUST NOT kill, replace, signal, or otherwise control that listener. A startup
+failure MUST leave no owned listener. The MCP server MUST close its owned
+dashboard when its transport or process shuts down; it MUST NOT close a reused
+external foreground server.
+
+**Annotations:** `readOnlyHint: false`, `destructiveHint: false`,
+`openWorldHint: false`.
 
 ### `prepare_dispatch`
 
@@ -259,7 +303,13 @@ reports MAY read a selected task once when metadata is newer or evidence is
 uncertain. Reports MUST NOT poll or classify assistant prose.
 
 The dashboard MUST bind only to loopback, validate the current workspace
-snapshot, and avoid sessions or shared client state. Direct thread navigation
+snapshot, and avoid sessions or shared client state. `GET /api/health` MUST
+return only the bounded service identity, health schema, exact TaskChef and
+dashboard-server versions, and canonical workspace. It MUST NOT return task
+records, secrets, credentials, environment values, or process-control data.
+Identity remains available while an already-started monitor retains its last
+valid snapshot after a later invalid task log; an invalid initial log MAY fail
+startup safely. Direct thread navigation
 MUST require a canonical Codex UUIDv7. Otherwise it MAY open the revalidated
 configured project. Project paths from task history MUST be matched against
 current configuration before use.
@@ -279,3 +329,9 @@ loopback origin, and current configuration before acting.
 TaskChef MUST NOT use lifecycle hooks, schedules, polling, recent-thread search,
 transcript search, title matching, hidden reasoning, or token usage to discover
 identity or infer semantic results.
+
+TaskChef MUST NOT install or require daemons, launchd agents, login items,
+system services, cron jobs, hooks, privileged components, or elevated/system
+permissions for dashboard availability. Availability is best-effort while the
+owning Codex/plugin MCP process is alive and is not guaranteed while Codex is
+closed.

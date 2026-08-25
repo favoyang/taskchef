@@ -33,7 +33,8 @@ npm install --global taskchef
 
 The plugin provides four skills and a local MCP server. The npm installation
 puts the `taskchef` CLI on `PATH`. TaskChef installs no hooks, schedules,
-daemons, or background identity search.
+daemons, login items, system services, or background identity search and needs
+no elevated permissions.
 
 ## Bootstrap and configure
 
@@ -93,6 +94,12 @@ reads the executor's own `CODEX_THREAD_ID`, self-links, and reports lifecycle
 state. Independent outcomes may become separate executors; dependent work
 should stay together.
 
+At the start of every dispatcher turn, the managed workspace instructions ask
+the MCP server to best-effort ensure the dashboard. A startup failure never
+blocks an answer, report, or delegation. Every dispatcher response ends with
+the stable [TaskChef Dashboard](http://127.0.0.1:3210/) link; a created-task
+directive remains on the preceding line so dispatch still returns immediately.
+
 For example, TaskChef generates this shape:
 
 ```text
@@ -146,12 +153,35 @@ an unambiguous eight-character prefix.
 
 ## Dashboard
 
+Dispatcher turns call the input-free `ensure_dashboard` MCP tool. It starts at
+most one dashboard inside the existing TaskChef MCP process on
+`127.0.0.1:3210`, or reuses a listener only when its bounded `/api/health`
+identity proves the exact TaskChef/dashboard-server version and the same
+canonical workspace. The response says `started` or `reused` and includes the
+stable URL, canonical workspace, and versions.
+
+The in-process dashboard closes with the MCP process. Closing Codex or reloading
+the plugin may therefore stop the dashboard; the next dispatcher turn restores
+it. TaskChef adds no OS-persistent component.
+
+For manual development, run the foreground CLI:
+
 ```sh
 taskchef dashboard
+taskchef dashboard --port 3211
 ```
 
 The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
 linked Codex tasks. It does not mutate TaskChef data and prints its local URL.
+When a compatible foreground dashboard already owns port 3210,
+`ensure_dashboard` reuses it but does not take ownership. If an unknown,
+different-workspace, or stale-version process owns the port, TaskChef reports a
+concise conflict and never kills or replaces that process. The foreground CLI
+similarly asks you to stop the listener or choose another `--port`.
+
+The health endpoint contains only a fixed service marker, health schema,
+TaskChef version, dashboard-server version, and canonical workspace. It exposes
+no task data, credentials, environment variables, process control, or secrets.
 
 ## Common recovery
 

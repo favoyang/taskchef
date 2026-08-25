@@ -438,7 +438,19 @@ test("dispatch preparation combines canonical routing data and correlation value
 
 test("structured MCP tools prepare, record, self-link, and report through canonical workspace APIs", async () => {
   const { workspace, projects } = await fixture(1);
-  const server = createTaskChefMcpServer({ workspace });
+  let ensureCount = 0;
+  let closeCount = 0;
+  const dashboardManager = {
+    ensure: async () => ({
+      action: ensureCount++ === 0 ? "started" : "reused",
+      url: "http://127.0.0.1:3210/",
+      workspace: await realpath(workspace),
+      taskchefVersion: "7.3.0",
+      serverVersion: "1",
+    }),
+    close: async () => { closeCount += 1; },
+  };
+  const server = createTaskChefMcpServer({ workspace, dashboardManager });
   const client = new Client({ name: "taskchef-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -447,24 +459,34 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   try {
     const listed = await client.listTools();
     assert.deepEqual(listed.tools.map((tool) => tool.name), [
+      "ensure_dashboard",
       "prepare_dispatch",
       "record_task",
       "link_task",
       "report_state",
       "report_result",
     ]);
-    assert.equal(listed.tools[0].annotations.readOnlyHint, true);
-    assert.equal(listed.tools[1].annotations.readOnlyHint, false);
-    assert.equal(listed.tools[1].annotations.destructiveHint, false);
-    assert.equal(listed.tools[1].annotations.openWorldHint, false);
-    assert.equal(listed.tools[3].annotations.destructiveHint, true);
-    assert.match(listed.tools[4].title, /deprecated/i);
-    assert.deepEqual(Object.keys(listed.tools[3].inputSchema.properties).sort(), [
+    assert.equal(listed.tools[0].annotations.readOnlyHint, false);
+    assert.equal(listed.tools[0].annotations.destructiveHint, false);
+    assert.equal(listed.tools[0].annotations.openWorldHint, false);
+    assert.equal(listed.tools[1].annotations.readOnlyHint, true);
+    assert.equal(listed.tools[2].annotations.readOnlyHint, false);
+    assert.equal(listed.tools[2].annotations.destructiveHint, false);
+    assert.equal(listed.tools[2].annotations.openWorldHint, false);
+    assert.equal(listed.tools[4].annotations.destructiveHint, true);
+    assert.match(listed.tools[5].title, /deprecated/i);
+    assert.deepEqual(Object.keys(listed.tools[4].inputSchema.properties).sort(), [
       "status", "summary", "taskId", "threadId", "turnId",
     ]);
     for (const tool of listed.tools) {
       assert.equal("workspace" in (tool.inputSchema.properties ?? {}), false);
     }
+
+    const startedDashboard = await client.callTool({ name: "ensure_dashboard", arguments: {} });
+    assert.equal(startedDashboard.structuredContent.dashboard.action, "started");
+    assert.equal(startedDashboard.structuredContent.dashboard.url, "http://127.0.0.1:3210/");
+    const reusedDashboard = await client.callTool({ name: "ensure_dashboard", arguments: {} });
+    assert.equal(reusedDashboard.structuredContent.dashboard.action, "reused");
 
     const preparedResult = await client.callTool({ name: "prepare_dispatch", arguments: {} });
     const prepared = preparedResult.structuredContent.preparation;
@@ -541,6 +563,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   } finally {
     await client.close();
     await server.close();
+    assert.equal(closeCount >= 1, true);
   }
 });
 
@@ -1714,13 +1737,13 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
   const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
   const diagrams = [...workflows.matchAll(/\`\`\`mermaid\n(sequenceDiagram[\s\S]*?)\`\`\`/g)]
     .map((match) => match[1]);
-  assert.equal(diagrams.length, 6);
+  assert.equal(diagrams.length, 7);
   for (const diagram of diagrams) {
     const parsed = await mermaidParser.parse(diagram);
     assert.equal(parsed.diagramType, "sequence");
     assert.ok(diagram.trim().split("\n").length <= 32);
   }
-  for (const call of ["prepare_dispatch", "record_task", "link_task", "report_state"]) {
+  for (const call of ["ensure_dashboard", "prepare_dispatch", "record_task", "link_task", "report_state"]) {
     assert.match(workflows, new RegExp(`\\b${call}\\(`));
   }
   assert.match(workflows, /Follow-up turns/);
@@ -1883,6 +1906,10 @@ test("init preserves existing configuration and merges managed instructions", as
   const content = await readFile(path.join(workspace, "AGENTS.md"), "utf8");
   assert.match(content, /Keep me/);
   assert.match(content, /\$taskchef-bootstrap/);
+  assert.match(content, /best-effort call the TaskChef\s+`ensure_dashboard` MCP tool/i);
+  assert.match(content, /startup failure must not block direct\s+TaskChef answers, reporting, or delegation/i);
+  assert.match(content, /Every final response[\s\S]+must end with this exact[\s\S]+\[TaskChef Dashboard\]\(http:\/\/127\.0\.0\.1:3210\/\)/i);
+  assert.match(content, /`::created-thread\{\.\.\.\}`[\s\S]+immediately before the dashboard link/i);
   assert.doesNotMatch(content, /For every ordinary user prompt/);
   assert.ok(content.indexOf("$taskchef-report") > content.indexOf("Answer directly only"));
 
@@ -1890,6 +1917,28 @@ test("init preserves existing configuration and merges managed instructions", as
   await addProject(workspace, { name: "project", path: project });
   await initializeWorkspace(workspace);
   assert.equal((await readConfig(workspace)).projects.length, 1);
+});
+
+test("managed dispatcher guidance preserves user additions and defines a realistic final-link response", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-final-link-"));
+  const userPrefix = "# Personal additions\n\nKeep this sentence.\n";
+  const userSuffix = "\n# Local routing note\n\nKeep this too.\n";
+  await writeFile(path.join(root, "AGENTS.md"), `${userPrefix}${userSuffix}`);
+  await initializeWorkspace(root);
+  const first = await readFile(path.join(root, "AGENTS.md"), "utf8");
+  await initializeWorkspace(root);
+  const refreshed = await readFile(path.join(root, "AGENTS.md"), "utf8");
+  assert.equal(refreshed, first);
+  assert.match(refreshed, /Keep this sentence/);
+  assert.match(refreshed, /Keep this too/);
+
+  const realisticResponse = [
+    "Delegated the dashboard maintenance task.",
+    "",
+    '::created-thread{threadId="019ffb69-57a6-7801-8b7a-8ff4c32a398c"}',
+    "[TaskChef Dashboard](http://127.0.0.1:3210/)",
+  ].join("\n");
+  assert.match(realisticResponse, /::created-thread\{[^\n]+\}\n\[TaskChef Dashboard\]\(http:\/\/127\.0\.0\.1:3210\/\)$/);
 });
 
 test("delegate skill isolates trigger metadata and requires structured workspace tools", async () => {

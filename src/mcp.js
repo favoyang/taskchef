@@ -8,7 +8,9 @@ import {
   reportTaskResult,
 } from "./workspace.js";
 import { parseTaskChefMarker } from "./delegation.js";
+import { createDashboardManager } from "./dashboard-manager.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
+import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 
 const projectSchema = z.object({
   name: z.string(),
@@ -49,6 +51,14 @@ const preparationSchema = z.object({
   projects: z.array(projectSchema),
 });
 
+const dashboardSchema = z.object({
+  action: z.enum(["started", "reused"]),
+  url: z.string().url(),
+  workspace: z.string(),
+  taskchefVersion: z.string(),
+  serverVersion: z.string(),
+});
+
 function toolResult(key, value, message) {
   return {
     structuredContent: { [key]: value },
@@ -63,12 +73,50 @@ export function createTaskChefMcpServer({
   reportResult = reportTaskResult,
   reportState = reportTaskState,
   link = linkTask,
+  dashboardManager = createDashboardManager({ workspace }),
 } = {}) {
   const server = new McpServer(
-    { name: "taskchef", version: "1.0.0" },
+    { name: "taskchef", version: TASKCHEF_VERSION },
     {
       instructions:
         "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. Follow the active TaskChef skill for role-specific sequencing of the identity and state tools.",
+    },
+  );
+
+  const originalClose = server.close.bind(server);
+  let closePromise = null;
+  server.close = async () => {
+    closePromise ??= (async () => {
+      await dashboardManager.close();
+      await originalClose();
+    })();
+    return closePromise;
+  };
+  server.server.onclose = () => {
+    void dashboardManager.close();
+  };
+
+  server.registerTool(
+    "ensure_dashboard",
+    {
+      title: "Ensure TaskChef dashboard",
+      description:
+        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts one dashboard inside this MCP process or reuses only an exact compatible TaskChef dashboard for the same canonical workspace; unknown listeners are never terminated or replaced.",
+      inputSchema: {},
+      outputSchema: { dashboard: dashboardSchema },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const dashboard = await dashboardManager.ensure();
+      return toolResult(
+        "dashboard",
+        dashboard,
+        `${dashboard.action === "started" ? "Started" : "Reused"} TaskChef dashboard ${dashboard.url}`,
+      );
     },
   );
 

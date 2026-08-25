@@ -19,8 +19,10 @@ all deterministic workspace operations.
   dispatcher workspace. Preserve unrelated user-owned paths.
 - Do not dispatch tasks or report on executor threads during bootstrap unless
   the user separately requests those actions.
-- Never create hooks, schedules, polling, or daemons. TaskChef executors
-  self-link through the installed MCP server.
+- Never create hooks, schedules, polling, daemons, login items, or system
+  services. The managed dispatcher instructions own best-effort dashboard
+  startup and final-link guidance; bootstrap only refreshes that managed block.
+  TaskChef executors self-link through the installed MCP server.
 
 ## Initialize and repair
 
