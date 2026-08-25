@@ -1695,6 +1695,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]*min-height: 34px;/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.status-filter-option span \{ min-height: 38px; \}/);
+  assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.task-title, \.timestamp-toggle \{[^}]*min-height: 36px;/);
   assert.match(styles, /@media \(max-width: 480px\)[\s\S]*\.toolbar-primary \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*\.status-filter-option:has\(input:checked\) span \{ color: var\(--background\); \}/);
 });

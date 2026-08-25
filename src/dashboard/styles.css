@@ -171,6 +171,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .toolbar .status-filter-option { width: auto; }
   .task-count { justify-self: start; }
   .task-heading { align-items: flex-start; }
+  .task-title, .timestamp-toggle { display: flex; align-items: center; min-height: 36px; }
   .task-footer { align-items: flex-start; flex-direction: column; }
   .task-open { align-self: flex-start; }
   select { min-height: 40px; }
