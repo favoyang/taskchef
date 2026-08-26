@@ -1624,7 +1624,7 @@ test("dashboard server serves independent clients without sessions and protects 
   }
 });
 
-test("dashboard opens a valid Codex thread after its recorded project moves", async () => {
+test("dashboard Open task uses the Codex thread ID rather than the TaskChef task ID", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, input(project, FIRST_ID, "Historical task", FIRST_THREAD_ID));
   await rename(project, `${project}-moved`);
@@ -1642,6 +1642,7 @@ test("dashboard opens a valid Codex thread after its recorded project moves", as
     });
     assert.equal(response.status, 202);
     assert.equal(openedThread, FIRST_THREAD_ID);
+    assert.notEqual(openedThread, FIRST_ID);
   } finally {
     await server.close();
   }
@@ -1764,6 +1765,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /<h3>Activity timeline<\/h3>/);
   assert.match(html, /id="dialog-results"/);
   assert.match(html, /id="open-codex"[^>]+aria-label="Open this task in Codex"/);
+  assert.match(html, /id="copy-task-id"[^>]+aria-label="Copy Task ID"[^>]*>Copy Task ID<\/button>/);
+  assert.doesNotMatch(html, /copy-thread-id|Copy thread ID/);
   assert.match(html, /class="codex-icon" aria-hidden="true"/);
   assert.match(html, /<span>Open task<\/span>/);
   assert.doesNotMatch(html, />Open task in Codex</);

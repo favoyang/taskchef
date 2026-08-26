@@ -29,6 +29,8 @@ const state = {
 };
 let dateRefreshTimer = null;
 let detailRequestGeneration = 0;
+let copyTaskIdGeneration = 0;
+let copyTaskIdTimer = null;
 const relativeTimes = new RelativeTimeController();
 
 const elements = {
@@ -36,7 +38,7 @@ const elements = {
   closeDialog: document.querySelector("#close-dialog"),
   connectionDot: document.querySelector("#connection-dot"),
   connectionLabel: document.querySelector("#connection-label"),
-  copyThreadId: document.querySelector("#copy-thread-id"),
+  copyTaskId: document.querySelector("#copy-task-id"),
   dashboardMessage: document.querySelector("#dashboard-message"),
   dashboardMessageText: document.querySelector("#dashboard-message-text"),
   dateFilter: document.querySelector("#date-filter"),
@@ -211,6 +213,11 @@ function configureOpenTaskControl(control, ariaLabel) {
   control.replaceChildren(codexIcon(), label);
 }
 
+function setCopyTaskIdLabel(label) {
+  elements.copyTaskId.textContent = label;
+  elements.copyTaskId.setAttribute("aria-label", label);
+}
+
 function setConnection(connected) {
   elements.connectionDot.classList.toggle("connected", connected);
   elements.connectionLabel.textContent = connected ? "Live" : "Reconnecting…";
@@ -377,6 +384,11 @@ function turnTimeline(task) {
 }
 
 function renderDialog(task) {
+  if (state.selectedTask?.id !== task.id) {
+    copyTaskIdGeneration += 1;
+    clearTimeout(copyTaskIdTimer);
+    copyTaskIdTimer = null;
+  }
   const preservedResults = state.selectedTask?.id === task.id
     ? state.selectedTask.results
     : null;
@@ -398,7 +410,8 @@ function renderDialog(task) {
   );
   elements.dialogResults.replaceChildren(...turnTimeline(detailedTask));
   elements.dialogInstruction.textContent = task.instruction;
-  elements.copyThreadId.disabled = !task.threadId;
+  elements.copyTaskId.disabled = !task.id;
+  setCopyTaskIdLabel("Copy Task ID");
   elements.dialogMetadata.replaceChildren(
     ...detailRow("Current status", taskStatusLabel(task)),
     ...detailRow("Current turn ref", task.turnRef),
@@ -607,14 +620,26 @@ elements.closeDialog.addEventListener("click", () => elements.dialog.close());
 elements.dialog.addEventListener("click", (event) => {
   if (event.target === elements.dialog) elements.dialog.close();
 });
-elements.copyThreadId.addEventListener("click", async () => {
-  if (!state.selectedTask?.threadId) return;
+elements.copyTaskId.addEventListener("click", async () => {
+  const taskId = state.selectedTask?.id;
+  if (!taskId) return;
+  const copyGeneration = ++copyTaskIdGeneration;
+  clearTimeout(copyTaskIdTimer);
+  copyTaskIdTimer = null;
   try {
-    await navigator.clipboard.writeText(state.selectedTask.threadId);
-    elements.copyThreadId.textContent = "Copied";
-    setTimeout(() => { elements.copyThreadId.textContent = "Copy thread ID"; }, 1_500);
+    await navigator.clipboard.writeText(taskId);
+    if (copyGeneration !== copyTaskIdGeneration || state.selectedTask?.id !== taskId) return;
+    setCopyTaskIdLabel("Task ID copied");
+    copyTaskIdTimer = setTimeout(() => {
+      if (copyGeneration === copyTaskIdGeneration && state.selectedTask?.id === taskId) {
+        setCopyTaskIdLabel("Copy Task ID");
+      }
+      copyTaskIdTimer = null;
+    }, 1_500);
   } catch {
-    showMessage("Clipboard access is unavailable. Copy the thread ID from the metadata below.");
+    if (copyGeneration === copyTaskIdGeneration && state.selectedTask?.id === taskId) {
+      showMessage("Clipboard access is unavailable. Copy the Task ID from the metadata below.");
+    }
   }
 });
 elements.openProject.addEventListener("click", async (event) => {

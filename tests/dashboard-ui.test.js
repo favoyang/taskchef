@@ -21,7 +21,7 @@ class FakeElement {
   }
 
   emit(type, event = { target: this }) {
-    this.listeners.get(type)?.(event);
+    return this.listeners.get(type)?.(event);
   }
 
   append(...children) {
@@ -81,6 +81,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     document: globalThis.document,
     EventSource: globalThis.EventSource,
     fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
     Node: globalThis.Node,
     setInterval: globalThis.setInterval,
   };
@@ -116,20 +117,35 @@ test("dashboard renders a live notification with time and shared accessible desc
     },
   };
   try {
+    const taskId = "11111111-1111-4111-8111-111111111111";
+    const threadId = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
+    const clipboardWrites = [];
+    const pendingClipboardWrites = [];
+    let clipboardMode = "reject";
     globalThis.document = document;
     globalThis.Node = FakeElement;
     globalThis.EventSource = FakeEventSource;
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { clipboard: { writeText: async (value) => {
+        if (clipboardMode === "reject") throw new Error("clipboard denied");
+        if (clipboardMode === "defer") {
+          await new Promise((resolve) => pendingClipboardWrites.push({ resolve, value }));
+        }
+        clipboardWrites.push(value);
+      } } },
+    });
     globalThis.fetch = async (url) => {
       if (url === "/api/health") {
         return { ok: true, json: async () => ({ taskchefVersion: "test" }) };
       }
-      if (url === "/api/tasks/task-one") {
+      if (url === `/api/tasks/${taskId}`) {
         return {
           ok: true,
           json: async () => ({
             task: {
               createdAt: timestamp,
-              id: "task-one",
+              id: taskId,
               instruction: "Address the reported failures safely.",
               meaningfulUpdatedAt: timestamp,
               project: {
@@ -147,7 +163,7 @@ test("dashboard renders a live notification with time and shared accessible desc
               }],
               relatedGitHubRepository: "acme/app",
               status: "needs_input",
-              threadId: "thread-one",
+              threadId,
               title: "Continue MarketLake V1",
               turnId: "turn-one",
               turns: [{
@@ -162,6 +178,7 @@ test("dashboard renders a live notification with time and shared accessible desc
           }),
         };
       }
+      if (url === "/api/tasks/task-two") return { ok: false };
       throw new Error(`Unexpected fetch: ${url}`);
     };
     globalThis.setInterval = () => 1;
@@ -174,7 +191,7 @@ test("dashboard renders a live notification with time and shared accessible desc
       healthy: true,
       tasks: [{
         createdAt: timestamp,
-        id: "task-one",
+        id: taskId,
         instruction: "Continue the import",
         lastResult: {
           status: "needs_input",
@@ -257,7 +274,7 @@ test("dashboard renders a live notification with time and shared accessible desc
           turnId: "turn-one",
         },
         status: "needs_input",
-        threadId: "thread-one",
+        threadId,
         title: "Continue MarketLake V1",
         turnId: "turn-one",
         updatedAt: timestamp,
@@ -288,7 +305,7 @@ test("dashboard renders a live notification with time and shared accessible desc
       open.getAttribute("aria-describedby"),
     );
 
-    const [firstCard] = elements.get("#task-list").children;
+    const [firstCard, secondCard] = elements.get("#task-list").children;
     const project = firstCard.children[1];
     assert.equal(project.children[0].textContent, "MarketLake");
     assert.equal(project.children[2].textContent, "acme/app");
@@ -363,6 +380,37 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.match(result.children[1].getAttribute("aria-label"), /on GitHub.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
 
+    const copyTaskId = elements.get("#copy-task-id");
+    assert.equal(copyTaskId.textContent, "Copy Task ID");
+    assert.equal(copyTaskId.getAttribute("aria-label"), "Copy Task ID");
+    await copyTaskId.emit("click");
+    assert.deepEqual(clipboardWrites, []);
+    assert.equal(copyTaskId.textContent, "Copy Task ID");
+    assert.equal(
+      elements.get("#dashboard-message-text").textContent,
+      "Clipboard access is unavailable. Copy the Task ID from the metadata below.",
+    );
+    clipboardMode = "defer";
+    const staleCopy = copyTaskId.emit("click");
+    secondCard.children[0].children[0].emit("click");
+    pendingClipboardWrites.shift().resolve();
+    await staleCopy;
+    assert.equal(copyTaskId.textContent, "Copy Task ID");
+    assert.equal(copyTaskId.getAttribute("aria-label"), "Copy Task ID");
+
+    firstCard.children[0].children[0].emit("click");
+    const olderCopy = copyTaskId.emit("click");
+    const latestCopy = copyTaskId.emit("click");
+    pendingClipboardWrites.shift().resolve();
+    await olderCopy;
+    assert.equal(copyTaskId.textContent, "Copy Task ID");
+    pendingClipboardWrites.shift().resolve();
+    await latestCopy;
+    assert.deepEqual(clipboardWrites, [taskId, taskId, taskId]);
+    assert.notEqual(clipboardWrites[0], threadId);
+    assert.equal(copyTaskId.textContent, "Task ID copied");
+    assert.equal(copyTaskId.getAttribute("aria-label"), "Task ID copied");
+
     const statusFilter = elements.get("#status-filter");
     assert.deepEqual(
       statusFilter.statusLabels.map(({ textContent }) => textContent),
@@ -387,6 +435,10 @@ test("dashboard renders a live notification with time and shared accessible desc
     globalThis.document = previous.document;
     globalThis.EventSource = previous.EventSource;
     globalThis.fetch = previous.fetch;
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: previous.navigator,
+    });
     globalThis.Node = previous.Node;
     globalThis.setInterval = previous.setInterval;
   }
