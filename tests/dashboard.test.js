@@ -1412,7 +1412,7 @@ test("dashboard server serves independent clients without sessions and protects 
       "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",
     );
     assert.deepEqual(snapshot.tasks[0].relatedGitHubLinks, [{
-      label: "#123",
+      label: "favoyang/taskchef#123",
       number: "123",
       owner: "favoyang",
       repository: "taskchef",
@@ -1702,6 +1702,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-open \{ align-self: flex-start; \}/);
   assert.match(styles, /\.task-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styles, /\.task-title, \.task-summary \{ overflow-wrap: anywhere; \}/);
+  assert.match(styles, /\.github-link \{[^}]*overflow-wrap: anywhere;/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
   assert.match(styles, /\.toolbar \{[^}]*display: grid;/);
   assert.match(styles, /\.toolbar-primary \{[^}]*grid-template-columns: repeat\(2, minmax\(180px, 240px\)\);/);

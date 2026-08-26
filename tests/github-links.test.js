@@ -5,6 +5,7 @@ import {
   githubReferenceSegments,
   MAX_RELATED_GITHUB_LINKS,
   normalizeGitHubRepository,
+  referenceSegments,
   taskGitHubProjection,
 } from "../src/dashboard/github-links.js";
 
@@ -62,6 +63,10 @@ test("retains explicit issue and pull URL types while preserving surrounding pun
     { type: "issue", url: "https://github.com/acme/app/issues/12" },
     { type: "pull", url: "https://github.com/acme/app/pull/13" },
   ]);
+  assert.deepEqual(links(segments).map(({ label }) => label), [
+    "acme/app#12",
+    "acme/app#13",
+  ]);
   assert.equal(segments.map(({ text: value }) => value).join(""), text);
 });
 
@@ -78,6 +83,25 @@ test("links canonical repository URLs and uses them as bare-reference context", 
     { type: "generic", url: "https://github.com/acme/app/issues/14" },
   ]);
   assert.equal(segments.map(({ text: value }) => value).join(""), text);
+});
+
+test("keeps safe repository fragments behind the canonical repository label", () => {
+  const text = "Read https://github.com/Acme/App#readme.";
+  const segments = referenceSegments(text);
+  assert.deepEqual(links(segments).map(({ label, type, url }) => ({ label, type, url })), [{
+    label: "acme/app",
+    type: "repository",
+    url: "https://github.com/acme/app#readme",
+  }]);
+  const projection = taskGitHubProjection({
+    instruction: text,
+    project: { githubRepos: [] },
+    turns: [],
+  });
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ label, url }) => ({ label, url })), [{
+    label: "acme/app",
+    url: "https://github.com/acme/app#readme",
+  }]);
 });
 
 test("preserves dotted repository names without consuming sentence punctuation", () => {
@@ -116,8 +140,8 @@ test("projects workspace and child repository links alongside their pull request
   });
   assert.deepEqual(projection.relatedGitHubLinks.map(({ label, type, url }) => ({ label, type, url })), [
     { label: "acme/child", type: "repository", url: "https://github.com/acme/child" },
-    { label: "child PR #12", type: "pull", url: "https://github.com/acme/child/pull/12" },
-    { label: "workspace PR #34", type: "pull", url: "https://github.com/acme/workspace/pull/34" },
+    { label: "acme/child#12", type: "pull", url: "https://github.com/acme/child/pull/12" },
+    { label: "acme/workspace#34", type: "pull", url: "https://github.com/acme/workspace/pull/34" },
   ]);
 });
 
@@ -147,6 +171,7 @@ test("resolves a bare reference for exactly one advertised project repository", 
     projectRepositories: ["https://github.com/Acme/App"],
   }));
   assert.equal(reference.url, "https://github.com/acme/app/issues/31");
+  assert.equal(reference.label, "acme/app#31");
 });
 
 test("uses a unique task-wide explicit repository for a later bare turn reference", () => {
@@ -191,10 +216,157 @@ test("task projection deduplicates canonical URLs in first-seen order and adds r
     }],
   });
   assert.deepEqual(projection.relatedGitHubLinks.map(({ label, url }) => ({ label, url })), [
-    { label: "app #70", url: "https://github.com/acme/app/issues/70" },
-    { label: "api #71", url: "https://github.com/acme/api/issues/71" },
-    { label: "api PR #72", url: "https://github.com/acme/api/pull/72" },
+    { label: "acme/app#70", url: "https://github.com/acme/app/issues/70" },
+    { label: "acme/api#71", url: "https://github.com/acme/api/issues/71" },
+    { label: "acme/api#72", url: "https://github.com/acme/api/pull/72" },
   ]);
+});
+
+test("uses the same qualified label while preserving explicit issue and pull targets", () => {
+  const segments = referenceSegments(
+    "Issue https://github.com/Acme/App/issues/12 and pull https://github.com/acme/app/pull/12.",
+  );
+  assert.deepEqual(links(segments).map(({ label, type, url }) => ({ label, type, url })), [
+    { label: "acme/app#12", type: "issue", url: "https://github.com/acme/app/issues/12" },
+    { label: "acme/app#12", type: "pull", url: "https://github.com/acme/app/pull/12" },
+  ]);
+  const projection = taskGitHubProjection({
+    instruction: segments.map(({ text }) => text).join(""),
+    project: { githubRepos: [] },
+    turns: [],
+  });
+  assert.equal(projection.relatedGitHubLinks.length, 2);
+});
+
+test("preserves safe GitHub issue and pull URL suffixes behind compact labels", () => {
+  const text = "Open https://github.com/acme/app/issues/12?view=1#issuecomment-2 and https://github.com/acme/app/pull/13/files.";
+  const segments = referenceSegments(text);
+  assert.deepEqual(links(segments).map(({ label, type, url }) => ({ label, type, url })), [
+    {
+      label: "acme/app#12",
+      type: "issue",
+      url: "https://github.com/acme/app/issues/12?view=1#issuecomment-2",
+    },
+    {
+      label: "acme/app#13",
+      type: "pull",
+      url: "https://github.com/acme/app/pull/13/files",
+    },
+  ]);
+  assert.equal(segments.map(({ text: value }) => value).join(""), text);
+  const projection = taskGitHubProjection({
+    instruction: text,
+    project: { githubRepos: [] },
+    turns: [],
+  });
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ url }) => url), [
+    "https://github.com/acme/app/issues/12?view=1#issuecomment-2",
+    "https://github.com/acme/app/pull/13/files",
+  ]);
+});
+
+test("deduplicates canonical GitHub targets without folding case-sensitive suffixes", () => {
+  const projection = taskGitHubProjection({
+    instruction: "Compare https://github.com/acme/app/issues/12?view=A with https://github.com/acme/app/issues/12?view=a.",
+    project: { githubRepos: [] },
+    turns: [],
+  });
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ url }) => url), [
+    "https://github.com/acme/app/issues/12?view=A",
+    "https://github.com/acme/app/issues/12?view=a",
+  ]);
+});
+
+test("linkifies safe non-GitHub HTTP(S) URLs with deterministic literal labels", () => {
+  const text = "Read (https://example.com/docs?q=one), then http://127.0.0.1:3210/path.";
+  const segments = referenceSegments(text);
+  assert.deepEqual(links(segments).map(({ label, provider, url }) => ({ label, provider, url })), [
+    {
+      label: "https://example.com/docs?q=one",
+      provider: "web",
+      url: "https://example.com/docs?q=one",
+    },
+    {
+      label: "http://127.0.0.1:3210/path",
+      provider: "web",
+      url: "http://127.0.0.1:3210/path",
+    },
+  ]);
+  assert.equal(segments.map(({ text: value }) => value).join(""), text);
+});
+
+test("keeps numeric fragments on non-GitHub URLs instead of inventing GitHub targets", () => {
+  for (const options of [
+    {},
+    { projectRepositories: ["https://github.com/acme/app"] },
+  ]) {
+    const text = "See https://example.com/path#12 and https://docs.example.net/acme/app#13.";
+    const segments = referenceSegments(text, options);
+    assert.deepEqual(links(segments).map(({ label, provider, url }) => ({ label, provider, url })), [
+      {
+        label: "https://example.com/path#12",
+        provider: "web",
+        url: "https://example.com/path#12",
+      },
+      {
+        label: "https://docs.example.net/acme/app#13",
+        provider: "web",
+        url: "https://docs.example.net/acme/app#13",
+      },
+    ]);
+  }
+  const projection = taskGitHubProjection({
+    instruction: "See https://example.com/path#12.",
+    project: { githubRepos: ["https://github.com/acme/app"] },
+    turns: [],
+  });
+  assert.deepEqual(projection.relatedGitHubLinks, []);
+});
+
+test("keeps embedded GitHub URLs inside outer non-GitHub URL tokens", () => {
+  const text = "Open https://example.com/?next=https://github.com/acme/app/pull/12 then #13.";
+  const segments = referenceSegments(text, {
+    projectRepositories: [
+      "https://github.com/acme/app",
+      "https://github.com/acme/api",
+    ],
+  });
+  assert.deepEqual(links(segments).map(({ label, provider, url }) => ({ label, provider, url })), [{
+    label: "https://example.com/?next=https://github.com/acme/app/pull/12",
+    provider: "web",
+    url: "https://example.com/?next=https://github.com/acme/app/pull/12",
+  }]);
+  assert.equal(segments.find(({ kind }) => kind === "ambiguous")?.text, "#13");
+  const projection = taskGitHubProjection({
+    instruction: text,
+    project: {
+      githubRepos: [
+        "https://github.com/acme/app",
+        "https://github.com/acme/api",
+      ],
+    },
+    turns: [],
+  });
+  assert.equal(projection.relatedGitHubRepository, null);
+  assert.deepEqual(projection.relatedGitHubLinks, []);
+});
+
+test("preserves punctuation outside URLs across nested closing delimiters", () => {
+  const text = "Read (https://example.com/docs.), [https://example.net/help!], and {https://example.org/guide;}.";
+  const segments = referenceSegments(text);
+  assert.deepEqual(links(segments).map(({ label }) => label), [
+    "https://example.com/docs",
+    "https://example.net/help",
+    "https://example.org/guide",
+  ]);
+  assert.equal(segments.map(({ text: value }) => value).join(""), text);
+});
+
+test("keeps unsafe or unsupported URL-like text inert", () => {
+  const text = String.raw`Do not link javascript:alert(1), www.example.com, https://user:secret@example.com/path, https://example.com/a/.%2e/admin, https://example.com/a/%2e./admin, https://example.com/a\..\admin, or https://github.com/acme/../issues/12.`;
+  const segments = referenceSegments(text);
+  assert.deepEqual(links(segments), []);
+  assert.equal(segments.map(({ text: value }) => value).join(""), text);
 });
 
 test("XSS-like input remains inert text around narrowly recognized GitHub references", () => {
@@ -209,4 +381,11 @@ test("XSS-like input remains inert text around narrowly recognized GitHub refere
   )), false);
   assert.match(segments[0].text, /<img/);
   assert.match(segments.at(-1).text, /<script>/);
+
+  const linked = referenceSegments(
+    '<img src=x onerror=alert(1)> https://example.com/path <script>bad()</script>',
+  );
+  assert.equal(links(linked)[0].label, "https://example.com/path");
+  assert.equal(linked.some(({ kind, text: value }) => kind === "text" && value.includes("<img")), true);
+  assert.equal(linked.some(({ kind, text: value }) => kind === "text" && value.includes("<script>")), true);
 });
