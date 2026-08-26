@@ -30,10 +30,14 @@ Complete this lifecycle setup before substantive assignment work:
    that exact thread ID as the first TaskChef action. An identical retry is
    idempotent. On a follow-up, retry the same link only when the prior link
    cannot be established from the task context.
-3. Read this exact Codex thread natively and obtain the current turn ID. Do not
-   infer it or reuse an earlier turn ID.
+3. Establish this prompt's lifecycle identity before reporting. If this exact
+   Codex thread can be read natively and exposes the current turn ID, use that
+   exact value for both `turnRef` and `turnId`. Otherwise generate one fresh
+   UUID locally, retain it for this entire prompt, use it as `turnRef`, and use
+   `turnId: null`. Do not infer a native ID, reuse an earlier prompt's
+   `turnRef`, or let a retry generate a replacement UUID.
 4. Call TaskChef `report_state` with the marked task ID, self-linked thread ID,
-   current turn ID, `status: working`, an omitted or null result summary, and a
+   this prompt's `turnRef` and optional Codex `turnId`, `status: working`, an omitted or null result summary, and a
    concise `requestSummary` describing this turn's assignment or follow-up.
    When the turn targets a known GitHub repository, include its canonical
    `https://github.com/<owner>/<repository>` URL so multi-repository projects
@@ -45,15 +49,17 @@ as interrupted and starts the current turn. Continue the real assignment from
 the current request. Do not manufacture a semantic `failed` result for the old
 turn and do not retry an old terminal report.
 
-If `CODEX_THREAD_ID`, exact native thread reading, or a required TaskChef tool
-is unavailable, or if linking or the working-state report fails, report the
-failure visibly and stop before substantive work. Retry on a later turn. Never
-guess identity or bypass a link-pending state.
+If `CODEX_THREAD_ID` or a required TaskChef tool is unavailable, or if linking
+or the working-state report fails, report the failure visibly and stop before
+substantive work. Native turn reading is optional because the retained fallback
+UUID is the lifecycle identity. Retry a possibly lost working callback with the
+same `turnRef`; never generate a replacement for the same prompt or bypass a
+link-pending state.
 
 ## Finish every execution turn
 
-Before ending, read this exact Codex thread again and call `report_state` for
-the current turn with one semantic status and a concise summary:
+Before ending, call `report_state` with the same `turnRef` and `turnId` values
+used by this prompt's working report, one semantic status, and a concise summary:
 
 - `completed` only when the assignment is genuinely complete.
 - `needs_input` only when a semantic decision or missing information must come
@@ -62,16 +68,16 @@ the current turn with one semantic status and a concise summary:
 
 A live native approval prompt is Codex state, not semantic `needs_input`; leave
 the approval live instead of storing it as a TaskChef result. Never invent or
-reuse a turn ID after a follow-up. If a final-report response is lost, an
+reuse a `turnRef` after a follow-up. If a final-report response is lost, an
 identical terminal retry is safe only while the same turn remains current. On
-a later turn, run the start lifecycle with its new current turn ID; TaskChef
+a later prompt, run the start lifecycle with a new `turnRef`; TaskChef
 will preserve the predecessor as interrupted, and only the new turn may receive
 a semantic result. Say reporting failures visibly instead of claiming a tracked
 outcome.
 
 Request and result summaries must omit secrets, transcripts, raw command output, hidden reasoning,
 and unnecessary personal data. Identical lifecycle retries are safe; never
-replace a same-turn report with different content or let an older turn
+replace a same-`turnRef` report with different content or let an older turn
 overwrite newer state.
 
 ### Preserve repository and delivery links

@@ -70,5 +70,7 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 7. Return immediately. Preserve a returned provisional client ID only for the
    created-thread directive. Do not call `link_task` from the dispatcher even
    when creation returns a durable ID; the child must self-link.
-8. If creation fails after recording, call `report_state` with `failed`, null
-   thread/turn IDs, and a bounded summary before returning the failure.
+8. If creation fails after recording, generate a fresh UUID and call
+   `report_state` with it as `turnRef`, `failed`, null thread and Codex turn IDs,
+   and a bounded summary before returning the failure. Retain that UUID for an
+   exact retry.

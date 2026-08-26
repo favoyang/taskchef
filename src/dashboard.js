@@ -138,10 +138,13 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
     boundedText(task.instruction, 250_000, `${name} instruction`);
     boundedText(task.summary, 2_000, `${name} summary`);
     boundedText(task.threadId, 512, `${name} thread ID`);
+    boundedText(task.turnRef, 512, `${name} turn ref`);
     boundedText(task.turnId, 512, `${name} turn ID`);
     boundedText(task.lastResult?.summary, 2_000, `${name} last result summary`);
+    boundedText(task.lastResult?.turnRef, 512, `${name} last result turn ref`);
     boundedText(task.lastResult?.turnId, 512, `${name} last result turn ID`);
     boundedText(task.latestTurn?.requestSummary, 1_000, `${name} latest request summary`);
+    boundedText(task.latestTurn?.turnRef, 512, `${name} latest turn ref`);
     boundedText(task.latestTurn?.turnId, 512, `${name} latest turn ID`);
     const turns = task.turns ?? [];
     if (turns.length > 10_000) {
@@ -149,6 +152,7 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
     }
     for (const [turnIndex, turn] of turns.entries()) {
       boundedText(turn.requestSummary, 1_000, `${name} turn ${turnIndex + 1} request summary`);
+      boundedText(turn.turnRef, 512, `${name} turn ${turnIndex + 1} turn ref`);
       boundedText(turn.turnId, 512, `${name} turn ${turnIndex + 1} turn ID`);
       boundedText(turn.result?.summary, 2_000, `${name} turn ${turnIndex + 1} result summary`);
     }
@@ -158,6 +162,7 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
     }
     for (const [resultIndex, result] of results.entries()) {
       boundedText(result.summary, 2_000, `${name} result ${resultIndex + 1} summary`);
+      boundedText(result.turnRef, 512, `${name} result ${resultIndex + 1} turn ref`);
       boundedText(result.turnId, 512, `${name} result ${resultIndex + 1} turn ID`);
     }
     boundedText(task.project.name, 1_000, `${name} project name`);

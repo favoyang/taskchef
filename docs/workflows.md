@@ -89,7 +89,7 @@ sequenceDiagram
   D->>D: Choose one configured and native project
   D->>M: record_task(id, project, title, instruction, null)
   M->>W: recordTask()
-  W->>W: Lock, validate, append schema-8 snapshot
+  W->>W: Lock, validate, append schema-9 snapshot
   W-->>M: working link-pending task
   M-->>D: task
   D->>C: Create executor with marked instruction
@@ -116,9 +116,10 @@ semantic callbacks.
 
 ## State reporting
 
-The executor obtains the turn identity from an exact native read of its own
-linked task. `report_state` records live turn state as a paired request/result
-timeline.
+The executor always establishes a `turnRef` before work. An exact native read
+supplies the same value as optional `turnId` metadata when available; otherwise
+the executor retains a fresh UUID and reports `turnId: null`. `report_state`
+records live turn state as a paired request/result timeline.
 
 That timeline is also the durable GitHub-link source. A working request names a
 known selected repository with its canonical GitHub URL. A terminal result
@@ -134,13 +135,16 @@ sequenceDiagram
   participant C as Native Codex task API
   participant M as TaskChef MCP
   participant W as workspace.js
-  E->>C: Exact read of linked executor
-  C-->>E: Current turn ID
-  E->>M: report_state(..., working, requestSummary)
+  opt Native turn metadata available
+    E->>C: Exact read of linked executor
+    C-->>E: Current turn ID
+  end
+  E->>E: Retain native ID or generate fallback UUID turnRef
+  E->>M: report_state(..., turnRef, turnId, working, requestSummary)
   M->>W: reportTaskState()
   W->>W: Append turn with request and null result
   E->>E: Work, finish, or reach semantic decision
-  E->>M: report_state(..., semantic status, summary)
+  E->>M: report_state(..., same turnRef, same turnId, semantic status, summary)
   M->>W: reportTaskState()
   W->>W: Lock and validate identity and freshness
   alt Same current working turn
@@ -161,8 +165,10 @@ for a user decision or fact required to proceed.
 
 ## Follow-up turns
 
-Turn IDs are freshness tokens for semantic callbacks. Lexical UUIDv7 order lets
-the workspace reject a callback from an older executor turn.
+Turn refs are freshness tokens for semantic callbacks. The workspace rejects a
+callback whose ref belongs to a historical turn. Fallback UUID refs are opaque
+and unordered; native-backed UUIDv7 refs retain native ordering so a delayed,
+previously unseen older start cannot replace newer native state.
 
 ```mermaid
 sequenceDiagram
@@ -181,7 +187,7 @@ sequenceDiagram
   C-->>E: turnB
   E->>M: report_state(..., turnB, working, requestB)
   M->>W: reportTaskState()
-  W->>W: Require turnB greater and append request B
+  W->>W: Require a fresh turnB ref and append request B
   W-->>M: working snapshot plus paired timeline
   M-->>E: working snapshot plus paired timeline
   E->>M: report_state(..., turnB, completed, summaryB)
@@ -190,12 +196,13 @@ sequenceDiagram
   M-->>E: completed snapshot plus result B
   E->>M: report_state(..., turnA, completed, staleSummary)
   M->>W: Validate freshness
-  W-->>M: Error: turn is not newer
+  W-->>M: Error: stale turnRef
   M-->>E: Visible tool error
 ```
 
-The executor contract therefore requires a new exact read on every follow-up;
-cached or inherited turn IDs are invalid.
+The executor contract therefore requires a new `turnRef` on every follow-up.
+Native turn reads are preferred metadata but optional; cached or inherited IDs
+and replacement fallback UUIDs for the same prompt are invalid.
 
 ## Interrupted-turn recovery
 
@@ -211,12 +218,12 @@ sequenceDiagram
   participant M as TaskChef MCP
   participant W as workspace.js
   participant F as tasks.jsonl
-  E->>M: report_state(..., turnB, working, requestB)
+  E->>M: report_state(..., turnRefB, working, requestB)
   M->>W: reportTaskState()
-  W->>W: Acquire workspace lock and validate turnB > turnA
+  W->>W: Acquire workspace lock and validate turnRefB is new
   W->>W: Close unfinished turnA as interrupted
   W->>W: Append turnB with requestB and null result
-  W->>F: One atomic schema-8 replacement
+  W->>F: One atomic schema-9 replacement
   W-->>M: working task projected from turnB
   M-->>E: Idempotent recovery success
   E->>M: late semantic result for turnA
@@ -277,10 +284,11 @@ sequenceDiagram
   W-->>D: Recorded task
   D->>C: Create executor
   C--xD: Creation error
-  D->>M: report_state(taskId, null, null, failed, boundedSummary)
+  D->>D: Generate and retain fallback UUID turnRef
+  D->>M: report_state(taskId, null, turnRef, null, failed, boundedSummary)
   M->>W: Lock and store creation failure
-  W-->>D: Failed task with null IDs
-  D-->>D: Preserve original creation error and task ID
+  W-->>D: Failed task with turnRef and null native IDs
+  D-->>D: Preserve original creation error, task ID, and turnRef
 ```
 
 The summary is bounded and excludes secrets, transcripts, and raw command
@@ -331,8 +339,8 @@ against current configuration.
 
 The browser derives one immutable Updates-panel snapshot when it first observes
 a semantic lifecycle transition. The snapshot keeps its event-time title,
-state/event, turn ID, timestamp, and relevant summary. Its identity combines
-task ID, turn ID, and event, with creation time as the fallback when creation
+state/event, turn ref, optional Codex turn ID, timestamp, and relevant summary.
+Its identity combines task ID, turn ref, and event, with creation time as the fallback when creation
 has no turn. A separate seen-identity set outlives the bounded visible notices,
 individual dismissals, and Clear all, preventing replay after reconnect,
 normalization, or disappearance and reappearance. Per-task semantic signatures
@@ -351,15 +359,16 @@ all, and ordinary rerendering do not re-announce retained history. Toast action
 labels remain concise while `aria-describedby` connects the visible summary,
 event time, and missing-task explanation for assistive technology.
 
-## Schema 4/5/6/7 migration
+## Schema 4-8 migration
 
 `taskchef workspace migrate` acquires the same workspace lock as lifecycle
 writers, validates the complete legacy log, converts schema-4/5/6 results into
 request-unknown completed turns and preserves a newer working turn, then validates the
 complete candidate. Before replacement it writes and reads back an exclusive
-`tasks.jsonl.pre-v8-*.bak` file. Schema-7 timelines are copied losslessly into
-schema 8. The task log is replaced atomically and validated again. A second run
-sees only schema 8 and returns unchanged without
+`tasks.jsonl.pre-v9-*.bak` file. Schema-7/8 timelines gain a durable `turnRef`:
+non-null `turnId` values are copied exactly and null IDs receive persisted UUIDs.
+Task and turn counts plus all refs are validated before and after the atomic
+replacement. A second run sees only schema 9 and returns unchanged without
 another backup. Unsupported or malformed input fails before backup/rewrite;
 after a later filesystem failure, the reported backup is the recovery source.
 
@@ -376,9 +385,9 @@ summary is cryptographically authenticated; this is a local single-user trust
 model. Managed files, instructions, project snapshots, MCP inputs, and dashboard
 requests are validated at every action boundary.
 
-Configuration schema 2 and task schemas 4, 5, 6, 7, and 8 are accepted. Schemas
-4/5/6/7 are read/migration compatibility until an explicit migration or lifecycle
-mutation upgrades each record to schema 8. Schema 8 persists `turns`, including
+Configuration schema 2 and task schemas 4 through 9 are accepted. Schemas
+4-8 are read/migration compatibility until an explicit migration or lifecycle
+mutation upgrades each record to schema 9. Schema 9 persists `turns`, including
 timeline-only interrupted outcomes, and derives semantic-only `results` and
 `lastResult` plus `latestTurn` for compact compatibility. Other schemas
 are rejected without rewrite.

@@ -26,7 +26,8 @@ is dated research, not contract.
 | **Turn timeline** | The ordered collection pairing each turn's concise request summary with its semantic result, TaskChef-generated interruption outcome, or current in-progress state. |
 | **Interrupted turn** | A formerly active turn that lacked a terminal report when a newer valid turn started; TaskChef closes it with the fixed timeline-only `interrupted` outcome. |
 | **Last semantic result** | The final result-history entry, exposed through the derived `lastResult` compatibility alias. |
-| **Current turn ID** | The canonical Codex UUIDv7 returned by an exact native read of the linked executor for the turn being reported. |
+| **Turn reference** | Required lifecycle identity for one executor prompt. It is the native Codex turn ID when available, otherwise a retained client-generated UUID. |
+| **Current turn ID** | Optional Codex metadata for the reported prompt; null when native turn reading is unavailable. |
 | **Dashboard** | The loopback, read-only UI derived from validated workspace snapshots and bounded native actions. |
 | **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-copilot`. |
 
@@ -71,8 +72,8 @@ Repository URLs MUST canonicalize to `https://github.com/<owner>/<repository>`
 and be case-insensitively deduplicated.
 
 `tasks.jsonl` MUST contain zero or more newline-terminated schema-4 through
-schema-8 records, one per line. Schemas 4 through 7 are supported
-migration/read formats; every new record and state mutation MUST write schema 8. Other schemas
+schema-9 records, one per line. Schemas 4 through 8 are supported
+migration/read formats; every new record and state mutation MUST write schema 9. Other schemas
 or unsupported fields MUST be rejected without conversion.
 Reads and writes MUST reject symlinked managed files. Mutations
 MUST hold the shared workspace lock and replace state atomically; read-only
@@ -84,7 +85,7 @@ Every record MUST contain exactly these fields:
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Integer `8`; schema-4/5/6/7 records remain readable until explicit migration or their next mutation. |
+| `schemaVersion` | Integer `9`; schema-4/5/6/7/8 records remain readable until explicit migration or their next mutation. |
 | `id` | Unique safe TaskChef ID; delegation uses a lowercase full UUID. |
 | `project` | Immutable configured-project snapshot. |
 | `title` | Non-empty display title. |
@@ -93,16 +94,17 @@ Every record MUST contain exactly these fields:
 | `createdAt` | ISO 8601 creation timestamp. |
 | `status` | `working`, `needs_input`, `completed`, or `failed`. |
 | `summary` | Null while working; otherwise the current semantic state's non-empty summary of at most 2,000 characters. |
-| `turnId` | Null before turn reporting; otherwise the current reported turn. Linked MCP journeys use a canonical Codex UUIDv7. |
+| `turnRef` | Null before reporting begins; otherwise the required lifecycle identity of the current turn. Self-linking journeys use a native or fallback UUID. Migrated low-level `report_result` compatibility records may retain an opaque ref equal to their opaque `turnId`. |
+| `turnId` | Optional Codex metadata. When non-null it equals `turnRef`; null indicates fallback identity. |
 | `updatedAt` | ISO 8601 timestamp not earlier than `createdAt` or the prior `updatedAt`; clock rollback cannot backdate a transition. |
 | `updatedBy` | `dispatcher` or `mcp`. |
-| `turns` | Ordered oldest-first array of `{turnId, requestSummary, startedAt, result}`. `requestSummary` is null only for migrated/compatibility turns. `result` is null only for the latest working turn, a semantic `{status, summary, updatedAt}` result, or the TaskChef-generated `{status: "interrupted", summary: "Turn interrupted before a terminal report.", updatedAt}` outcome. Canonical self-linking turn IDs are unique. A migrated low-level opaque record may retain one final reused ID to represent its legacy completed-result-plus-working-state ambiguity. |
+| `turns` | Ordered oldest-first array of `{turnRef, turnId, requestSummary, startedAt, result}`. Every `turnRef` is required. `requestSummary` is null only for migrated/compatibility turns. `result` is null only for the latest working turn, a semantic `{status, summary, updatedAt}` result, or the fixed TaskChef `interrupted` outcome. New self-linking turn refs are unique. A migrated low-level opaque record may retain one final reused native-derived ref for its legacy ambiguity. |
 
 Returned Task objects MUST additionally expose `latestTurn` as null for an empty
 timeline or the final `turns` entry. They MUST derive `results` only from
 semantic `needs_input`, `completed`, and `failed` turn results and `lastResult`
 from the final derived semantic result. Interrupted outcomes MUST be excluded.
-These projections MUST NOT be persisted in schema 8 and remain compatibility
+These projections MUST NOT be persisted in schema 9 and remain compatibility
 aliases for existing callers.
 
 Task IDs and non-null thread identities MUST be unique. The immutable intent
@@ -129,12 +131,15 @@ the final link, preserving the delegate skill's immediate-return contract.
 5. It MUST create exactly one native Codex executor and return immediately.
 6. The executor MUST read its own `CODEX_THREAD_ID` and call `link_task`
    before substantive work. It MUST NOT use parent/session identity or guess.
-7. After initial linking, the executor MUST exactly read its linked task and
-   call `report_state` with that turn ID, `working`, and no summary before work.
-8. Before ending, it MUST call `report_state` for the same working turn with a
+7. After initial linking, the executor MUST establish a `turnRef`. It MUST use
+   the native Codex turn ID for both `turnRef` and `turnId` when available;
+   otherwise it MUST retain a fresh UUID `turnRef` and use `turnId: null`.
+   It MUST call `report_state` with that identity, `working`, and no summary before work.
+8. Before ending, it MUST call `report_state` with the same `turnRef` and
+   `turnId` metadata as the working report and a
    semantic status and concise summary.
-9. A follow-up MUST report `working` with its new current turn ID before work.
-   It MUST NOT reuse a prior turn. If the preceding turn is still unfinished,
+9. A follow-up MUST report `working` with a new `turnRef` before work.
+   It MUST NOT reuse a prior prompt's ref. If the preceding turn is still unfinished,
    TaskChef MUST atomically close it as `interrupted` before appending the new
    working turn; the executor MUST NOT report semantic `failed` for recovery.
 
@@ -146,7 +151,8 @@ managed child repository and its workspace/root repository MUST include both
 pull-request URLs. Executors MUST NOT guess unresolved repository identity.
 
 If native creation fails after recording, the dispatcher MUST call
-`report_state` with `failed`, null thread/turn IDs, and a bounded summary.
+`report_state` with `failed`, a retained fallback UUID `turnRef`, null thread
+and Codex turn IDs, and a bounded summary.
 A link failure MUST remain visible and retryable; the executor MUST report it
 visibly and MUST NOT continue substantive work.
 
@@ -254,7 +260,7 @@ new preparation values, though it writes no state.
 
 **Structured output:** `{ task: Task }`.
 
-The returned task has schema 8, `working`, null summary/turn/thread/latestTurn/lastResult,
+The returned task has schema 9, `working`, null summary/turn/thread/latestTurn/lastResult,
 empty `turns` and derived `results` arrays,
 `updatedBy: dispatcher`, and equal creation/update timestamps. Duplicate IDs,
 unknown projects, malformed markers, and invalid input fail. Repeating a
@@ -292,23 +298,29 @@ marker, or ineligible state fails.
 | --- | --- |
 | `taskId` | Non-empty string. |
 | `threadId` | Matching non-empty ID for a linked task; null only for creation failure. |
-| `turnId` | Current canonical Codex UUIDv7 for a linked MCP journey; null only for creation failure. Maximum 256 characters at the MCP boundary. |
+| `turnRef` | Stable UUID for this prompt. It may be omitted only by legacy callers that supply a non-null `turnId`, in which case TaskChef derives the same value. |
+| `turnId` | Optional Codex metadata. When present it MUST equal `turnRef`; null is valid for fallback UUID refs. Maximum 256 characters. |
 | `status` | `working`, `needs_input`, `completed`, or `failed`. |
 | `summary` | Omitted or null for `working`; required non-empty string of at most 2,000 characters otherwise. Known GitHub issues and pull requests use canonical URLs. |
 | `requestSummary` | Concise current request of at most 1,000 characters for `working`; optional for backward compatibility and omitted for semantic states. A known selected GitHub repository uses its canonical URL. |
 
 **Structured output:** `{ task: Task }`.
 
-For a linked self-linking journey, a new `working` state MUST identify a turn
-newer than the current turn and last semantic result. An exact retry of any
-already-recorded working start MUST return the current task without mutation.
+For a linked self-linking journey, a new `working` state MUST use a `turnRef`
+not already assigned to a different turn. An exact retry of the current
+working start MUST return the current task without mutation.
+When `turnId` is present, its native-backed `turnRef` MUST also be newer than
+every previously stored native-backed ref. Fallback UUID refs are opaque and
+MUST NOT be lexically ordered.
 A semantic state MUST match the current working turn. Conflicting or stale
-state fails. A null-identity record accepts only a fresh executor
-creation `failed` state with both IDs null. Starting work appends one turn with
+state fails. A null-thread record accepts only a fresh executor creation
+`failed` state with a retained `turnRef` and null thread/turn IDs. Starting work appends one turn with
 its request and a null result. When the previous latest turn is unfinished, the
 same locked atomic rewrite MUST first fill it with the fixed TaskChef-generated
 `interrupted` outcome. The semantic report fills the active turn's result.
-An identical retry for any settled turn returns success without an append. A
+An identical retry for the current settled turn returns success without an
+append. Once a newer turn starts, every callback for a historical ref is stale
+and fails, even when its content exactly matches the stored callback. A
 different request or result for the same turn, a stale turn, or a semantic
 result that does not match the active working turn MUST fail.
 
@@ -325,8 +337,9 @@ MUST contain no crash output, transcript, user text, or inferred failure cause.
 temporary compatibility alias. It implicitly accepts a fresh supplied turn and
 stores its semantic result in a request-unknown turn, including for supported schema-4/5/6 records and
 low-level opaque direct records. It does not accept `working`. New executor
-instructions MUST use `report_state`. Successful mutation upgrades schema 4/5/6/7
-to schema 8; unsupported schemas remain rejected.
+instructions MUST use `report_state`. Successful mutation upgrades schema 4-8
+to schema 9; unsupported schemas remain rejected. Legacy callers that omit
+`turnRef` remain compatible when `turnId` is non-null.
 
 ## Copilot and dashboard
 
@@ -377,10 +390,10 @@ Snapshot and SSE list payloads MUST omit full `turns` and derived `results`
 history and include `latestTurn`. The bounded per-task detail endpoint MAY
 return the full validated task so the dialog can render the paired timeline newest first.
 Dashboard notifications MUST capture an immutable event-time projection of the
-task title, lifecycle state and event, turn ID when present, event timestamp,
+task title, lifecycle state and event, turn ref and optional Codex turn ID, event timestamp,
 and relevant concise summary. Rendering MUST NOT resolve historical notice text
 from the task's later current state. Notice identity and deduplication MUST use
-task ID, turn ID, and lifecycle event; a creation notice without a turn ID MUST
+task ID, turn ref, and lifecycle event; a creation notice without a turn ref MUST
 fall back to task ID plus the immutable creation timestamp. Dashboard revision
 MUST NOT be the sole identity. Identical snapshots, SSE reconnects, idempotent
 reports, schema normalization, and non-semantic rewrites MUST NOT add notices.
@@ -407,13 +420,15 @@ its displayed summary when present, event time, and missing-task state.
 
 ## Task-log migration
 
-`workspace migrate` MUST explicitly convert every supported schema-4/5/6/7 record
+`workspace migrate` MUST explicitly convert every supported schema-4/5/6/7/8 record
 under the shared lock. Each legacy semantic result becomes a request-unknown
 completed turn; a newer working state becomes a final unfinished turn, and a
-schema-7 timeline is preserved losslessly. Migration MUST validate the complete
-source and complete schema-8 candidate before changing the task log,
+schema-7/8 timeline is preserved. Each non-null legacy `turnId` becomes the
+same `turnRef`; each null legacy `turnId` receives one durably persisted UUID.
+Migration MUST validate the complete source, record/turn counts, turn-ref
+invariants, and complete schema-9 candidate before changing the task log,
 create and read back an exclusive recovery backup, atomically replace the log,
-and validate the installed result. A fully schema-8 log MUST be an idempotent
+and validate the installed result. A fully schema-9 log MUST be an idempotent
 no-op without another backup. Invalid/unsupported input MUST remain untouched;
 failures after backup creation MUST report the backup path and MUST never
 partially rewrite individual lines.

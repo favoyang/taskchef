@@ -70,17 +70,19 @@ function toolIdentifier(value) {
   return normalized.length > 0 ? normalized : null;
 }
 
-function attachCreationRecovery(error, taskId, resultReporting) {
+function attachCreationRecovery(error, taskId, turnRef, resultReporting) {
   const creationError = error instanceof Error ? error : new Error(String(error));
   try {
     Object.defineProperties(creationError, {
       taskChefTaskId: { value: taskId, enumerable: true },
+      taskChefTurnRef: { value: turnRef, enumerable: true },
       taskChefResultReporting: { value: resultReporting, enumerable: true },
     });
     return creationError;
   } catch {
     const wrapped = new Error(`Executor creation failed for recorded TaskChef task ${taskId}.`, { cause: creationError });
     wrapped.taskChefTaskId = taskId;
+    wrapped.taskChefTurnRef = turnRef;
     wrapped.taskChefResultReporting = resultReporting;
     return wrapped;
   }
@@ -238,16 +240,29 @@ export async function createAndRecordDelegation(input) {
   try {
     createResult = parseToolResult(await createThread({ prompt: prepared.instruction, title, target }), "create_thread result");
   } catch (error) {
+    const creationFailureTurnRef = randomUUID();
     let resultReporting = "unavailable";
     if (reportRecordedResult !== null) {
       try {
-        await reportRecordedResult({ taskId: prepared.id, threadId: null, turnId: null, status: "failed", summary: "Executor creation failed before the executor started." });
+        await reportRecordedResult({
+          taskId: prepared.id,
+          threadId: null,
+          turnRef: creationFailureTurnRef,
+          turnId: null,
+          status: "failed",
+          summary: "Executor creation failed before the executor started.",
+        });
         resultReporting = "recorded";
       } catch {
         resultReporting = "failed";
       }
     }
-    throw attachCreationRecovery(error, prepared.id, resultReporting);
+    throw attachCreationRecovery(
+      error,
+      prepared.id,
+      creationFailureTurnRef,
+      resultReporting,
+    );
   }
 
   const returnedThreadId = toolIdentifier(createResult.threadId);

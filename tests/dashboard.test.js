@@ -428,6 +428,7 @@ test("latest turn presentation keeps each request paired with its own result", (
     },
   };
   assert.deepEqual(latestTurnPresentation(working), {
+    turnRef: SECOND_TURN_ID,
     turnId: SECOND_TURN_ID,
     startedAt: "2026-08-20T10:02:00.000Z",
     requestSummary: "Apply the selected region.",
@@ -478,6 +479,7 @@ test("dashboard projections show the recovered request in progress and the inter
     },
     lastResult: null,
   }), {
+    turnRef: SECOND_TURN_ID,
     turnId: SECOND_TURN_ID,
     startedAt: "2026-08-20T10:02:00.000Z",
     requestSummary: "Resume after restart.",
@@ -547,6 +549,29 @@ test("a compact recovery snapshot immediately interrupts the preserved unfinishe
     },
     recovery,
   ]);
+});
+
+test("a compact migrated fallback result replaces its legacy null-ref turn", () => {
+  const legacy = {
+    turnRef: null,
+    turnId: null,
+    requestSummary: null,
+    startedAt: "2026-08-20T10:00:00.000Z",
+    result: {
+      status: "failed",
+      summary: "Executor creation failed.",
+      updatedAt: "2026-08-20T10:00:00.000Z",
+    },
+  };
+  const migrated = {
+    ...legacy,
+    turnRef: "33333333-3333-4333-8333-333333333333",
+  };
+  assert.deepEqual(mergeProjectedTurns({
+    schemaVersion: 9,
+    status: "failed",
+    latestTurn: migrated,
+  }, [legacy]), [migrated]);
 });
 
 test("dashboard task controls isolate clicks and keep successful direct opens silent", async () => {
@@ -769,6 +794,92 @@ test("notification reconciliation ignores replay and non-semantic rewrites", () 
     notificationState = reconcileNotifications({ initialized: true, ...notificationState }, [replay]);
   }
   assert.deepEqual(notificationState.notifications, []);
+});
+
+test("turnRef migration does not replay an unchanged fallback failure notification", () => {
+  const legacyFailure = {
+    id: FIRST_ID,
+    title: "Historical creation failure",
+    status: "failed",
+    summary: "Executor creation failed.",
+    turnRef: null,
+    turnId: null,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    latestTurn: {
+      turnRef: null,
+      turnId: null,
+      requestSummary: null,
+      startedAt: "2026-08-20T10:00:00.000Z",
+      result: {
+        status: "failed",
+        summary: "Executor creation failed.",
+        updatedAt: "2026-08-20T10:00:00.000Z",
+      },
+    },
+    lastResult: {
+      status: "failed",
+      summary: "Executor creation failed.",
+      turnRef: null,
+      turnId: null,
+      updatedAt: "2026-08-20T10:00:00.000Z",
+    },
+  };
+  const baseline = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [legacyFailure]);
+  const migratedRef = "33333333-3333-4333-8333-333333333333";
+  const migrated = {
+    ...legacyFailure,
+    turnRef: migratedRef,
+    latestTurn: { ...legacyFailure.latestTurn, turnRef: migratedRef },
+    lastResult: { ...legacyFailure.lastResult, turnRef: migratedRef },
+  };
+  const reconciled = reconcileNotifications({ initialized: true, ...baseline }, [migrated]);
+  assert.deepEqual(reconciled.additions, []);
+  assert.deepEqual(reconciled.notifications, []);
+});
+
+test("a first fallback working turn still emits its task-started notification", () => {
+  const linkPending = {
+    id: FIRST_ID,
+    title: "Fallback start",
+    status: "working",
+    summary: null,
+    turnRef: null,
+    turnId: null,
+    createdAt: "2026-08-20T09:59:00.000Z",
+    updatedAt: "2026-08-20T09:59:00.000Z",
+    latestTurn: null,
+    lastResult: null,
+  };
+  const baseline = reconcileNotifications({
+    initialized: false,
+    notifications: [],
+    seenIds: new Set(),
+    signatures: new Map(),
+  }, [linkPending]);
+  const fallbackRef = "33333333-3333-4333-8333-333333333333";
+  const started = {
+    ...linkPending,
+    turnRef: fallbackRef,
+    updatedAt: "2026-08-20T10:00:00.000Z",
+    latestTurn: {
+      turnRef: fallbackRef,
+      turnId: null,
+      requestSummary: "Begin without native metadata.",
+      startedAt: "2026-08-20T10:00:00.000Z",
+      result: null,
+    },
+  };
+  const reconciled = reconcileNotifications({ initialized: true, ...baseline }, [started]);
+  assert.equal(reconciled.additions.length, 1);
+  assert.equal(reconciled.additions[0].event, "task_started");
+  assert.equal(reconciled.additions[0].turnRef, fallbackRef);
+  assert.equal(reconciled.additions[0].turnId, null);
 });
 
 test("starting interrupted-turn recovery emits no misleading failed-result notification", () => {

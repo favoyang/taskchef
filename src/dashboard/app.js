@@ -259,7 +259,7 @@ function notificationAnnouncement(notification) {
     notificationTitle(notification),
     notification.title,
     notification.summary,
-    notification.turnId ? `Turn ${notification.turnId}` : null,
+    notification.turnRef ? `Turn ref ${notification.turnRef}` : null,
     formatRelativeTime(notification.timestamp),
   ].filter(Boolean).join(". ");
 }
@@ -302,7 +302,7 @@ function turnTimeline(task) {
     const turnStatus = presentation.status;
     status.className = `status status-${turnStatus}`;
     status.textContent = turnStatus.replaceAll("_", " ");
-    const turnKey = turn.turnId ?? `no-turn:${index}`;
+    const turnKey = turn.turnRef ?? turn.turnId ?? `no-turn:${index}`;
     const timestamp = timestampControl(presentation.updatedAt, {
       accessibleName: `Turn updated time for ${turnStatus.replaceAll("_", " ")}`,
       key: `detail:${task.id}:turn:${turnKey}`,
@@ -324,9 +324,7 @@ function turnTimeline(task) {
     appendLinkedText(result, presentation.summary, task);
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
-    turnMetadata.textContent = turn.turnId
-      ? `Turn ${turn.turnId}`
-      : "No turn ID (creation failure)";
+    turnMetadata.textContent = `Turn ref ${turn.turnRef ?? "not recorded"}; Codex turn ${turn.turnId ?? "unavailable"}`;
     item.append(header, requestLabel, request, resultLabel, result, turnMetadata);
     return item;
   });
@@ -357,9 +355,11 @@ function renderDialog(task) {
   elements.copyThreadId.disabled = !task.threadId;
   elements.dialogMetadata.replaceChildren(
     ...detailRow("Current status", taskStatusLabel(task)),
-    ...detailRow("Current turn ID", task.turnId),
+    ...detailRow("Current turn ref", task.turnRef),
+    ...detailRow("Current Codex turn ID", task.turnId),
     ...detailRow("Last result status", task.lastResult?.status?.replaceAll("_", " ")),
-    ...detailRow("Last result turn ID", task.lastResult?.turnId),
+    ...detailRow("Last result turn ref", task.lastResult?.turnRef),
+    ...detailRow("Last result Codex turn ID", task.lastResult?.turnId),
     ...detailRow("Last result updated", timestampControl(task.lastResult?.updatedAt, {
       accessibleName: `Last result updated time for ${task.title}`,
       key: `detail:${task.id}:last-result-updated`,

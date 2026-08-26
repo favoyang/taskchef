@@ -44,6 +44,7 @@ export function latestTurnPresentation(task) {
   const requestSummary = turn?.requestSummary
     ?? (turn ? "Request not recorded by this TaskChef version." : task.title);
   return {
+    turnRef: turn?.turnRef ?? turn?.turnId ?? task.turnRef ?? task.turnId ?? null,
     turnId: turn?.turnId ?? task.turnId ?? null,
     startedAt: turn?.startedAt ?? task.updatedAt ?? task.createdAt ?? null,
     requestSummary,
@@ -70,11 +71,25 @@ export function mergeProjectedTurns(task, preservedTurns = []) {
   if (!task.latestTurn) return preservedTurns;
   const turns = [...preservedTurns];
   const lastIndex = turns.length - 1;
-  if (lastIndex >= 0 && turns[lastIndex].turnId === task.latestTurn.turnId) {
+  const latestIdentity = task.latestTurn.turnRef ?? task.latestTurn.turnId;
+  const preservedIdentity = lastIndex >= 0
+    ? (turns[lastIndex].turnRef ?? turns[lastIndex].turnId)
+    : null;
+  const migratedFallbackIdentity = lastIndex >= 0
+    && preservedIdentity === null
+    && latestIdentity !== null
+    && turns[lastIndex].turnId == null
+    && task.latestTurn.turnId == null
+    && JSON.stringify({ ...turns[lastIndex], turnRef: null })
+      === JSON.stringify({ ...task.latestTurn, turnRef: null });
+  if (
+    lastIndex >= 0
+    && (preservedIdentity === latestIdentity || migratedFallbackIdentity)
+  ) {
     turns[lastIndex] = task.latestTurn;
   } else {
     if (
-      task.schemaVersion === 8
+      task.schemaVersion >= 8
       && lastIndex >= 0
       && turns[lastIndex].result === null
     ) {
@@ -144,7 +159,30 @@ export function nextDateFilterRefreshDelay(tasks, filter, now = Date.now()) {
 }
 
 export function taskSignature(task) {
-  return JSON.stringify([task.id, task.turnId ?? null, task.status ?? "unresolved"]);
+  return JSON.stringify([
+    task.id,
+    task.turnRef ?? task.turnId ?? null,
+    task.turnId ?? null,
+    task.status ?? "unresolved",
+  ]);
+}
+
+function signaturesDifferOnlyByMigratedFallback(previous, next) {
+  try {
+    const before = JSON.parse(previous);
+    const after = JSON.parse(next);
+    return Array.isArray(before)
+      && Array.isArray(after)
+      && before.length === after.length
+      && before[1] === null
+      && after[1] !== null
+      && before[2] === null
+      && after[2] === null
+      && before[3] !== "working"
+      && before.every((value, index) => index === 1 || value === after[index]);
+  } catch {
+    return false;
+  }
 }
 
 export function findCurrentTask(tasks, taskId) {
@@ -162,14 +200,15 @@ function notificationIdentity(task, event) {
   if (event === "created") {
     return JSON.stringify([task.id, null, event, task.createdAt ?? null]);
   }
-  return JSON.stringify([task.id, task.turnId ?? null, event]);
+  return JSON.stringify([task.id, task.turnRef ?? task.turnId ?? null, event]);
 }
 
 function eventTimestamp(task, event) {
   if (event === "created") return task.createdAt ?? task.updatedAt ?? null;
   if (
     task.lastResult?.status === task.status
-    && task.lastResult?.turnId === task.turnId
+    && (task.lastResult?.turnRef ?? task.lastResult?.turnId)
+      === (task.turnRef ?? task.turnId)
   ) {
     return task.lastResult.updatedAt;
   }
@@ -180,7 +219,8 @@ function eventSummary(task, event) {
   if (!["completed", "needs_input", "failed"].includes(event)) return null;
   if (
     task.lastResult?.status === task.status
-    && task.lastResult?.turnId === task.turnId
+    && (task.lastResult?.turnRef ?? task.lastResult?.turnId)
+      === (task.turnRef ?? task.turnId)
   ) {
     return task.lastResult.summary;
   }
@@ -195,6 +235,7 @@ export function notificationSnapshot(task, event = lifecycleEvent(task)) {
     title: task.title,
     status: created ? "working" : task.status,
     event,
+    turnRef: created ? null : task.turnRef ?? task.turnId ?? null,
     turnId: created ? null : task.turnId ?? null,
     timestamp: eventTimestamp(task, event),
     summary: eventSummary(task, event),
@@ -205,11 +246,16 @@ function resultNotificationSnapshot(task) {
   const result = task.lastResult;
   if (!result) return null;
   return Object.freeze({
-    id: notificationIdentity({ ...task, turnId: result.turnId }, result.status),
+    id: notificationIdentity({
+      ...task,
+      turnRef: result.turnRef ?? result.turnId,
+      turnId: result.turnId,
+    }, result.status),
     taskId: task.id,
     title: task.title,
     status: result.status,
     event: result.status,
+    turnRef: result.turnRef ?? result.turnId ?? null,
     turnId: result.turnId ?? null,
     timestamp: result.updatedAt,
     summary: result.summary,
@@ -259,12 +305,18 @@ export function reconcileNotifications(
     const candidates = [];
     if (!signatures.has(task.id)) {
       const resultNotification = resultNotificationSnapshot(task);
-      if (task.turnId || task.status !== "working" || resultNotification) {
+      if (task.turnRef || task.turnId || task.status !== "working" || resultNotification) {
         candidates.push(notificationSnapshot(task));
         if (resultNotification) candidates.push(resultNotification);
       }
       candidates.push(notificationSnapshot(task, "created"));
-    } else if (signatures.get(task.id) !== nextSignatures.get(task.id)) {
+    } else if (
+      signatures.get(task.id) !== nextSignatures.get(task.id)
+      && !signaturesDifferOnlyByMigratedFallback(
+        signatures.get(task.id),
+        nextSignatures.get(task.id),
+      )
+    ) {
       candidates.push(notificationSnapshot(task));
       const resultNotification = resultNotificationSnapshot(task);
       if (resultNotification) candidates.push(resultNotification);
