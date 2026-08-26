@@ -12,7 +12,7 @@ research.
 | --- | --- |
 | `skills/taskchef-delegate/SKILL.md` | Split, route, record-before-create, create, return. |
 | `skills/taskchef-executor/SKILL.md` | Own, self-link, execute, and report every executor turn. |
-| `skills/taskchef-bootstrap/SKILL.md` | Initialize current workspace and configure projects. |
+| `skills/taskchef-bootstrap/SKILL.md` | Initialize the workspace and maintain the Codex project index. |
 | `skills/taskchef-copilot/SKILL.md` | Explain normalized cached briefs and coordinate safe next actions. |
 | `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, shutdown ownership, and MCP annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |

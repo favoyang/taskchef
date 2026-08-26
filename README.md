@@ -36,7 +36,7 @@ puts the `taskchef` CLI on `PATH`. TaskChef installs no hooks, schedules,
 daemons, login items, system services, or background identity search and needs
 no elevated permissions.
 
-## Bootstrap and configure
+## Bootstrap and index projects
 
 Ask the bootstrap skill to create the per-user dispatcher:
 
@@ -48,25 +48,33 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
-taskchef.json   schema-2 configured projects and routing metadata
+taskchef.json   schema-2 Codex project index and delegation metadata
 tasks.jsonl     one task snapshot per line (schema 9; schema 4-8 migration supported)
 ```
 
-List or change routing targets conversationally:
+Index or inspect Codex projects conversationally:
 
 ```text
-$taskchef-bootstrap List my configured TaskChef projects.
-$taskchef-bootstrap Add /workspace/payments as payments. It owns authorization, capture, refunds, and retries.
+$taskchef-bootstrap List my indexed Codex projects.
+$taskchef-bootstrap Index /workspace/payments as payments. It owns authorization, capture, refunds, and retries.
+$taskchef-bootstrap Reindex after the Codex projects I added today.
 ```
 
-The bootstrap skill has two onboarding paths. For a folder already saved as a
-local Codex project, it requires an exact canonical-path match before adding and
-verifying the TaskChef project. For a new folder, or an existing folder not yet
-saved by Codex, it creates the directory only when explicitly requested, opens
-the canonical path with the validated Codex Desktop CLI's `codex app <path>`
-mechanism, re-lists native projects, and requires the same exact match before
-adding it to TaskChef. An open request without a verified native project is
-reported as partial setup, not delegation-ready.
+TaskChef indexes existing Codex projects for delegation. The index stores
+canonical paths and routing metadata; it never indexes repository contents or
+creates another kind of project. For a folder already saved as a local Codex
+project, the bootstrap skill requires an exact canonical-path match before
+writing and verifying its TaskChef index entry. For a new folder, or an existing
+folder not yet saved by Codex, it creates the directory only when explicitly
+requested, opens the canonical path with the validated Codex Desktop CLI's
+`codex app <path>` mechanism, re-lists native projects, and requires the same
+exact match before indexing it. An open request without a verified native
+project is reported as partial setup, not delegation-ready.
+
+Reindexing catches TaskChef up with newly saved Codex projects by comparing
+exact canonical paths and indexing missing requested projects. It preserves
+existing curated entries and does not silently remove projects or overwrite
+metadata.
 
 Codex CLI resolution follows the same contract as
 `workspace init --register-codex`: an explicit `--codex-cli` path wins, then
@@ -84,12 +92,17 @@ taskchef project add /workspace/payments --name payments \
 taskchef project list
 ```
 
+The CLI command writes TaskChef metadata only; it does not query Codex. Before
+using it directly, verify that `/workspace/payments` exactly matches the
+canonical path of an existing local Codex project. The bootstrap skill performs
+that native-project check for you.
+
 A project may advertise several GitHub repositories with repeated
 `--github-repo`. Explicit values replace automatic origin detection and form
 the complete advertised list, so include the origin when it should remain
 routable. A managed `*-workspace` should advertise every relevant child or
 subrepository canonical GitHub URL, plus the workspace repository itself when
-applicable, so issue and pull-request links select the correct routing project.
+applicable, so issue and pull-request links select the correct Codex project.
 TaskChef accepts Git roots and ordinary local folders on the same execution
 host. Unsupported configuration schemas are rejected and are never rewritten
 automatically.
