@@ -61,18 +61,22 @@ const elements = {
 };
 let notificationDescriptionSerial = 0;
 
-function referenceLink(link, { compact = false, typePrefix = false } = {}) {
+function typedReferenceLabel(link, label, typePrefix) {
+  if (!typePrefix) return label;
+  if (link.type === "pull") return `PR ${label}`;
+  if (link.type === "issue") return `Issue ${label}`;
+  return label;
+}
+
+function referenceLink(link, { compact = false, displayLabel, typePrefix = false } = {}) {
   const anchor = document.createElement("a");
   anchor.className = compact ? "github-link github-link-compact" : "github-link";
   anchor.href = link.url;
   anchor.target = "_blank";
   anchor.rel = "noopener noreferrer";
   const label = link.label ?? link.text;
-  const visibleLabel = typePrefix && link.type === "pull"
-    ? `PR ${label}`
-    : typePrefix && link.type === "issue"
-      ? `Issue ${label}`
-      : label;
+  const visibleLabel = typedReferenceLabel(link, displayLabel ?? label, typePrefix);
+  const accessibleLabel = typedReferenceLabel(link, label, typePrefix);
   anchor.textContent = visibleLabel;
   const githubKind = link.type === "issue"
     ? ", GitHub issue"
@@ -81,7 +85,7 @@ function referenceLink(link, { compact = false, typePrefix = false } = {}) {
       : link.provider === "github" || link.owner ? " on GitHub" : "";
   anchor.setAttribute(
     "aria-label",
-    `${visibleLabel}${githubKind} (opens in a new tab)`,
+    `${accessibleLabel}${githubKind} (opens in a new tab)`,
   );
   anchor.addEventListener("click", (event) => event.stopPropagation());
   return anchor;
@@ -115,7 +119,18 @@ function relatedGitHubLinks(task, { compact = false } = {}) {
   const container = document.createElement("nav");
   container.className = `github-links${compact ? " github-links-compact" : ""}`;
   container.setAttribute("aria-label", `Related GitHub links for ${task.title}`);
-  const children = links.map((link) => referenceLink(link, { compact }));
+  const seenRepositories = new Set();
+  const children = links.map((link) => {
+    const repository = link.owner && link.repository
+      ? `${link.owner}/${link.repository}`
+      : null;
+    const repeatedRepository = repository && seenRepositories.has(repository);
+    if (repository) seenRepositories.add(repository);
+    const displayLabel = repeatedRepository && link.number
+      ? `#${link.number}`
+      : link.label;
+    return referenceLink(link, { compact, displayLabel, typePrefix: true });
+  });
   if (task.relatedGitHubLinksTruncated) {
     const more = document.createElement("span");
     more.className = "github-links-more";
