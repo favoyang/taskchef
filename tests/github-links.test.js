@@ -98,10 +98,8 @@ test("keeps safe repository fragments behind the canonical repository label", ()
     project: { githubRepos: [] },
     turns: [],
   });
-  assert.deepEqual(projection.relatedGitHubLinks.map(({ label, url }) => ({ label, url })), [{
-    label: "acme/app",
-    url: "https://github.com/acme/app#readme",
-  }]);
+  assert.equal(projection.relatedGitHubRepository, "acme/app");
+  assert.deepEqual(projection.relatedGitHubLinks, []);
 });
 
 test("preserves dotted repository names without consuming sentence punctuation", () => {
@@ -119,7 +117,9 @@ test("preserves dotted repository names without consuming sentence punctuation",
     turns: [],
   });
   assert.equal(projection.relatedGitHubRepository, "acme/app.github.io");
-  assert.equal(projection.relatedGitHubLinks[0].label, "acme/app.github.io");
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ label }) => label), [
+    "acme/app.github.io#15",
+  ]);
 });
 
 test("projects workspace and child repository links alongside their pull requests", () => {
@@ -139,7 +139,6 @@ test("projects workspace and child repository links alongside their pull request
     }],
   });
   assert.deepEqual(projection.relatedGitHubLinks.map(({ label, type, url }) => ({ label, type, url })), [
-    { label: "acme/child", type: "repository", url: "https://github.com/acme/child" },
     { label: "acme/child#12", type: "pull", url: "https://github.com/acme/child/pull/12" },
     { label: "acme/workspace#34", type: "pull", url: "https://github.com/acme/workspace/pull/34" },
   ]);
@@ -222,7 +221,7 @@ test("task projection deduplicates canonical URLs in first-seen order and adds r
   ]);
 });
 
-test("uses the same qualified label while preserving explicit issue and pull targets", () => {
+test("keeps explicit issue and pull targets in text while deduplicating their task-level label", () => {
   const segments = referenceSegments(
     "Issue https://github.com/Acme/App/issues/12 and pull https://github.com/acme/app/pull/12.",
   );
@@ -235,7 +234,34 @@ test("uses the same qualified label while preserving explicit issue and pull tar
     project: { githubRepos: [] },
     turns: [],
   });
-  assert.equal(projection.relatedGitHubLinks.length, 2);
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ label, type, url }) => ({ label, type, url })), [{
+    label: "acme/app#12",
+    type: "issue",
+    url: "https://github.com/acme/app/issues/12",
+  }]);
+});
+
+test("omits repository roots and deduplicates issue-pull aliases in related links", () => {
+  const projection = taskGitHubProjection({
+    instruction: "Work in https://github.com/favoyang/taskchef via https://github.com/favoyang/taskchef/pull/79 and https://github.com/favoyang/taskchef/issues/79.",
+    project: { githubRepos: ["https://github.com/favoyang/taskchef"] },
+    turns: [{
+      requestSummary: "Follow up in https://github.com/favoyang/taskchef/pull/80.",
+    }],
+  });
+  assert.equal(projection.relatedGitHubRepository, "favoyang/taskchef");
+  assert.deepEqual(projection.relatedGitHubLinks.map(({ label, type, url }) => ({ label, type, url })), [
+    {
+      label: "favoyang/taskchef#79",
+      type: "pull",
+      url: "https://github.com/favoyang/taskchef/pull/79",
+    },
+    {
+      label: "favoyang/taskchef#80",
+      type: "pull",
+      url: "https://github.com/favoyang/taskchef/pull/80",
+    },
+  ]);
 });
 
 test("preserves safe GitHub issue and pull URL suffixes behind compact labels", () => {
@@ -265,7 +291,7 @@ test("preserves safe GitHub issue and pull URL suffixes behind compact labels", 
   ]);
 });
 
-test("deduplicates canonical GitHub targets without folding case-sensitive suffixes", () => {
+test("deduplicates task-level links by visible numeric identity despite target suffixes", () => {
   const projection = taskGitHubProjection({
     instruction: "Compare https://github.com/acme/app/issues/12?view=A with https://github.com/acme/app/issues/12?view=a.",
     project: { githubRepos: [] },
@@ -273,7 +299,6 @@ test("deduplicates canonical GitHub targets without folding case-sensitive suffi
   });
   assert.deepEqual(projection.relatedGitHubLinks.map(({ url }) => url), [
     "https://github.com/acme/app/issues/12?view=A",
-    "https://github.com/acme/app/issues/12?view=a",
   ]);
 });
 
