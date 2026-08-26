@@ -143,6 +143,25 @@ the final link, preserving the delegate skill's immediate-return contract.
    TaskChef MUST atomically close it as `interrupted` before appending the new
    working turn; the executor MUST NOT report semantic `failed` for recovery.
 
+Normal executor completion MUST stop after the terminal callback and return
+normally. It MUST NOT archive, hand off, close, navigate away from, or otherwise
+terminate the Codex task merely because work completed. Archive is authorized
+only by an explicit request in the current assignment or follow-up for that
+exact Codex task; `finish`, `complete`, `done`, `ship`, and ordinary cleanup do
+not imply authorization.
+
+For an explicitly authorized archive, the executor MUST finish and verify the
+work, read its exact task identity, submit the current turn's terminal
+`report_state`, verify TaskChef accepted that state, and only then invoke the
+native archive operation as the final state-changing action. It MUST require
+native confirmation before claiming archive succeeded. The same callback-first
+ordering applies to any separately authorized action that can make the executor
+unavailable before reporting, including handoff or terminating or restarting
+the process that owns the TaskChef MCP transport; this rule does not itself
+authorize those actions. A terminal reporting failure MUST prevent the later
+action and leave the executor accessible. Failure of a later action MUST NOT
+change or reopen the already accepted semantic terminal state.
+
 Request and result summaries are the durable source for dashboard related-link
 projection; TaskChef does not scan full Codex transcripts. When known, an
 executor MUST preserve the selected repository as a canonical GitHub repository
