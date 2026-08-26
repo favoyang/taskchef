@@ -29,7 +29,7 @@
     ],
     "websiteURL": "https://github.com/favoyang/taskchef",
     "defaultPrompt": [
-      "$taskchef-bootstrap Set up TaskChef in this folder.",
+      "$taskchef-bootstrap Set up TaskChef and index my Codex projects.",
       "$taskchef-delegate Dispatch this request to the right project.",
       "$taskchef-executor Execute this delegated TaskChef assignment.",
       "$taskchef-copilot Explain TaskChef outcomes and recommend the next action."

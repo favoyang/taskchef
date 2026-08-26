@@ -3278,16 +3278,18 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /former inline ownership[\s\S]+remaining\s+task-specific body/i);
 });
 
-test("bootstrap skill initializes and onboards routing projects through verified canonical Codex paths", async () => {
+test("bootstrap skill initializes and indexes Codex projects through verified canonical paths", async () => {
   const content = await readFile(path.resolve("skills/taskchef-bootstrap/SKILL.md"), "utf8");
   assert.match(content, /taskchef\.js workspace path --json|workspace path --json/);
   assert.match(content, /workspace init --register-codex --json/);
   assert.match(content, /list native projects once more/);
   assert.match(content, /~\/\.agents\/taskchef/);
-  assert.match(content, /^## Onboard a routing project$/m);
+  assert.match(content, /^## Index Codex projects$/m);
   assert.match(content, /^### Existing Codex project$/m);
   assert.match(content, /^### New or not-yet-saved Codex folder$/m);
-  assert.match(content, /^## Manage configured projects$/m);
+  assert.match(content, /^### Reindex after Codex changes$/m);
+  assert.match(content, /^## Manage the project index$/m);
+  assert.match(content, /stores canonical paths and routing metadata[\s\S]+does not index[\s\S]+repository contents/i);
   assert.match(content, /List native local Codex projects once[\s\S]+exact canonical-path match/i);
   assert.match(content, /Create the folder only when the user explicitly asked/i);
   assert.match(content, /Do not initialize Git unless requested or[\s\S]+clearly required/i);
@@ -3296,14 +3298,37 @@ test("bootstrap skill initializes and onboards routing projects through verified
   assert.match(content, /prefer a validated[\s\S]+`Contents\/Resources`/i);
   assert.match(content, /otherwise validate[\s\S]+first executable `codex` in PATH order/i);
   assert.match(content, /Opening is a request, not proof/i);
-  assert.match(content, /do not add it to[\s\S]+TaskChef or call it delegation-ready/i);
-  assert.match(content, /project list --json[\s\S]+exact saved TaskChef project/i);
-  assert.match(content, /managed `\*-workspace`[\s\S]+repeated `--github-repo/i);
+  assert.match(content, /do not index it in[\s\S]+TaskChef or call it delegation-ready/i);
+  assert.match(content, /project list --json[\s\S]+exact[\s\S]+index entry/i);
+  assert.match(content, /managed `\*-workspace` Codex project[\s\S]+repeated `--github-repo/i);
   assert.match(content, /Repeated `--github-repo[\s\S]+replace[\s\S]+complete advertised repository list/i);
   assert.match(content, /repeat the[\s\S]+origin explicitly when it should remain routable/i);
-  assert.match(content, /dispatcher is the inbox[\s\S]+routing projects own delegated work/i);
+  assert.match(content, /reindex or catch up[\s\S]+project list --json[\s\S]+exact canonical paths/i);
+  assert.match(content, /project list --json` once[\s\S]+before mutation[\s\S]+After all additions[\s\S]+project list --json` once more[\s\S]+verify every intended canonical path/i);
+  assert.match(content, /Do not call `project add` for a path already in the TaskChef index/i);
+  assert.match(content, /Preserve[\s\S]+curated entries[\s\S]+do not remove entries/i);
+  assert.match(content, /Bulk import[\s\S]+list native local Codex projects once[\s\S]+require an exact local-project match for every entry/i);
+  assert.match(content, /Reject or[\s\S]+report every unmatched path instead of indexing it/i);
+  assert.match(content, /project list --json` afterward[\s\S]+verify every imported entry/i);
+  assert.match(content, /dispatcher is[\s\S]+the inbox[\s\S]+indexed Codex projects own delegated work/i);
+  assert.doesNotMatch(content, /routing project/i);
   assert.match(content, /never invoke\s+`codex add`/);
   assert.doesNotMatch(content, /\/Applications\/[^\s]+\.app\/Contents\/Resources\/codex/);
+});
+
+test("plugin wording presents bootstrap as indexing existing Codex projects", async () => {
+  const manifest = JSON.parse(await readFile(path.resolve(".codex-plugin/plugin.json"), "utf8"));
+  const readme = await readFile(path.resolve("README.md"), "utf8");
+  assert.ok(manifest.interface.defaultPrompt.includes(
+    "$taskchef-bootstrap Set up TaskChef and index my Codex projects.",
+  ));
+  assert.match(readme, /^## Bootstrap and index projects$/m);
+  assert.match(readme, /indexes existing Codex projects for delegation/i);
+  assert.match(readme, /never indexes repository contents/i);
+  assert.match(readme, /Reindexing catches TaskChef up with newly saved Codex projects/i);
+  assert.match(readme, /CLI command writes TaskChef metadata only; it does not query Codex/i);
+  assert.match(readme, /verify that[\s\S]+exactly matches the[\s\S]+canonical path of an existing local Codex project/i);
+  assert.doesNotMatch(readme, /routing project/i);
 });
 
 test("copilot skill is cached-first, live-explicit, and guards continuation boundaries", async () => {
