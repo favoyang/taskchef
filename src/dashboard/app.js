@@ -16,7 +16,11 @@ import {
   turnPresentation,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
-import { referenceSegments } from "./github-links.js";
+import {
+  githubReferenceAccessibleLabel,
+  githubReferenceDisplayLabels,
+  referenceSegments,
+} from "./github-links.js";
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
 
 const state = {
@@ -63,23 +67,15 @@ const elements = {
 };
 let notificationDescriptionSerial = 0;
 
-function typedReferenceLabel(link, label, typePrefix) {
-  if (!typePrefix) return label;
-  if (link.type === "pull") return `PR ${label}`;
-  if (link.type === "issue") return `Issue ${label}`;
-  return label;
-}
-
-function referenceLink(link, { compact = false, displayLabel, typePrefix = false } = {}) {
+function referenceLink(link, { compact = false, displayLabel } = {}) {
   const anchor = document.createElement("a");
   anchor.className = compact ? "github-link github-link-compact" : "github-link";
   anchor.href = link.url;
   anchor.target = "_blank";
   anchor.rel = "noopener noreferrer";
   const label = link.label ?? link.text;
-  const visibleLabel = typedReferenceLabel(link, displayLabel ?? label, typePrefix);
-  const accessibleLabel = typedReferenceLabel(link, label, typePrefix);
-  anchor.textContent = visibleLabel;
+  anchor.textContent = displayLabel ?? label;
+  const accessibleLabel = githubReferenceAccessibleLabel(link);
   const githubKind = link.type === "issue"
     ? ", GitHub issue"
     : link.type === "pull"
@@ -94,12 +90,20 @@ function referenceLink(link, { compact = false, displayLabel, typePrefix = false
 }
 
 function appendLinkedText(container, text, task) {
-  const children = referenceSegments(text, {
+  const segments = referenceSegments(text, {
     projectRepositories: task.project?.githubRepos,
     taskRepository: task.relatedGitHubRepository,
-  }).map((segment) => {
+  });
+  const links = segments.filter((segment) => segment.kind === "link");
+  const displayLabels = githubReferenceDisplayLabels(links);
+  let linkIndex = 0;
+  const children = segments.map((segment) => {
     if (segment.kind === "text") return document.createTextNode(segment.text);
-    if (segment.kind === "link") return referenceLink(segment, { typePrefix: true });
+    if (segment.kind === "link") {
+      const displayLabel = displayLabels[linkIndex];
+      linkIndex += 1;
+      return referenceLink(segment, { displayLabel });
+    }
     const ambiguous = document.createElement("span");
     ambiguous.className = "github-reference-ambiguous";
     ambiguous.textContent = segment.text;
@@ -121,18 +125,10 @@ function relatedGitHubLinks(task, { compact = false } = {}) {
   const container = document.createElement("nav");
   container.className = `github-links${compact ? " github-links-compact" : ""}`;
   container.setAttribute("aria-label", `Related GitHub links for ${task.title}`);
-  const seenRepositories = new Set();
-  const children = links.map((link) => {
-    const repository = link.owner && link.repository
-      ? `${link.owner}/${link.repository}`
-      : null;
-    const repeatedRepository = repository && seenRepositories.has(repository);
-    if (repository) seenRepositories.add(repository);
-    const displayLabel = repeatedRepository && link.number
-      ? `#${link.number}`
-      : link.label;
-    return referenceLink(link, { compact, displayLabel, typePrefix: true });
-  });
+  const displayLabels = githubReferenceDisplayLabels(links, { related: true });
+  const children = links.map((link, index) => (
+    referenceLink(link, { compact, displayLabel: displayLabels[index] })
+  ));
   if (task.relatedGitHubLinksTruncated) {
     const more = document.createElement("span");
     more.className = "github-links-more";
@@ -160,7 +156,7 @@ function renderProject(container, task) {
         repository: repositoryName,
         type: "repository",
         url: `https://github.com/${repository}`,
-      }),
+      }, { displayLabel: repositoryName }),
     );
   }
   container.replaceChildren(...children);

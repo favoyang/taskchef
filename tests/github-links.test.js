@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  githubReferenceAccessibleLabel,
+  githubReferenceDisplayLabels,
   githubReferenceSegments,
   MAX_RELATED_GITHUB_LINKS,
   normalizeGitHubRepository,
@@ -12,6 +14,64 @@ import {
 function links(segments) {
   return segments.filter(({ kind }) => kind === "link");
 }
+
+test("formats repository-first compact labels for every GitHub reference type", () => {
+  const segments = links(referenceSegments(
+    "Ship https://github.com/Acme/TaskChef/pull/83, close https://github.com/acme/taskchef/issues/84, note acme/taskchef#85, and read https://github.com/acme/taskchef.",
+  ));
+  assert.deepEqual(githubReferenceDisplayLabels(segments), [
+    "taskchef PR #83",
+    "taskchef Issue #84",
+    "taskchef #85",
+    "taskchef",
+  ]);
+  assert.deepEqual(segments.map(githubReferenceAccessibleLabel), [
+    "acme/taskchef PR #83",
+    "acme/taskchef Issue #84",
+    "acme/taskchef #85",
+    "acme/taskchef",
+  ]);
+  assert.deepEqual(segments.map(({ url }) => url), [
+    "https://github.com/acme/taskchef/pull/83",
+    "https://github.com/acme/taskchef/issues/84",
+    "https://github.com/acme/taskchef/issues/85",
+    "https://github.com/acme/taskchef",
+  ]);
+});
+
+test("formats related links by consecutive repository group without visible types", () => {
+  const segments = links(referenceSegments(
+    "https://github.com/acme/taskchef/pull/79, https://github.com/acme/taskchef/issues/80, https://github.com/acme/api/issues/82, https://github.com/acme/taskchef/pull/83",
+  ));
+  assert.deepEqual(githubReferenceDisplayLabels(segments, { related: true }), [
+    "taskchef #79",
+    "#80",
+    "api #82",
+    "taskchef #83",
+  ]);
+  assert.deepEqual(segments.map(githubReferenceAccessibleLabel), [
+    "acme/taskchef PR #79",
+    "acme/taskchef Issue #80",
+    "acme/api Issue #82",
+    "acme/taskchef PR #83",
+  ]);
+});
+
+test("owner-qualifies only colliding repository basenames in one rendered context", () => {
+  const segments = links(referenceSegments(
+    "https://github.com/alpha/app/pull/1, https://github.com/beta/app/issues/2, https://github.com/beta/api/pull/3",
+  ));
+  assert.deepEqual(githubReferenceDisplayLabels(segments), [
+    "alpha/app PR #1",
+    "beta/app Issue #2",
+    "api PR #3",
+  ]);
+  assert.deepEqual(githubReferenceDisplayLabels(segments, { related: true }), [
+    "alpha/app #1",
+    "beta/app #2",
+    "api #3",
+  ]);
+});
 
 test("normalizes advertised GitHub repositories and rejects non-repository URLs", () => {
   assert.equal(normalizeGitHubRepository("https://github.com/Owner/Repo.git/"), "owner/repo");
