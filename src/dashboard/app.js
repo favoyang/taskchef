@@ -16,7 +16,7 @@ import {
   turnPresentation,
 } from "./state.js";
 import { openTaskFromControl } from "./actions.js";
-import { githubReferenceSegments } from "./github-links.js";
+import { referenceSegments } from "./github-links.js";
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
 
 const state = {
@@ -61,28 +61,33 @@ const elements = {
 };
 let notificationDescriptionSerial = 0;
 
-function githubLink(link, { compact = false } = {}) {
+function referenceLink(link, { compact = false } = {}) {
   const anchor = document.createElement("a");
   anchor.className = compact ? "github-link github-link-compact" : "github-link";
   anchor.href = link.url;
   anchor.target = "_blank";
   anchor.rel = "noopener noreferrer";
   anchor.textContent = link.label ?? link.text;
+  const githubKind = link.type === "issue"
+    ? ", GitHub issue"
+    : link.type === "pull"
+      ? ", GitHub pull request"
+      : link.provider === "github" || link.owner ? " on GitHub" : "";
   anchor.setAttribute(
     "aria-label",
-    `${link.label ?? link.text} on GitHub (opens in a new tab)`,
+    `${link.label ?? link.text}${githubKind} (opens in a new tab)`,
   );
   anchor.addEventListener("click", (event) => event.stopPropagation());
   return anchor;
 }
 
-function appendGitHubText(container, text, task) {
-  const children = githubReferenceSegments(text, {
+function appendLinkedText(container, text, task) {
+  const children = referenceSegments(text, {
     projectRepositories: task.project?.githubRepos,
     taskRepository: task.relatedGitHubRepository,
   }).map((segment) => {
     if (segment.kind === "text") return document.createTextNode(segment.text);
-    if (segment.kind === "link") return githubLink(segment);
+    if (segment.kind === "link") return referenceLink(segment);
     const ambiguous = document.createElement("span");
     ambiguous.className = "github-reference-ambiguous";
     ambiguous.textContent = segment.text;
@@ -99,7 +104,7 @@ function relatedGitHubLinks(task, { compact = false } = {}) {
   const container = document.createElement("nav");
   container.className = `github-links${compact ? " github-links-compact" : ""}`;
   container.setAttribute("aria-label", `Related GitHub links for ${task.title}`);
-  const children = links.map((link) => githubLink(link, { compact }));
+  const children = links.map((link) => referenceLink(link, { compact }));
   if (task.relatedGitHubLinksTruncated) {
     const more = document.createElement("span");
     more.className = "github-links-more";
@@ -307,7 +312,7 @@ function turnTimeline(task) {
     requestLabel.textContent = "Request";
     const request = document.createElement("p");
     request.className = "preserve-lines";
-    appendGitHubText(
+    appendLinkedText(
       request,
       turn.requestSummary ?? "Request not recorded by this TaskChef version.",
       task,
@@ -316,7 +321,7 @@ function turnTimeline(task) {
     resultLabel.textContent = "Result";
     const result = document.createElement("p");
     result.className = "preserve-lines";
-    appendGitHubText(result, presentation.summary, task);
+    appendLinkedText(result, presentation.summary, task);
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
     turnMetadata.textContent = turn.turnId
@@ -424,12 +429,12 @@ function taskCard(task) {
   requestLabel.textContent = "Request";
   const request = document.createElement("span");
   request.className = "preserve-lines";
-  request.textContent = latest.requestSummary;
+  appendLinkedText(request, latest.requestSummary, task);
   const resultLabel = document.createElement("strong");
   resultLabel.textContent = "Result";
   const result = document.createElement("span");
   result.className = "preserve-lines";
-  result.textContent = latest.resultSummary;
+  appendLinkedText(result, latest.resultSummary, task);
   summary.replaceChildren(requestLabel, request, resultLabel, result);
   const relatedLinks = relatedGitHubLinks(task, { compact: true });
   const time = timestampControl(

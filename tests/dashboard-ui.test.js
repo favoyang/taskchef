@@ -138,7 +138,11 @@ test("dashboard renders a live notification with time and shared accessible desc
                 path: "/tmp/marketlake",
               },
               relatedGitHubLinks: [{
-                label: "#12",
+                label: "acme/app#12",
+                number: "12",
+                owner: "acme",
+                repository: "app",
+                type: "issue",
                 url: "https://github.com/acme/app/issues/12",
               }],
               relatedGitHubRepository: null,
@@ -185,10 +189,24 @@ test("dashboard renders a live notification with time and shared accessible desc
           path: "/tmp/marketlake",
         },
         relatedGitHubLinks: [{
-          label: "Issue #11",
+          label: "acme/app#11",
+          number: "11",
+          owner: "acme",
+          repository: "app",
+          type: "issue",
           url: "https://github.com/acme/app/issues/11",
         }],
         relatedGitHubRepository: "acme/app",
+        latestTurn: {
+          requestSummary: "Review https://github.com/acme/app/pull/12 and https://example.com/docs?q=one, not <script>bad()</script>.",
+          result: {
+            status: "needs_input",
+            summary: "Confirm https://github.com/acme/app/issues/12.",
+            updatedAt: timestamp,
+          },
+          startedAt: timestamp,
+          turnId: "turn-one",
+        },
         status: "needs_input",
         threadId: "thread-one",
         title: "Continue MarketLake V1",
@@ -224,17 +242,39 @@ test("dashboard renders a live notification with time and shared accessible desc
     const [firstCard] = elements.get("#task-list").children;
     const relatedLinks = firstCard.children[3];
     const [relatedLink] = relatedLinks.children;
-    assert.equal(relatedLink.textContent, "Issue #11");
+    assert.equal(relatedLink.textContent, "acme/app#11");
     assert.equal(relatedLink.target, "_blank");
     assert.equal(relatedLink.rel, "noopener noreferrer");
-    assert.match(relatedLink.getAttribute("aria-label"), /opens in a new tab/);
+    assert.match(relatedLink.getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
     let propagationStopped = false;
     relatedLink.emit("click", { stopPropagation() { propagationStopped = true; } });
     assert.equal(propagationStopped, true);
 
+    const cardSummary = firstCard.children[2];
+    const cardRequest = cardSummary.children[1];
+    const cardResult = cardSummary.children[3];
+    assert.equal(cardRequest.children[1].textContent, "acme/app#12");
+    assert.equal(cardRequest.children[3].textContent, "https://example.com/docs?q=one");
+    assert.equal(cardResult.children[1].textContent, "acme/app#12");
+    assert.match(cardRequest.children[1].getAttribute("aria-label"), /GitHub pull request/);
+    assert.match(cardResult.children[1].getAttribute("aria-label"), /GitHub issue/);
+    assert.notEqual(
+      cardRequest.children[1].getAttribute("aria-label"),
+      cardResult.children[1].getAttribute("aria-label"),
+    );
+    assert.equal(cardRequest.children.some(({ tagName }) => tagName === "SCRIPT"), false);
+    for (const anchor of [cardRequest.children[1], cardRequest.children[3], cardResult.children[1]]) {
+      assert.equal(anchor.target, "_blank");
+      assert.equal(anchor.rel, "noopener noreferrer");
+      assert.match(anchor.getAttribute("aria-label"), /opens in a new tab/);
+      let cardPropagationStopped = false;
+      anchor.emit("click", { stopPropagation() { cardPropagationStopped = true; } });
+      assert.equal(cardPropagationStopped, true);
+    }
+
     firstCard.children[0].children[0].emit("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "#12");
+    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "acme/app#12");
     const [latestTurn] = elements.get("#dialog-results").children;
     const request = latestTurn.children[2];
     const result = latestTurn.children[4];
