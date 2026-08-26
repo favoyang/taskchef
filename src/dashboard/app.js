@@ -61,13 +61,19 @@ const elements = {
 };
 let notificationDescriptionSerial = 0;
 
-function referenceLink(link, { compact = false } = {}) {
+function referenceLink(link, { compact = false, typePrefix = false } = {}) {
   const anchor = document.createElement("a");
   anchor.className = compact ? "github-link github-link-compact" : "github-link";
   anchor.href = link.url;
   anchor.target = "_blank";
   anchor.rel = "noopener noreferrer";
-  anchor.textContent = link.label ?? link.text;
+  const label = link.label ?? link.text;
+  const visibleLabel = typePrefix && link.type === "pull"
+    ? `PR ${label}`
+    : typePrefix && link.type === "issue"
+      ? `Issue ${label}`
+      : label;
+  anchor.textContent = visibleLabel;
   const githubKind = link.type === "issue"
     ? ", GitHub issue"
     : link.type === "pull"
@@ -75,7 +81,7 @@ function referenceLink(link, { compact = false } = {}) {
       : link.provider === "github" || link.owner ? " on GitHub" : "";
   anchor.setAttribute(
     "aria-label",
-    `${link.label ?? link.text}${githubKind} (opens in a new tab)`,
+    `${visibleLabel}${githubKind} (opens in a new tab)`,
   );
   anchor.addEventListener("click", (event) => event.stopPropagation());
   return anchor;
@@ -87,7 +93,7 @@ function appendLinkedText(container, text, task) {
     taskRepository: task.relatedGitHubRepository,
   }).map((segment) => {
     if (segment.kind === "text") return document.createTextNode(segment.text);
-    if (segment.kind === "link") return referenceLink(segment);
+    if (segment.kind === "link") return referenceLink(segment, { typePrefix: true });
     const ambiguous = document.createElement("span");
     ambiguous.className = "github-reference-ambiguous";
     ambiguous.textContent = segment.text;
@@ -100,7 +106,12 @@ function appendLinkedText(container, text, task) {
 }
 
 function relatedGitHubLinks(task, { compact = false } = {}) {
-  const links = task.relatedGitHubLinks ?? [];
+  const seen = new Set();
+  const links = (task.relatedGitHubLinks ?? []).filter((link) => {
+    if (link.type === "repository" || seen.has(link.label)) return false;
+    seen.add(link.label);
+    return true;
+  });
   const container = document.createElement("nav");
   container.className = `github-links${compact ? " github-links-compact" : ""}`;
   container.setAttribute("aria-label", `Related GitHub links for ${task.title}`);
@@ -116,6 +127,26 @@ function relatedGitHubLinks(task, { compact = false } = {}) {
   container.hidden = children.length === 0;
   container.replaceChildren(...children);
   return container;
+}
+
+function renderProject(container, task) {
+  const children = [document.createTextNode(task.project.name)];
+  const repository = task.relatedGitHubRepository;
+  if (repository) {
+    const [owner, repositoryName] = repository.split("/");
+    children.push(
+      document.createTextNode(" "),
+      referenceLink({
+        label: repository,
+        owner,
+        provider: "github",
+        repository: repositoryName,
+        type: "repository",
+        url: `https://github.com/${repository}`,
+      }),
+    );
+  }
+  container.replaceChildren(...children);
 }
 
 function timestampControl(value, { accessibleName, key, prefix = "" }) {
@@ -340,7 +371,7 @@ function renderDialog(task) {
     results: task.results ?? preservedResults ?? [],
   };
   state.selectedTask = detailedTask;
-  elements.dialogProject.textContent = task.project.name;
+  renderProject(elements.dialogProject, task);
   elements.dialogTitle.textContent = task.title;
   elements.dialogRelatedLinks.replaceChildren(...relatedGitHubLinks(detailedTask).children);
   elements.dialogRelatedLinks.setAttribute(
@@ -421,7 +452,7 @@ function taskCard(task) {
   heading.append(title, badge);
   const project = document.createElement("p");
   project.className = "task-project";
-  project.textContent = task.project.name;
+  renderProject(project, task);
   const summary = document.createElement("p");
   summary.className = "task-summary";
   const latest = latestTurnPresentation(task);

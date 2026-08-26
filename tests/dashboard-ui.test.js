@@ -145,7 +145,7 @@ test("dashboard renders a live notification with time and shared accessible desc
                 type: "issue",
                 url: "https://github.com/acme/app/issues/12",
               }],
-              relatedGitHubRepository: null,
+              relatedGitHubRepository: "acme/app",
               status: "needs_input",
               threadId: "thread-one",
               title: "Continue MarketLake V1",
@@ -188,14 +188,31 @@ test("dashboard renders a live notification with time and shared accessible desc
           name: "MarketLake",
           path: "/tmp/marketlake",
         },
-        relatedGitHubLinks: [{
-          label: "acme/app#11",
-          number: "11",
-          owner: "acme",
-          repository: "app",
-          type: "issue",
-          url: "https://github.com/acme/app/issues/11",
-        }],
+        relatedGitHubLinks: [
+          {
+            label: "acme/app",
+            owner: "acme",
+            repository: "app",
+            type: "repository",
+            url: "https://github.com/acme/app",
+          },
+          {
+            label: "acme/app#11",
+            number: "11",
+            owner: "acme",
+            repository: "app",
+            type: "issue",
+            url: "https://github.com/acme/app/issues/11",
+          },
+          {
+            label: "acme/app#11",
+            number: "11",
+            owner: "acme",
+            repository: "app",
+            type: "pull",
+            url: "https://github.com/acme/app/pull/11",
+          },
+        ],
         relatedGitHubRepository: "acme/app",
         latestTurn: {
           requestSummary: "Review https://github.com/acme/app/pull/12 and https://example.com/docs?q=one, not <script>bad()</script>.",
@@ -240,7 +257,14 @@ test("dashboard renders a live notification with time and shared accessible desc
     );
 
     const [firstCard] = elements.get("#task-list").children;
+    const project = firstCard.children[1];
+    assert.equal(project.children[0].textContent, "MarketLake");
+    assert.equal(project.children[2].textContent, "acme/app");
+    assert.equal(project.children[2].href, "https://github.com/acme/app");
+    assert.equal(project.children[2].target, "_blank");
+    assert.equal(project.children[2].rel, "noopener noreferrer");
     const relatedLinks = firstCard.children[3];
+    assert.equal(relatedLinks.children.length, 1);
     const [relatedLink] = relatedLinks.children;
     assert.equal(relatedLink.textContent, "acme/app#11");
     assert.equal(relatedLink.target, "_blank");
@@ -253,9 +277,9 @@ test("dashboard renders a live notification with time and shared accessible desc
     const cardSummary = firstCard.children[2];
     const cardRequest = cardSummary.children[1];
     const cardResult = cardSummary.children[3];
-    assert.equal(cardRequest.children[1].textContent, "acme/app#12");
+    assert.equal(cardRequest.children[1].textContent, "PR acme/app#12");
     assert.equal(cardRequest.children[3].textContent, "https://example.com/docs?q=one");
-    assert.equal(cardResult.children[1].textContent, "acme/app#12");
+    assert.equal(cardResult.children[1].textContent, "Issue acme/app#12");
     assert.match(cardRequest.children[1].getAttribute("aria-label"), /GitHub pull request/);
     assert.match(cardResult.children[1].getAttribute("aria-label"), /GitHub issue/);
     assert.notEqual(
@@ -275,16 +299,17 @@ test("dashboard renders a live notification with time and shared accessible desc
     firstCard.children[0].children[0].emit("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(elements.get("#dialog-related-links").children[0].textContent, "acme/app#12");
+    assert.equal(elements.get("#dialog-project").children[0].textContent, "MarketLake");
+    assert.equal(elements.get("#dialog-project").children[2].textContent, "acme/app");
     const [latestTurn] = elements.get("#dialog-results").children;
     const request = latestTurn.children[2];
     const result = latestTurn.children[4];
     assert.equal(request.children[1].textContent, "acme/app#12");
     assert.equal(request.children.map(({ textContent }) => textContent).join(""),
       "Review acme/app#12, not <script>bad()</script>.");
-    assert.equal(result.children[1].textContent, "#13");
-    assert.equal(result.children[1].className, "github-reference-ambiguous");
-    assert.equal(result.children[1].tabIndex, 0);
-    assert.match(result.children[1].getAttribute("aria-label"), /repository is ambiguous/);
+    assert.equal(result.children[1].textContent, "acme/app#13");
+    assert.equal(result.children[1].className, "github-link");
+    assert.match(result.children[1].getAttribute("aria-label"), /on GitHub.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
 
     const statusFilter = elements.get("#status-filter");

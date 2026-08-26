@@ -323,7 +323,8 @@ export function taskGitHubProjection(task) {
       taskRepository,
     })) {
       if (segment.kind !== "link") continue;
-      const key = segment.url;
+      if (segment.type === "repository") continue;
+      const key = relatedLinkLabel(segment);
       if (seen.has(key)) continue;
       if (links.length === MAX_RELATED_GITHUB_LINKS) {
         truncated = true;
