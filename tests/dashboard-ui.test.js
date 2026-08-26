@@ -212,6 +212,38 @@ test("dashboard renders a live notification with time and shared accessible desc
             type: "pull",
             url: "https://github.com/acme/app/pull/11",
           },
+          {
+            label: "acme/app#12",
+            number: "12",
+            owner: "acme",
+            repository: "app",
+            type: "pull",
+            url: "https://github.com/acme/app/pull/12",
+          },
+          {
+            label: "acme/api#20",
+            number: "20",
+            owner: "acme",
+            repository: "api",
+            type: "pull",
+            url: "https://github.com/acme/api/pull/20",
+          },
+          {
+            label: "acme/api#21",
+            number: "21",
+            owner: "acme",
+            repository: "api",
+            type: "issue",
+            url: "https://github.com/acme/api/issues/21",
+          },
+          {
+            label: "acme/api#22",
+            number: "22",
+            owner: "acme",
+            repository: "api",
+            type: "generic",
+            url: "https://github.com/acme/api/issues/22",
+          },
         ],
         relatedGitHubRepository: "acme/app",
         latestTurn: {
@@ -264,9 +296,28 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(project.children[2].target, "_blank");
     assert.equal(project.children[2].rel, "noopener noreferrer");
     const relatedLinks = firstCard.children[3];
-    assert.equal(relatedLinks.children.length, 1);
-    const [relatedLink] = relatedLinks.children;
-    assert.equal(relatedLink.textContent, "acme/app#11");
+    assert.equal(relatedLinks.children.length, 5);
+    const [
+      relatedLink,
+      repeatedRepositoryLink,
+      secondRepositoryLink,
+      secondRepositoryIssue,
+      untypedReference,
+    ] = relatedLinks.children;
+    assert.equal(relatedLink.textContent, "Issue acme/app#11");
+    assert.equal(repeatedRepositoryLink.textContent, "PR #12");
+    assert.equal(secondRepositoryLink.textContent, "PR acme/api#20");
+    assert.equal(secondRepositoryIssue.textContent, "Issue #21");
+    assert.equal(untypedReference.textContent, "#22");
+    assert.match(
+      repeatedRepositoryLink.getAttribute("aria-label"),
+      /^PR acme\/app#12, GitHub pull request/,
+    );
+    assert.match(
+      secondRepositoryIssue.getAttribute("aria-label"),
+      /^Issue acme\/api#21, GitHub issue/,
+    );
+    assert.match(untypedReference.getAttribute("aria-label"), /^acme\/api#22 on GitHub/);
     assert.equal(relatedLink.target, "_blank");
     assert.equal(relatedLink.rel, "noopener noreferrer");
     assert.match(relatedLink.getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
@@ -298,7 +349,7 @@ test("dashboard renders a live notification with time and shared accessible desc
 
     firstCard.children[0].children[0].emit("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "acme/app#12");
+    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "Issue acme/app#12");
     assert.equal(elements.get("#dialog-project").children[0].textContent, "MarketLake");
     assert.equal(elements.get("#dialog-project").children[2].textContent, "acme/app");
     const [latestTurn] = elements.get("#dialog-results").children;
