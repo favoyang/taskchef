@@ -3278,6 +3278,27 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /former inline ownership[\s\S]+remaining\s+task-specific body/i);
 });
 
+test("executor skill reports terminal state before explicitly authorized ending actions", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-executor/SKILL.md"), "utf8");
+  const lifecycle = content.slice(content.indexOf("### Keep terminal reporting ahead"));
+
+  assert.match(lifecycle, /explicitly requests archiving this exact Codex task/i);
+  assert.match(lifecycle, /finish and verify[\s\S]+read the exact task identity[\s\S]+submit the terminal\s+`report_state`[\s\S]+verify that TaskChef\s+accepted[\s\S]+Only then call the native Codex archive/i);
+  assert.match(lifecycle, /If terminal reporting fails,[\s\S]+do not archive[\s\S]+leave the executor accessible/i);
+  assert.match(lifecycle, /terminal reporting succeeds but the later action fails,[\s\S]+preserve the accepted `completed`, `failed`, or `needs_input` state[\s\S]+do not reopen the lifecycle/i);
+  assert.match(lifecycle, /Archive must be the final state-changing action[\s\S]+native confirmation/i);
+});
+
+test("executor skill never implies archive from ordinary completion language", async () => {
+  const content = await readFile(path.resolve("skills/taskchef-executor/SKILL.md"), "utf8");
+  const lifecycle = content.slice(content.indexOf("### Keep terminal reporting ahead"));
+
+  assert.match(lifecycle, /Normal completion[\s\S]+semantic terminal `report_state`[\s\S]+returns normally/i);
+  assert.match(lifecycle, /Never archive, hand off, close, navigate away from, or\s+otherwise terminate[\s\S]+merely because the work or turn completed/i);
+  assert.match(lifecycle, /`finish`,\s+`complete`, `done`, `ship`, and ordinary cleanup do not authorize archive/i);
+  assert.match(lifecycle, /ordering rule does not authorize any such action/i);
+});
+
 test("bootstrap skill initializes and indexes Codex projects through verified canonical paths", async () => {
   const content = await readFile(path.resolve("skills/taskchef-bootstrap/SKILL.md"), "utf8");
   assert.match(content, /taskchef\.js workspace path --json|workspace path --json/);

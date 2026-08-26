@@ -163,6 +163,16 @@ sequenceDiagram
 A native approval prompt is not a semantic result. `needs_input` is reserved
 for a user decision or fact required to proceed.
 
+Ordinary completion returns after the terminal callback; it does not archive,
+hand off, close, navigate away from, or otherwise terminate the native Codex
+task. An archive requires an explicit request in the current assignment or
+follow-up for that exact task. `finish`, `complete`, `done`, `ship`, and cleanup
+alone do not authorize it. Any explicitly requested action that could make the
+executor unavailable must follow, never precede, an accepted terminal callback.
+If reporting fails, the later action is forbidden and the executor remains
+accessible. If the later action fails, its error does not reopen or replace the
+accepted semantic state.
+
 ## Follow-up turns
 
 Turn refs are freshness tokens for semantic callbacks. The workspace rejects a
