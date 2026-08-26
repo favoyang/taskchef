@@ -59,6 +59,23 @@ $taskchef-bootstrap List my configured TaskChef projects.
 $taskchef-bootstrap Add /workspace/payments as payments. It owns authorization, capture, refunds, and retries.
 ```
 
+The bootstrap skill has two onboarding paths. For a folder already saved as a
+local Codex project, it requires an exact canonical-path match before adding and
+verifying the TaskChef project. For a new folder, or an existing folder not yet
+saved by Codex, it creates the directory only when explicitly requested, opens
+the canonical path with the validated Codex Desktop CLI's `codex app <path>`
+mechanism, re-lists native projects, and requires the same exact match before
+adding it to TaskChef. An open request without a verified native project is
+reported as partial setup, not delegation-ready.
+
+Codex CLI resolution follows the same contract as
+`workspace init --register-codex`: an explicit `--codex-cli` path wins, then
+`TASKCHEF_CODEX_CLI`; either must be executable and support `app --help`.
+Without an override, TaskChef prefers a validated `codex` PATH candidate under
+`Contents/Resources`; otherwise it validates only the first executable `codex`
+in PATH order. It does not assume an arbitrary shell command or hard-code an
+application bundle location.
+
 Or use the CLI:
 
 ```sh
@@ -68,9 +85,14 @@ taskchef project list
 ```
 
 A project may advertise several GitHub repositories with repeated
-`--github-repo`. TaskChef accepts Git roots and ordinary local folders on the
-same execution host. Unsupported configuration schemas are rejected and are
-never rewritten automatically.
+`--github-repo`. Explicit values replace automatic origin detection and form
+the complete advertised list, so include the origin when it should remain
+routable. A managed `*-workspace` should advertise every relevant child or
+subrepository canonical GitHub URL, plus the workspace repository itself when
+applicable, so issue and pull-request links select the correct routing project.
+TaskChef accepts Git roots and ordinary local folders on the same execution
+host. Unsupported configuration schemas are rejected and are never rewritten
+automatically.
 
 ## Dispatch
 
