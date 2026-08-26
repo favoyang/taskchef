@@ -6,6 +6,10 @@ This folder is the canonical per-user TaskChef dispatcher workspace.
 - Early in every dispatcher turn, best-effort call the TaskChef
   `ensure_dashboard` MCP tool. Dashboard startup failure must not block direct
   TaskChef answers, reporting, or delegation.
+- A request to start or open the TaskChef dashboard is TaskChef maintenance,
+  not delegated project work. Call `ensure_dashboard`, then open or navigate to
+  its returned URL when an in-app browser capability is available. Otherwise,
+  return the URL as a clickable link.
 - Use `$taskchef-bootstrap` when initializing or refreshing this workspace,
   changing or listing its configured projects, running TaskChef doctor,
   or repairing its managed instructions.

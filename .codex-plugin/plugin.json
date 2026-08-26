@@ -29,10 +29,10 @@
     ],
     "websiteURL": "https://github.com/favoyang/taskchef",
     "defaultPrompt": [
-      "$taskchef-bootstrap Set up TaskChef and index my Codex projects.",
-      "$taskchef-delegate Dispatch this request to the right project.",
-      "$taskchef-executor Execute this delegated TaskChef assignment.",
-      "$taskchef-copilot Explain TaskChef outcomes and recommend the next action."
+      "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
+      "$taskchef-delegate Do X in Y project.",
+      "Start and open the TaskChef dashboard.",
+      "$taskchef-copilot Summarize recent delegated work and tell me what needs attention."
     ],
     "brandColor": "#D97706",
     "composerIcon": "./assets/taskchef.svg",

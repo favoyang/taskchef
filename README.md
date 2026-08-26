@@ -41,7 +41,7 @@ no elevated permissions.
 Ask the bootstrap skill to create the per-user dispatcher:
 
 ```text
-$taskchef-bootstrap Set up TaskChef.
+$taskchef-bootstrap Set up TaskChef and index my local Codex projects.
 ```
 
 The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
@@ -181,7 +181,7 @@ The dashboard is the primary monitoring and browsing UI. Ask copilot when you
 want a concise explanation or recommendation:
 
 ```text
-$taskchef-copilot What finished, what needs attention, and what should I do next?
+$taskchef-copilot Summarize recent delegated work and tell me what needs attention.
 ```
 
 Copilot starts from TaskChef's normalized cached brief. It uses live Codex
@@ -218,6 +218,12 @@ their full selected scope. Task IDs accept a full UUID or an unambiguous
 eight-character prefix.
 
 ## Dashboard
+
+Ask the dispatcher to make the dashboard available and open it:
+
+```text
+Start and open the TaskChef dashboard.
+```
 
 Dispatcher turns call the input-free `ensure_dashboard` MCP tool. It starts at
 most one dashboard inside the existing TaskChef MCP process on
