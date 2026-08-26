@@ -2885,9 +2885,15 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(manifest.interface.composerIcon, "./assets/taskchef.svg");
   assert.equal(manifest.interface.logo, "./assets/taskchef.svg");
   assert.equal(manifest.interface.logoDark, "./assets/taskchef-dark.svg");
+  assert.deepEqual(manifest.interface.defaultPrompt, [
+    "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
+    "$taskchef-delegate Do X in Y project.",
+    "Start and open the TaskChef dashboard.",
+    "$taskchef-copilot Summarize recent delegated work and tell me what needs attention.",
+  ]);
   assert.equal(
     manifest.interface.defaultPrompt.some((prompt) => prompt.includes("$taskchef-executor")),
-    true,
+    false,
   );
   for (const assetPath of [manifest.interface.logo, manifest.interface.logoDark]) {
     const asset = await readFile(path.resolve(assetPath));
@@ -3341,7 +3347,7 @@ test("plugin wording presents bootstrap as indexing existing Codex projects", as
   const manifest = JSON.parse(await readFile(path.resolve(".codex-plugin/plugin.json"), "utf8"));
   const readme = await readFile(path.resolve("README.md"), "utf8");
   assert.ok(manifest.interface.defaultPrompt.includes(
-    "$taskchef-bootstrap Set up TaskChef and index my Codex projects.",
+    "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
   ));
   assert.match(readme, /^## Bootstrap and index projects$/m);
   assert.match(readme, /indexes existing Codex projects for delegation/i);
@@ -3350,6 +3356,21 @@ test("plugin wording presents bootstrap as indexing existing Codex projects", as
   assert.match(readme, /CLI command writes TaskChef metadata only; it does not query Codex/i);
   assert.match(readme, /verify that[\s\S]+exactly matches the[\s\S]+canonical path of an existing local Codex project/i);
   assert.doesNotMatch(readme, /routing project/i);
+});
+
+test("dashboard prompt opens the ensured dashboard without delegation", async () => {
+  const manifest = JSON.parse(await readFile(path.resolve(".codex-plugin/plugin.json"), "utf8"));
+  const instructions = await readFile(
+    path.resolve("assets/taskchef-dispatcher-instructions.md"),
+    "utf8",
+  );
+  const prompt = "Start and open the TaskChef dashboard.";
+  assert.ok(manifest.interface.defaultPrompt.includes(prompt));
+  assert.match(instructions, /start or open the TaskChef dashboard is TaskChef maintenance/i);
+  assert.match(instructions, /not delegated project work/i);
+  assert.match(instructions, /Call `ensure_dashboard`/);
+  assert.match(instructions, /open or navigate to[\s\S]+returned URL[\s\S]+in-app browser/i);
+  assert.match(instructions, /Otherwise,[\s\S]+clickable link/i);
 });
 
 test("copilot skill is cached-first, live-explicit, and guards continuation boundaries", async () => {
