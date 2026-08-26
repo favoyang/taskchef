@@ -1817,6 +1817,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styles, /\.task-title, \.task-summary \{ overflow-wrap: anywhere; \}/);
   assert.match(styles, /\.github-link \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(styles, /\.github-links \{[^}]*flex-wrap: wrap;/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
   assert.match(styles, /\.toolbar \{[^}]*display: grid;/);
   assert.match(styles, /\.toolbar-primary \{[^}]*grid-template-columns: repeat\(2, minmax\(180px, 240px\)\);/);
@@ -1832,6 +1833,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.status-filter-option span \{ min-height: 38px; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.task-title, \.timestamp-toggle \{[^}]*min-height: 36px;/);
+  assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.github-links \{ max-width: 100%; \}/);
   assert.match(styles, /@media \(max-width: 480px\)[\s\S]*\.toolbar-primary \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*\.status-filter-option:has\(input:checked\) span \{ color: var\(--background\); \}/);
 });

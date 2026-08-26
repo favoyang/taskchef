@@ -3,6 +3,64 @@ const REFERENCE_PATTERN = /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9](?:[A-Z
 const ABSOLUTE_HTTP_PATTERN = /https?:\/\/[^\s<>"'`]+/gi;
 export const MAX_RELATED_GITHUB_LINKS = 20;
 
+function repositoryIdentity(link) {
+  if (!link?.owner || !link?.repository) return null;
+  return `${link.owner.toLowerCase()}/${link.repository.toLowerCase()}`;
+}
+
+function collidingRepositoryBasenames(links) {
+  const repositoriesByBasename = new Map();
+  for (const link of links) {
+    const identity = repositoryIdentity(link);
+    if (!identity) continue;
+    const basename = link.repository.toLowerCase();
+    const repositories = repositoriesByBasename.get(basename) ?? new Set();
+    repositories.add(identity);
+    repositoriesByBasename.set(basename, repositories);
+  }
+  return new Set(
+    [...repositoriesByBasename]
+      .filter(([, repositories]) => repositories.size > 1)
+      .map(([basename]) => basename),
+  );
+}
+
+function visibleRepositoryLabel(link, collisions) {
+  return collisions.has(link.repository.toLowerCase())
+    ? `${link.owner}/${link.repository}`
+    : link.repository;
+}
+
+export function githubReferenceDisplayLabels(links, { related = false } = {}) {
+  const collisions = collidingRepositoryBasenames(links);
+  let previousRepository = null;
+  return links.map((link) => {
+    if (link.provider !== "github" && !link.owner) return link.label ?? link.text;
+    const repository = repositoryIdentity(link);
+    const repositoryLabel = visibleRepositoryLabel(link, collisions);
+    if (link.type === "repository") return repositoryLabel;
+    if (related) {
+      const label = repository === previousRepository
+        ? `#${link.number}`
+        : `${repositoryLabel} #${link.number}`;
+      previousRepository = repository;
+      return label;
+    }
+    if (link.type === "pull") return `${repositoryLabel} PR #${link.number}`;
+    if (link.type === "issue") return `${repositoryLabel} Issue #${link.number}`;
+    return `${repositoryLabel} #${link.number}`;
+  });
+}
+
+export function githubReferenceAccessibleLabel(link) {
+  const repository = repositoryIdentity(link);
+  if (!repository) return link.label ?? link.text;
+  if (link.type === "repository") return repository;
+  if (link.type === "pull") return `${repository} PR #${link.number}`;
+  if (link.type === "issue") return `${repository} Issue #${link.number}`;
+  return `${repository} #${link.number}`;
+}
+
 function canonicalRepository(owner, repository) {
   return `${owner.toLowerCase()}/${repository.toLowerCase()}`;
 }

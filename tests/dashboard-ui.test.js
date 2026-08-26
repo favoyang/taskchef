@@ -308,7 +308,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     const [firstCard, secondCard] = elements.get("#task-list").children;
     const project = firstCard.children[1];
     assert.equal(project.children[0].textContent, "MarketLake");
-    assert.equal(project.children[2].textContent, "acme/app");
+    assert.equal(project.children[2].textContent, "app");
     assert.equal(project.children[2].href, "https://github.com/acme/app");
     assert.equal(project.children[2].target, "_blank");
     assert.equal(project.children[2].rel, "noopener noreferrer");
@@ -321,20 +321,20 @@ test("dashboard renders a live notification with time and shared accessible desc
       secondRepositoryIssue,
       untypedReference,
     ] = relatedLinks.children;
-    assert.equal(relatedLink.textContent, "Issue acme/app#11");
-    assert.equal(repeatedRepositoryLink.textContent, "PR #12");
-    assert.equal(secondRepositoryLink.textContent, "PR acme/api#20");
-    assert.equal(secondRepositoryIssue.textContent, "Issue #21");
+    assert.equal(relatedLink.textContent, "app #11");
+    assert.equal(repeatedRepositoryLink.textContent, "#12");
+    assert.equal(secondRepositoryLink.textContent, "api #20");
+    assert.equal(secondRepositoryIssue.textContent, "#21");
     assert.equal(untypedReference.textContent, "#22");
     assert.match(
       repeatedRepositoryLink.getAttribute("aria-label"),
-      /^PR acme\/app#12, GitHub pull request/,
+      /^acme\/app PR #12, GitHub pull request/,
     );
     assert.match(
       secondRepositoryIssue.getAttribute("aria-label"),
-      /^Issue acme\/api#21, GitHub issue/,
+      /^acme\/api Issue #21, GitHub issue/,
     );
-    assert.match(untypedReference.getAttribute("aria-label"), /^acme\/api#22 on GitHub/);
+    assert.match(untypedReference.getAttribute("aria-label"), /^acme\/api #22 on GitHub/);
     assert.equal(relatedLink.target, "_blank");
     assert.equal(relatedLink.rel, "noopener noreferrer");
     assert.match(relatedLink.getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
@@ -345,9 +345,9 @@ test("dashboard renders a live notification with time and shared accessible desc
     const cardSummary = firstCard.children[2];
     const cardRequest = cardSummary.children[1];
     const cardResult = cardSummary.children[3];
-    assert.equal(cardRequest.children[1].textContent, "PR acme/app#12");
+    assert.equal(cardRequest.children[1].textContent, "app PR #12");
     assert.equal(cardRequest.children[3].textContent, "https://example.com/docs?q=one");
-    assert.equal(cardResult.children[1].textContent, "Issue acme/app#12");
+    assert.equal(cardResult.children[1].textContent, "app Issue #12");
     assert.match(cardRequest.children[1].getAttribute("aria-label"), /GitHub pull request/);
     assert.match(cardResult.children[1].getAttribute("aria-label"), /GitHub issue/);
     assert.notEqual(
@@ -366,16 +366,16 @@ test("dashboard renders a live notification with time and shared accessible desc
 
     firstCard.children[0].children[0].emit("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "Issue acme/app#12");
+    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "app #12");
     assert.equal(elements.get("#dialog-project").children[0].textContent, "MarketLake");
-    assert.equal(elements.get("#dialog-project").children[2].textContent, "acme/app");
+    assert.equal(elements.get("#dialog-project").children[2].textContent, "app");
     const [latestTurn] = elements.get("#dialog-results").children;
     const request = latestTurn.children[2];
     const result = latestTurn.children[4];
-    assert.equal(request.children[1].textContent, "acme/app#12");
+    assert.equal(request.children[1].textContent, "app #12");
     assert.equal(request.children.map(({ textContent }) => textContent).join(""),
-      "Review acme/app#12, not <script>bad()</script>.");
-    assert.equal(result.children[1].textContent, "acme/app#13");
+      "Review app #12, not <script>bad()</script>.");
+    assert.equal(result.children[1].textContent, "app #13");
     assert.equal(result.children[1].className, "github-link");
     assert.match(result.children[1].getAttribute("aria-label"), /on GitHub.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
