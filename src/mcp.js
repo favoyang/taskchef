@@ -22,7 +22,7 @@ const projectSchema = z.object({
 
 const taskSchema = z.object({
   schemaVersion: z.union([
-    z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8),
+    z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9),
   ]),
   id: z.string(),
   project: projectSchema,
@@ -32,10 +32,12 @@ const taskSchema = z.object({
   createdAt: z.string(),
   status: z.enum(["working", "needs_input", "completed", "failed"]),
   summary: z.string().nullable(),
+  turnRef: z.string().nullable(),
   turnId: z.string().nullable(),
   updatedAt: z.string(),
   updatedBy: z.enum(["dispatcher", "mcp"]),
   turns: z.array(z.object({
+    turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
     requestSummary: z.string().nullable(),
     startedAt: z.string(),
@@ -46,6 +48,7 @@ const taskSchema = z.object({
     }).nullable(),
   })),
   latestTurn: z.object({
+    turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
     requestSummary: z.string().nullable(),
     startedAt: z.string(),
@@ -58,12 +61,14 @@ const taskSchema = z.object({
   results: z.array(z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
     summary: z.string(),
+    turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
     updatedAt: z.string(),
   })),
   lastResult: z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
     summary: z.string(),
+    turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
     updatedAt: z.string(),
   }).nullable(),
@@ -225,10 +230,11 @@ export function createTaskChefMcpServer({
     {
       title: "Report TaskChef state",
       description:
-        "Report this self-linked executor turn's lifecycle state. Use working before substantive work in a newly linked or follow-up turn, with summary omitted or null and a concise requestSummary. Preserve known repository context and delivered issues or pull requests as canonical GitHub URLs, including both child-repository and workspace pull requests when applicable. Before ending the same turn, report needs_input, completed, or failed with a concise semantic summary and requestSummary omitted. Exact retries are idempotent; stale or mismatched turns are rejected.",
+        "Report this self-linked executor turn's lifecycle state. Use one stable turnRef for working and its terminal report; pass the native Codex turn ID as both turnRef and turnId when available, otherwise pass a client-generated UUID turnRef and null turnId. Preserve known repository context and delivered links. Exact retries are idempotent; stale or mismatched turnRefs are rejected.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),
+        turnRef: z.string().min(1).max(256).nullable().optional(),
         turnId: z.string().min(1).max(256).nullable(),
         status: z.enum(["working", "needs_input", "completed", "failed"]),
         summary: z.string().min(1).max(2_000).nullable().optional(),
@@ -256,6 +262,7 @@ export function createTaskChefMcpServer({
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),
+        turnRef: z.string().min(1).max(256).nullable().optional(),
         turnId: z.string().min(1).max(256).nullable(),
         status: z.enum(["needs_input", "completed", "failed"]),
         summary: z.string().min(1).max(2_000),

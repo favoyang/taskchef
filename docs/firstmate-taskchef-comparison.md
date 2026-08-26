@@ -115,10 +115,10 @@ creation. The executor then reads its own `CODEX_THREAD_ID` and calls
 The task record keeps one immutable intent/project snapshot plus the latest
 identity and semantic result fields.
 
-**Fact:** Schema 4 linking accepts one atomic null-to-canonical-Codex-UUIDv7
-transition. Exact retries are idempotent, conflicts fail, and link interruption
-remains visibly pending. Follow-up semantic results require a newer exact
-native turn ID.
+**Fact:** Linking accepts one atomic null-to-canonical-Codex-UUIDv7 transition.
+Exact retries are idempotent, conflicts fail, and link interruption remains
+visibly pending. Schema 9 lifecycle callbacks use a required `turnRef`: the
+native Codex turn ID when available, or a retained UUID with `turnId: null`.
 
 ### FirstMate
 
@@ -162,7 +162,7 @@ backends have different verification or experimental status.
 
 **Fact:** Persisted statuses are `working`, `needs_input`, `completed`, and
 `failed`. Executors report
-`working` at turn start and a semantic state before ending. Schema 8 preserves
+`working` at turn start and a semantic state before ending. Schema 9 preserves
 the paired turn timeline and semantic-only compatibility results while a newer
 turn is working. If a terminal report is lost, the next valid working start
 closes the predecessor with a timeline-only `interrupted` outcome rather than

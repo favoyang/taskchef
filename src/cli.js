@@ -173,10 +173,12 @@ function taskDetails(task) {
     `Title: ${singleLineDetail(task.title)}`,
     `Project: ${singleLineDetail(task.project.name)}`,
     `Current status: ${singleLineDetail(task.status ?? "unknown")}`,
-    `Current turn ID: ${singleLineDetail(task.turnId ?? "-")}`,
+    `Current turn ref: ${singleLineDetail(task.turnRef ?? "-")}`,
+    `Current Codex turn ID: ${singleLineDetail(task.turnId ?? "-")}`,
     `Last result status: ${singleLineDetail(lastResult?.status ?? "-")}`,
     `Last result summary: ${singleLineDetail(lastResult?.summary ?? "-")}`,
-    `Last result turn ID: ${singleLineDetail(lastResult?.turnId ?? "-")}`,
+    `Last result turn ref: ${singleLineDetail(lastResult?.turnRef ?? "-")}`,
+    `Last result Codex turn ID: ${singleLineDetail(lastResult?.turnId ?? "-")}`,
     `Last result updated: ${singleLineDetail(lastResult?.updatedAt ?? "-")}`,
     `Project path: ${singleLineDetail(task.project.path)}`,
     `Created: ${singleLineDetail(task.createdAt)}`,
@@ -187,7 +189,7 @@ function taskDetails(task) {
     `Turn count: ${task.turns.length}`,
     "Activity timeline (newest first):",
     ...[...task.turns].reverse().map((turn) => (
-      `- ${singleLineDetail(turn.startedAt)} | ${singleLineDetail(turn.result?.status ?? "working")} | turn ${singleLineDetail(turn.turnId ?? "-")} | request: ${singleLineDetail(turn.requestSummary ?? "not recorded")} | result: ${singleLineDetail(turn.result?.summary ?? "in progress")}`
+      `- ${singleLineDetail(turn.startedAt)} | ${singleLineDetail(turn.result?.status ?? "working")} | ref ${singleLineDetail(turn.turnRef ?? "-")} | Codex turn ${singleLineDetail(turn.turnId ?? "-")} | request: ${singleLineDetail(turn.requestSummary ?? "not recorded")} | result: ${singleLineDetail(turn.result?.summary ?? "in progress")}`
     )),
     "Instruction:",
     task.instruction,
@@ -200,7 +202,10 @@ async function migrate(args) {
   print(result, args, (value) => [
     `Task log: ${value.action}`,
     `Tasks: ${value.taskCount}`,
+    `Turns: ${value.turnCount}`,
     `Migrated: ${value.migratedCount}`,
+    `Native turn refs: ${value.nativeTurnRefCount}`,
+    `Fallback turn refs: ${value.fallbackTurnRefCount}`,
     `Backup: ${value.backupPath ?? "not needed"}`,
   ].join("\n"));
   return 0;
