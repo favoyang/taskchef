@@ -3278,12 +3278,30 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /former inline ownership[\s\S]+remaining\s+task-specific body/i);
 });
 
-test("bootstrap skill initializes and verifies the canonical Codex project without hard-coded paths", async () => {
+test("bootstrap skill initializes and onboards routing projects through verified canonical Codex paths", async () => {
   const content = await readFile(path.resolve("skills/taskchef-bootstrap/SKILL.md"), "utf8");
   assert.match(content, /taskchef\.js workspace path --json|workspace path --json/);
   assert.match(content, /workspace init --register-codex --json/);
   assert.match(content, /list native projects once more/);
   assert.match(content, /~\/\.agents\/taskchef/);
+  assert.match(content, /^## Onboard a routing project$/m);
+  assert.match(content, /^### Existing Codex project$/m);
+  assert.match(content, /^### New or not-yet-saved Codex folder$/m);
+  assert.match(content, /^## Manage configured projects$/m);
+  assert.match(content, /List native local Codex projects once[\s\S]+exact canonical-path match/i);
+  assert.match(content, /Create the folder only when the user explicitly asked/i);
+  assert.match(content, /Do not initialize Git unless requested or[\s\S]+clearly required/i);
+  assert.match(content, /<validated-codex-cli> app <canonical-path>/);
+  assert.match(content, /explicit `--codex-cli` path takes precedence over `TASKCHEF_CODEX_CLI`/i);
+  assert.match(content, /prefer a validated[\s\S]+`Contents\/Resources`/i);
+  assert.match(content, /otherwise validate[\s\S]+first executable `codex` in PATH order/i);
+  assert.match(content, /Opening is a request, not proof/i);
+  assert.match(content, /do not add it to[\s\S]+TaskChef or call it delegation-ready/i);
+  assert.match(content, /project list --json[\s\S]+exact saved TaskChef project/i);
+  assert.match(content, /managed `\*-workspace`[\s\S]+repeated `--github-repo/i);
+  assert.match(content, /Repeated `--github-repo[\s\S]+replace[\s\S]+complete advertised repository list/i);
+  assert.match(content, /repeat the[\s\S]+origin explicitly when it should remain routable/i);
+  assert.match(content, /dispatcher is the inbox[\s\S]+routing projects own delegated work/i);
   assert.match(content, /never invoke\s+`codex add`/);
   assert.doesNotMatch(content, /\/Applications\/[^\s]+\.app\/Contents\/Resources\/codex/);
 });
