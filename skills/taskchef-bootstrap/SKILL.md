@@ -160,5 +160,8 @@ Example managed-workspace import entry:
 }
 ```
 
-TaskChef accepts configuration schema version 2 only. `githubRepos` is always
-an array; unsupported configuration is rejected without being rewritten.
+TaskChef accepts configuration schema version 2 only. Its optional exact
+`dashboard` object contains boolean `autostart`; absence means enabled and
+`false` opts out of MCP-lifecycle dashboard startup without disabling manual
+`$taskchef-dashboard` recovery. `githubRepos` is always an array; unsupported
+configuration is rejected without being rewritten.

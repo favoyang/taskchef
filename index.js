@@ -5,6 +5,7 @@ export {
   canonicalDirectory,
   canonicalGitRoot,
   doctorWorkspace,
+  dashboardAutostartEnabled,
   ensureWorkspaceInstructions,
   filterTasks,
   importProjects,
@@ -74,4 +75,4 @@ export {
 
 export { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./src/version.js";
 
-export { createTaskChefMcpServer } from "./src/mcp.js";
+export { createDashboardAutostart, createTaskChefMcpServer } from "./src/mcp.js";

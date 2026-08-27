@@ -31,7 +31,7 @@ codex plugin add taskchef@favoyang-plugins
 npm install --global taskchef
 ```
 
-The plugin provides four skills and a local MCP server. The npm installation
+The plugin provides five skills and a local MCP server. The npm installation
 puts the `taskchef` CLI on `PATH`. TaskChef installs no hooks, schedules,
 daemons, login items, system services, or background identity search and needs
 no elevated permissions.
@@ -48,7 +48,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
-taskchef.json   schema-2 Codex project index and delegation metadata
+taskchef.json   schema-2 Codex project index, dashboard preference, and delegation metadata
 tasks.jsonl     one task snapshot per line (schema 9; schema 4-8 migration supported)
 ```
 
@@ -129,9 +129,10 @@ correlation marker. That skill reads the executor's own `CODEX_THREAD_ID`, self-
 reports lifecycle state. Independent outcomes may become separate executors;
 dependent work should stay together.
 
-At the start of every dispatcher turn, the managed workspace instructions ask
-the MCP server to best-effort ensure the dashboard. A startup failure never
-blocks an answer, report, or delegation. Every dispatcher response ends with
+Activating the TaskChef MCP process best-effort ensures the dashboard by
+default. The managed workspace instructions also retry it at the start of each
+dispatcher turn. A startup failure never blocks MCP tools, an answer, report,
+or delegation. Every dispatcher response ends with
 the stable [TaskChef Dashboard](http://127.0.0.1:3210/) link; a created-task
 directive remains on the preceding line so dispatch still returns immediately.
 
@@ -219,13 +220,14 @@ eight-character prefix.
 
 ## Dashboard
 
-Ask the dispatcher to make the dashboard available and open it:
+Use the packaged recovery skill to make the dashboard available and open it:
 
 ```text
-Start and open the TaskChef dashboard.
+$taskchef-dashboard Ensure and open the TaskChef dashboard.
 ```
 
-Dispatcher turns call the input-free `ensure_dashboard` MCP tool. It starts at
+MCP activation and `$taskchef-dashboard` call the input-free `ensure_dashboard`
+MCP tool. It starts at
 most one dashboard inside the existing TaskChef MCP process on
 `127.0.0.1:3210`, or reuses a listener only when its bounded `/api/health`
 identity proves the exact TaskChef/dashboard-server version and the same
@@ -233,8 +235,22 @@ canonical workspace. The response says `started` or `reused` and includes the
 stable URL, canonical workspace, and versions.
 
 The in-process dashboard closes with the MCP process. Closing Codex or reloading
-the plugin may therefore stop the dashboard; the next dispatcher turn restores
-it. TaskChef adds no OS-persistent component.
+the plugin may therefore stop the dashboard; activating the next TaskChef MCP
+process normally restores it. TaskChef adds no OS-persistent component.
+
+Autostart is enabled when `dashboard` is absent and in new workspaces. To opt
+out, add this optional exact object to `taskchef.json` while retaining its other
+fields:
+
+```json
+"dashboard": { "autostart": false }
+```
+
+The manual `$taskchef-dashboard` recovery skill remains available when
+autostart is disabled or fails. It reports whether the compatible dashboard was
+started or reused and always returns its canonical clickable URL. It may open
+the returned localhost URL in an available in-app browser, but browser failure
+does not make dashboard recovery fail.
 
 For manual development, run the foreground CLI:
 
@@ -321,6 +337,21 @@ required contract; [workflows](docs/workflows.md) ties it to current code.
 codex plugin marketplace upgrade favoyang-plugins
 codex plugin add taskchef@favoyang-plugins
 ```
+
+Replacing or installing plugin files cannot execute autostart by itself. After
+installation, activate or reload the new TaskChef MCP process; installation
+does not necessarily reload Codex. Then run `$taskchef-dashboard` (or call
+`ensure_dashboard`) and verify the returned dashboard identity has all of:
+
+- the expected released TaskChef version;
+- the expected dashboard protocol `serverVersion`;
+- the canonical TaskChef workspace path;
+- the canonical `http://127.0.0.1:3210/` URL.
+
+The release-install sequence is therefore: install plugin, activate or reload
+the new MCP process, ensure the dashboard, then verify TaskChef version,
+protocol `serverVersion`, canonical workspace, and URL. Exact-compatible
+servers may be reused; unknown listeners remain untouched.
 
 ## Development
 

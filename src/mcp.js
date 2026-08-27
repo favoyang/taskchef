@@ -6,6 +6,8 @@ import {
   recordTask,
   reportTaskState,
   reportTaskResult,
+  dashboardAutostartEnabled,
+  readConfig,
 } from "./workspace.js";
 import { parseTaskChefMarker } from "./delegation.js";
 import { createDashboardManager } from "./dashboard-manager.js";
@@ -99,6 +101,39 @@ function toolResult(key, value, message) {
   };
 }
 
+function dashboardAutostartDiagnostic(error) {
+  const message = typeof error?.message === "string" ? error.message : "";
+  if (error?.code === "EADDRINUSE" || /port conflict|already in use/i.test(message)) {
+    return "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.";
+  }
+  if (/configuration|workspace|task log/i.test(message)) {
+    return "TaskChef dashboard autostart skipped: the canonical workspace is not ready.";
+  }
+  return "TaskChef dashboard autostart skipped: the dashboard could not be started.";
+}
+
+export function createDashboardAutostart({
+  workspace,
+  dashboardManager,
+  readConfiguration = readConfig,
+  log = (message) => process.stderr.write(`${message}\n`),
+} = {}) {
+  let startPromise = null;
+  return async () => {
+    startPromise ??= (async () => {
+      try {
+        const config = await readConfiguration(workspace, { checkPaths: false });
+        if (!dashboardAutostartEnabled(config)) return { action: "disabled" };
+        return await dashboardManager.ensure();
+      } catch (error) {
+        try { log(dashboardAutostartDiagnostic(error)); } catch {}
+        return { action: "failed" };
+      }
+    })();
+    return startPromise;
+  };
+}
+
 export function createTaskChefMcpServer({
   workspace = resolveWorkspacePath().workspace,
   prepare = prepareDispatch,
@@ -107,6 +142,8 @@ export function createTaskChefMcpServer({
   reportState = reportTaskState,
   link = linkTask,
   dashboardManager = createDashboardManager({ workspace }),
+  readConfiguration = readConfig,
+  logDashboardDiagnostic,
 } = {}) {
   const server = new McpServer(
     { name: "taskchef", version: TASKCHEF_VERSION },
@@ -279,6 +316,18 @@ export function createTaskChefMcpServer({
       return toolResult("task", task, `Recorded ${task.status} result for TaskChef task ${task.id}.`);
     },
   );
+
+  const originalConnect = server.connect.bind(server);
+  const autostartDashboard = createDashboardAutostart({
+    workspace,
+    dashboardManager,
+    readConfiguration,
+    ...(logDashboardDiagnostic ? { log: logDashboardDiagnostic } : {}),
+  });
+  server.connect = async (...args) => {
+    await originalConnect(...args);
+    void autostartDashboard();
+  };
 
   return server;
 }

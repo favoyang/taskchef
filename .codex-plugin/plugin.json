@@ -31,7 +31,7 @@
     "defaultPrompt": [
       "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
       "$taskchef-delegate Do X in Y project.",
-      "Start and open the TaskChef dashboard.",
+      "$taskchef-dashboard Ensure and open the TaskChef dashboard.",
       "$taskchef-copilot Summarize recent delegated work and tell me what needs attention."
     ],
     "brandColor": "#D97706",

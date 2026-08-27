@@ -43,7 +43,8 @@ const PREVIOUS_TASK_SCHEMA_VERSION = 8;
 const FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION = 7;
 const LEGACY_RESULTS_TASK_SCHEMA_VERSION = 6;
 const FIRST_SELF_LINKING_TASK_SCHEMA_VERSION = 4;
-const CONFIG_FIELDS = new Set(["schemaVersion", "projects"]);
+const CONFIG_FIELDS = new Set(["schemaVersion", "projects", "dashboard"]);
+const DASHBOARD_CONFIG_FIELDS = new Set(["autostart"]);
 const PROJECT_FIELDS = new Set([
   "name",
   "path",
@@ -533,14 +534,34 @@ async function inspectProject(input, index = 0) {
 }
 
 export async function validateConfig(config, { checkPaths = true } = {}) {
-  requireExactFields(config, CONFIG_FIELDS, "taskchef.json");
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("taskchef.json must be an object");
+  }
+  const unexpected = Object.keys(config).find((key) => !CONFIG_FIELDS.has(key));
+  if (unexpected) throw new Error(`taskchef.json has unsupported field: ${unexpected}`);
+  for (const required of ["schemaVersion", "projects"]) {
+    if (!(required in config)) throw new Error(`taskchef.json is missing field: ${required}`);
+  }
   if (config.schemaVersion !== CURRENT_CONFIG_SCHEMA_VERSION) {
     throw new Error("unsupported configuration schemaVersion");
+  }
+  let dashboard;
+  if ("dashboard" in config) {
+    requireExactFields(config.dashboard, DASHBOARD_CONFIG_FIELDS, "taskchef.json.dashboard");
+    if (typeof config.dashboard.autostart !== "boolean") {
+      throw new Error("taskchef.json.dashboard.autostart must be a boolean");
+    }
+    dashboard = { autostart: config.dashboard.autostart };
   }
   return {
     schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
     projects: await normalizeProjects(config.projects, { checkPaths }),
+    ...(dashboard ? { dashboard } : {}),
   };
+}
+
+export function dashboardAutostartEnabled(config) {
+  return config?.dashboard?.autostart !== false;
 }
 
 async function ensureDispatchFile(workspaceRoot) {
@@ -569,7 +590,11 @@ export async function initializeWorkspace(workspaceRoot) {
     const configExists = await managedRegularFileExists(configPath);
     const config = configExists
       ? await readConfig(root, { checkPaths: false })
-      : { schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION, projects: [] };
+      : {
+        schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
+        projects: [],
+        dashboard: { autostart: true },
+      };
     const dispatchPath = path.join(root, DISPATCH_FILE_NAME);
     if (configExists && (await managedRegularFileExists(dispatchPath))) {
       await readDispatchesUnlocked(root);
@@ -638,7 +663,7 @@ export async function addProject(workspaceRoot, input) {
     const project = await inspectProject(input);
     assertWorkspaceOutsideProject(root, project.path);
     const updated = await validateConfig({
-      schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
+      ...config,
       projects: [...config.projects, project],
     });
     await writeJsonAtomic(path.join(root, "taskchef.json"), updated);
@@ -676,7 +701,7 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
       else projects[index] = project;
     }
     const config = await validateConfig({
-      schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
+      ...current,
       projects,
     });
     await writeJsonAtomic(path.join(root, "taskchef.json"), config);
@@ -700,7 +725,7 @@ export async function removeProject(workspaceRoot, name) {
     const [project] = config.projects.slice(index, index + 1);
     const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
     await writeJsonAtomic(path.join(root, "taskchef.json"), {
-      schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
+      ...config,
       projects,
     });
     return { project };

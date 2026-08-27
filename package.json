@@ -36,6 +36,7 @@
     "scripts/e2e-benchmark.js",
     "src",
     "skills/taskchef-bootstrap",
+    "skills/taskchef-dashboard",
     "skills/taskchef-delegate",
     "skills/taskchef-executor",
     "skills/taskchef-copilot"
