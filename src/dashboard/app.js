@@ -19,6 +19,7 @@ import { openTaskFromControl } from "./actions.js";
 import {
   githubReferenceAccessibleLabel,
   githubReferenceDisplayLabels,
+  groupRelatedGitHubLinks,
   referenceSegments,
 } from "./github-links.js";
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
@@ -116,26 +117,35 @@ function appendLinkedText(container, text, task) {
 }
 
 function relatedGitHubLinks(task, { compact = false } = {}) {
-  const seen = new Set();
-  const links = (task.relatedGitHubLinks ?? []).filter((link) => {
-    if (link.type === "repository" || seen.has(link.label)) return false;
-    seen.add(link.label);
-    return true;
-  });
+  const groups = groupRelatedGitHubLinks(task.relatedGitHubLinks);
+  const links = groups.flat();
   const container = document.createElement("nav");
   container.className = `github-links${compact ? " github-links-compact" : ""}`;
   container.setAttribute("aria-label", `Related GitHub links for ${task.title}`);
   const displayLabels = githubReferenceDisplayLabels(links, { related: true });
-  const children = links.map((link, index) => (
-    referenceLink(link, { compact, displayLabel: displayLabels[index] })
-  ));
+  let linkIndex = 0;
+  const children = groups.map((group) => {
+    const line = document.createElement("div");
+    line.className = "github-links-group";
+    line.replaceChildren(...group.map((link) => {
+      const anchor = referenceLink(link, {
+        compact,
+        displayLabel: displayLabels[linkIndex],
+      });
+      linkIndex += 1;
+      return anchor;
+    }));
+    return line;
+  });
   if (task.relatedGitHubLinksTruncated) {
     const more = document.createElement("span");
     more.className = "github-links-more";
     more.textContent = "+ more";
     more.title = "Additional related GitHub references are omitted from this bounded dashboard view.";
     more.setAttribute("aria-label", more.title);
-    children.push(more);
+    const finalGroup = children.at(-1);
+    if (finalGroup) finalGroup.append(more);
+    else children.push(more);
   }
   container.hidden = children.length === 0;
   container.replaceChildren(...children);

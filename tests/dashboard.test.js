@@ -1817,7 +1817,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styles, /\.task-title, \.task-summary \{ overflow-wrap: anywhere; \}/);
   assert.match(styles, /\.github-link \{[^}]*overflow-wrap: anywhere;/);
-  assert.match(styles, /\.github-links \{[^}]*flex-wrap: wrap;/);
+  assert.match(styles, /\.github-links \{[^}]*display: grid;/);
+  assert.match(styles, /\.github-links-group \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
   assert.match(styles, /\.toolbar \{[^}]*display: grid;/);
   assert.match(styles, /\.toolbar-primary \{[^}]*grid-template-columns: repeat\(2, minmax\(180px, 240px\)\);/);

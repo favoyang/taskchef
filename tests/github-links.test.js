@@ -5,6 +5,7 @@ import {
   githubReferenceAccessibleLabel,
   githubReferenceDisplayLabels,
   githubReferenceSegments,
+  groupRelatedGitHubLinks,
   MAX_RELATED_GITHUB_LINKS,
   normalizeGitHubRepository,
   referenceSegments,
@@ -55,6 +56,82 @@ test("formats related links by consecutive repository group without visible type
     "acme/api Issue #82",
     "acme/taskchef PR #83",
   ]);
+});
+
+test("groups interleaved related links by first repository appearance and numeric reference order", () => {
+  const projected = [
+    ["acme", "marketlake", "34", "pull"],
+    ["acme", "guzuoshou-workspace", "124", "issue"],
+    ["acme", "marketlake", "25", "issue"],
+    ["acme", "guzuoshou-workspace", "109", "pull"],
+    ["acme", "marketlake", "32", "issue"],
+    ["acme", "guzuoshou-workspace", "108", "issue"],
+    ["acme", "marketlake", "25", "pull"],
+  ].map(([owner, repository, number, type]) => ({
+    label: `${owner}/${repository}#${number}`,
+    number,
+    owner,
+    repository,
+    type,
+    url: `https://github.com/${owner}/${repository}/${type === "pull" ? "pull" : "issues"}/${number}`,
+  }));
+
+  const groups = groupRelatedGitHubLinks(projected);
+  assert.deepEqual(groups.map((group) => group.map(({ label }) => label)), [
+    ["acme/marketlake#25", "acme/marketlake#32", "acme/marketlake#34"],
+    [
+      "acme/guzuoshou-workspace#108",
+      "acme/guzuoshou-workspace#109",
+      "acme/guzuoshou-workspace#124",
+    ],
+  ]);
+  assert.deepEqual(githubReferenceDisplayLabels(groups.flat(), { related: true }), [
+    "marketlake #25", "#32", "#34",
+    "guzuoshou-workspace #108", "#109", "#124",
+  ]);
+  assert.deepEqual(groups.flat().map(({ type, url }) => ({ type, url })), [
+    { type: "issue", url: "https://github.com/acme/marketlake/issues/25" },
+    { type: "issue", url: "https://github.com/acme/marketlake/issues/32" },
+    { type: "pull", url: "https://github.com/acme/marketlake/pull/34" },
+    { type: "issue", url: "https://github.com/acme/guzuoshou-workspace/issues/108" },
+    { type: "pull", url: "https://github.com/acme/guzuoshou-workspace/pull/109" },
+    { type: "issue", url: "https://github.com/acme/guzuoshou-workspace/issues/124" },
+  ]);
+});
+
+test("uses numeric rather than lexical order and owner-qualifies basename collisions", () => {
+  const projected = [
+    ["alpha", "app", "100"],
+    ["beta", "app", "11"],
+    ["alpha", "app", "9"],
+    ["beta", "app", "2"],
+  ].map(([owner, repository, number]) => ({
+    label: `${owner}/${repository}#${number}`,
+    number,
+    owner,
+    repository,
+    type: "issue",
+    url: `https://github.com/${owner}/${repository}/issues/${number}`,
+  }));
+  const groups = groupRelatedGitHubLinks(projected);
+  assert.deepEqual(githubReferenceDisplayLabels(groups.flat(), { related: true }), [
+    "alpha/app #9", "#100", "beta/app #2", "#11",
+  ]);
+});
+
+test("keeps a single related repository in one numerically sorted group", () => {
+  const projected = [12, 3].map((number) => ({
+    label: `acme/app#${number}`,
+    number: String(number),
+    owner: "acme",
+    repository: "app",
+    type: "issue",
+    url: `https://github.com/acme/app/issues/${number}`,
+  }));
+  assert.deepEqual(
+    groupRelatedGitHubLinks(projected).map((group) => group.map(({ number }) => number)),
+    [["3", "12"]],
+  );
 });
 
 test("owner-qualifies only colliding repository basenames in one rendered context", () => {

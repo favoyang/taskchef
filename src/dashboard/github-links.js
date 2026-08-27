@@ -52,6 +52,27 @@ export function githubReferenceDisplayLabels(links, { related = false } = {}) {
   });
 }
 
+function compareReferenceNumbers(left, right) {
+  const leftNumber = String(left.number ?? "");
+  const rightNumber = String(right.number ?? "");
+  return leftNumber.length - rightNumber.length || leftNumber.localeCompare(rightNumber);
+}
+
+export function groupRelatedGitHubLinks(links) {
+  const groups = new Map();
+  const seen = new Set();
+  for (const link of links ?? []) {
+    if (link.type === "repository" || seen.has(link.label)) continue;
+    seen.add(link.label);
+    const repository = repositoryIdentity(link);
+    if (!repository) continue;
+    const group = groups.get(repository) ?? [];
+    group.push(link);
+    groups.set(repository, group);
+  }
+  return [...groups.values()].map((group) => [...group].sort(compareReferenceNumbers));
+}
+
 export function githubReferenceAccessibleLabel(link) {
   const repository = repositoryIdentity(link);
   if (!repository) return link.label ?? link.text;
