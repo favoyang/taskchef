@@ -19,6 +19,7 @@ const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const execFile = promisify(execFileCallback);
 const SKILL_NAMES = [
   "taskchef-bootstrap",
+  "taskchef-dashboard",
   "taskchef-delegate",
   "taskchef-executor",
   "taskchef-copilot",
@@ -38,7 +39,10 @@ const REQUIRED_PLUGIN_FILES = [
   "src/mcp.js",
   "src/workspace-path.js",
   "src/workspace.js",
-  ...SKILL_NAMES.map((name) => `skills/${name}/SKILL.md`),
+  ...SKILL_NAMES.flatMap((name) => [
+    `skills/${name}/SKILL.md`,
+    `skills/${name}/agents/openai.yaml`,
+  ]),
 ];
 
 function requireVersion(version) {

@@ -29,6 +29,7 @@ import * as taskchef from "../index.js";
 import {
   EXECUTOR_SKILL_INVOCATION,
   createAndRecordDelegation,
+  createDashboardAutostart,
   createTaskChefMcpServer,
   prepareDispatch,
   addProject,
@@ -37,6 +38,7 @@ import {
   canonicalGithubRepository,
   canonicalDirectory,
   defaultWorkspacePath,
+  dashboardAutostartEnabled,
   discoverCodexCli,
   doctorWorkspace,
   ensureWorkspaceInstructions,
@@ -214,7 +216,11 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
   const workspace = path.join(root, "workspace");
   const initialized = await initializeWorkspace(workspace);
 
-  assert.deepEqual(initialized.config.value, { schemaVersion: 2, projects: [] });
+  assert.deepEqual(initialized.config.value, {
+    schemaVersion: 2,
+    projects: [],
+    dashboard: { autostart: true },
+  });
   assert.equal(initialized.config.action, "created");
   assert.deepEqual((await readdir(workspace)).sort(), ["AGENTS.md", "taskchef.json", "tasks.jsonl"]);
   assert.equal(await readFile(path.join(workspace, "tasks.jsonl"), "utf8"), "");
@@ -227,6 +233,38 @@ test("lightweight init creates a data-only workspace scaffold", async () => {
   assert.equal(repeated.config.action, "unchanged");
   assert.equal(repeated.tasks.action, "unchanged");
   assert.equal(repeated.instructions.action, "unchanged");
+});
+
+test("schema-2 dashboard autostart preference is backward compatible and exact", async () => {
+  assert.equal(dashboardAutostartEnabled({ schemaVersion: 2, projects: [] }), true);
+  assert.equal(dashboardAutostartEnabled({
+    schemaVersion: 2,
+    projects: [],
+    dashboard: { autostart: false },
+  }), false);
+  assert.deepEqual(await validateConfig({ schemaVersion: 2, projects: [] }), {
+    schemaVersion: 2,
+    projects: [],
+  });
+  assert.deepEqual(await validateConfig({
+    schemaVersion: 2,
+    projects: [],
+    dashboard: { autostart: false },
+  }), {
+    schemaVersion: 2,
+    projects: [],
+    dashboard: { autostart: false },
+  });
+  await assert.rejects(validateConfig({
+    schemaVersion: 2,
+    projects: [],
+    dashboard: { autostart: false, port: 3211 },
+  }), /unsupported field: port/);
+  await assert.rejects(validateConfig({
+    schemaVersion: 2,
+    projects: [],
+    dashboard: { autostart: "false" },
+  }), /autostart must be a boolean/);
 });
 test("workspace resolution prefers explicit, environment, then the per-user default", () => {
   const homedir = "/Users/example";
@@ -468,11 +506,17 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     }),
     close: async () => { closeCount += 1; },
   };
-  const server = createTaskChefMcpServer({ workspace, dashboardManager });
+  const server = createTaskChefMcpServer({
+    workspace,
+    dashboardManager,
+    readConfiguration: async () => ({ schemaVersion: 2, projects: [] }),
+  });
   const client = new Client({ name: "taskchef-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ensureCount, 1, "MCP connection should autostart the dashboard");
 
   try {
     const listed = await client.listTools();
@@ -501,7 +545,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     }
 
     const startedDashboard = await client.callTool({ name: "ensure_dashboard", arguments: {} });
-    assert.equal(startedDashboard.structuredContent.dashboard.action, "started");
+    assert.equal(startedDashboard.structuredContent.dashboard.action, "reused");
     assert.equal(startedDashboard.structuredContent.dashboard.url, "http://127.0.0.1:3210/");
     const reusedDashboard = await client.callTool({ name: "ensure_dashboard", arguments: {} });
     assert.equal(reusedDashboard.structuredContent.dashboard.action, "reused");
@@ -602,6 +646,81 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     await client.close();
     await server.close();
     assert.equal(closeCount >= 1, true);
+  }
+});
+
+test("dashboard autostart defaults on, honors opt-out, isolates failure, and initializes once", async () => {
+  const workspace = "/canonical/taskchef";
+  let ensureCount = 0;
+  const dashboardManager = {
+    ensure: async () => {
+      ensureCount += 1;
+      return { action: "started" };
+    },
+  };
+  const autostart = createDashboardAutostart({
+    workspace,
+    dashboardManager,
+    readConfiguration: async () => ({ schemaVersion: 2, projects: [] }),
+  });
+  const [first, second] = await Promise.all([autostart(), autostart()]);
+  assert.deepEqual(first, { action: "started" });
+  assert.deepEqual(second, { action: "started" });
+  assert.equal(ensureCount, 1);
+
+  let disabledEnsureCount = 0;
+  const disabled = createDashboardAutostart({
+    workspace,
+    dashboardManager: { ensure: async () => { disabledEnsureCount += 1; } },
+    readConfiguration: async () => ({
+      schemaVersion: 2,
+      projects: [],
+      dashboard: { autostart: false },
+    }),
+  });
+  assert.deepEqual(await disabled(), { action: "disabled" });
+  assert.equal(disabledEnsureCount, 0);
+
+  const diagnostics = [];
+  const failed = createDashboardAutostart({
+    workspace,
+    dashboardManager: {
+      ensure: async () => { throw new Error("secret workspace path and token"); },
+    },
+    readConfiguration: async () => ({ schemaVersion: 2, projects: [] }),
+    log: (message) => diagnostics.push(message),
+  });
+  assert.deepEqual(await failed(), { action: "failed" });
+  assert.deepEqual(diagnostics, [
+    "TaskChef dashboard autostart skipped: the canonical workspace is not ready.",
+  ]);
+  assert.doesNotMatch(diagnostics[0], /secret|token/);
+
+  const isolatedDiagnostics = [];
+  const server = createTaskChefMcpServer({
+    workspace,
+    dashboardManager: {
+      ensure: async () => { throw Object.assign(new Error("occupied by unknown service"), {
+        code: "EADDRINUSE",
+      }); },
+      close: async () => {},
+    },
+    readConfiguration: async () => ({ schemaVersion: 2, projects: [] }),
+    logDashboardDiagnostic: (message) => isolatedDiagnostics.push(message),
+  });
+  const client = new Client({ name: "taskchef-autostart-isolation-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal((await client.listTools()).tools.length, 6);
+    assert.deepEqual(isolatedDiagnostics, [
+      "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.",
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
   }
 });
 
@@ -2888,7 +3007,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.deepEqual(manifest.interface.defaultPrompt, [
     "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
     "$taskchef-delegate Do X in Y project.",
-    "Start and open the TaskChef dashboard.",
+    "$taskchef-dashboard Ensure and open the TaskChef dashboard.",
     "$taskchef-copilot Summarize recent delegated work and tell me what needs attention.",
   ]);
   assert.equal(
@@ -2936,7 +3055,10 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     releaseGitPlugin[1].assets,
     [".codex-plugin/plugin.json", "package-lock.json", "package.json"],
   );
-  for (const skillName of ["taskchef-bootstrap", "taskchef-delegate", "taskchef-executor", "taskchef-copilot"]) {
+  for (const skillName of [
+    "taskchef-bootstrap", "taskchef-dashboard", "taskchef-delegate",
+    "taskchef-executor", "taskchef-copilot",
+  ]) {
     assert.equal(
       (await lstat(path.resolve("skills", skillName, "SKILL.md"))).isFile(),
       true,
@@ -3064,9 +3186,15 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: "src/workspace-path.js" },
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
+      { path: "skills/taskchef-bootstrap/agents/openai.yaml" },
+      { path: "skills/taskchef-dashboard/SKILL.md" },
+      { path: "skills/taskchef-dashboard/agents/openai.yaml" },
       { path: "skills/taskchef-delegate/SKILL.md" },
+      { path: "skills/taskchef-delegate/agents/openai.yaml" },
       { path: "skills/taskchef-executor/SKILL.md" },
+      { path: "skills/taskchef-executor/agents/openai.yaml" },
       { path: "skills/taskchef-copilot/SKILL.md" },
+      { path: "skills/taskchef-copilot/agents/openai.yaml" },
     ],
   }];
   assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
@@ -3075,6 +3203,15 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { ...packedRelease[0], files: packedRelease[0].files.slice(1) },
     ], "2.3.4"),
     /missing \.codex-plugin\/plugin\.json/,
+  );
+  assert.throws(
+    () => validatePublishedPluginPackage([{
+      ...packedRelease[0],
+      files: packedRelease[0].files.filter(
+        ({ path: filePath }) => filePath !== "skills/taskchef-dashboard/agents/openai.yaml",
+      ),
+    }], "2.3.4"),
+    /missing skills\/taskchef-dashboard\/agents\/openai\.yaml/,
   );
   assert.equal(packedRelease[0].files.some((file) => file.path.startsWith("hooks/")), false);
   assert.throws(
@@ -3358,19 +3495,50 @@ test("plugin wording presents bootstrap as indexing existing Codex projects", as
   assert.doesNotMatch(readme, /routing project/i);
 });
 
-test("dashboard prompt opens the ensured dashboard without delegation", async () => {
+test("dashboard skill ensures the dashboard, reports its action and URL, and stays maintenance-only", async () => {
   const manifest = JSON.parse(await readFile(path.resolve(".codex-plugin/plugin.json"), "utf8"));
   const instructions = await readFile(
     path.resolve("assets/taskchef-dispatcher-instructions.md"),
     "utf8",
   );
-  const prompt = "Start and open the TaskChef dashboard.";
+  const skill = await readFile(path.resolve("skills/taskchef-dashboard/SKILL.md"), "utf8");
+  const agent = await readFile(
+    path.resolve("skills/taskchef-dashboard/agents/openai.yaml"),
+    "utf8",
+  );
+  const prompt = "$taskchef-dashboard Ensure and open the TaskChef dashboard.";
   assert.ok(manifest.interface.defaultPrompt.includes(prompt));
-  assert.match(instructions, /start or open the TaskChef dashboard is TaskChef maintenance/i);
+  assert.match(instructions, /start, recover, or open the TaskChef dashboard is TaskChef\s+maintenance/i);
   assert.match(instructions, /not delegated project work/i);
-  assert.match(instructions, /Call `ensure_dashboard`/);
-  assert.match(instructions, /open or navigate to[\s\S]+returned URL[\s\S]+in-app browser/i);
-  assert.match(instructions, /Otherwise,[\s\S]+clickable link/i);
+  assert.match(instructions, /Use `\$taskchef-dashboard`/);
+  assert.match(skill, /^name: taskchef-dashboard$/m);
+  assert.match(skill, /Call the TaskChef `ensure_dashboard` MCP tool/i);
+  assert.match(skill, /`started` or `reused`[\s\S]+clickable link/i);
+  assert.match(skill, /Browser absence, refusal, or blocked localhost navigation is\s+non-fatal/i);
+  assert.match(skill, /Do not dispatch project work, read task briefs, inspect executor outcomes/i);
+  assert.match(agent, /default_prompt: "Use \$taskchef-dashboard/);
+});
+
+test("release-install guidance activates MCP before ensure and verifies the complete identity", async () => {
+  const readme = await readFile(path.resolve("README.md"), "utf8");
+  const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
+  const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
+  for (const content of [readme, workflows, spec]) {
+    const releaseIndex = content.search(
+      /(?:release-install sequence|Release-install verification|Release verification MUST)/i,
+    );
+    assert.ok(releaseIndex >= 0);
+    const guidance = content.slice(releaseIndex);
+    const installIndex = guidance.search(/install(?:ing| the released| the)? plugin/i);
+    const activateIndex = guidance.search(/activate or reload/i);
+    const ensureIndex = guidance.search(/ensure(?:_dashboard| the dashboard)/i);
+    assert.ok(installIndex >= 0 && activateIndex > installIndex && ensureIndex > activateIndex);
+    for (const identityField of [
+      /TaskChef\s+version/i, /serverVersion/, /canonical\s+workspace/i, /(?:canonical\s+)?URL/i,
+    ]) assert.match(guidance.slice(ensureIndex), identityField);
+    assert.match(content, /(?:installation|installing|installed|plugin files)[\s\S]+(?:does not necessarily reload Codex|cannot execute autostart|MUST NOT be described as activating)/i);
+    assert.match(content, /exact-compatible[\s\S]+reus/i);
+  }
 });
 
 test("copilot skill is cached-first, live-explicit, and guards continuation boundaries", async () => {

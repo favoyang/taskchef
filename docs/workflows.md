@@ -13,6 +13,7 @@ research.
 | `skills/taskchef-delegate/SKILL.md` | Split, route, record-before-create, create, return. |
 | `skills/taskchef-executor/SKILL.md` | Own, self-link, execute, and report every executor turn. |
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize the workspace and maintain the Codex project index. |
+| `skills/taskchef-dashboard/SKILL.md` | Ensure or recover the canonical dashboard and return its URL. |
 | `skills/taskchef-copilot/SKILL.md` | Explain normalized cached briefs and coordinate safe next actions. |
 | `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, shutdown ownership, and MCP annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
@@ -27,9 +28,9 @@ per-user default.
 
 ## Dispatcher dashboard lifecycle
 
-The generated managed `AGENTS.md` block makes dashboard maintenance a
-best-effort prelude to every dispatcher turn and keeps response ordering
-centralized instead of duplicating it across delegate/copilot skills.
+MCP activation makes dashboard maintenance a best-effort lifecycle action. The
+generated managed `AGENTS.md` block also retries it before dispatcher turns and
+keeps response ordering centralized instead of duplicating it across skills.
 
 ```mermaid
 sequenceDiagram
@@ -38,6 +39,8 @@ sequenceDiagram
   participant M as TaskChef MCP
   participant H as Loopback health
   participant S as Dashboard server
+  M->>M: Read dashboard.autostart (absent means true)
+  M->>M: Best-effort ensure after MCP connect
   D->>M: ensure_dashboard()
   M->>M: Serialize concurrent ensure calls
   M->>H: GET 127.0.0.1:3210/api/health
@@ -62,6 +65,27 @@ When the MCP transport or plugin process closes, it closes only the server it
 started. A compatible foreground `taskchef dashboard` listener may be reused
 but remains owned by that CLI process. No TaskChef path terminates an unknown
 listener or installs OS persistence.
+
+Autostart and explicit ensures share the same manager promise, so concurrent
+initialization and recovery calls produce at most one owned listener. An
+explicit `dashboard.autostart: false` skips only activation-time ensure. Any
+failure is reduced to a fixed stderr diagnostic; tool registration and MCP
+availability continue. Activation never opens a browser.
+
+## Release-install verification
+
+The practical release handoff ends in this order:
+
+1. Install the released plugin.
+2. Activate or reload its new TaskChef MCP process.
+3. Run `$taskchef-dashboard` or call `ensure_dashboard`.
+4. Verify the expected TaskChef version, protocol `serverVersion`, canonical
+   workspace, and canonical URL returned by the dashboard identity.
+
+Replacing plugin files alone cannot execute autostart because old code remains
+in the already-running MCP process. Installation does not necessarily reload
+Codex. An exact-compatible dashboard may be reused; an unknown listener is
+never terminated or replaced.
 
 ## Normal delegation and self-linking
 

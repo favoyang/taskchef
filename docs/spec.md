@@ -29,7 +29,7 @@ is dated research, not contract.
 | **Turn reference** | Required lifecycle identity for one executor prompt. It is the native Codex turn ID when available, otherwise a retained client-generated UUID. |
 | **Current turn ID** | Optional Codex metadata for the reported prompt; null when native turn reading is unavailable. |
 | **Dashboard** | The loopback, read-only UI derived from validated workspace snapshots and bounded native actions. |
-| **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-copilot`. |
+| **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-dashboard`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-copilot`. |
 
 ## Components and ownership
 
@@ -43,6 +43,9 @@ is dated research, not contract.
 - `taskchef-copilot` MUST own conversational outcome explanation, attention,
   and next-action recommendations. It MUST use cached normalized briefs by
   default and MUST NOT poll or persist inferred state.
+- `taskchef-dashboard` MUST own manual dashboard ensure and recovery. It MUST
+  NOT dispatch work or inspect task outcomes, and browser navigation failure
+  MUST NOT suppress the returned dashboard URL.
 - The MCP server MUST expose `ensure_dashboard`, four primary lifecycle tools,
   and the deprecated `report_result` compatibility alias specified below.
 - The CLI MAY administer and inspect the workspace, but MUST NOT provide a
@@ -56,7 +59,8 @@ is dated research, not contract.
 TaskChef MUST manage only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl`
 inside the dispatcher workspace. It MUST preserve unrelated paths.
 
-`taskchef.json` MUST have schema version 2 and exactly:
+`taskchef.json` MUST have schema version 2, the following required fields, and
+an optional exact `dashboard` object:
 
 ```json
 {
@@ -70,6 +74,11 @@ Each project MUST contain `name`, normalized absolute `path`, boolean
 Names and paths MUST be unique. Git projects MUST be exact Git roots.
 Repository URLs MUST canonicalize to `https://github.com/<owner>/<repository>`
 and be case-insensitively deduplicated.
+
+When present, `dashboard` MUST contain exactly boolean `autostart`. Its absence
+is backward-compatible and means `true`; new workspaces SHOULD write
+`{"autostart": true}`. `false` disables MCP-lifecycle autostart but MUST NOT
+disable the explicit `ensure_dashboard` tool.
 
 `tasks.jsonl` MUST contain zero or more newline-terminated schema-4 through
 schema-9 records, one per line. Schemas 4 through 8 are supported
@@ -111,6 +120,14 @@ Task IDs and non-null thread identities MUST be unique. The immutable intent
 fields MUST NOT change after recording.
 
 ## Required lifecycle
+
+When the canonical TaskChef MCP server finishes connecting, it MUST invoke the
+same serialized dashboard ensure path once by default. It MUST read the
+canonical configuration and skip this only for explicit
+`dashboard.autostart: false`. Initialization failures, invalid workspace state,
+port conflicts, and dashboard errors MUST NOT prevent tool registration or MCP
+availability. They MUST emit only a bounded non-sensitive diagnostic through
+the MCP process logging channel. MCP initialization MUST NOT open a browser.
 
 At the start of every dispatcher turn, the dispatcher SHOULD call
 `ensure_dashboard` best-effort. Failure MUST NOT block direct TaskChef answers,
@@ -232,6 +249,11 @@ MUST NOT kill, replace, signal, or otherwise control that listener. A startup
 failure MUST leave no owned listener. The MCP server MUST close its owned
 dashboard when its transport or process shuts down; it MUST NOT close a reused
 external foreground server.
+
+The packaged `$taskchef-dashboard` skill MUST call this tool, report `started`
+or `reused`, and return the canonical clickable URL. It MAY use an available
+in-app browser when permitted; absent or blocked browser navigation MUST fall
+back to the link without failing. It MUST NOT inspect task outcomes or dispatch.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: false`,
 `openWorldHint: false`.
@@ -473,3 +495,10 @@ system services, cron jobs, hooks, privileged components, or elevated/system
 permissions for dashboard availability. Availability is best-effort while the
 owning Codex/plugin MCP process is alive and is not guaranteed while Codex is
 closed.
+
+Installing or replacing plugin files MUST NOT be described as activating the
+new MCP code. Release verification MUST install the plugin, activate or reload
+the new MCP process, ensure the dashboard, and verify the expected TaskChef
+version, dashboard protocol `serverVersion`, canonical workspace, and canonical
+URL. Exact-compatible listener reuse remains valid; installation MUST NOT be
+claimed to reload Codex automatically.

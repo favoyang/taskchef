@@ -1,0 +1,4 @@
+interface:
+  display_name: "TaskChef Dashboard"
+  short_description: "Start or recover the TaskChef dashboard"
+  default_prompt: "Use $taskchef-dashboard to ensure the TaskChef dashboard is available and give me its link."
