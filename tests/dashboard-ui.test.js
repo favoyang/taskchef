@@ -119,6 +119,26 @@ test("dashboard renders a live notification with time and shared accessible desc
   try {
     const taskId = "11111111-1111-4111-8111-111111111111";
     const threadId = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
+    const relatedGitHubLinksFixture = [
+      ["marketlake", "34", "pull"],
+      ["guzuoshou-workspace", "124", "issue"],
+      ["marketlake", "25", "issue"],
+      ["guzuoshou-workspace", "109", "pull"],
+      ["marketlake", "32", "generic"],
+      ["guzuoshou-workspace", "108", "issue"],
+      ["guzuoshou-workspace", "115", "issue"],
+      ["guzuoshou-workspace", "112", "pull"],
+      ["guzuoshou-workspace", "114", "issue"],
+      ["guzuoshou-workspace", "118", "pull"],
+      ["marketlake", "25", "pull"],
+    ].map(([repository, number, type]) => ({
+      label: `acme/${repository}#${number}`,
+      number,
+      owner: "acme",
+      repository,
+      type,
+      url: `https://github.com/acme/${repository}/${type === "pull" ? "pull" : "issues"}/${number}`,
+    }));
     const clipboardWrites = [];
     const pendingClipboardWrites = [];
     let clipboardMode = "reject";
@@ -149,26 +169,26 @@ test("dashboard renders a live notification with time and shared accessible desc
               instruction: "Address the reported failures safely.",
               meaningfulUpdatedAt: timestamp,
               project: {
-                githubRepos: ["https://github.com/acme/app", "https://github.com/acme/api"],
+                githubRepos: [
+                  "https://github.com/acme/marketlake",
+                  "https://github.com/acme/guzuoshou-workspace",
+                ],
                 name: "MarketLake",
                 path: "/tmp/marketlake",
               },
-              relatedGitHubLinks: [{
-                label: "acme/app#12",
-                number: "12",
-                owner: "acme",
-                repository: "app",
-                type: "issue",
-                url: "https://github.com/acme/app/issues/12",
-              }],
-              relatedGitHubRepository: "acme/app",
+              relatedGitHubLinks: relatedGitHubLinksFixture,
+              relatedGitHubRepository: null,
               status: "needs_input",
               threadId,
               title: "Continue MarketLake V1",
               turnId: "turn-one",
               turns: [{
-                requestSummary: "Review acme/app#12, not <script>bad()</script>.",
-                result: { status: "needs_input", summary: "Confirm #13.", updatedAt: timestamp },
+                requestSummary: "Review https://github.com/acme/marketlake/issues/25, not <script>bad()</script>.",
+                result: {
+                  status: "needs_input",
+                  summary: "Confirm https://github.com/acme/marketlake/issues/32.",
+                  updatedAt: timestamp,
+                },
                 startedAt: timestamp,
                 turnId: "turn-one",
               }],
@@ -201,73 +221,20 @@ test("dashboard renders a live notification with time and shared accessible desc
         },
         meaningfulUpdatedAt: timestamp,
         project: {
-          githubRepos: ["https://github.com/acme/app", "https://github.com/acme/api"],
+          githubRepos: [
+            "https://github.com/acme/marketlake",
+            "https://github.com/acme/guzuoshou-workspace",
+          ],
           name: "MarketLake",
           path: "/tmp/marketlake",
         },
-        relatedGitHubLinks: [
-          {
-            label: "acme/app",
-            owner: "acme",
-            repository: "app",
-            type: "repository",
-            url: "https://github.com/acme/app",
-          },
-          {
-            label: "acme/app#11",
-            number: "11",
-            owner: "acme",
-            repository: "app",
-            type: "issue",
-            url: "https://github.com/acme/app/issues/11",
-          },
-          {
-            label: "acme/app#11",
-            number: "11",
-            owner: "acme",
-            repository: "app",
-            type: "pull",
-            url: "https://github.com/acme/app/pull/11",
-          },
-          {
-            label: "acme/app#12",
-            number: "12",
-            owner: "acme",
-            repository: "app",
-            type: "pull",
-            url: "https://github.com/acme/app/pull/12",
-          },
-          {
-            label: "acme/api#20",
-            number: "20",
-            owner: "acme",
-            repository: "api",
-            type: "pull",
-            url: "https://github.com/acme/api/pull/20",
-          },
-          {
-            label: "acme/api#21",
-            number: "21",
-            owner: "acme",
-            repository: "api",
-            type: "issue",
-            url: "https://github.com/acme/api/issues/21",
-          },
-          {
-            label: "acme/api#22",
-            number: "22",
-            owner: "acme",
-            repository: "api",
-            type: "generic",
-            url: "https://github.com/acme/api/issues/22",
-          },
-        ],
-        relatedGitHubRepository: "acme/app",
+        relatedGitHubLinks: relatedGitHubLinksFixture,
+        relatedGitHubRepository: null,
         latestTurn: {
-          requestSummary: "Review https://github.com/acme/app/pull/12 and https://example.com/docs?q=one, not <script>bad()</script>.",
+          requestSummary: "Review https://github.com/acme/marketlake/pull/34 and https://example.com/docs?q=one, not <script>bad()</script>.",
           result: {
             status: "needs_input",
-            summary: "Confirm https://github.com/acme/app/issues/12.",
+            summary: "Confirm https://github.com/acme/marketlake/issues/25.",
             updatedAt: timestamp,
           },
           startedAt: timestamp,
@@ -308,33 +275,43 @@ test("dashboard renders a live notification with time and shared accessible desc
     const [firstCard, secondCard] = elements.get("#task-list").children;
     const project = firstCard.children[1];
     assert.equal(project.children[0].textContent, "MarketLake");
-    assert.equal(project.children[2].textContent, "app");
-    assert.equal(project.children[2].href, "https://github.com/acme/app");
-    assert.equal(project.children[2].target, "_blank");
-    assert.equal(project.children[2].rel, "noopener noreferrer");
     const relatedLinks = firstCard.children[3];
-    assert.equal(relatedLinks.children.length, 5);
+    assert.equal(relatedLinks.children.length, 2);
+    assert.equal(relatedLinks.children[0].className, "github-links-group");
+    assert.equal(relatedLinks.children[1].className, "github-links-group");
     const [
       relatedLink,
       repeatedRepositoryLink,
+      thirdRepositoryLink,
+    ] = relatedLinks.children[0].children;
+    const [
       secondRepositoryLink,
       secondRepositoryIssue,
       untypedReference,
-    ] = relatedLinks.children;
-    assert.equal(relatedLink.textContent, "app #11");
-    assert.equal(repeatedRepositoryLink.textContent, "#12");
-    assert.equal(secondRepositoryLink.textContent, "api #20");
-    assert.equal(secondRepositoryIssue.textContent, "#21");
-    assert.equal(untypedReference.textContent, "#22");
-    assert.match(
-      repeatedRepositoryLink.getAttribute("aria-label"),
-      /^acme\/app PR #12, GitHub pull request/,
+      ...remainingSecondRepositoryLinks
+    ] = relatedLinks.children[1].children;
+    assert.deepEqual(
+      relatedLinks.children[0].children.map(({ textContent }) => textContent),
+      ["marketlake #25", "#32", "#34"],
+    );
+    assert.deepEqual(
+      relatedLinks.children[1].children.map(({ textContent }) => textContent),
+      ["guzuoshou-workspace #108", "#109", "#112", "#114", "#115", "#118", "#124"],
     );
     assert.match(
-      secondRepositoryIssue.getAttribute("aria-label"),
-      /^acme\/api Issue #21, GitHub issue/,
+      thirdRepositoryLink.getAttribute("aria-label"),
+      /^acme\/marketlake PR #34, GitHub pull request/,
     );
-    assert.match(untypedReference.getAttribute("aria-label"), /^acme\/api #22 on GitHub/);
+    assert.match(
+      secondRepositoryLink.getAttribute("aria-label"),
+      /^acme\/guzuoshou-workspace Issue #108, GitHub issue/,
+    );
+    assert.match(untypedReference.getAttribute("aria-label"), /^acme\/guzuoshou-workspace PR #112/);
+    assert.equal(repeatedRepositoryLink.href, "https://github.com/acme/marketlake/issues/32");
+    assert.equal(thirdRepositoryLink.href, "https://github.com/acme/marketlake/pull/34");
+    assert.equal(secondRepositoryIssue.href, "https://github.com/acme/guzuoshou-workspace/pull/109");
+    assert.equal(remainingSecondRepositoryLinks.at(-1).href,
+      "https://github.com/acme/guzuoshou-workspace/issues/124");
     assert.equal(relatedLink.target, "_blank");
     assert.equal(relatedLink.rel, "noopener noreferrer");
     assert.match(relatedLink.getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
@@ -345,9 +322,9 @@ test("dashboard renders a live notification with time and shared accessible desc
     const cardSummary = firstCard.children[2];
     const cardRequest = cardSummary.children[1];
     const cardResult = cardSummary.children[3];
-    assert.equal(cardRequest.children[1].textContent, "app PR #12");
+    assert.equal(cardRequest.children[1].textContent, "marketlake PR #34");
     assert.equal(cardRequest.children[3].textContent, "https://example.com/docs?q=one");
-    assert.equal(cardResult.children[1].textContent, "app Issue #12");
+    assert.equal(cardResult.children[1].textContent, "marketlake Issue #25");
     assert.match(cardRequest.children[1].getAttribute("aria-label"), /GitHub pull request/);
     assert.match(cardResult.children[1].getAttribute("aria-label"), /GitHub issue/);
     assert.notEqual(
@@ -366,18 +343,26 @@ test("dashboard renders a live notification with time and shared accessible desc
 
     firstCard.children[0].children[0].emit("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(elements.get("#dialog-related-links").children[0].textContent, "app #12");
+    assert.equal(elements.get("#dialog-related-links").children.length, 2);
+    assert.deepEqual(
+      elements.get("#dialog-related-links").children.map((group) => (
+        group.children.map(({ textContent }) => textContent)
+      )),
+      [
+        ["marketlake #25", "#32", "#34"],
+        ["guzuoshou-workspace #108", "#109", "#112", "#114", "#115", "#118", "#124"],
+      ],
+    );
     assert.equal(elements.get("#dialog-project").children[0].textContent, "MarketLake");
-    assert.equal(elements.get("#dialog-project").children[2].textContent, "app");
     const [latestTurn] = elements.get("#dialog-results").children;
     const request = latestTurn.children[2];
     const result = latestTurn.children[4];
-    assert.equal(request.children[1].textContent, "app #12");
+    assert.equal(request.children[1].textContent, "marketlake Issue #25");
     assert.equal(request.children.map(({ textContent }) => textContent).join(""),
-      "Review app #12, not <script>bad()</script>.");
-    assert.equal(result.children[1].textContent, "app #13");
+      "Review marketlake Issue #25, not <script>bad()</script>.");
+    assert.equal(result.children[1].textContent, "marketlake Issue #32");
     assert.equal(result.children[1].className, "github-link");
-    assert.match(result.children[1].getAttribute("aria-label"), /on GitHub.*opens in a new tab/);
+    assert.match(result.children[1].getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
 
     const copyTaskId = elements.get("#copy-task-id");

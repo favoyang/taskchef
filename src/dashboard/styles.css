@@ -97,9 +97,10 @@ select { min-width: 180px; min-height: 36px; padding: 7px 32px 7px 10px; border:
 .task-title, .task-summary { overflow-wrap: anywhere; }
 .task-summary { display: grid; max-width: 82ch; margin-bottom: 12px; gap: 2px; font-size: 0.9rem; line-height: 1.45; }
 .task-summary strong { margin-top: 4px; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; }
-.github-links { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 18px; }
+.github-links { display: grid; gap: 7px; margin: 0 0 18px; }
 .github-links[hidden] { display: none; }
 .github-links-compact { margin: -2px 0 12px; gap: 5px; }
+.github-links-group { display: flex; min-width: 0; flex-wrap: wrap; gap: inherit; }
 .github-link { color: var(--accent); font-weight: 700; text-decoration-thickness: 1px; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .github-link-compact { padding: 2px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-muted); font-size: 0.72rem; line-height: 1.35; text-decoration: none; }
 .github-link:hover { text-decoration-thickness: 2px; }
