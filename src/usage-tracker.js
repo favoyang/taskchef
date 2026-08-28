@@ -173,9 +173,9 @@ function candidateHasAdvanced(task, existing, snapshot) {
   const previousTurn = task.turns
     .slice(0, latestIndex)
     .reverse()
-    .find((turn) => existing?.boundaries?.[turn.turnRef]);
+    .find((turn) => !isAdministrativeTurn(turn));
   const previousBoundary = previousTurn
-    ? existing.boundaries[previousTurn.turnRef]
+    ? existing.boundaries[previousTurn.turnRef] ?? null
     : null;
   if (!previousBoundary) return true;
   const delta = usageDelta(snapshot, previousBoundary);
@@ -218,22 +218,22 @@ function reconcileRecord(task, existing, snapshot, { boundaryReliable = true } =
   if (latest && latest.turnRef === task.latestTurn?.turnRef && boundaryReliable) {
     const index = task.turns.findIndex((turn) => turn.turnRef === latest.turnRef);
     const previousTurn = index > 0
-      ? task.turns.slice(0, index).reverse().find((turn) => boundaries[turn.turnRef]) ?? null
+      ? task.turns.slice(0, index).reverse().find((turn) => !isAdministrativeTurn(turn)) ?? null
       : null;
-    const previousBoundary = previousTurn ? boundaries[previousTurn.turnRef] : null;
+    const previousBoundary = previousTurn ? boundaries[previousTurn.turnRef] ?? null : null;
     const delta = index === 0
       ? (existing?.zeroBaselineTurnRef === latest.turnRef ? usageDelta(snapshot, null) : null)
       : (previousBoundary !== null ? usageDelta(snapshot, previousBoundary) : null);
-    const advanced = index === 0 || previousBoundary === null || delta?.totalTokens > 0;
+    const advanced = index === 0 || (delta !== null && delta.totalTokens > 0);
     if (advanced) boundaries[latest.turnRef] = snapshot;
     turns[latest.turnRef] = delta === null || !advanced
       ? {
         status: "unavailable",
-        reason: !advanced
-          ? "Cumulative usage did not advance beyond the preceding turn."
-          : (previousTurn === null
+        reason: delta === null
+          ? (previousTurn === null
             ? "No live zero-token boundary was recorded for this historical turn."
-            : "The preceding turn has no reliable cumulative boundary."),
+            : "The preceding turn has no reliable cumulative boundary.")
+          : "Cumulative usage did not advance beyond the preceding turn.",
         updatedAt: now,
       }
       : {

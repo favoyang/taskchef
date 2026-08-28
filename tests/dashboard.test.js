@@ -803,6 +803,24 @@ test("manual transition control sends one versioned optimistic request and prese
   assert.equal(failure.ok, false);
   assert.equal(failure.code, "stale_task");
   assert.equal(failure.task.updatedAt, "2026-08-28T12:01:00.000Z");
+
+  const timeout = await manuallyTransitionTaskFromControl(
+    { stopPropagation: () => {} },
+    task,
+    "failed",
+    FIRST_ID,
+    {
+      clearTimer: () => {},
+      fetchAction: async (_url, { signal }) => {
+        assert.equal(signal.aborted, true);
+        throw new Error("aborted");
+      },
+      setTimer: (callback) => { callback(); return 1; },
+    },
+  );
+  assert.equal(timeout.ok, false);
+  assert.equal(timeout.code, "request_timeout");
+  assert.equal(timeout.message, "Task state change timed out. Try again.");
 });
 
 test("manual transition keyboard helpers close the menu and focus pending status", () => {

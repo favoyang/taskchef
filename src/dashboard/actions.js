@@ -55,9 +55,14 @@ export async function archiveTaskFromControl(event, task, {
 }
 
 export async function manuallyTransitionTaskFromControl(event, task, targetStatus, actionId, {
+  clearTimer = globalThis.clearTimeout,
   fetchAction = globalThis.fetch,
+  setTimer = globalThis.setTimeout,
+  timeoutMs = 10_000,
 } = {}) {
   event?.stopPropagation?.();
+  const controller = new AbortController();
+  const timeout = setTimer(() => controller.abort(), timeoutMs);
   try {
     const response = await fetchAction(
       `/api/tasks/${encodeURIComponent(task.id)}/manual-transition`,
@@ -75,7 +80,8 @@ export async function manuallyTransitionTaskFromControl(event, task, targetStatu
           },
           targetStatus,
         }),
-      },
+          signal: controller.signal,
+        },
     );
     const result = await response.json();
     return response.ok
@@ -89,10 +95,14 @@ export async function manuallyTransitionTaskFromControl(event, task, targetStatu
   } catch {
     return {
       ok: false,
-      code: "network_error",
-      message: "Task state changes are temporarily unavailable. Try again.",
+      code: controller.signal.aborted ? "request_timeout" : "network_error",
+      message: controller.signal.aborted
+        ? "Task state change timed out. Try again."
+        : "Task state changes are temporarily unavailable. Try again.",
       task: null,
     };
+  } finally {
+    clearTimer(timeout);
   }
 }
 

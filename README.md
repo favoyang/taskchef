@@ -280,7 +280,9 @@ outcome submits it immediately without a second confirmation. There is no
 free-form reason: the audit turn records a fixed summary, timestamp, dashboard
 provenance, optimistic preconditions, and a unique action ID while preserving
 every executor turn. Terminal tasks cannot be rewritten. Stale or concurrent
-changes are rejected and the dialog refreshes to the current task.
+changes are rejected and the dialog refreshes to the current task. A stalled
+local request is aborted after a bounded wait so the dialog cannot remain
+permanently locked; retry keeps the same idempotency identity.
 
 The More actions list offers **Archive chat** for every linked task whose current
 TaskChef state is not `working`. After confirmation, TaskChef invokes only the

@@ -496,7 +496,9 @@ immediately without a second confirmation. Escape MUST close the idle list,
 pending controls MUST be
 disabled, and failure feedback MUST remain in the dialog. Pending state MUST
 focus and announce a stable status inside the dialog. Failed MUST have
-destructive styling.
+destructive styling. The client MUST bound and abort a stalled manual-transition
+request, restore the dialog controls, and preserve the action ID so a retry can
+resolve idempotently if the server committed before the timeout.
 
 `POST /api/tasks/:id/manual-transition` MUST require the exact loopback origin,
 `application/json`, a bounded body, and exactly this versioned shape:
