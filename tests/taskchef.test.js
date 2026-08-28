@@ -25,10 +25,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import mermaidParser from "mermaid";
 import lockfile from "proper-lockfile";
 import * as taskchef from "../index.js";
+import { archiveThreadInCodex, discoverBundledCodexCli } from "../src/codex-app.js";
 
 import {
   EXECUTOR_SKILL_INVOCATION,
-  archiveThreadInCodex,
   createAndRecordDelegation,
   createDashboardAutostart,
   createTaskChefMcpServer,
@@ -41,7 +41,6 @@ import {
   defaultWorkspacePath,
   dashboardAutostartEnabled,
   discoverCodexCli,
-  discoverBundledCodexCli,
   doctorWorkspace,
   ensureWorkspaceInstructions,
   filterTasks,
@@ -406,9 +405,23 @@ test("Codex archive discovery accepts only a desktop-bundled CLI with archive su
   const escapedBundle = path.join(root, "Codex.app", "Contents", "Resources", "codex");
   await mkdir(path.dirname(escapedBundle), { recursive: true });
   await symlink(path.join(genericDirectory, "codex"), escapedBundle);
-  for (const rejected of [unrelatedBundle, escapedBundle]) {
+  const escapedAppTarget = path.join(root, "outside", "ChatGPT.app", "Contents", "Resources", "codex");
+  const escapedAppBundle = path.join(root, "installed", "ChatGPT.app", "Contents", "Resources", "codex");
+  await mkdir(path.dirname(escapedAppTarget), { recursive: true });
+  await mkdir(path.dirname(escapedAppBundle), { recursive: true });
+  await writeFile(
+    escapedAppTarget,
+    "#!/bin/sh\nprintf 'Usage: codex archive [OPTIONS] <SESSION>\\n'\n",
+    { mode: 0o700 },
+  );
+  await symlink(escapedAppTarget, escapedAppBundle);
+  for (const rejected of [unrelatedBundle, escapedBundle, escapedAppBundle]) {
     await assert.rejects(
-      discoverBundledCodexCli({ candidates: [rejected], platform: "darwin" }),
+      discoverBundledCodexCli({
+        candidates: [rejected],
+        platform: "darwin",
+        trustedBundlePaths: [rejected],
+      }),
       /bundled with the ChatGPT or Codex desktop app/,
     );
   }
@@ -418,21 +431,12 @@ test("Codex archive discovery accepts only a desktop-bundled CLI with archive su
     "#!/bin/sh\nprintf 'Usage: codex archive [OPTIONS] <SESSION>\\n'\n",
     { mode: 0o700 },
   );
-  await assert.rejects(
-    discoverBundledCodexCli({ candidates: [bundled], platform: "darwin" }),
-    /bundled with the ChatGPT or Codex desktop app/,
-  );
-  const inspectedApplications = [];
   const found = await discoverBundledCodexCli({
     candidates: [bundled],
     platform: "darwin",
-    inspectBundle: async (applicationPath) => {
-      inspectedApplications.push(applicationPath);
-      return true;
-    },
+    trustedBundlePaths: [await realpath(bundled)],
   });
   assert.deepEqual(found, { path: await realpath(bundled), source: "desktop-bundle" });
-  assert.deepEqual(inspectedApplications, [await realpath(path.join(root, "ChatGPT.app"))]);
 
   await assert.rejects(
     discoverBundledCodexCli({

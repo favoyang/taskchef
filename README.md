@@ -265,8 +265,8 @@ request/result pair; opening task details fetches the full newest-first activity
 timeline, including clearly labeled interrupted turns.
 Task details also offer **Archive chat** for every linked task whose current
 TaskChef state is not `working`. After confirmation, TaskChef invokes only the
-Codex CLI from a known ChatGPT or Codex desktop app install whose OpenAI signing
-identity is present, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record
+Codex CLI at the canonical ChatGPT or Codex desktop app location under
+`/Applications`, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record
 and its activity timeline remain unchanged. If the bundled CLI is unavailable,
 the dashboard does not fall back to another `codex` executable from `PATH`.
 The header shows the running TaskChef package version reported by the same

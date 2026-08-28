@@ -9,7 +9,6 @@ const execFile = promisify(execFileCallback);
 const CODEX_COMMAND_TIMEOUT_MS = 10_000;
 const CODEX_ARCHIVE_TIMEOUT_MS = 4_000;
 const CODEX_COMMAND_MAX_BUFFER_BYTES = 64 * 1024;
-const OPENAI_TEAM_IDENTIFIER = "2DC432GLL2";
 
 function runCodex(run, filePath, args, timeout = CODEX_COMMAND_TIMEOUT_MS) {
   return run(filePath, args, {
@@ -35,8 +34,8 @@ function pathCandidates(env, platform = process.platform) {
     .map((directory) => path.join(directory, platform === "win32" ? "codex.exe" : "codex"));
 }
 
-function isDesktopBundleCandidate(filePath, platform = process.platform) {
-  if (platform !== "darwin" || path.basename(filePath) !== "codex") return false;
+function isDesktopBundleCandidate(filePath) {
+  if (path.basename(filePath) !== "codex") return false;
   const resources = path.dirname(filePath);
   const contents = path.dirname(resources);
   const application = path.dirname(contents);
@@ -45,14 +44,12 @@ function isDesktopBundleCandidate(filePath, platform = process.platform) {
     && new Set(["ChatGPT.app", "Codex.app"]).has(path.basename(application));
 }
 
-function defaultDesktopBundleCandidates(env, platform) {
+function defaultDesktopBundleCandidates(_env, platform) {
   if (platform !== "darwin") return [];
-  const applicationRoots = ["/Applications"];
-  if (env.HOME) applicationRoots.push(path.join(env.HOME, "Applications"));
-  return applicationRoots.flatMap((root) => [
-    path.join(root, "ChatGPT.app", "Contents", "Resources", "codex"),
-    path.join(root, "Codex.app", "Contents", "Resources", "codex"),
-  ]);
+  return [
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    "/Applications/Codex.app/Contents/Resources/codex",
+  ];
 }
 
 async function supportsAppCommand(filePath, run) {
@@ -73,34 +70,21 @@ async function supportsArchiveCommand(filePath, run) {
   }
 }
 
-async function hasOpenAiBundleIdentity(applicationPath) {
-  try {
-    const { stderr } = await runCodex(
-      execFile,
-      "/usr/bin/codesign",
-      ["-dv", "--verbose=4", applicationPath],
-    );
-    return new RegExp(`(?:^|\\n)TeamIdentifier=${OPENAI_TEAM_IDENTIFIER}(?:\\n|$)`)
-      .test(stderr);
-  } catch {
-    return false;
-  }
-}
-
 export async function discoverBundledCodexCli({
   candidates = null,
   env = process.env,
   platform = process.platform,
   run = execFile,
-  inspectBundle = hasOpenAiBundleIdentity,
+  trustedBundlePaths = null,
 } = {}) {
-  const bundledCandidates = candidates ?? defaultDesktopBundleCandidates(env, platform);
+  const trustedPaths = trustedBundlePaths ?? defaultDesktopBundleCandidates(env, platform);
+  const trustedCandidates = new Set(trustedPaths.map((candidate) => path.resolve(candidate)));
+  const bundledCandidates = candidates ?? trustedPaths;
   for (const filePath of new Set(bundledCandidates.map((candidate) => path.resolve(candidate)))) {
     const executableCandidate = await executable(filePath);
     const candidate = executableCandidate === null ? null : await realpath(executableCandidate);
-    const applicationPath = candidate === null ? null : path.dirname(path.dirname(path.dirname(candidate)));
-    if (candidate && isDesktopBundleCandidate(candidate, platform)
-      && await inspectBundle(applicationPath)
+    if (platform === "darwin" && candidate && trustedCandidates.has(candidate)
+      && isDesktopBundleCandidate(candidate)
       && await supportsArchiveCommand(candidate, run)) {
       return { path: candidate, source: "desktop-bundle" };
     }
@@ -187,7 +171,7 @@ export async function archiveThreadInCodex(threadId, options = {}) {
     throw new Error("Codex thread ID is not supported by chat archiving");
   }
   const run = options.run ?? execFile;
-  const cli = options.cli ?? await discoverBundledCodexCli({ ...options, run });
+  const cli = options.cli ?? await discoverBundledCodexCli({ run });
   await runCodex(
     run,
     cli.path,

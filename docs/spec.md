@@ -432,8 +432,8 @@ thread ID is a canonical Codex UUID and the current TaskChef state is not
 `working`. It MUST revalidate both conditions for the POST request, require the
 exact loopback origin, and obtain explicit user confirmation in the browser.
 It MUST invoke the `archive` subcommand by directly executing only a Codex CLI
-inside a known ChatGPT or Codex desktop application bundle bearing the OpenAI
-signing identity, with the thread UUID as a separate argument. It MUST NOT use a shell, a generic `PATH` fallback, a
+inside the canonical ChatGPT or Codex desktop application bundle under macOS
+`/Applications`, with the thread UUID as a separate argument. It MUST NOT use a shell, a generic `PATH` fallback, a
 private desktop endpoint, or direct session-file manipulation. Successful
 archival MUST NOT modify dispatcher files or remove the TaskChef task record.
 The UI MUST disclose that spawned descendant chats may also be archived and
