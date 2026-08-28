@@ -17,6 +17,37 @@ import { createUsageTracker } from "../src/usage-tracker.js";
 const THREAD_ID = "01a047b4-b28e-7fe3-8d08-92311bcaad9e";
 const FIRST_TURN = "ce886d09-f19a-4299-a6d0-6190ac1b77cb";
 const SECOND_TURN = "98d66c9f-58e8-4ba6-9f46-286ab64db1ce";
+const THIRD_TURN = "28c5c2f7-e735-48c9-b788-65ea2c383513";
+const FOURTH_TURN = "62f33e8f-617c-498e-9766-bcd50b67bdd4";
+
+async function beforeDeadline(promise, deadline) {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error("Timed out while draining usage tracker timers.");
+  let timeout;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Timed out while draining usage tracker timers.")),
+          remaining,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function drainTimersUntil(timers, predicate, maxSpins = 1_000, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (let spin = 0; spin < maxSpins; spin += 1) {
+    if (timers.length > 0) await beforeDeadline(timers.shift()(), deadline);
+    if (await beforeDeadline(predicate(), deadline)) return true;
+    await beforeDeadline(new Promise((resolve) => setImmediate(resolve)), deadline);
+  }
+  return false;
+}
 
 function session(suffix, values = {}) {
   const inputTokens = values.inputTokens ?? 10;
@@ -505,10 +536,10 @@ test("a new tracker resumes a terminal calculation persisted by an exited proces
     readThreadUsage: async () => aggregateCcusageSessions({ sessions: [session("")] }, THREAD_ID),
   });
   assert.equal((await secondTracker.get(task)).status, "calculating");
-  for (let spin = 0; spin < 100 && resumedTimers.length === 0; spin += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  while (resumedTimers.length > 0) await resumedTimers.shift()();
+  assert.equal(await drainTimersUntil(resumedTimers, async () => {
+    const usage = await readUsageStore(workspace);
+    return usage.tasks[task.id]?.status === "available";
+  }), true);
   const store = JSON.parse(await readFile(path.join(workspace, ".taskchef-usage.json"), "utf8"));
   assert.equal(store.tasks[task.id].status, "available");
   assert.equal(store.tasks[task.id].turns[FIRST_TURN].status, "available");
@@ -685,6 +716,241 @@ test("linked tasks with no turns never schedule usage reconciliation", async () 
   assert.equal(scheduled, 0);
 });
 
+test("manual dashboard turns never schedule or establish Codex usage boundaries", async () => {
+  for (const [name, priorStatus, withBoundary] of [
+    ["needs-input", "needs_input", true],
+    ["interrupted-working", "interrupted", false],
+  ]) {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), `taskchef-usage-manual-${name}-`));
+    await writeFile(path.join(workspace, "tasks.jsonl"), "");
+    const snapshot = aggregateCcusageSessions(
+      { sessions: [session("")] },
+      THREAD_ID,
+      { sampledAt: "2026-08-28T14:00:00.000Z" },
+    );
+    await writeUsageStore(workspace, {
+      schemaVersion: 1,
+      tasks: {
+        [name]: {
+          threadId: THREAD_ID,
+          generationTurnRef: FIRST_TURN,
+          generationTurnCount: 1,
+          generationTerminal: priorStatus !== "interrupted",
+          zeroBaselineTurnRef: null,
+          status: "available",
+          updatedAt: snapshot.sampledAt,
+          retryAfter: null,
+          task: snapshot,
+          turns: {
+            [FIRST_TURN]: {
+              status: "unavailable",
+              reason: "Fixture boundary state.",
+              updatedAt: snapshot.sampledAt,
+            },
+          },
+          boundaries: withBoundary ? { [FIRST_TURN]: snapshot } : {},
+        },
+      },
+    });
+    let scheduled = 0;
+    const tracker = createUsageTracker({
+      workspace,
+      setTimer() { scheduled += 1; return { unref() {} }; },
+    });
+    const manualTurn = {
+      turnRef: SECOND_TURN,
+      turnId: null,
+      provenance: { kind: "dashboard_manual" },
+      result: { status: "completed" },
+    };
+    const task = {
+      id: name,
+      threadId: THREAD_ID,
+      turns: [
+        { turnRef: FIRST_TURN, provenance: { kind: "mcp" }, result: { status: priorStatus } },
+        manualTurn,
+      ],
+      latestTurn: manualTurn,
+    };
+    const usage = await tracker.observe(task);
+    assert.equal(scheduled, 0);
+    assert.equal(usage.status, "available");
+    assert.equal(usage.task.totalTokens, snapshot.totalTokens);
+    assert.deepEqual(usage.turns[SECOND_TURN], {
+      status: "unavailable",
+      reason: "Administrative action; no Codex usage boundary.",
+      updatedAt: usage.turns[SECOND_TURN].updatedAt,
+    });
+    assert.equal(usage.boundaries[SECOND_TURN], undefined);
+    assert.equal((await tracker.get(task)).turns[SECOND_TURN].reason,
+      "Administrative action; no Codex usage boundary.");
+  }
+});
+
+test("a later executor turn skips a manual action when selecting its prior usage boundary", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-after-manual-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  const previous = aggregateCcusageSessions(
+    { sessions: [session("")] },
+    THREAD_ID,
+    { sampledAt: "2026-08-28T14:00:00.000Z" },
+  );
+  await writeUsageStore(workspace, {
+    schemaVersion: 1,
+    tasks: {
+      "after-manual": {
+        threadId: THREAD_ID,
+        generationTurnRef: SECOND_TURN,
+        generationTurnCount: 2,
+        generationTerminal: false,
+        zeroBaselineTurnRef: null,
+        status: "available",
+        updatedAt: previous.sampledAt,
+        retryAfter: null,
+        task: previous,
+        turns: {
+          [FIRST_TURN]: { status: "unavailable", reason: "Fixture.", updatedAt: previous.sampledAt },
+          [SECOND_TURN]: {
+            status: "unavailable",
+            reason: "Administrative action; no Codex usage boundary.",
+            updatedAt: previous.sampledAt,
+          },
+        },
+        boundaries: { [FIRST_TURN]: previous },
+      },
+    },
+  });
+  const timers = [];
+  const advanced = aggregateCcusageSessions({ sessions: [session("", {
+    inputTokens: 20,
+    cacheReadTokens: 20,
+    outputTokens: 10,
+    costUSD: 0.04,
+  })] }, THREAD_ID, { sampledAt: "2026-08-28T14:01:00.000Z" });
+  let current = previous;
+  const tracker = createUsageTracker({
+    workspace,
+    retryDelaysMs: [0, 0, 0, 0],
+    setTimer(callback) { timers.push(callback); return { unref() {} }; },
+    readThreadUsage: async () => current,
+  });
+  const manualTurn = {
+    turnRef: SECOND_TURN,
+    provenance: { kind: "dashboard_manual" },
+    result: { status: "completed" },
+  };
+  const executorTurn = {
+    turnRef: THIRD_TURN,
+    provenance: { kind: "mcp" },
+    result: { status: "completed" },
+  };
+  const task = {
+    id: "after-manual",
+    threadId: THREAD_ID,
+    turns: [
+      { turnRef: FIRST_TURN, provenance: { kind: "mcp" }, result: { status: "needs_input" } },
+      manualTurn,
+      executorTurn,
+    ],
+    latestTurn: executorTurn,
+  };
+  await tracker.observe(task);
+  await timers.shift()();
+  await timers.shift()();
+  const calculating = await tracker.get(task);
+  assert.equal(calculating.turns[THIRD_TURN].status, "calculating");
+  assert.equal(timers.length, 1);
+
+  current = advanced;
+  while (timers.length > 0) await timers.shift()();
+  const usage = await tracker.get(task);
+  assert.equal(usage.turns[THIRD_TURN].status, "available");
+  assert.equal(usage.turns[THIRD_TURN].totalTokens, advanced.totalTokens - previous.totalTokens);
+  assert.equal(usage.boundaries[SECOND_TURN], undefined);
+});
+
+test("a later executor turn does not skip an unbounded executor when selecting its prior boundary", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-after-unbounded-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  const previous = aggregateCcusageSessions(
+    { sessions: [session("")] },
+    THREAD_ID,
+    { sampledAt: "2026-08-28T14:00:00.000Z" },
+  );
+  await writeUsageStore(workspace, {
+    schemaVersion: 1,
+    tasks: {
+      "after-unbounded": {
+        threadId: THREAD_ID,
+        generationTurnRef: THIRD_TURN,
+        generationTurnCount: 3,
+        generationTerminal: false,
+        zeroBaselineTurnRef: null,
+        status: "available",
+        updatedAt: previous.sampledAt,
+        retryAfter: null,
+        task: previous,
+        turns: {
+          [FIRST_TURN]: {
+            status: "available",
+            inputTokens: previous.inputTokens,
+            cachedInputTokens: previous.cachedInputTokens,
+            outputTokens: previous.outputTokens,
+            reasoningOutputTokens: previous.reasoningOutputTokens,
+            totalTokens: previous.totalTokens,
+            estimatedCostUsd: previous.estimatedCostUsd,
+            provenance: previous.provenance,
+            sampledAt: previous.sampledAt,
+            sourceUpdatedAt: previous.sourceUpdatedAt,
+            updatedAt: previous.sampledAt,
+          },
+          [SECOND_TURN]: {
+            status: "unavailable",
+            reason: "Usage did not stabilize before reconciliation finished.",
+            updatedAt: previous.sampledAt,
+          },
+          [THIRD_TURN]: {
+            status: "unavailable",
+            reason: "Administrative action; no Codex usage boundary.",
+            updatedAt: previous.sampledAt,
+          },
+        },
+        boundaries: { [FIRST_TURN]: previous },
+      },
+    },
+  });
+  const timers = [];
+  const current = aggregateCcusageSessions({ sessions: [session("", {
+    inputTokens: 30,
+    cacheReadTokens: 30,
+    outputTokens: 15,
+    costUSD: 0.06,
+  })] }, THREAD_ID, { sampledAt: "2026-08-28T14:02:00.000Z" });
+  const tracker = createUsageTracker({
+    workspace,
+    retryDelaysMs: [0, 0],
+    setTimer(callback) { timers.push(callback); return { unref() {} }; },
+    readThreadUsage: async () => current,
+  });
+  const task = {
+    id: "after-unbounded",
+    threadId: THREAD_ID,
+    turns: [
+      { turnRef: FIRST_TURN, provenance: { kind: "mcp" }, result: { status: "completed" } },
+      { turnRef: SECOND_TURN, provenance: { kind: "mcp" }, result: { status: "completed" } },
+      { turnRef: THIRD_TURN, provenance: { kind: "dashboard_manual" }, result: { status: "completed" } },
+      { turnRef: FOURTH_TURN, provenance: { kind: "mcp" }, result: { status: "completed" } },
+    ],
+    latestTurn: { turnRef: FOURTH_TURN, provenance: { kind: "mcp" }, result: { status: "completed" } },
+  };
+  await tracker.observe(task);
+  while (timers.length > 0) await timers.shift()();
+  const usage = await tracker.get(task);
+  assert.equal(usage.turns[FOURTH_TURN].status, "unavailable");
+  assert.match(usage.turns[FOURTH_TURN].reason, /preceding turn has no reliable cumulative boundary/i);
+  assert.equal(usage.boundaries[FOURTH_TURN], undefined);
+});
+
 test("a failed job cannot make the next turn's first sample appear stable", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-fingerprint-"));
   await writeFile(path.join(workspace, "tasks.jsonl"), "");
@@ -758,10 +1024,10 @@ test("retrying unavailable usage returns calculating until recovery is visible",
     readThreadUsage: async () => aggregateCcusageSessions({ sessions: [session("")] }, THREAD_ID),
   });
   assert.equal((await recoveryTracker.get(task)).status, "calculating");
-  for (let spin = 0; spin < 100 && recoveryTimers.length === 0; spin += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  while (recoveryTimers.length > 0) await recoveryTimers.shift()();
+  assert.equal(await drainTimersUntil(recoveryTimers, async () => {
+    const usage = await readUsageStore(workspace);
+    return usage.tasks[task.id]?.status === "available";
+  }), true);
   assert.equal((await recoveryTracker.get(task)).status, "available");
 });
 

@@ -11,10 +11,16 @@ import {
 
 const TERMINAL_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const MAX_TRACKED_TURNS = 250;
+const ADMINISTRATIVE_USAGE_REASON = "Administrative action; no Codex usage boundary.";
+
+function isAdministrativeTurn(turn) {
+  return turn?.provenance?.kind === "dashboard_manual";
+}
 
 function hasTerminalLatestTurn(task) {
   return task.latestTurn !== null
     && task.latestTurn !== undefined
+    && !isAdministrativeTurn(task.latestTurn)
     && task.latestTurn.result !== null
     && TERMINAL_STATUSES.has(task.latestTurn.result.status);
 }
@@ -56,7 +62,13 @@ function calculatingTask(task, existing = null, now = new Date().toISOString()) 
   )));
   const generation = lifecycleGeneration(task);
   for (const turn of recentTurns) {
-    if (turn.result === null) {
+    if (isAdministrativeTurn(turn)) {
+      turns[turn.turnRef] = {
+        status: "unavailable",
+        reason: ADMINISTRATIVE_USAGE_REASON,
+        updatedAt: now,
+      };
+    } else if (turn.result === null) {
       turns[turn.turnRef] = { status: "calculating", updatedAt: now };
     } else if (turn.result.status === "interrupted") {
       turns[turn.turnRef] = {
@@ -80,7 +92,7 @@ function calculatingTask(task, existing = null, now = new Date().toISOString()) 
     }
   }
   if (task.latestTurn?.result
-    && TERMINAL_STATUSES.has(task.latestTurn.result.status)
+    && hasTerminalLatestTurn(task)
     && !preserveAvailable) {
     turns[task.latestTurn.turnRef] = { status: "calculating", updatedAt: now };
   }
@@ -100,6 +112,19 @@ function calculatingTask(task, existing = null, now = new Date().toISOString()) 
     task: existing?.task ?? null,
     turns,
     boundaries: existing?.boundaries ?? {},
+  };
+}
+
+function administrativeTask(task, existing = null, now = new Date().toISOString()) {
+  const usage = calculatingTask(task, existing, now);
+  const hasTaskProjection = existing?.task !== null && existing?.task !== undefined;
+  return {
+    ...usage,
+    status: hasTaskProjection ? "available" : "unavailable",
+    ...(hasTaskProjection ? {} : { reason: ADMINISTRATIVE_USAGE_REASON }),
+    updatedAt: now,
+    retryAfter: null,
+    task: existing?.task ?? null,
   };
 }
 
@@ -145,8 +170,13 @@ function snapshotSupersedes(current, incoming) {
 function candidateHasAdvanced(task, existing, snapshot) {
   const latestIndex = task.turns.findIndex((turn) => turn.turnRef === task.latestTurn?.turnRef);
   if (latestIndex <= 0) return true;
-  const previousTurn = task.turns[latestIndex - 1];
-  const previousBoundary = existing?.boundaries?.[previousTurn.turnRef];
+  const previousTurn = task.turns
+    .slice(0, latestIndex)
+    .reverse()
+    .find((turn) => !isAdministrativeTurn(turn));
+  const previousBoundary = previousTurn
+    ? existing.boundaries[previousTurn.turnRef] ?? null
+    : null;
   if (!previousBoundary) return true;
   const delta = usageDelta(snapshot, previousBoundary);
   return delta !== null && delta.totalTokens > 0;
@@ -162,9 +192,18 @@ function reconcileRecord(task, existing, snapshot, { boundaryReliable = true } =
       : []
   )));
   const terminalTurns = recentTurns.filter((turn) => (
-    turn.result !== null && TERMINAL_STATUSES.has(turn.result.status)
+    !isAdministrativeTurn(turn)
+    && turn.result !== null
+    && TERMINAL_STATUSES.has(turn.result.status)
   ));
   const generation = lifecycleGeneration(task);
+  for (const turn of recentTurns.filter(isAdministrativeTurn)) {
+    turns[turn.turnRef] = {
+      status: "unavailable",
+      reason: ADMINISTRATIVE_USAGE_REASON,
+      updatedAt: now,
+    };
+  }
   for (const turn of terminalTurns) {
     if (!turns[turn.turnRef]) {
       turns[turn.turnRef] = {
@@ -178,21 +217,23 @@ function reconcileRecord(task, existing, snapshot, { boundaryReliable = true } =
   const latest = terminalTurns.at(-1);
   if (latest && latest.turnRef === task.latestTurn?.turnRef && boundaryReliable) {
     const index = task.turns.findIndex((turn) => turn.turnRef === latest.turnRef);
-    const previousTurn = index > 0 ? task.turns[index - 1] : null;
+    const previousTurn = index > 0
+      ? task.turns.slice(0, index).reverse().find((turn) => !isAdministrativeTurn(turn)) ?? null
+      : null;
     const previousBoundary = previousTurn ? boundaries[previousTurn.turnRef] ?? null : null;
-    const delta = previousTurn === null
+    const delta = index === 0
       ? (existing?.zeroBaselineTurnRef === latest.turnRef ? usageDelta(snapshot, null) : null)
       : (previousBoundary !== null ? usageDelta(snapshot, previousBoundary) : null);
-    const advanced = previousTurn === null || previousBoundary === null || delta?.totalTokens > 0;
+    const advanced = index === 0 || (delta !== null && delta.totalTokens > 0);
     if (advanced) boundaries[latest.turnRef] = snapshot;
     turns[latest.turnRef] = delta === null || !advanced
       ? {
         status: "unavailable",
-        reason: !advanced
-          ? "Cumulative usage did not advance beyond the preceding turn."
-          : (previousTurn === null
+        reason: delta === null
+          ? (previousTurn === null
             ? "No live zero-token boundary was recorded for this historical turn."
-            : "The preceding turn has no reliable cumulative boundary."),
+            : "The preceding turn has no reliable cumulative boundary.")
+          : "Cumulative usage did not advance beyond the preceding turn.",
         updatedAt: now,
       }
       : {
@@ -244,6 +285,9 @@ export function createUsageTracker({
 
   const markCalculating = async (task) => updateStore(await root(), task.id, (existing) => (
     generationIsOlder(task, existing) ? existing : calculatingTask(task, existing)
+  ));
+  const markAdministrative = async (task) => updateStore(await root(), task.id, (existing) => (
+    generationIsOlder(task, existing) ? existing : administrativeTask(task, existing)
   ));
 
   const reconcile = async (task, {
@@ -347,7 +391,9 @@ export function createUsageTracker({
           active.cancelled = true;
           jobs.delete(task.id);
         }
-        const usage = await markCalculating(task);
+        const usage = isAdministrativeTurn(task.latestTurn)
+          ? await markAdministrative(task)
+          : await markCalculating(task);
         if (hasTerminalLatestTurn(task)) schedule(task);
         return usage;
       });
@@ -377,6 +423,15 @@ export function createUsageTracker({
       if (active && active.turnRef !== latestTurnRef) {
         active.cancelled = true;
         jobs.delete(task.id);
+      }
+      if (isAdministrativeTurn(task.latestTurn)) {
+        const latestUsage = usage?.turns?.[task.latestTurn.turnRef];
+        if (usage?.generationTurnRef === task.latestTurn.turnRef
+          && latestUsage?.status === "unavailable"
+          && latestUsage.reason === ADMINISTRATIVE_USAGE_REASON) return usage;
+        const administrative = administrativeTask(task, usage);
+        void markAdministrative(task).catch(() => {});
+        return administrative;
       }
       if (!usage || usage.threadId !== task.threadId) {
         const calculating = calculatingTask(task);

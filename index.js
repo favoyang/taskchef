@@ -12,6 +12,7 @@ export {
   initializeWorkspace,
   linkTask,
   listProjects,
+  manuallyTransitionTask,
   migrateTaskLog,
   prepareDispatch,
   readConfig,

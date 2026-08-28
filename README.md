@@ -55,7 +55,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 Codex project index, dashboard preference, and delegation metadata
-tasks.jsonl     one task snapshot per line (schema 9; schema 4-8 migration supported)
+tasks.jsonl     one task snapshot per line (schema 10; schema 4-9 migration supported)
 .taskchef-usage.json   optional mode-0600 ccusage snapshot and turn-boundary cache
 ```
 
@@ -270,7 +270,21 @@ The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
 linked Codex tasks. List snapshots and SSE events carry only the latest
 request/result pair; opening task details fetches the full newest-first activity
 timeline, including clearly labeled interrupted turns.
-Task details also offer **Archive chat** for every linked task whose current
+Task details offer infrequent administrative actions without cluttering task
+cards. Selecting **More task actions** (`…`) reveals the action list immediately
+beside the disclosure and changes it to a back/hide control. The list contains
+**Copy Task ID**, direct **Mark completed** and **Mark failed** actions for a
+`working` or `needs_input` task, and **Archive chat** whenever archival is
+eligible. The menu disclosure is the deliberate first step; choosing a terminal
+outcome submits it immediately without a second confirmation. There is no
+free-form reason: the audit turn records a fixed summary, timestamp, dashboard
+provenance, optimistic preconditions, and a unique action ID while preserving
+every executor turn. Terminal tasks cannot be rewritten. Stale or concurrent
+changes are rejected and the dialog refreshes to the current task. A stalled
+local request is aborted after a bounded wait so the dialog cannot remain
+permanently locked; retry keeps the same idempotency identity.
+
+The More actions list offers **Archive chat** for every linked task whose current
 TaskChef state is not `working`. After confirmation, TaskChef invokes only the
 Codex CLI at the canonical ChatGPT or Codex desktop app location under
 `/Applications`, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record
@@ -303,12 +317,13 @@ revision, so reconnects and non-semantic rewrites do not replay a notice and a
 later task state cannot rewrite an older notice. A notice remains readable if
 its task disappears; selecting it then explains that current details are no
 longer available.
-It does not mutate TaskChef data and prints its local URL. A foreground
-dashboard identifies itself as standalone and is never reused on the canonical
-MCP port. If a standalone, unknown, different-workspace, or stale-version
-process owns port 3210, TaskChef reports a concise conflict and never kills or
-replaces that process. The foreground CLI similarly asks you to stop the
-listener or choose another `--port`.
+Apart from an explicit manual state selection from the task-detail menu, it does not mutate
+TaskChef data and prints its local URL. A foreground dashboard identifies
+itself as standalone and is never reused on the canonical MCP port. If a
+standalone, unknown, different-workspace, or stale-version process owns port
+3210, TaskChef reports a concise conflict and never kills or replaces that
+process. The foreground CLI similarly asks you to stop the listener or choose
+another `--port`.
 
 The health endpoint contains only a fixed service marker, health schema,
 TaskChef version, dashboard-server version, canonical workspace, and launcher.
@@ -338,9 +353,9 @@ taskchef doctor
 
 `doctor` is read-only. `workspace init` creates missing files and refreshes
 managed instructions. `workspace migrate` explicitly upgrades supported schema
-4-8 task lines to schema 9 under the workspace lock. It validates task and turn
+4-9 task lines to schema 10 under the workspace lock. It validates task and turn
 counts plus the complete source and converted log before writing, creates an
-exclusive `tasks.jsonl.pre-v9-*.bak`
+exclusive `tasks.jsonl.pre-v10-*.bak`
 backup, atomically replaces the log, validates the result, and becomes an
 idempotent no-op after migration. If replacement fails, the original remains
 or the reported backup can be restored; unsupported or invalid input is rejected
@@ -351,7 +366,7 @@ executor so its first action can retry `link_task`. Do not guess an identity
 or edit `tasks.jsonl`. If native task creation failed, the record is retained
 as `failed` with a retained fallback `turnRef` and null thread and Codex turn IDs.
 
-Schemas other than 4, 5, 6, 7, 8, and 9 remain unsupported. Retain such a workspace
+Schemas other than 4, 5, 6, 7, 8, 9, and 10 remain unsupported. Retain such a workspace
 unchanged and create a current workspace; the migration command deliberately
 does not guess how to convert unknown formats.
 

@@ -53,3 +53,84 @@ export async function archiveTaskFromControl(event, task, {
     if (!archived) control.disabled = false;
   }
 }
+
+export async function manuallyTransitionTaskFromControl(event, task, targetStatus, actionId, {
+  clearTimer = globalThis.clearTimeout,
+  fetchAction = globalThis.fetch,
+  setTimer = globalThis.setTimeout,
+  timeoutMs = 10_000,
+} = {}) {
+  event?.stopPropagation?.();
+  const controller = new AbortController();
+  const timeout = setTimer(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchAction(
+      `/api/tasks/${encodeURIComponent(task.id)}/manual-transition`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schemaVersion: 1,
+          actionId,
+          expected: {
+            status: task.status,
+            turnRef: task.turnRef,
+            threadId: task.threadId,
+            updatedAt: task.updatedAt,
+          },
+          targetStatus,
+        }),
+          signal: controller.signal,
+        },
+    );
+    const result = await response.json();
+    return response.ok
+      ? { ok: true, ...result }
+      : {
+        ok: false,
+        code: result.code ?? "dashboard_error",
+        message: result.message ?? "Task state could not be changed.",
+        task: result.task ?? null,
+      };
+  } catch {
+    return {
+      ok: false,
+      code: controller.signal.aborted ? "request_timeout" : "network_error",
+      message: controller.signal.aborted
+        ? "Task state change timed out. Try again."
+        : "Task state changes are temporarily unavailable. Try again.",
+      task: null,
+    };
+  } finally {
+    clearTimer(timeout);
+  }
+}
+
+export function handleManualTransitionEscape(event, {
+  active,
+  pending,
+  cancel,
+}) {
+  if (event.key !== "Escape" || !active) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!pending) cancel();
+  return true;
+}
+
+export function focusManualTransitionStatus(panel) {
+  const status = panel.querySelector('[data-manual-focus="pending"]');
+  status?.focus();
+  return status !== null;
+}
+
+export function restoreTaskActionMenuFocus(panel, activeElement, fallback) {
+  if (!activeElement || !panel.contains(activeElement)) return null;
+  if (!activeElement.hidden && !activeElement.disabled) return activeElement;
+  const copyTaskId = panel.querySelector('[data-manual-focus="copy"]');
+  const destination = copyTaskId && !copyTaskId.hidden && !copyTaskId.disabled
+    ? copyTaskId
+    : fallback;
+  destination?.focus();
+  return destination ?? null;
+}

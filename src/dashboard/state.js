@@ -22,6 +22,8 @@ const NOTIFICATION_TITLES = new Map([
   ["completed", "Task completed"],
   ["needs_input", "Task needs input"],
   ["failed", "Task failed"],
+  ["manual_completed", "Task manually completed"],
+  ["manual_failed", "Task manually failed"],
   ["unresolved", "Task updated"],
 ]);
 
@@ -43,6 +45,50 @@ export function canArchiveTask(task) {
   return task.status !== "working"
     && typeof task.threadId === "string"
     && CODEX_THREAD_ID_PATTERN.test(task.threadId);
+}
+
+export function canManuallyTransitionTask(task) {
+  return ["working", "needs_input"].includes(task.status);
+}
+
+export function manualTransitionExpectedState(task) {
+  return {
+    status: task.status,
+    turnRef: task.turnRef,
+    threadId: task.threadId,
+    updatedAt: task.updatedAt,
+  };
+}
+
+export function taskMatchesManualTransitionExpected(task, expected) {
+  return Boolean(expected)
+    && task.status === expected.status
+    && task.turnRef === expected.turnRef
+    && task.threadId === expected.threadId
+    && task.updatedAt === expected.updatedAt;
+}
+
+export function reconcileManualTransition(transition, task) {
+  if (!transition || transition.taskId !== task.id) return null;
+  if (transition.stage === "pending") return transition;
+  if (taskMatchesManualTransitionExpected(task, transition.expected)) return transition;
+  return {
+    taskId: task.id,
+    stage: "choose",
+    expected: manualTransitionExpectedState(task),
+  };
+}
+
+export function reconcileManualTransitionResponse({
+  requestTask,
+  expected,
+  responseTask,
+  selectedTask,
+}) {
+  const current = selectedTask?.id === requestTask.id ? selectedTask : requestTask;
+  return taskMatchesManualTransitionExpected(current, expected)
+    ? (responseTask ?? current)
+    : current;
 }
 
 export function latestTurnPresentation(task) {
@@ -70,6 +116,9 @@ export function turnPresentation(turn) {
     status: result?.status ?? "working",
     summary: result?.summary ?? "In progress",
     updatedAt: result?.updatedAt ?? turn.startedAt,
+    ...(turn.provenance?.kind === "dashboard_manual"
+      ? { sourceLabel: "Manual dashboard change" }
+      : {}),
   };
 }
 
@@ -200,6 +249,9 @@ function lifecycleEvent(task) {
   if (task.status === "working") {
     return task.lastResult ? "follow_up_started" : "task_started";
   }
+  if (task.latestTurn?.provenance?.kind === "dashboard_manual") {
+    return `manual_${task.status}`;
+  }
   return task.status ?? "unresolved";
 }
 
@@ -223,7 +275,9 @@ function eventTimestamp(task, event) {
 }
 
 function eventSummary(task, event) {
-  if (!["completed", "needs_input", "failed"].includes(event)) return null;
+  if (!["completed", "needs_input", "failed", "manual_completed", "manual_failed"].includes(event)) {
+    return null;
+  }
   if (
     task.lastResult?.status === task.status
     && (task.lastResult?.turnRef ?? task.lastResult?.turnId)
@@ -252,16 +306,19 @@ export function notificationSnapshot(task, event = lifecycleEvent(task)) {
 function resultNotificationSnapshot(task) {
   const result = task.lastResult;
   if (!result) return null;
+  const event = result.provenance?.kind === "dashboard_manual"
+    ? `manual_${result.status}`
+    : result.status;
   return Object.freeze({
     id: notificationIdentity({
       ...task,
       turnRef: result.turnRef ?? result.turnId,
       turnId: result.turnId,
-    }, result.status),
+    }, event),
     taskId: task.id,
     title: task.title,
     status: result.status,
-    event: result.status,
+    event,
     turnRef: result.turnRef ?? result.turnId ?? null,
     turnId: result.turnId ?? null,
     timestamp: result.updatedAt,

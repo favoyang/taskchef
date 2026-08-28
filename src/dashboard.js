@@ -16,6 +16,7 @@ import {
   acquireWorkspaceLock,
   canonicalDirectory,
   canonicalGitRoot,
+  manuallyTransitionTask,
   parseTaskLogContent,
   readConfig,
   readTask,
@@ -31,6 +32,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_TASKS = 2_000;
 const DEFAULT_MAX_EVENT_CLIENTS = 16;
+const MAX_MANUAL_TRANSITION_BODY_BYTES = 4 * 1024;
 export const DASHBOARD_HEALTH_PATH = "/api/health";
 export const DASHBOARD_HEALTH_MAX_BYTES = 8 * 1024;
 const CONTENT_SECURITY_POLICY = [
@@ -160,6 +162,11 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
       boundedText(turn.turnRef, 512, `${name} turn ${turnIndex + 1} turn ref`);
       boundedText(turn.turnId, 512, `${name} turn ${turnIndex + 1} turn ID`);
       boundedText(turn.result?.summary, 2_000, `${name} turn ${turnIndex + 1} result summary`);
+      boundedText(
+        turn.provenance?.actionId,
+        512,
+        `${name} turn ${turnIndex + 1} manual action ID`,
+      );
     }
     const results = task.results ?? [];
     if (results.length > 10_000) {
@@ -169,6 +176,11 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
       boundedText(result.summary, 2_000, `${name} result ${resultIndex + 1} summary`);
       boundedText(result.turnRef, 512, `${name} result ${resultIndex + 1} turn ref`);
       boundedText(result.turnId, 512, `${name} result ${resultIndex + 1} turn ID`);
+      boundedText(
+        result.provenance?.actionId,
+        512,
+        `${name} result ${resultIndex + 1} manual action ID`,
+      );
     }
     boundedText(task.project.name, 1_000, `${name} project name`);
     boundedText(task.project.path, 8_192, `${name} project path`);
@@ -383,6 +395,79 @@ function sendJson(response, status, value) {
   response.end(`${JSON.stringify(value)}\n`);
 }
 
+async function readBoundedJsonBody(request, maximumBytes = MAX_MANUAL_TRANSITION_BODY_BYTES) {
+  const contentType = request.headers["content-type"] ?? "";
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    const error = new Error("Request content type must be application/json.");
+    error.code = "unsupported_media_type";
+    throw error;
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > maximumBytes) {
+      const error = new Error("Request body is too large.");
+      error.code = "body_too_large";
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  let value;
+  try {
+    value = JSON.parse(Buffer.concat(chunks, total).toString("utf8"));
+  } catch {
+    const error = new Error("Request body must be valid JSON.");
+    error.code = "malformed_json";
+    throw error;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const error = new Error("Request body must be a JSON object.");
+    error.code = "invalid_request";
+    throw error;
+  }
+  return value;
+}
+
+function manualTransitionInput(body) {
+  const fields = new Set(["schemaVersion", "actionId", "expected", "targetStatus"]);
+  const unexpected = Object.keys(body).find((key) => !fields.has(key));
+  const missing = [...fields].find((key) => !(key in body));
+  if (unexpected || missing || body.schemaVersion !== 1) {
+    const error = new Error("Manual transition request has an invalid shape.");
+    error.code = "invalid_request";
+    throw error;
+  }
+  const { schemaVersion: _schemaVersion, ...input } = body;
+  return input;
+}
+
+function manualTransitionErrorResponse(error) {
+  const definitions = new Map([
+    ["malformed_json", [400, "Request body must be valid JSON."]],
+    ["invalid_request", [400, "Manual transition request is invalid."]],
+    ["task_not_found", [404, "Task not found."]],
+    ["stale_task", [409, "This task changed. Review its current state and try again."]],
+    ["invalid_transition", [409, "This task can no longer be changed manually."]],
+    ["idempotency_conflict", [409, "This manual action ID was already used."]],
+    ["body_too_large", [413, "Request body is too large."]],
+    ["unsupported_media_type", [415, "Request content type must be application/json."]],
+    ["ELOCKED", [503, "TaskChef is busy updating the workspace. Try again."]],
+  ]);
+  const definition = definitions.get(error?.code);
+  const [status, message] = definition ?? [500, "Dashboard request failed."];
+  return {
+    status,
+    body: {
+      code: error?.code === "ELOCKED"
+        ? "workspace_busy"
+        : (definition ? error.code : "dashboard_error"),
+      message,
+      ...(error?.task ? { task: taskDetailProjection(error.task) } : {}),
+    },
+  };
+}
+
 function ssePayload(event, value) {
   return `event: ${event}\ndata: ${JSON.stringify(value)}\n\n`;
 }
@@ -587,6 +672,37 @@ export async function createDashboardServer({
           schemaVersion: 1,
           task: { ...taskDetailProjection(task), usage },
         });
+      }
+      return;
+    }
+
+    const transitionMatch = url.pathname.match(
+      /^\/api\/tasks\/([a-zA-Z0-9._-]+)\/manual-transition$/,
+    );
+    if (transitionMatch && method === "POST") {
+      if (request.headers.origin !== allowedOrigin) {
+        sendJson(response, 403, {
+          code: "invalid_origin",
+          message: "Dashboard origin validation failed.",
+        });
+        return;
+      }
+      try {
+        const body = await readBoundedJsonBody(request);
+        const result = await manuallyTransitionTask(
+          monitor.workspace,
+          transitionMatch[1],
+          manualTransitionInput(body),
+        );
+        await monitor.refresh({ force: true }).catch(() => {});
+        sendJson(response, 200, {
+          schemaVersion: 1,
+          task: taskDetailProjection(result.task),
+          idempotent: result.idempotent,
+        });
+      } catch (error) {
+        const failure = manualTransitionErrorResponse(error);
+        sendJson(response, failure.status, failure.body);
       }
       return;
     }

@@ -38,9 +38,11 @@ const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_CONFIG_SCHEMA_VERSION = 2;
-const CURRENT_TASK_SCHEMA_VERSION = 9;
-const PREVIOUS_TASK_SCHEMA_VERSION = 8;
+const CURRENT_TASK_SCHEMA_VERSION = 10;
+const PREVIOUS_TASK_SCHEMA_VERSION = 9;
+const TURN_REF_TASK_SCHEMA_VERSION = 9;
 const FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION = 7;
+const INTERRUPTED_TURN_TASK_SCHEMA_VERSION = 8;
 const LEGACY_RESULTS_TASK_SCHEMA_VERSION = 6;
 const FIRST_SELF_LINKING_TASK_SCHEMA_VERSION = 4;
 const CONFIG_FIELDS = new Set(["schemaVersion", "projects", "dashboard"]);
@@ -81,14 +83,36 @@ const RECORD_DISPATCH_FIELDS = new Set([
 const RESULT_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const TURN_RESULT_STATUSES = new Set([...RESULT_STATUSES, "interrupted"]);
 const TASK_STATUSES = new Set(["working", ...RESULT_STATUSES]);
-const TASK_UPDATE_SOURCES = new Set(["dispatcher", "mcp"]);
+const TASK_UPDATE_SOURCES = new Set(["dispatcher", "mcp", "dashboard"]);
 const MAX_RESULT_SUMMARY_LENGTH = 2_000;
 const MAX_REQUEST_SUMMARY_LENGTH = 1_000;
 const RESULT_FIELDS = new Set(["status", "summary", "turnId", "updatedAt"]);
 const TURN_RESULT_FIELDS = new Set(["status", "summary", "updatedAt"]);
 const LEGACY_TURN_FIELDS = new Set(["turnId", "requestSummary", "startedAt", "result"]);
-const TURN_FIELDS = new Set(["turnRef", "turnId", "requestSummary", "startedAt", "result"]);
+const SCHEMA_9_TURN_FIELDS = new Set([
+  "turnRef", "turnId", "requestSummary", "startedAt", "result",
+]);
+const TURN_FIELDS = new Set([...SCHEMA_9_TURN_FIELDS, "provenance"]);
+const TURN_PROVENANCE_KINDS = new Set(["legacy", "mcp", "dashboard_manual"]);
+const SIMPLE_TURN_PROVENANCE_FIELDS = new Set(["kind"]);
+const MANUAL_TURN_PROVENANCE_FIELDS = new Set([
+  "kind",
+  "actionId",
+  "fromStatus",
+  "toStatus",
+  "expectedTurnRef",
+  "expectedThreadId",
+  "expectedUpdatedAt",
+]);
 const INTERRUPTED_TURN_SUMMARY = "Turn interrupted before a terminal report.";
+const MANUAL_TRANSITION_STATUSES = new Set(["working", "needs_input"]);
+const MANUAL_TARGET_STATUSES = new Set(["completed", "failed"]);
+const MANUAL_TRANSITION_FIELDS = new Set([
+  "actionId", "expected", "targetStatus",
+]);
+const MANUAL_EXPECTED_FIELDS = new Set([
+  "status", "turnRef", "threadId", "updatedAt",
+]);
 
 function requireExactFields(value, fields, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -146,6 +170,31 @@ function normalizeExecutorTurnRef(value, name = "turnRef") {
     throw new Error(`${name} must be a UUID for a self-linked task`);
   }
   return normalized;
+}
+
+function normalizeTurnProvenance(value, name) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  const kind = requireEnum(value.kind, TURN_PROVENANCE_KINDS, `${name}.kind`);
+  if (kind !== "dashboard_manual") {
+    requireExactFields(value, SIMPLE_TURN_PROVENANCE_FIELDS, name);
+    return { kind };
+  }
+  requireExactFields(value, MANUAL_TURN_PROVENANCE_FIELDS, name);
+  return {
+    kind,
+    actionId: normalizeExecutorTurnRef(value.actionId, `${name}.actionId`),
+    fromStatus: requireEnum(value.fromStatus, MANUAL_TRANSITION_STATUSES, `${name}.fromStatus`),
+    toStatus: requireEnum(value.toStatus, MANUAL_TARGET_STATUSES, `${name}.toStatus`),
+    expectedTurnRef: value.expectedTurnRef === null
+      ? null
+      : normalizeTurnRef(value.expectedTurnRef, `${name}.expectedTurnRef`),
+    expectedThreadId: value.expectedThreadId === null
+      ? null
+      : normalizeDurableThreadId(value.expectedThreadId, `${name}.expectedThreadId`),
+    expectedUpdatedAt: requireTimestamp(value.expectedUpdatedAt, `${name}.expectedUpdatedAt`),
+  };
 }
 
 function requireEnum(value, allowed, name) {
@@ -738,6 +787,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     5,
     LEGACY_RESULTS_TASK_SCHEMA_VERSION,
     FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION,
+    INTERRUPTED_TURN_TASK_SCHEMA_VERSION,
     PREVIOUS_TASK_SCHEMA_VERSION,
     CURRENT_TASK_SCHEMA_VERSION,
   ];
@@ -746,7 +796,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   }
   requireExactFields(
     dispatch,
-    dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
       ? DISPATCH_FIELDS
       : dispatch.schemaVersion >= FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION
         ? LEGACY_TURN_DISPATCH_FIELDS
@@ -765,7 +815,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   });
   const rawTurnId = optionalString(dispatch.turnId, `${name}.turnId`, { maxLength: 256 });
   const turnId = rawTurnId === null ? null : normalizeTurnRef(rawTurnId, `${name}.turnId`);
-  const storedTurnRef = dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+  const storedTurnRef = dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
     ? (dispatch.turnRef === null ? null : normalizeTurnRef(dispatch.turnRef, `${name}.turnRef`))
     : null;
   const updatedAt = requireTimestamp(dispatch.updatedAt, `${name}.updatedAt`);
@@ -805,7 +855,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     const normalizedResult = {
       status: requireEnum(
         result.status,
-        dispatch.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION
+        dispatch.schemaVersion >= INTERRUPTED_TURN_TASK_SCHEMA_VERSION
           ? TURN_RESULT_STATUSES
           : RESULT_STATUSES,
         `${resultName}.status`,
@@ -829,7 +879,11 @@ async function validateDispatchShape(dispatch, name = "task") {
   const normalizeTurn = (turn, turnName) => {
     requireExactFields(
       turn,
-      dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION ? TURN_FIELDS : LEGACY_TURN_FIELDS,
+      dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+        ? TURN_FIELDS
+        : dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
+          ? SCHEMA_9_TURN_FIELDS
+          : LEGACY_TURN_FIELDS,
       turnName,
     );
     const rawTurnId = optionalString(turn.turnId, `${turnName}.turnId`, { maxLength: 256 });
@@ -837,7 +891,7 @@ async function validateDispatchShape(dispatch, name = "task") {
       ? null
       : normalizeTurnRef(rawTurnId, `${turnName}.turnId`);
     return {
-      turnRef: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      turnRef: dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
         ? normalizeTurnRef(turn.turnRef, `${turnName}.turnRef`)
         : normalizedTurnId,
       turnId: normalizedTurnId,
@@ -846,6 +900,9 @@ async function validateDispatchShape(dispatch, name = "task") {
       }),
       startedAt: requireTimestamp(turn.startedAt, `${turnName}.startedAt`),
       result: normalizeTurnResult(turn.result, `${turnName}.result`),
+      provenance: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+        ? normalizeTurnProvenance(turn.provenance, `${turnName}.provenance`)
+        : null,
     };
   };
   let legacyResults = [];
@@ -876,6 +933,7 @@ async function validateDispatchShape(dispatch, name = "task") {
         summary: result.summary,
         updatedAt: result.updatedAt,
       },
+      provenance: null,
     }));
     if (
       status === "working"
@@ -885,7 +943,14 @@ async function validateDispatchShape(dispatch, name = "task") {
         || turns.at(-1)?.result !== null
       )
     ) {
-      turns.push({ turnRef: turnId, turnId, requestSummary: null, startedAt: updatedAt, result: null });
+      turns.push({
+        turnRef: turnId,
+        turnId,
+        requestSummary: null,
+        startedAt: updatedAt,
+        result: null,
+        provenance: null,
+      });
     }
   }
   const results = turns.flatMap((turn) => (
@@ -894,6 +959,9 @@ async function validateDispatchShape(dispatch, name = "task") {
     ...turn.result,
     turnRef: turn.turnRef,
     turnId: turn.turnId,
+    ...(turn.provenance?.kind === "dashboard_manual"
+      ? { provenance: turn.provenance }
+      : {}),
   }]);
   const lastResult = results.at(-1) ?? null;
   const latestTurn = turns.at(-1) ?? null;
@@ -909,7 +977,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     createdAt: requireTimestamp(dispatch.createdAt, `${name}.createdAt`),
     status,
     summary,
-    turnRef: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    turnRef: dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
       ? storedTurnRef
       : turns.at(-1)?.turnRef ?? null,
     turnId,
@@ -920,7 +988,10 @@ async function validateDispatchShape(dispatch, name = "task") {
     results,
     lastResult,
   };
-  if (normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
+  if (normalized.updatedBy === "dashboard" && normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION) {
+    throw new Error(`${name}.updatedBy dashboard requires schema ${CURRENT_TASK_SCHEMA_VERSION}`);
+  }
+  if (normalized.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION) {
     if (normalized.turnId !== null && normalized.turnRef !== normalizeTurnRef(normalized.turnId)) {
       throw new Error(`${name}.turnRef must equal turnId when turnId is present`);
     }
@@ -944,6 +1015,82 @@ async function validateDispatchShape(dispatch, name = "task") {
       }
     }
   }
+  if (normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
+    const actionIds = new Set();
+    for (const [index, turn] of normalized.turns.entries()) {
+      const provenance = turn.provenance;
+      if (provenance.kind !== "dashboard_manual") continue;
+      const turnName = `${name}.turns[${index}]`;
+      const predecessor = normalized.turns[index - 1] ?? null;
+      if (actionIds.has(provenance.actionId)) {
+        throw new Error(`${name} has duplicate manual transition actionId: ${provenance.actionId}`);
+      }
+      actionIds.add(provenance.actionId);
+      if (turn.turnId !== null) {
+        throw new Error(`${turnName}.turnId must be null for a manual dashboard turn`);
+      }
+      if (provenance.expectedThreadId !== normalized.threadId) {
+        throw new Error(`${turnName}.provenance.expectedThreadId must match the task threadId`);
+      }
+      if (provenance.expectedTurnRef !== (predecessor?.turnRef ?? null)) {
+        throw new Error(`${turnName}.provenance.expectedTurnRef must match the prior turn`);
+      }
+      const validPriorState = provenance.fromStatus === "needs_input"
+        ? predecessor?.result?.status === "needs_input"
+        : predecessor === null || predecessor.result?.status === "interrupted";
+      if (!validPriorState) {
+        throw new Error(`${turnName}.provenance.fromStatus does not match the prior turn`);
+      }
+      if (
+        provenance.fromStatus === "working"
+        && predecessor !== null
+        && predecessor.result.updatedAt !== turn.startedAt
+      ) {
+        throw new Error(`${turnName} must share its timestamp with the interrupted prior turn`);
+      }
+      const expectedPriorTimestamp = provenance.fromStatus === "needs_input"
+        ? predecessor.result.updatedAt
+        : predecessor?.startedAt ?? null;
+      if (
+        Date.parse(provenance.expectedUpdatedAt) < Date.parse(normalized.createdAt)
+        || (
+          expectedPriorTimestamp !== null
+          && provenance.expectedUpdatedAt !== expectedPriorTimestamp
+        )
+      ) {
+        throw new Error(`${turnName}.provenance.expectedUpdatedAt does not match prior state`);
+      }
+      if (turn.requestSummary !== manualTransitionRequestSummary(
+        provenance.fromStatus,
+        provenance.toStatus,
+      )) {
+        throw new Error(`${turnName}.requestSummary must use the manual transition summary`);
+      }
+      if (
+        turn.result?.status !== provenance.toStatus
+        || turn.result?.summary !== manualTransitionSummary(provenance.toStatus)
+      ) {
+        throw new Error(`${turnName}.result must match its manual transition provenance`);
+      }
+      if (
+        turn.startedAt !== turn.result.updatedAt
+        || Date.parse(turn.startedAt) < Date.parse(provenance.expectedUpdatedAt)
+      ) {
+        throw new Error(`${turnName} has invalid manual transition timestamps`);
+      }
+    }
+    if (normalized.updatedBy === "dashboard") {
+      if (normalized.latestTurn?.provenance?.kind !== "dashboard_manual") {
+        throw new Error(`${name}.updatedBy dashboard requires a latest manual dashboard turn`);
+      }
+    }
+    if (
+      normalized.latestTurn?.provenance?.kind === "dashboard_manual"
+      && normalized.updatedBy !== "dashboard"
+    ) {
+      throw new Error(`${name} latest manual dashboard turn requires updatedBy dashboard`);
+    }
+  }
   const isSelfLinkingRecord = normalized.threadId !== null
     && parseTaskChefMarker(normalized.instruction) === normalized.id;
   if (isSelfLinkingRecord) {
@@ -958,7 +1105,7 @@ async function validateDispatchShape(dispatch, name = "task") {
         );
       }
       if (turn.turnRef !== null) {
-        turn.turnRef = normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+        turn.turnRef = normalized.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
           ? normalizeExecutorTurnRef(turn.turnRef, `${name}.turns[${index}].turnRef`)
           : normalizeTurnRef(turn.turnRef, `${name}.turns[${index}].turnRef`);
       }
@@ -969,6 +1116,9 @@ async function validateDispatchShape(dispatch, name = "task") {
       ...turn.result,
       turnRef: turn.turnRef,
       turnId: turn.turnId,
+      ...(turn.provenance?.kind === "dashboard_manual"
+        ? { provenance: turn.provenance }
+        : {}),
     }]);
     normalized.lastResult = normalized.results.at(-1) ?? null;
     normalized.latestTurn = normalized.turns.at(-1) ?? null;
@@ -984,17 +1134,25 @@ async function validateDispatchShape(dispatch, name = "task") {
       const isCreationFailure = normalized.status === "failed"
         && normalized.summary !== null
         && (
-          normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION
+          normalized.schemaVersion < TURN_REF_TASK_SCHEMA_VERSION
           || normalized.turnRef !== null
         )
         && normalized.turnId === null
         && normalized.lastResult?.status === "failed"
         && normalized.lastResult.turnId === null
         && normalized.updatedBy === "mcp";
-      if (!isLinkPending && !isCreationFailure) {
+      const isManualTerminal = normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+        && RESULT_STATUSES.has(normalized.status)
+        && normalized.summary !== null
+        && normalized.turnId === null
+        && normalized.lastResult?.status === normalized.status
+        && normalized.lastResult.turnId === null
+        && normalized.updatedBy === "dashboard"
+        && normalized.latestTurn?.provenance?.kind === "dashboard_manual";
+      if (!isLinkPending && !isCreationFailure && !isManualTerminal) {
         throw new Error(`${name} has an invalid unlinked lifecycle state`);
       }
-      if (isCreationFailure && normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
+      if ((isCreationFailure || isManualTerminal) && normalized.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION) {
         normalized.turnRef = normalizeExecutorTurnRef(normalized.turnRef, `${name}.turnRef`);
         for (const [index, turn] of normalized.turns.entries()) {
           turn.turnRef = normalizeExecutorTurnRef(
@@ -1005,12 +1163,12 @@ async function validateDispatchShape(dispatch, name = "task") {
       }
     } else {
       if (RESULT_STATUSES.has(normalized.status) && normalized.turnId === null) {
-        if (normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION) {
+        if (normalized.schemaVersion < TURN_REF_TASK_SCHEMA_VERSION) {
           throw new Error(`${name}.turnId is required for a linked semantic state`);
         }
       }
       const resultWithoutTurn = normalized.results.findIndex((result) => (
-        normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION && result.turnId === null
+        normalized.schemaVersion < TURN_REF_TASK_SCHEMA_VERSION && result.turnId === null
       ));
       if (resultWithoutTurn !== -1) {
         throw new Error(`${name}.results[${resultWithoutTurn}].turnId is required for a linked result`);
@@ -1051,7 +1209,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     if (
       normalized.status === "working"
       && isSelfLinkingRecord
-      && normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION
+      && normalized.schemaVersion < TURN_REF_TASK_SCHEMA_VERSION
       && normalized.lastResult?.turnId != null
       && (normalized.turnId === null || normalized.turnId <= normalized.lastResult.turnId)
     ) {
@@ -1188,6 +1346,7 @@ async function parseDispatchRecordsUnlocked(root, content) {
   }
   const ids = new Set();
   const threadIds = new Set();
+  const manualActionIds = new Set();
   for (const { normalized: dispatch } of records) {
     if (ids.has(dispatch.id)) throw new Error(`duplicate task ID: ${dispatch.id}`);
     const threadKey = dispatch.threadId === null ? null : threadIdentityKey(dispatch.threadId);
@@ -1196,6 +1355,13 @@ async function parseDispatchRecordsUnlocked(root, content) {
     }
     ids.add(dispatch.id);
     if (threadKey !== null) threadIds.add(threadKey);
+    for (const turn of dispatch.turns) {
+      if (turn.provenance?.kind !== "dashboard_manual") continue;
+      if (manualActionIds.has(turn.provenance.actionId)) {
+        throw new Error(`duplicate manual transition actionId: ${turn.provenance.actionId}`);
+      }
+      manualActionIds.add(turn.provenance.actionId);
+    }
   }
   return records;
 }
@@ -1241,6 +1407,7 @@ function currentSchemaTask(dispatch, patch = {}) {
   const sourceTurns = patch.turns ?? dispatch.turns ?? [];
   const turns = sourceTurns.map((turn) => ({
     ...turn,
+    provenance: turn.provenance ?? { kind: "legacy" },
     turnRef: turn.turnRef === null || turn.turnRef === undefined
       ? (turn.turnId === null || turn.turnId === undefined ? randomUUID() : turn.turnId)
       : turn.turnRef,
@@ -1305,7 +1472,7 @@ export async function migrateTaskLog(workspaceRoot, {
     const timestamp = requireTimestamp(now(), "migration timestamp")
       .replaceAll(":", "-")
       .replaceAll(".", "-");
-    const backupPath = `${dispatchPath}.pre-v9-${timestamp}-${randomUUID()}.bak`;
+    const backupPath = `${dispatchPath}.pre-v10-${timestamp}-${randomUUID()}.bak`;
     await writeFile(backupPath, original, { encoding: "utf8", mode: 0o600, flag: "wx" });
     if (await readFile(backupPath, "utf8") !== original) {
       throw new Error(`task log backup validation failed: ${backupPath}`);
@@ -1491,6 +1658,64 @@ function normalizeTaskStateInput(input, { allowWorking }) {
   return { id, threadId, turnRef, turnId, status, summary, requestSummary };
 }
 
+function manualTransitionSummary(status) {
+  return `Manually marked ${status} from the TaskChef dashboard.`;
+}
+
+function manualTransitionRequestSummary(fromStatus, toStatus) {
+  return `Manual dashboard transition from ${fromStatus} to ${toStatus}.`;
+}
+
+function taskOperationError(code, message, task = null) {
+  const error = new Error(message);
+  error.code = code;
+  error.task = task;
+  return error;
+}
+
+function normalizeManualTransitionInput(input) {
+  requireExactFields(input, MANUAL_TRANSITION_FIELDS, "manual transition");
+  requireExactFields(input.expected, MANUAL_EXPECTED_FIELDS, "manual transition.expected");
+  const expectedTurnRef = input.expected.turnRef === null
+    ? null
+    : normalizeTurnRef(input.expected.turnRef, "manual transition.expected.turnRef");
+  const expectedThreadId = input.expected.threadId === null
+    ? null
+    : normalizeDurableThreadId(
+      input.expected.threadId,
+      "manual transition.expected.threadId",
+    );
+  return {
+    actionId: normalizeExecutorTurnRef(input.actionId, "manual transition.actionId"),
+    expected: {
+      status: requireEnum(
+        input.expected.status,
+        TASK_STATUSES,
+        "manual transition.expected.status",
+      ),
+      turnRef: expectedTurnRef,
+      threadId: expectedThreadId,
+      updatedAt: requireTimestamp(
+        input.expected.updatedAt,
+        "manual transition.expected.updatedAt",
+      ),
+    },
+    targetStatus: requireEnum(
+      input.targetStatus,
+      MANUAL_TARGET_STATUSES,
+      "manual transition.targetStatus",
+    ),
+  };
+}
+
+function sameManualAction(provenance, input) {
+  return provenance.fromStatus === input.expected.status
+    && provenance.toStatus === input.targetStatus
+    && provenance.expectedTurnRef === input.expected.turnRef
+    && provenance.expectedThreadId === input.expected.threadId
+    && provenance.expectedUpdatedAt === input.expected.updatedAt;
+}
+
 function sameLastResult(lastResult, { status, summary, turnRef, turnId }) {
   return lastResult !== null
     && lastResult.status === status
@@ -1652,6 +1877,7 @@ async function reportTaskStateInternal(
           requestSummary,
           startedAt: updatedAt,
           result: null,
+          provenance: { kind: "mcp" },
         }];
       const updated = await validateDispatchShape(currentSchemaTask(dispatch, {
         status,
@@ -1706,6 +1932,7 @@ async function reportTaskStateInternal(
         requestSummary: null,
         startedAt: updatedAt,
         result: turnResult,
+        provenance: { kind: "mcp" },
       }];
     } else {
       turns = dispatch.turns.map((turn, turnIndex) => turnIndex === currentTurnIndex
@@ -1738,6 +1965,127 @@ export async function reportTaskResult(workspaceRoot, input, options = {}) {
   return reportTaskStateInternal(workspaceRoot, input, {
     ...options,
     compatibilityAlias: true,
+  });
+}
+
+export async function manuallyTransitionTask(
+  workspaceRoot,
+  taskId,
+  input,
+  { now, writeTaskLines = writeDispatchLinesAtomic } = {},
+) {
+  const id = requireSafeId(taskId, "taskId");
+  let normalizedInput;
+  try {
+    normalizedInput = normalizeManualTransitionInput(input);
+  } catch {
+    throw taskOperationError("invalid_request", "manual transition request is invalid");
+  }
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const records = await readDispatchRecordsUnlocked(root);
+    const dispatches = records.map((record) => record.normalized);
+    const index = dispatches.findIndex((dispatch) => dispatch.id === id);
+    if (index === -1) {
+      throw taskOperationError("task_not_found", `task not found: ${id}`);
+    }
+    const actionOwner = dispatches.find((dispatch) => dispatch.turns.some((turn) => (
+      turn.provenance?.kind === "dashboard_manual"
+      && turn.provenance.actionId === normalizedInput.actionId
+    )));
+    if (actionOwner) {
+      const manualTurn = actionOwner.turns.find((turn) => (
+        turn.provenance?.kind === "dashboard_manual"
+        && turn.provenance.actionId === normalizedInput.actionId
+      ));
+      if (actionOwner.id !== id || !sameManualAction(manualTurn.provenance, normalizedInput)) {
+        throw taskOperationError(
+          "idempotency_conflict",
+          `manual transition actionId is already used: ${normalizedInput.actionId}`,
+          dispatches[index],
+        );
+      }
+      return { task: dispatches[index], idempotent: true };
+    }
+
+    const dispatch = dispatches[index];
+    if (!MANUAL_TRANSITION_STATUSES.has(dispatch.status)) {
+      throw taskOperationError(
+        "invalid_transition",
+        `task status cannot be changed manually from ${dispatch.status}: ${id}`,
+        dispatch,
+      );
+    }
+    const expected = normalizedInput.expected;
+    if (
+      dispatch.status !== expected.status
+      || dispatch.turnRef !== expected.turnRef
+      || dispatch.threadId !== expected.threadId
+      || dispatch.updatedAt !== expected.updatedAt
+    ) {
+      throw taskOperationError(
+        "stale_task",
+        `task changed after the dashboard loaded it: ${id}`,
+        dispatch,
+      );
+    }
+
+    const updatedAt = transitionTimestamp(now, dispatch.updatedAt);
+    const interruptedTurns = (
+      dispatch.status === "working"
+      && dispatch.latestTurn?.result === null
+    )
+      ? dispatch.turns.map((turn, turnIndex) => turnIndex === dispatch.turns.length - 1
+        ? {
+          ...turn,
+          result: {
+            status: "interrupted",
+            summary: INTERRUPTED_TURN_SUMMARY,
+            updatedAt,
+          },
+        }
+        : turn)
+      : dispatch.turns;
+    const turnRef = randomUUID();
+    const provenance = {
+      kind: "dashboard_manual",
+      actionId: normalizedInput.actionId,
+      fromStatus: dispatch.status,
+      toStatus: normalizedInput.targetStatus,
+      expectedTurnRef: expected.turnRef,
+      expectedThreadId: expected.threadId,
+      expectedUpdatedAt: expected.updatedAt,
+    };
+    const summary = manualTransitionSummary(normalizedInput.targetStatus);
+    const turns = [...interruptedTurns, {
+      turnRef,
+      turnId: null,
+      requestSummary: manualTransitionRequestSummary(
+        dispatch.status,
+        normalizedInput.targetStatus,
+      ),
+      startedAt: updatedAt,
+      result: {
+        status: normalizedInput.targetStatus,
+        summary,
+        updatedAt,
+      },
+      provenance,
+    }];
+    const updated = await validateDispatchShape(currentSchemaTask(dispatch, {
+      status: normalizedInput.targetStatus,
+      summary,
+      turnRef,
+      turnId: null,
+      updatedAt,
+      updatedBy: "dashboard",
+      turns,
+    }));
+    const lines = records.map((record, recordIndex) => recordIndex === index
+      ? dispatchLineWithState(updated, {})
+      : record.line);
+    await writeTaskLines(root, lines);
+    return { task: updated, idempotent: false };
   });
 }
 

@@ -28,7 +28,7 @@ is dated research, not contract.
 | **Last semantic result** | The final result-history entry, exposed through the derived `lastResult` compatibility alias. |
 | **Turn reference** | Required lifecycle identity for one executor prompt. It is the native Codex turn ID when available, otherwise a retained client-generated UUID. |
 | **Current turn ID** | Optional Codex metadata for the reported prompt; null when native turn reading is unavailable. |
-| **Dashboard** | The loopback, read-only UI derived from validated workspace snapshots, optional local usage projections, and bounded native actions. |
+| **Dashboard** | The loopback UI derived from validated workspace snapshots, with optional local usage projections, bounded native actions, and an explicit audited manual-outcome mutation. |
 | **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-dashboard`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-copilot`. |
 
 ## Components and ownership
@@ -50,7 +50,8 @@ is dated research, not contract.
   and the deprecated `report_result` compatibility alias specified below.
 - The CLI MAY administer and inspect the workspace, but MUST NOT provide a
   second agent lifecycle protocol.
-- The dashboard MUST be read-only with respect to dispatcher files.
+- The dashboard MUST be read-only with respect to dispatcher files except for
+  the explicit audited manual-transition operation defined below.
 - `docs/spec.md` is the single normative behavior source. Other documents
   MUST link here rather than redefine the contract.
 
@@ -82,8 +83,8 @@ is backward-compatible and means `true`; new workspaces SHOULD write
 disable the explicit `ensure_dashboard` tool.
 
 `tasks.jsonl` MUST contain zero or more newline-terminated schema-4 through
-schema-9 records, one per line. Schemas 4 through 8 are supported
-migration/read formats; every new record and state mutation MUST write schema 9. Other schemas
+schema-10 records, one per line. Schemas 4 through 9 are supported
+migration/read formats; every new record and state mutation MUST write schema 10. Other schemas
 or unsupported fields MUST be rejected without conversion.
 Reads and writes MUST reject symlinked managed files. Mutations
 MUST hold the shared workspace lock and replace state atomically; read-only
@@ -95,7 +96,7 @@ Every record MUST contain exactly these fields:
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Integer `9`; schema-4/5/6/7/8 records remain readable until explicit migration or their next mutation. |
+| `schemaVersion` | Integer `10`; schema-4/5/6/7/8/9 records remain readable until explicit migration or their next mutation. |
 | `id` | Unique safe TaskChef ID; delegation uses a lowercase full UUID. |
 | `project` | Immutable configured-project snapshot. |
 | `title` | Non-empty display title. |
@@ -107,14 +108,14 @@ Every record MUST contain exactly these fields:
 | `turnRef` | Null before reporting begins; otherwise the required lifecycle identity of the current turn. Self-linking journeys use a native or fallback UUID. Migrated low-level `report_result` compatibility records may retain an opaque ref equal to their opaque `turnId`. |
 | `turnId` | Optional Codex metadata. When non-null it equals `turnRef`; null indicates fallback identity. |
 | `updatedAt` | ISO 8601 timestamp not earlier than `createdAt` or the prior `updatedAt`; clock rollback cannot backdate a transition. |
-| `updatedBy` | `dispatcher` or `mcp`. |
-| `turns` | Ordered oldest-first array of `{turnRef, turnId, requestSummary, startedAt, result}`. Every `turnRef` is required. `requestSummary` is null only for migrated/compatibility turns. `result` is null only for the latest working turn, a semantic `{status, summary, updatedAt}` result, or the fixed TaskChef `interrupted` outcome. New self-linking turn refs are unique. A migrated low-level opaque record may retain one final reused native-derived ref for its legacy ambiguity. |
+| `updatedBy` | `dispatcher`, `mcp`, or `dashboard`. `dashboard` is valid only when the latest turn is a manual dashboard transition. |
+| `turns` | Ordered oldest-first array of `{turnRef, turnId, requestSummary, startedAt, result, provenance}`. Every `turnRef` is required. `requestSummary` is null only for migrated/compatibility turns. `result` is null only for the latest working turn, a semantic `{status, summary, updatedAt}` result, or the fixed TaskChef `interrupted` outcome. `provenance` is `{kind: legacy}` or `{kind: mcp}` for ordinary turns, or the audited manual-transition record defined below. New self-linking and manual turn refs are unique. A migrated low-level opaque record may retain one final reused native-derived ref for its legacy ambiguity. |
 
 Returned Task objects MUST additionally expose `latestTurn` as null for an empty
 timeline or the final `turns` entry. They MUST derive `results` only from
 semantic `needs_input`, `completed`, and `failed` turn results and `lastResult`
 from the final derived semantic result. Interrupted outcomes MUST be excluded.
-These projections MUST NOT be persisted in schema 9 and remain compatibility
+These projections MUST NOT be persisted in schema 10 and remain compatibility
 aliases for existing callers.
 
 ## Optional usage projection
@@ -125,9 +126,15 @@ store, or serve raw Codex rollout files, prompts, responses, transcripts, or
 reasoning. Analyzer absence, timeout, malformed output, unknown pricing, or an
 unresolved thread MUST NOT block lifecycle tools or dashboard loading.
 
+Dashboard-manual turns are administrative events, not Codex executions. They
+MUST immediately report per-turn usage as unavailable, MUST NOT schedule or
+store a cumulative usage boundary, and MUST NOT receive a token or cost delta.
+A later executor turn MUST use the nearest preceding reliable executor
+boundary, skipping any intervening dashboard-manual turns.
+
 The mode-0600 `.taskchef-usage.json` cache stores only normalized cumulative
 token boundaries, per-turn deltas, model names, estimated cost, source version,
-and freshness. It is independent of schema-9 task records so legacy logs remain
+and freshness. It is independent of task-log schema versions so legacy logs remain
 readable. Writes MUST use the workspace lock and atomic replacement. Symlinked
 or unsupported cache files MUST be rejected. Writes MUST compact the derived
 cache to recent task projections, recent per-turn results, and the latest
@@ -350,7 +357,7 @@ new preparation values, though it writes no state.
 
 **Structured output:** `{ task: Task }`.
 
-The returned task has schema 9, `working`, null summary/turn/thread/latestTurn/lastResult,
+The returned task has schema 10, `working`, null summary/turn/thread/latestTurn/lastResult,
 empty `turns` and derived `results` arrays,
 `updatedBy: dispatcher`, and equal creation/update timestamps. Duplicate IDs,
 unknown projects, malformed markers, and invalid input fail. Repeating a
@@ -427,8 +434,8 @@ MUST contain no crash output, transcript, user text, or inferred failure cause.
 temporary compatibility alias. It implicitly accepts a fresh supplied turn and
 stores its semantic result in a request-unknown turn, including for supported schema-4/5/6 records and
 low-level opaque direct records. It does not accept `working`. New executor
-instructions MUST use `report_state`. Successful mutation upgrades schema 4-8
-to schema 9; unsupported schemas remain rejected. Legacy callers that omit
+instructions MUST use `report_state`. Successful mutation upgrades schema 4-9
+to schema 10; unsupported schemas remain rejected. Legacy callers that omit
 `turnRef` remain compatible when `turnId` is non-null.
 
 ## Copilot and dashboard
@@ -476,6 +483,41 @@ startup safely. Direct thread navigation
 MUST require a canonical Codex UUIDv7. Otherwise it MAY open the revalidated
 configured project. Project paths from task history MUST be matched against
 current configuration before use.
+The task-detail dashboard MAY offer manual terminal outcomes only for current
+`working` or `needs_input` tasks. It MUST permit exactly `completed` and
+`failed`, MUST NOT rewrite a terminal task, and MUST keep this infrequent
+administrative action out of list cards. A keyboard-accessible **More task
+actions** disclosure MUST reveal its action list immediately beside it and
+change from an ellipsis to an accessible back/hide control while expanded. The
+list MUST group **Copy Task ID**, **Mark completed**, and **Mark failed** for
+eligible tasks, plus **Archive chat** when archival is eligible. Opening the
+list is the deliberate disclosure step; choosing a terminal outcome submits it
+immediately without a second confirmation. Escape MUST close the idle list,
+pending controls MUST be
+disabled, and failure feedback MUST remain in the dialog. Pending state MUST
+focus and announce a stable status inside the dialog. Failed MUST have
+destructive styling. The client MUST bound and abort a stalled manual-transition
+request, restore the dialog controls, and preserve the action ID so a retry can
+resolve idempotently if the server committed before the timeout.
+
+`POST /api/tasks/:id/manual-transition` MUST require the exact loopback origin,
+`application/json`, a bounded body, and exactly this versioned shape:
+`{schemaVersion: 1, actionId, expected: {status, turnRef, threadId, updatedAt},
+targetStatus}`. The server MUST compare every expected field while holding the
+workspace lock. A stale request, invalid transition, or reused action ID with a
+different operation MUST return a conflict without mutation. Replaying the
+same committed action ID and operation MUST return the current task as an
+idempotent success. The operation MUST atomically append one new manual turn;
+it MUST NOT overwrite executor history. An active unfinished turn MUST first
+receive the standard interrupted timeline outcome. The manual turn MUST have a
+new server-generated `turnRef`, null `turnId`, one monotonic timestamp for its
+start, result, and task update, `updatedBy: dashboard`, and deterministic
+request/result summaries. It MUST record provenance
+`{kind: dashboard_manual, actionId, fromStatus, toStatus, expectedTurnRef,
+expectedThreadId, expectedUpdatedAt}`. No free-form reason is collected or
+persisted. A committed write remains successful if the subsequent best-effort
+monitor refresh or notification delivery fails.
+
 The task-detail dashboard MAY offer Codex chat archival only when the stored
 thread ID is a canonical Codex UUID and the current TaskChef state is not
 `working`. It MUST revalidate both conditions for the POST request, require the
@@ -521,15 +563,15 @@ its displayed summary when present, event time, and missing-task state.
 
 ## Task-log migration
 
-`workspace migrate` MUST explicitly convert every supported schema-4/5/6/7/8 record
+`workspace migrate` MUST explicitly convert every supported schema-4/5/6/7/8/9 record
 under the shared lock. Each legacy semantic result becomes a request-unknown
 completed turn; a newer working state becomes a final unfinished turn, and a
 schema-7/8 timeline is preserved. Each non-null legacy `turnId` becomes the
 same `turnRef`; each null legacy `turnId` receives one durably persisted UUID.
 Migration MUST validate the complete source, record/turn counts, turn-ref
-invariants, and complete schema-9 candidate before changing the task log,
+invariants, and complete schema-10 candidate before changing the task log,
 create and read back an exclusive recovery backup, atomically replace the log,
-and validate the installed result. A fully schema-9 log MUST be an idempotent
+and validate the installed result. A fully schema-10 log MUST be an idempotent
 no-op without another backup. Invalid/unsupported input MUST remain untouched;
 failures after backup creation MUST report the backup path and MUST never
 partially rewrite individual lines.

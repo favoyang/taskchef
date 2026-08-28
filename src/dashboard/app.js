@@ -1,22 +1,34 @@
 import {
   canArchiveTask,
+  canManuallyTransitionTask,
   clearNotifications,
   dismissNotification,
   filterTasks,
   findCurrentTask,
   latestTurnPresentation,
+  manualTransitionExpectedState,
   mergeProjectedTurns,
   nextDateFilterRefreshDelay,
   notificationDismissLabel,
   notificationOpenLabel,
   notificationTitle,
   reconcileNotifications,
+  reconcileManualTransition,
+  reconcileManualTransitionResponse,
   statusFilterCounts,
   statusFilterText,
   taskStatusLabel,
+  taskMatchesManualTransitionExpected,
   turnPresentation,
 } from "./state.js";
-import { archiveTaskFromControl, openTaskFromControl } from "./actions.js";
+import {
+  archiveTaskFromControl,
+  focusManualTransitionStatus,
+  handleManualTransitionEscape,
+  manuallyTransitionTaskFromControl,
+  openTaskFromControl,
+  restoreTaskActionMenuFocus,
+} from "./actions.js";
 import {
   githubReferenceAccessibleLabel,
   githubReferenceDisplayLabels,
@@ -29,12 +41,14 @@ const USAGE_POLL_INTERVAL_MS = 1_500;
 const MAX_USAGE_POLL_ATTEMPTS = 40;
 
 const state = {
+  archivePendingThreadIds: new Set(),
   archivedThreadIds: new Set(),
   tasks: [],
   signatures: new Map(),
   notifications: [],
   seenNotificationIds: new Set(),
   initialized: false,
+  manualTransition: null,
   selectedTask: null,
 };
 let dateRefreshTimer = null;
@@ -65,6 +79,12 @@ const elements = {
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
   notificationAnnouncer: document.querySelector("#notification-announcer"),
+  manualTransitionPanel: document.querySelector("#manual-transition-panel"),
+  manualTransitionError: document.querySelector("#manual-transition-error"),
+  manualTransitionStatus: document.querySelector("#manual-transition-status"),
+  markTaskCompleted: document.querySelector("#mark-task-completed"),
+  markTaskFailed: document.querySelector("#mark-task-failed"),
+  moreTaskActions: document.querySelector("#more-task-actions"),
   openProject: document.querySelector("#open-codex"),
   projectFilter: document.querySelector("#project-filter"),
   statusFilter: document.querySelector("#status-filter"),
@@ -426,6 +446,12 @@ function turnTimeline(task) {
       key: `detail:${task.id}:turn:${turnKey}`,
     });
     header.append(status, timestamp);
+    if (presentation.sourceLabel) {
+      const source = document.createElement("span");
+      source.className = "result-history-source";
+      source.textContent = presentation.sourceLabel;
+      header.insertBefore(source, timestamp);
+    }
     const requestLabel = document.createElement("h4");
     requestLabel.textContent = "Request";
     const request = document.createElement("p");
@@ -459,6 +485,139 @@ function turnTimeline(task) {
     );
     return item;
   });
+}
+
+function manualTransitionPending() {
+  return state.manualTransition?.stage === "pending";
+}
+
+function resetManualTransition({ focus = false } = {}) {
+  state.manualTransition = null;
+  elements.closeDialog.disabled = false;
+  if (state.selectedTask) renderManualTransition(state.selectedTask);
+  if (focus) elements.moreTaskActions.focus();
+}
+
+function replaceCurrentTask(task) {
+  state.tasks = state.tasks.map((candidate) => candidate.id === task.id ? task : candidate);
+  state.selectedTask = task;
+}
+
+function renderManualTransition(task) {
+  const activeElement = document.activeElement;
+  const focusWasInPanel = elements.manualTransitionPanel.contains?.(activeElement) ?? false;
+  const eligible = canManuallyTransitionTask(task);
+  state.manualTransition = reconcileManualTransition(state.manualTransition, task);
+  const pending = manualTransitionPending();
+  const expanded = Boolean(state.manualTransition);
+  elements.moreTaskActions.disabled = pending;
+  elements.moreTaskActions.textContent = expanded ? "←" : "…";
+  elements.moreTaskActions.setAttribute(
+    "aria-label",
+    expanded ? "Hide more task actions" : "More task actions",
+  );
+  elements.moreTaskActions.setAttribute("title", expanded ? "Hide more task actions" : "More task actions");
+  elements.moreTaskActions.setAttribute("aria-expanded", String(expanded));
+  elements.closeDialog.disabled = pending;
+  elements.manualTransitionPanel.hidden = state.manualTransition === null;
+  elements.manualTransitionPanel.setAttribute("aria-busy", String(pending));
+  elements.copyTaskId.disabled = pending || !task.id;
+  elements.markTaskCompleted.hidden = !eligible;
+  elements.markTaskFailed.hidden = !eligible;
+  elements.markTaskCompleted.disabled = pending;
+  elements.markTaskFailed.disabled = pending;
+  const archivePending = state.archivePendingThreadIds.has(task.threadId);
+  const archived = state.archivedThreadIds.has(task.threadId);
+  elements.archiveTask.disabled = pending || archivePending || archived;
+  elements.archiveTask.textContent = archived ? "Archived" : archivePending ? "Archiving…" : "Archive chat";
+  elements.archiveTask.setAttribute(
+    "aria-label",
+    archived
+      ? `${task.title} is archived in Codex`
+      : archivePending
+        ? `Archiving ${task.title} in Codex`
+        : `Archive ${task.title} in Codex`,
+  );
+  elements.manualTransitionStatus.hidden = !pending;
+  elements.manualTransitionStatus.textContent = pending ? "Saving task state…" : "";
+  const error = state.manualTransition?.error ?? "";
+  elements.manualTransitionError.hidden = !error;
+  elements.manualTransitionError.textContent = error;
+  if (!state.manualTransition) {
+    elements.closeDialog.disabled = false;
+    if (focusWasInPanel) elements.moreTaskActions.focus();
+    return;
+  }
+  if (pending) {
+    focusManualTransitionStatus(elements.manualTransitionPanel);
+  } else {
+    restoreTaskActionMenuFocus(
+      elements.manualTransitionPanel,
+      activeElement,
+      elements.moreTaskActions,
+    );
+  }
+}
+
+async function submitManualTransition(targetStatus, event) {
+  const task = state.selectedTask;
+  if (!task || !canManuallyTransitionTask(task) || manualTransitionPending()) return;
+  const previous = state.manualTransition;
+  const actionId = previous?.targetStatus === targetStatus && previous.actionId
+    ? previous.actionId
+    : crypto.randomUUID();
+  const attempt = {
+    ...previous,
+    taskId: task.id,
+    stage: "pending",
+    targetStatus,
+    actionId,
+    expected: previous?.expected ?? manualTransitionExpectedState(task),
+    error: null,
+  };
+  state.manualTransition = attempt;
+  renderManualTransition(task);
+  const result = await manuallyTransitionTaskFromControl(
+    event,
+    { ...task, ...attempt.expected },
+    targetStatus,
+    attempt.actionId,
+  );
+  const current = reconcileManualTransitionResponse({
+    requestTask: task,
+    expected: attempt.expected,
+    responseTask: result.task,
+    selectedTask: state.selectedTask,
+  });
+  if (result.ok) {
+    state.manualTransition = null;
+    if (current === result.task) replaceCurrentTask(result.task);
+    renderDialog(current);
+    render();
+    showMessage(result.task.summary);
+    elements.dialogTitle.focus?.();
+    return;
+  }
+  if (current === result.task) replaceCurrentTask(result.task);
+  if (
+    !canManuallyTransitionTask(current)
+    || !taskMatchesManualTransitionExpected(current, attempt.expected)
+  ) {
+    state.manualTransition = null;
+    renderDialog(current);
+    render();
+    showMessage("This task changed. Review its current state before trying again.");
+    elements.dialogTitle.focus?.();
+    return;
+  }
+  state.manualTransition = {
+    ...attempt,
+    stage: "choose",
+    error: result.message,
+    actionId: result.code === "stale_task" ? crypto.randomUUID() : attempt.actionId,
+  };
+  renderDialog(current);
+  elements.manualTransitionError.focus();
 }
 
 function renderDialog(task) {
@@ -526,13 +685,15 @@ function renderDialog(task) {
   configureOpenTaskControl(elements.openProject, `Open ${task.title} in Codex`);
   const canArchive = canArchiveTask(task);
   const archived = state.archivedThreadIds.has(task.threadId);
+  const archivePending = state.archivePendingThreadIds.has(task.threadId);
   elements.archiveTask.hidden = !canArchive;
-  elements.archiveTask.disabled = archived;
-  elements.archiveTask.textContent = archived ? "Archived" : "Archive chat";
+  elements.archiveTask.disabled = archived || archivePending;
+  elements.archiveTask.textContent = archived ? "Archived" : archivePending ? "Archiving…" : "Archive chat";
   elements.archiveTask.setAttribute(
     "aria-label",
     archived ? `${task.title} is archived in Codex` : `Archive ${task.title} in Codex`,
   );
+  renderManualTransition(detailedTask);
 }
 
 async function openDialog(task) {
@@ -715,9 +876,47 @@ elements.clearNotifications.addEventListener("click", () => {
   state.notifications = clearNotifications();
   renderNotifications();
 });
-elements.closeDialog.addEventListener("click", () => elements.dialog.close());
+elements.closeDialog.addEventListener("click", () => {
+  if (!manualTransitionPending()) elements.dialog.close();
+});
 elements.dialog.addEventListener("click", (event) => {
-  if (event.target === elements.dialog) elements.dialog.close();
+  if (event.target === elements.dialog && !manualTransitionPending()) elements.dialog.close();
+});
+elements.dialog.addEventListener("keydown", (event) => {
+  handleManualTransitionEscape(event, {
+    active: Boolean(state.manualTransition),
+    pending: manualTransitionPending(),
+    cancel: () => resetManualTransition({ focus: true }),
+  });
+});
+elements.dialog.addEventListener("cancel", (event) => {
+  if (!state.manualTransition) return;
+  event.preventDefault();
+  if (!manualTransitionPending()) resetManualTransition({ focus: true });
+});
+elements.dialog.addEventListener("close", () => {
+  if (!manualTransitionPending()) state.manualTransition = null;
+});
+elements.moreTaskActions.addEventListener("click", () => {
+  const task = state.selectedTask;
+  if (!task || manualTransitionPending()) return;
+  if (state.manualTransition) {
+    resetManualTransition({ focus: true });
+    return;
+  }
+  state.manualTransition = {
+    taskId: task.id,
+    stage: "choose",
+    expected: manualTransitionExpectedState(task),
+  };
+  renderManualTransition(task);
+  elements.copyTaskId.focus();
+});
+elements.markTaskCompleted.addEventListener("click", (event) => {
+  return submitManualTransition("completed", event);
+});
+elements.markTaskFailed.addEventListener("click", (event) => {
+  return submitManualTransition("failed", event);
 });
 elements.copyTaskId.addEventListener("click", async () => {
   const taskId = state.selectedTask?.id;
@@ -747,12 +946,20 @@ elements.openProject.addEventListener("click", async (event) => {
 });
 elements.archiveTask.addEventListener("click", async (event) => {
   const task = state.selectedTask;
-  if (!task || !canArchiveTask(task)) return;
-  await archiveTaskFromControl(event, task, {
-    onArchived: (threadId) => {
-      state.archivedThreadIds.add(threadId);
-      if (state.selectedTask?.id === task.id) renderDialog(state.selectedTask);
-    },
-    showMessage,
-  });
+  if (
+    !task
+    || !canArchiveTask(task)
+    || state.archivePendingThreadIds.has(task.threadId)
+  ) return;
+  state.archivePendingThreadIds.add(task.threadId);
+  renderManualTransition(task);
+  try {
+    await archiveTaskFromControl(event, task, {
+      onArchived: (threadId) => state.archivedThreadIds.add(threadId),
+      showMessage,
+    });
+  } finally {
+    state.archivePendingThreadIds.delete(task.threadId);
+    if (state.selectedTask?.id === task.id) renderDialog(state.selectedTask);
+  }
 });

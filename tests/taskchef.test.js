@@ -48,6 +48,7 @@ import {
   initializeWorkspace,
   linkTask,
   listProjects,
+  manuallyTransitionTask,
   migrateTaskLog,
   readConfig,
   listTasks,
@@ -92,11 +93,13 @@ const FIRST_RESULT_TURN_ID = "01a03275-d530-7043-ab4a-513a1ad6ae1e";
 const SECOND_RESULT_TURN_ID = "01a03275-d531-7043-ab4a-513a1ad6ae1e";
 const THIRD_RESULT_TURN_ID = "01a03275-d532-7043-ab4a-513a1ad6ae1e";
 const FALLBACK_TURN_REF = "17a410a0-8bce-4d68-bae8-43fa0efea51b";
+const MANUAL_ACTION_ID = "8f7d8e68-c72c-4a3f-9ef0-10409e22b482";
+const SECOND_MANUAL_ACTION_ID = "a4e4c281-e9eb-486c-82a2-d5d391be34dc";
 
 function withoutTurnRefs(task) {
   const { turnRef: _turnRef, ...copy } = task;
   if (Array.isArray(copy.turns)) {
-    copy.turns = copy.turns.map(({ turnRef: _ref, ...turn }) => turn);
+    copy.turns = copy.turns.map(({ turnRef: _ref, provenance: _provenance, ...turn }) => turn);
   }
   if (Array.isArray(copy.results)) {
     copy.results = copy.results.map(({ turnRef: _ref, ...result }) => result);
@@ -189,6 +192,19 @@ function dispatchInput(project, id = "dispatch-1", threadId = `thread-${id}`) {
     title: "Echo input",
     instruction: "Create echo_input.py, test it, and report the result.",
     threadId,
+  };
+}
+
+function manualTransitionInput(task, targetStatus, actionId = MANUAL_ACTION_ID) {
+  return {
+    actionId,
+    expected: {
+      status: task.status,
+      turnRef: task.turnRef,
+      threadId: task.threadId,
+      updatedAt: task.updatedAt,
+    },
+    targetStatus,
   };
 }
 
@@ -704,7 +720,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
         requestSummary: "Resume after the interrupted executor turn.",
       },
     });
-    assert.equal(recoveredResult.structuredContent.task.schemaVersion, 9);
+    assert.equal(recoveredResult.structuredContent.task.schemaVersion, 10);
     assert.deepEqual(recoveredResult.structuredContent.task.turns.map((turn) => (
       turn.result?.status ?? null
     )), ["interrupted", null]);
@@ -1563,7 +1579,7 @@ test("minimal delegation preserves and marks the task failed when executor creat
   assert.equal(reported[0].summary, "Executor creation failed before the executor started.");
 });
 
-test("creation failure helper reports a real schema-9 fallback lifecycle turn", async () => {
+test("creation failure helper reports a real schema-10 fallback lifecycle turn", async () => {
   const { workspace, projects } = await fixture(1);
   await assert.rejects(createAndRecordDelegation({
     project: projects[0],
@@ -1576,7 +1592,7 @@ test("creation failure helper reports a real schema-9 fallback lifecycle turn", 
     reportRecordedResult: (input) => reportTaskState(workspace, input),
   }), /host unavailable/);
   const task = await readTask(workspace, TASK_ID);
-  assert.equal(task.schemaVersion, 9);
+  assert.equal(task.schemaVersion, 10);
   assert.equal(task.status, "failed");
   assert.equal(task.threadId, null);
   assert.match(task.turnRef, /^[0-9a-f-]{36}$/);
@@ -1806,7 +1822,7 @@ test("report_state preserves the last semantic result while a newer turn is work
     turnId: THIRD_RESULT_TURN_ID,
     status: "completed",
     summary: "A result cannot skip its working transition.",
-  }), /current working turnRef/);
+  }), /different semantic result|current working turnRef/);
 
   const completed = await reportTaskState(workspace, {
     taskId: TASK_ID,
@@ -1831,6 +1847,7 @@ test("report_state preserves the last semantic result while a newer turn is work
       summary: "Deployed to the selected region.",
       updatedAt: completed.updatedAt,
     },
+    provenance: { kind: "mcp" },
   });
   assert.deepEqual(await reportTaskState(workspace, {
     taskId: TASK_ID,
@@ -1874,7 +1891,7 @@ test("report_state atomically recovers an interrupted working turn without inven
     status: "working",
     requestSummary: "Resume the deployment after restart.",
   }, { now: "2026-08-25T06:05:00.000Z" });
-  assert.equal(recovered.schemaVersion, 9);
+  assert.equal(recovered.schemaVersion, 10);
   assert.equal(recovered.status, "working");
   assert.equal(recovered.turnId, SECOND_RESULT_TURN_ID);
   assert.equal(recovered.summary, null);
@@ -1916,6 +1933,421 @@ test("report_state atomically recovers an interrupted working turn without inven
     { status: "completed", turnId: SECOND_RESULT_TURN_ID },
   ]);
   assert.equal(completed.lastResult.summary, "Deployment resumed and completed.");
+});
+
+test("manual dashboard transitions interrupt active work and append one idempotent audited turn", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Run work until an administrator settles it.", {
+    taskId: TASK_ID,
+  });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-28T10:01:00.000Z",
+  });
+  const working = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Perform the delegated work.",
+  }, { now: "2026-08-28T10:02:00.000Z" });
+  const input = manualTransitionInput(working, "failed");
+  const result = await manuallyTransitionTask(workspace, TASK_ID, input, {
+    now: "2026-08-28T10:03:00.000Z",
+  });
+
+  assert.equal(result.idempotent, false);
+  assert.equal(result.task.schemaVersion, 10);
+  assert.equal(result.task.status, "failed");
+  assert.equal(result.task.summary, "Manually marked failed from the TaskChef dashboard.");
+  assert.equal(result.task.updatedBy, "dashboard");
+  assert.equal(result.task.turnId, null);
+  assert.deepEqual(result.task.turns.map((turn) => turn.result?.status), [
+    "interrupted",
+    "failed",
+  ]);
+  assert.deepEqual(result.task.latestTurn.provenance, {
+    kind: "dashboard_manual",
+    actionId: MANUAL_ACTION_ID,
+    fromStatus: "working",
+    toStatus: "failed",
+    expectedTurnRef: FIRST_RESULT_TURN_ID,
+    expectedThreadId: SELF_LINK_THREAD_ID,
+    expectedUpdatedAt: working.updatedAt,
+  });
+  assert.equal(result.task.latestTurn.startedAt, result.task.latestTurn.result.updatedAt);
+  assert.equal(result.task.lastResult.provenance.actionId, MANUAL_ACTION_ID);
+  assert.deepEqual(
+    await manuallyTransitionTask(workspace, TASK_ID, input),
+    { task: result.task, idempotent: true },
+  );
+  await assert.rejects(reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "completed",
+    summary: "A late executor callback must not replace the manual result.",
+  }), /current working turnRef|different semantic result/);
+});
+
+test("manual dashboard transitions preserve needs-input history and reject stale or terminal rewrites", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Ask for input before completion.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Wait for a deployment choice.",
+  });
+  const needsInput = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Choose a deployment region.",
+  });
+  const stale = manualTransitionInput(needsInput, "completed");
+  stale.expected.updatedAt = FIXED_TIME;
+  await assert.rejects(
+    manuallyTransitionTask(workspace, TASK_ID, stale),
+    (error) => error.code === "stale_task" && error.task.status === "needs_input",
+  );
+
+  const completed = await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(needsInput, "completed"),
+  );
+  assert.equal(completed.task.turns[0].result.summary, "Choose a deployment region.");
+  assert.equal(completed.task.turns[1].result.status, "completed");
+  await assert.rejects(
+    manuallyTransitionTask(
+      workspace,
+      TASK_ID,
+      manualTransitionInput(completed.task, "failed", SECOND_MANUAL_ACTION_ID),
+    ),
+    (error) => error.code === "invalid_transition",
+  );
+  await assert.rejects(
+    manuallyTransitionTask(workspace, TASK_ID, {
+      ...manualTransitionInput(needsInput, "failed"),
+      actionId: MANUAL_ACTION_ID,
+    }),
+    (error) => error.code === "idempotency_conflict",
+  );
+});
+
+test("manual dashboard transitions can settle a link-pending task without a Codex turn", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Create an executor if possible.", { taskId: TASK_ID });
+  const pending = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  const completed = await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(pending, "completed"),
+    { now: "2026-08-28T11:00:00.000Z" },
+  );
+  assert.equal(completed.task.threadId, null);
+  assert.equal(completed.task.turnId, null);
+  assert.equal(completed.task.turns.length, 1);
+  assert.equal(completed.task.status, "completed");
+  assert.equal((await readTask(workspace, TASK_ID)).updatedBy, "dashboard");
+});
+
+test("the manual transition table allows needs-input failure and rejects every terminal rewrite", async () => {
+  const needsFixture = await fixture(1);
+  await recordTask(needsFixture.workspace, {
+    ...dispatchInput(needsFixture.projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Request input, then settle it.", {
+      taskId: TASK_ID,
+    }).instruction,
+  });
+  await linkTask(needsFixture.workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskState(needsFixture.workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Wait for input.",
+  });
+  const needsInput = await reportTaskState(needsFixture.workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Input is required.",
+  });
+  const failed = await manuallyTransitionTask(
+    needsFixture.workspace,
+    TASK_ID,
+    manualTransitionInput(needsInput, "failed"),
+  );
+  assert.equal(failed.task.status, "failed");
+  for (const [targetStatus, actionId] of [
+    ["completed", SECOND_MANUAL_ACTION_ID],
+    ["failed", TASK_ID],
+  ]) {
+    await assert.rejects(
+      manuallyTransitionTask(
+        needsFixture.workspace,
+        TASK_ID,
+        manualTransitionInput(failed.task, targetStatus, actionId),
+      ),
+      (error) => error.code === "invalid_transition",
+    );
+  }
+
+  const completedFixture = await fixture(1);
+  const pending = await recordTask(completedFixture.workspace, {
+    ...dispatchInput(completedFixture.projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Complete from the dashboard.", {
+      taskId: TASK_ID,
+    }).instruction,
+  });
+  const completed = await manuallyTransitionTask(
+    completedFixture.workspace,
+    TASK_ID,
+    manualTransitionInput(pending, "completed"),
+  );
+  for (const [targetStatus, actionId] of [
+    ["completed", SECOND_MANUAL_ACTION_ID],
+    ["failed", TASK_ID],
+  ]) {
+    await assert.rejects(
+      manuallyTransitionTask(
+        completedFixture.workspace,
+        TASK_ID,
+        manualTransitionInput(completed.task, targetStatus, actionId),
+      ),
+      (error) => error.code === "invalid_transition",
+    );
+  }
+  await assert.rejects(
+    manuallyTransitionTask(completedFixture.workspace, TASK_ID, {
+      ...manualTransitionInput(pending, "completed", SECOND_MANUAL_ACTION_ID),
+      targetStatus: "working",
+    }),
+    (error) => error.code === "invalid_request",
+  );
+});
+
+test("schema 10 rejects a latest manual turn whose dashboard attribution was tampered", async () => {
+  const { workspace, projects } = await fixture(1);
+  const pending = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Keep the manual author visible.", {
+      taskId: TASK_ID,
+    }).instruction,
+  });
+  await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(pending, "completed"),
+  );
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const stored = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  await writeFile(taskLog, `${JSON.stringify({ ...stored, updatedBy: "mcp" })}\n`);
+  await assert.rejects(
+    listTasks(workspace),
+    /latest manual dashboard turn requires updatedBy dashboard/,
+  );
+});
+
+test("schema 10 rejects tampered manual optimistic timestamps", async () => {
+  const pendingFixture = await fixture(1);
+  const pending = await recordTask(pendingFixture.workspace, {
+    ...dispatchInput(pendingFixture.projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Keep the original optimistic time.", {
+      taskId: TASK_ID,
+    }).instruction,
+  }, { now: "2026-08-28T12:00:00.000Z" });
+  await manuallyTransitionTask(
+    pendingFixture.workspace,
+    TASK_ID,
+    manualTransitionInput(pending, "completed"),
+    { now: "2026-08-28T12:01:00.000Z" },
+  );
+  const pendingLog = path.join(pendingFixture.workspace, "tasks.jsonl");
+  const pendingStored = JSON.parse((await readFile(pendingLog, "utf8")).trim());
+  pendingStored.turns[0].provenance.expectedUpdatedAt = "2026-08-28T11:59:00.000Z";
+  await writeFile(pendingLog, `${JSON.stringify(pendingStored)}\n`);
+  await assert.rejects(
+    listTasks(pendingFixture.workspace),
+    /expectedUpdatedAt does not match prior state/,
+  );
+
+  const workingFixture = await fixture(1);
+  await recordTask(workingFixture.workspace, {
+    ...dispatchInput(workingFixture.projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Keep the interruption atomic.", {
+      taskId: TASK_ID,
+    }).instruction,
+  }, { now: "2026-08-28T12:00:00.000Z" });
+  await linkTask(workingFixture.workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-28T12:01:00.000Z",
+  });
+  const working = await reportTaskState(workingFixture.workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Remain active.",
+  }, { now: "2026-08-28T12:02:00.000Z" });
+  await manuallyTransitionTask(
+    workingFixture.workspace,
+    TASK_ID,
+    manualTransitionInput(working, "failed"),
+    { now: "2026-08-28T12:03:00.000Z" },
+  );
+  const workingLog = path.join(workingFixture.workspace, "tasks.jsonl");
+  const workingStored = JSON.parse((await readFile(workingLog, "utf8")).trim());
+  workingStored.turns[0].result.updatedAt = workingStored.turns[0].startedAt;
+  await writeFile(workingLog, `${JSON.stringify(workingStored)}\n`);
+  await assert.rejects(
+    listTasks(workingFixture.workspace),
+    /must share its timestamp with the interrupted prior turn/,
+  );
+
+  const needsFixture = await fixture(1);
+  await recordTask(needsFixture.workspace, {
+    ...dispatchInput(needsFixture.projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Keep the needs-input timestamp.", {
+      taskId: TASK_ID,
+    }).instruction,
+  }, { now: "2026-08-28T12:00:00.000Z" });
+  await linkTask(needsFixture.workspace, TASK_ID, SELF_LINK_THREAD_ID, {
+    now: "2026-08-28T12:01:00.000Z",
+  });
+  await reportTaskState(needsFixture.workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Wait for input.",
+  }, { now: "2026-08-28T12:02:00.000Z" });
+  const needsInput = await reportTaskState(needsFixture.workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "needs_input",
+    summary: "Input is required.",
+  }, { now: "2026-08-28T12:03:00.000Z" });
+  await manuallyTransitionTask(
+    needsFixture.workspace,
+    TASK_ID,
+    manualTransitionInput(needsInput, "failed"),
+    { now: "2026-08-28T12:04:00.000Z" },
+  );
+  const needsLog = path.join(needsFixture.workspace, "tasks.jsonl");
+  const needsStored = JSON.parse((await readFile(needsLog, "utf8")).trim());
+  needsStored.turns[1].provenance.expectedUpdatedAt = needsStored.turns[0].startedAt;
+  await writeFile(needsLog, `${JSON.stringify(needsStored)}\n`);
+  await assert.rejects(
+    listTasks(needsFixture.workspace),
+    /expectedUpdatedAt does not match prior state/,
+  );
+});
+
+test("concurrent manual transitions serialize to one audited terminal outcome", async () => {
+  const { workspace, projects } = await fixture(1);
+  const pending = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Settle this task once.", { taskId: TASK_ID }).instruction,
+  }, { now: FIXED_TIME });
+  const attempts = await Promise.allSettled([
+    manuallyTransitionTask(
+      workspace,
+      TASK_ID,
+      manualTransitionInput(pending, "completed", MANUAL_ACTION_ID),
+    ),
+    manuallyTransitionTask(
+      workspace,
+      TASK_ID,
+      manualTransitionInput(pending, "failed", SECOND_MANUAL_ACTION_ID),
+    ),
+  ]);
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+  assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+  assert.equal(attempts.find((attempt) => attempt.status === "rejected").reason.code,
+    "invalid_transition");
+  const stored = await readTask(workspace, TASK_ID);
+  assert.ok(["completed", "failed"].includes(stored.status));
+  assert.equal(stored.turns.length, 1);
+  assert.equal(stored.turns[0].provenance.kind, "dashboard_manual");
+});
+
+test("a concurrent executor result and manual outcome have one coherent winner", async () => {
+  const { workspace, projects } = await fixture(1);
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Race one terminal report.", { taskId: TASK_ID }).instruction,
+  }, { now: FIXED_TIME });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  const working = await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnId: FIRST_RESULT_TURN_ID,
+    status: "working",
+    requestSummary: "Finish the task.",
+  });
+  const attempts = await Promise.allSettled([
+    manuallyTransitionTask(
+      workspace,
+      TASK_ID,
+      manualTransitionInput(working, "failed"),
+    ),
+    reportTaskState(workspace, {
+      taskId: TASK_ID,
+      threadId: SELF_LINK_THREAD_ID,
+      turnId: FIRST_RESULT_TURN_ID,
+      status: "completed",
+      summary: "The executor completed first.",
+    }),
+  ]);
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+  const stored = await readTask(workspace, TASK_ID);
+  assert.ok(["completed", "failed"].includes(stored.status));
+  if (stored.updatedBy === "dashboard") {
+    assert.deepEqual(stored.turns.map((turn) => turn.result.status), ["interrupted", "failed"]);
+  } else {
+    assert.equal(stored.turns.length, 1);
+    assert.equal(stored.turns[0].result.status, "completed");
+  }
+});
+
+test("a failed manual atomic replacement leaves the task log byte-for-byte unchanged", async () => {
+  const { workspace, projects } = await fixture(1);
+  const pending = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Preserve this record on write failure.", {
+      taskId: TASK_ID,
+    }).instruction,
+  }, { now: FIXED_TIME });
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const before = await readFile(taskLog, "utf8");
+  await assert.rejects(
+    manuallyTransitionTask(
+      workspace,
+      TASK_ID,
+      manualTransitionInput(pending, "completed"),
+      { writeTaskLines: async () => { throw new Error("injected replacement failure"); } },
+    ),
+    /injected replacement failure/,
+  );
+  assert.equal(await readFile(taskLog, "utf8"), before);
+  assert.equal((await readTask(workspace, TASK_ID)).status, "working");
 });
 
 test("fallback turnRefs survive lost working callbacks and reject stale terminal reports", async () => {
@@ -2215,7 +2647,7 @@ test("delayed and reversed native starts cannot replace a newer native turn", as
   assert.equal(current.turns.at(-1).turnRef, THIRD_RESULT_TURN_ID);
 });
 
-test("schema 9 rejects descending native-backed refs across persisted history", async () => {
+test("schema 10 rejects descending native-backed refs across persisted history", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Validate stored native ordering.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2309,8 +2741,8 @@ test("workspace migration converts schema 4/5 results into paired turns once wit
     results,
     lastResult,
   })), [
-    { schemaVersion: 9, turnCount: firstResults.length, results: undefined, lastResult: undefined },
-    { schemaVersion: 9, turnCount: secondResults.length, results: undefined, lastResult: undefined },
+    { schemaVersion: 10, turnCount: firstResults.length, results: undefined, lastResult: undefined },
+    { schemaVersion: 10, turnCount: secondResults.length, results: undefined, lastResult: undefined },
   ]);
   assert.deepEqual((await listTasks(workspace)).map((task) => task.lastResult.summary), [
     "First historical result.",
@@ -2321,7 +2753,7 @@ test("workspace migration converts schema 4/5 results into paired turns once wit
     "workspace", "migrate", "--json", "--workspace", workspace,
   ])).stdout);
   assert.deepEqual(repeated, {
-    schemaVersion: 9,
+    schemaVersion: 10,
     action: "unchanged",
     taskCount: 2,
     turnCount: 2,
@@ -2332,7 +2764,7 @@ test("workspace migration converts schema 4/5 results into paired turns once wit
   });
 });
 
-test("schema 7 remains readable and migrates losslessly to schema 9 with a validated backup", async () => {
+test("schema 7 remains readable and migrates losslessly to schema 10 with a validated backup", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Migrate a schema 7 active turn.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2356,17 +2788,19 @@ test("schema 7 remains readable and migrates losslessly to schema 9 with a valid
   const migrated = await migrateTaskLog(workspace, {
     now: () => "2026-08-25T06:30:00.000Z",
   });
-  assert.equal(migrated.schemaVersion, 9);
+  assert.equal(migrated.schemaVersion, 10);
   assert.equal(migrated.action, "migrated");
-  assert.match(migrated.backupPath, /pre-v9/);
+  assert.match(migrated.backupPath, /pre-v10/);
   assert.equal(await readFile(migrated.backupPath, "utf8"), schema7Content);
   const current = await readTask(workspace, TASK_ID);
-  assert.equal(current.schemaVersion, 9);
-  assert.deepEqual(current.turns, working.turns);
+  assert.equal(current.schemaVersion, 10);
+  assert.deepEqual(current.turns.map(({ provenance: _provenance, ...turn }) => turn),
+    working.turns.map(({ provenance: _provenance, ...turn }) => turn));
+  assert.deepEqual(current.turns.map((turn) => turn.provenance), [{ kind: "legacy" }]);
   assert.equal((await migrateTaskLog(workspace)).action, "unchanged");
 });
 
-test("schema 8 migration durably assigns mixed native and fallback turnRefs in schema 9", async () => {
+test("schema 8 migration durably assigns mixed native and fallback turnRefs in schema 10", async () => {
   const { workspace, projects } = await fixture(1);
   const nativeInstruction = prepareDelegation("Complete with a native turn ID.", {
     taskId: TASK_ID,
@@ -2491,7 +2925,7 @@ test("schema 8 interrupted timelines remain readable and migrate losslessly", as
   const migration = await migrateTaskLog(workspace);
   assert.equal(migration.action, "migrated");
   const after = await readTask(workspace, TASK_ID);
-  assert.equal(after.schemaVersion, 9);
+  assert.equal(after.schemaVersion, 10);
   assert.equal(after.turns[0].result.status, "interrupted");
   assert.deepEqual(after.turns.map(({ requestSummary, result }) => ({
     requestSummary,
@@ -2502,7 +2936,7 @@ test("schema 8 interrupted timelines remain readable and migrate losslessly", as
   })));
 });
 
-test("schema 4 records remain readable and upgrade to schema 9 on a new working turn", async () => {
+test("schema 4 records remain readable and upgrade to schema 10 on a new working turn", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Resume historical self-linked work.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2531,7 +2965,7 @@ test("schema 4 records remain readable and upgrade to schema 9 on a new working 
     turnId: SECOND_RESULT_TURN_ID,
     status: "working",
   });
-  assert.equal(working.schemaVersion, 9);
+  assert.equal(working.schemaVersion, 10);
   assert.deepEqual(working.results, [lastResult]);
   assert.deepEqual(working.lastResult, lastResult);
   assert.equal(working.turns.length, 2);
@@ -2578,7 +3012,7 @@ test("schema 6 migration preserves a result followed by an unfinished working tu
   const migrated = await migrateTaskLog(workspace);
   assert.equal(migrated.action, "migrated");
   const after = await readTask(workspace, TASK_ID);
-  assert.equal(after.schemaVersion, 9);
+  assert.equal(after.schemaVersion, 10);
   assert.deepEqual(after.results, results);
   assert.equal(after.turns.length, 2);
   assert.equal(after.turns[0].result.summary, "Completed the original request.");
@@ -2631,7 +3065,7 @@ test("schema 6 migration preserves an opaque working state that reuses its last 
   });
   assert.equal(migration.action, "migrated");
   const migrated = JSON.parse((await readFile(taskLog, "utf8")).trim());
-  assert.equal(migrated.schemaVersion, 9);
+  assert.equal(migrated.schemaVersion, 10);
   assert.equal(migrated.turns.length, 2);
   assert.equal(migrated.turns[1].turnId, "opaque-turn");
   assert.equal(migrated.turns[1].result, null);
@@ -2656,7 +3090,7 @@ test("workspace migration rejects unsupported input without rewriting or backing
   await writeFile(taskLog, unsupported);
   await assert.rejects(migrateTaskLog(workspace), /unsupported task line 1 schemaVersion/);
   assert.equal(await readFile(taskLog, "utf8"), unsupported);
-  assert.deepEqual((await readdir(workspace)).filter((name) => name.includes("pre-v9")), []);
+  assert.deepEqual((await readdir(workspace)).filter((name) => name.includes("pre-v10")), []);
 });
 
 test("workspace migration reports its recovery backup after a replacement failure", async () => {
@@ -2679,13 +3113,13 @@ test("workspace migration reports its recovery backup after a replacement failur
   } catch (error) {
     failure = error;
   }
-  assert.match(failure?.message, /failed after recovery backup .*pre-v9.*injected replacement failure/);
+  assert.match(failure?.message, /failed after recovery backup .*pre-v10.*injected replacement failure/);
   const backupPath = failure.message.match(/backup (.+): injected replacement failure/)[1];
   assert.equal(await readFile(backupPath, "utf8"), legacyContent);
   assert.equal(await readFile(taskLog, "utf8"), legacyContent);
 });
 
-test("schema 9 canonicalizes turn UUIDs before duplicate-turn validation", async () => {
+test("schema 10 canonicalizes turn UUIDs before duplicate-turn validation", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Reject duplicate result identities.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2716,7 +3150,7 @@ test("schema 9 canonicalizes turn UUIDs before duplicate-turn validation", async
   await assert.rejects(listTasks(workspace), /turns contains duplicate turnRef/);
 });
 
-test("schema 9 requires turnRef while allowing null Codex turn metadata", async () => {
+test("schema 10 requires turnRef while allowing null Codex turn metadata", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Preserve linked result identity.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2747,7 +3181,7 @@ test("schema 9 requires turnRef while allowing null Codex turn metadata", async 
   assert.equal(loaded[0].turns[0].turnId, null);
 });
 
-test("schema 9 enforces turnRef metadata invariants for opaque histories", async () => {
+test("schema 10 enforces turnRef metadata invariants for opaque histories", async () => {
   const { workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "opaque-thread"));
   await reportTaskResult(workspace, {
@@ -2778,7 +3212,7 @@ test("schema 9 enforces turnRef metadata invariants for opaque histories", async
   await assert.rejects(listTasks(workspace), /turnRef must be a UUID/);
 });
 
-test("schema 9 canonicalizes UUID-shaped opaque turn metadata with its turnRef", async () => {
+test("schema 10 canonicalizes UUID-shaped opaque turn metadata with its turnRef", async () => {
   const { workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0], TASK_ID, "opaque-thread"));
   const completed = await reportTaskResult(workspace, {
@@ -2795,7 +3229,7 @@ test("schema 9 canonicalizes UUID-shaped opaque turn metadata with its turnRef",
   assert.deepEqual(await readTask(workspace, TASK_ID), completed);
 });
 
-test("schema 9 rejects unfinished turns before a linked task reports its first turn", async () => {
+test("schema 10 rejects unfinished turns before a linked task reports its first turn", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Reject an invalid pre-turn timeline.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2812,6 +3246,7 @@ test("schema 9 rejects unfinished turns before a linked task reports its first t
     requestSummary: "Malformed unfinished request.",
     startedAt: valid.updatedAt,
     result: null,
+    provenance: { kind: "mcp" },
   }];
   await writeFile(taskLog, `${JSON.stringify(valid)}\n`);
   await assert.rejects(
@@ -2858,7 +3293,7 @@ test("report_result remains a deprecated compatibility alias", async () => {
     status: "completed",
     summary: "First opaque result.",
   });
-  assert.equal(first.schemaVersion, 9);
+  assert.equal(first.schemaVersion, 10);
   assert.equal(first.results.length, 1);
   const later = await reportTaskResult(workspace, {
     taskId: TASK_ID,
@@ -2972,8 +3407,8 @@ test("legacy and migrated null-turn creation-failure retries remain idempotent",
 
   await migrateTaskLog(workspace);
   const migrated = await readFile(taskLog, "utf8");
-  assert.equal((await reportTaskState(workspace, retryInput)).schemaVersion, 9);
-  assert.equal((await reportTaskResult(workspace, retryInput)).schemaVersion, 9);
+  assert.equal((await reportTaskState(workspace, retryInput)).schemaVersion, 10);
+  assert.equal((await reportTaskResult(workspace, retryInput)).schemaVersion, 10);
   assert.equal(await readFile(taskLog, "utf8"), migrated);
 });
 
@@ -3012,7 +3447,7 @@ test("creation failure turnRefs must be UUIDs through direct and MCP APIs", asyn
   }
 });
 
-test("schema 9 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
+test("schema 10 rejects impossible lifecycle snapshots and conflicting concurrent results", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Finish with one outcome.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -3733,12 +4168,12 @@ test("interrupted-turn recovery documentation defines schema, privacy, migration
   const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
   const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
   for (const content of [readme, spec, workflows]) {
-    assert.match(content, /schema 9/i);
+    assert.match(content, /schema 10/i);
     assert.match(content, /interrupted/i);
     assert.match(content, /results[\s\S]{0,200}lastResult|lastResult[\s\S]{0,200}results/i);
   }
   assert.match(readme, /does not\s+store transcripts, hidden reasoning, crash output/i);
-  assert.match(readme, /tasks\.jsonl\.pre-v9-\*\.bak/);
+  assert.match(readme, /tasks\.jsonl\.pre-v10-\*\.bak/);
   assert.match(spec, /fixed summary[\s\S]{0,200}no crash output, transcript, user text/i);
   assert.match(spec, /Interrupted outcomes MUST be excluded/i);
   assert.match(workflows, /Concurrent\s+newer starts serialize under the lock/i);
@@ -4075,7 +4510,7 @@ test("dispatch recording appends one working task entry", async () => {
   const { workspace, projects } = await fixture(1);
   const recorded = await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
   assert.equal(recorded.createdAt, FIXED_TIME);
-  assert.equal(recorded.schemaVersion, 9);
+  assert.equal(recorded.schemaVersion, 10);
   assert.equal(recorded.project.name, "project-1");
   assert.deepEqual(recorded.project.githubRepos, ["https://github.com/example/project-1"]);
   assert.deepEqual(Object.keys(recorded), [

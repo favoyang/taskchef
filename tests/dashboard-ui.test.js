@@ -48,6 +48,10 @@ class FakeElement {
     this.open = false;
   }
 
+  focus() {
+    this.focused = true;
+  }
+
   querySelector(selector) {
     if (selector === "input:checked") return this.inputs?.find(({ checked }) => checked) ?? null;
     return null;
@@ -142,6 +146,8 @@ test("dashboard renders a live notification with time and shared accessible desc
     }));
     const clipboardWrites = [];
     const archiveRequests = [];
+    const pendingArchiveRequests = [];
+    const manualRequests = [];
     const pendingClipboardWrites = [];
     let clipboardMode = "reject";
     globalThis.document = document;
@@ -229,11 +235,22 @@ test("dashboard renders a live notification with time and shared accessible desc
       }
       if (url === `/api/tasks/${taskId}/archive-codex`) {
         archiveRequests.push({ url, options });
+        await new Promise((resolve) => pendingArchiveRequests.push(resolve));
         return {
           ok: true,
           json: async () => ({
             message: "Archived the Codex chat. TaskChef history remains available.",
             status: "archived",
+          }),
+        };
+      }
+      if (url === `/api/tasks/${taskId}/manual-transition`) {
+        manualRequests.push({ url, options });
+        return {
+          ok: false,
+          json: async () => ({
+            code: "dashboard_error",
+            message: "Preview transition failed.",
           }),
         };
       }
@@ -410,11 +427,33 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.match(taskUsage.children[2].textContent, /Source: ccusage 20\.0\.14/);
     assert.match(taskUsage.children[2].textContent, /API-equivalent estimate/);
 
+    const moreTaskActions = elements.get("#more-task-actions");
+    const manualPanel = elements.get("#manual-transition-panel");
+    assert.equal(moreTaskActions.textContent, "…");
+    assert.equal(moreTaskActions.getAttribute("aria-label"), "More task actions");
+    moreTaskActions.emit("click");
+    assert.equal(moreTaskActions.getAttribute("aria-expanded"), "true");
+    assert.equal(moreTaskActions.textContent, "←");
+    assert.equal(moreTaskActions.getAttribute("aria-label"), "Hide more task actions");
+    assert.equal(manualPanel.hidden, false);
+    assert.equal(elements.get("#copy-task-id").hidden, false);
+    assert.equal(elements.get("#mark-task-completed").hidden, false);
+    assert.equal(elements.get("#mark-task-failed").hidden, false);
+    const markFailed = elements.get("#mark-task-failed");
+    await markFailed.emit("click", {
+      currentTarget: markFailed,
+      stopPropagation() {},
+    });
+    assert.equal(manualRequests.length, 1);
+    assert.equal(manualRequests[0].url, `/api/tasks/${taskId}/manual-transition`);
+    assert.equal(JSON.parse(manualRequests[0].options.body).targetStatus, "failed");
+    assert.equal(elements.get("#manual-transition-error").textContent, "Preview transition failed.");
+
     const archiveTask = elements.get("#archive-codex");
     assert.equal(archiveTask.hidden, false);
     assert.equal(archiveTask.disabled, false);
     assert.equal(archiveTask.textContent, "Archive chat");
-    await archiveTask.emit("click", {
+    const archiveRequest = archiveTask.emit("click", {
       currentTarget: archiveTask,
       stopPropagation() {},
     });
@@ -423,7 +462,19 @@ test("dashboard renders a live notification with time and shared accessible desc
       options: { method: "POST" },
     }]);
     assert.equal(archiveTask.disabled, true);
+    assert.equal(archiveTask.textContent, "Archiving…");
+    moreTaskActions.emit("click");
+    moreTaskActions.emit("click");
+    assert.equal(archiveTask.disabled, true);
+    await archiveTask.emit("click", {
+      currentTarget: archiveTask,
+      stopPropagation() {},
+    });
+    assert.equal(archiveRequests.length, 1);
+    pendingArchiveRequests.shift()();
+    await archiveRequest;
     assert.equal(archiveTask.textContent, "Archived");
+    assert.equal(moreTaskActions.textContent, "←");
     assert.equal(
       elements.get("#dashboard-message-text").textContent,
       "Archived the Codex chat. TaskChef history remains available.",

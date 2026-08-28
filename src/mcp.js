@@ -23,9 +23,23 @@ const projectSchema = z.object({
   description: z.string().optional(),
 });
 
+const turnProvenanceSchema = z.union([
+  z.object({ kind: z.enum(["legacy", "mcp"]) }),
+  z.object({
+    kind: z.literal("dashboard_manual"),
+    actionId: z.string(),
+    fromStatus: z.enum(["working", "needs_input"]),
+    toStatus: z.enum(["completed", "failed"]),
+    expectedTurnRef: z.string().nullable(),
+    expectedThreadId: z.string().nullable(),
+    expectedUpdatedAt: z.string(),
+  }),
+]);
+
 const taskSchema = z.object({
   schemaVersion: z.union([
     z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9),
+    z.literal(10),
   ]),
   id: z.string(),
   project: projectSchema,
@@ -38,7 +52,7 @@ const taskSchema = z.object({
   turnRef: z.string().nullable(),
   turnId: z.string().nullable(),
   updatedAt: z.string(),
-  updatedBy: z.enum(["dispatcher", "mcp"]),
+  updatedBy: z.enum(["dispatcher", "mcp", "dashboard"]),
   turns: z.array(z.object({
     turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
@@ -49,6 +63,7 @@ const taskSchema = z.object({
       summary: z.string(),
       updatedAt: z.string(),
     }).nullable(),
+    provenance: turnProvenanceSchema.nullable(),
   })),
   latestTurn: z.object({
     turnRef: z.string().nullable(),
@@ -60,6 +75,7 @@ const taskSchema = z.object({
       summary: z.string(),
       updatedAt: z.string(),
     }).nullable(),
+    provenance: turnProvenanceSchema.nullable(),
   }).nullable(),
   results: z.array(z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
@@ -67,6 +83,7 @@ const taskSchema = z.object({
     turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
     updatedAt: z.string(),
+    provenance: turnProvenanceSchema.optional(),
   })),
   lastResult: z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
@@ -74,6 +91,7 @@ const taskSchema = z.object({
     turnRef: z.string().nullable(),
     turnId: z.string().nullable(),
     updatedAt: z.string(),
+    provenance: turnProvenanceSchema.optional(),
   }).nullable(),
 });
 

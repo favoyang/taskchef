@@ -33,6 +33,7 @@ import {
   filterTasks,
   KNOWN_TASK_STATUSES,
   latestTurnPresentation,
+  manualTransitionExpectedState,
   mergeProjectedTurns,
   MAX_NOTIFICATIONS,
   findCurrentTask,
@@ -42,14 +43,24 @@ import {
   notificationSnapshot,
   notificationTitle,
   reconcileNotifications,
+  reconcileManualTransition,
+  reconcileManualTransitionResponse,
   STATUS_FILTERS,
   statusFilterCounts,
   statusFilterText,
   taskWithinDateFilter,
   turnPresentation,
   canArchiveTask,
+  canManuallyTransitionTask,
 } from "../src/dashboard/state.js";
-import { archiveTaskFromControl, openTaskFromControl } from "../src/dashboard/actions.js";
+import {
+  archiveTaskFromControl,
+  focusManualTransitionStatus,
+  handleManualTransitionEscape,
+  manuallyTransitionTaskFromControl,
+  openTaskFromControl,
+  restoreTaskActionMenuFocus,
+} from "../src/dashboard/actions.js";
 import {
   RELATIVE_DATE_LIMIT_DAYS,
   RELATIVE_TIME_REFRESH_MS,
@@ -652,6 +663,225 @@ test("dashboard archive eligibility includes every linked non-working state", ()
   assert.equal(canArchiveTask({ status: "failed", threadId: null }), false);
 });
 
+test("manual transition eligibility is limited to working and needs-input tasks", () => {
+  assert.equal(canManuallyTransitionTask({ status: "working" }), true);
+  assert.equal(canManuallyTransitionTask({ status: "needs_input" }), true);
+  assert.equal(canManuallyTransitionTask({ status: "completed" }), false);
+  assert.equal(canManuallyTransitionTask({ status: "failed" }), false);
+});
+
+test("task action menu refreshes stale choices but preserves an in-flight request", () => {
+  const task = {
+    id: FIRST_ID,
+    status: "needs_input",
+    turnRef: FIRST_TURN_ID,
+    threadId: FIRST_THREAD_ID,
+    updatedAt: "2026-08-28T12:00:00.000Z",
+  };
+  const expected = manualTransitionExpectedState(task);
+  const choice = { taskId: FIRST_ID, stage: "choose", expected };
+  const pending = { taskId: FIRST_ID, stage: "pending", expected };
+  assert.equal(reconcileManualTransition(choice, task), choice);
+  assert.deepEqual(reconcileManualTransition(choice, { ...task, status: "completed" }), {
+    taskId: FIRST_ID,
+    stage: "choose",
+    expected: { ...expected, status: "completed" },
+  });
+  assert.equal(reconcileManualTransition(pending, { ...task, status: "failed" }), pending);
+  const advanced = {
+    ...task,
+    status: "working",
+    turnRef: SECOND_TURN_ID,
+    updatedAt: "2026-08-28T12:01:00.000Z",
+  };
+  assert.deepEqual(reconcileManualTransition(choice, advanced), {
+    taskId: FIRST_ID,
+    stage: "choose",
+    expected: manualTransitionExpectedState(advanced),
+  });
+  assert.equal(reconcileManualTransition(choice, { ...task, id: SECOND_ID }), null);
+});
+
+test("manual transition responses never replace a task advanced by SSE", () => {
+  const requestTask = {
+    id: FIRST_ID,
+    status: "needs_input",
+    turnRef: FIRST_TURN_ID,
+    threadId: FIRST_THREAD_ID,
+    updatedAt: "2026-08-28T12:00:00.000Z",
+  };
+  const expected = manualTransitionExpectedState(requestTask);
+  const responseTask = {
+    ...requestTask,
+    status: "completed",
+    turnRef: SECOND_TURN_ID,
+    updatedAt: "2026-08-28T12:01:00.000Z",
+  };
+  assert.equal(reconcileManualTransitionResponse({
+    requestTask,
+    expected,
+    responseTask,
+    selectedTask: requestTask,
+  }), responseTask);
+
+  const sseTask = {
+    ...requestTask,
+    status: "working",
+    turnRef: "01a03275-d532-7043-ab4a-513a1ad6ae1e",
+    updatedAt: "2026-08-28T12:02:00.000Z",
+  };
+  assert.equal(reconcileManualTransitionResponse({
+    requestTask,
+    expected,
+    responseTask,
+    selectedTask: sseTask,
+  }), sseTask);
+  assert.equal(reconcileManualTransitionResponse({
+    requestTask,
+    expected,
+    responseTask: null,
+    selectedTask: sseTask,
+  }), sseTask);
+});
+
+test("manual transition control sends one versioned optimistic request and preserves failures", async () => {
+  const task = {
+    id: FIRST_ID,
+    status: "needs_input",
+    turnRef: FIRST_TURN_ID,
+    threadId: FIRST_THREAD_ID,
+    updatedAt: "2026-08-28T12:00:00.000Z",
+  };
+  const requests = [];
+  const success = await manuallyTransitionTaskFromControl(
+    { stopPropagation: () => {} },
+    task,
+    "completed",
+    FIRST_ID,
+    {
+      fetchAction: async (url, options) => {
+        requests.push({ url, options });
+        return {
+          ok: true,
+          json: async () => ({ schemaVersion: 1, task: { ...task, status: "completed" } }),
+        };
+      },
+    },
+  );
+  assert.equal(success.ok, true);
+  assert.equal(requests[0].url, `/api/tasks/${FIRST_ID}/manual-transition`);
+  assert.equal(requests[0].options.method, "POST");
+  assert.equal(requests[0].options.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    schemaVersion: 1,
+    actionId: FIRST_ID,
+    expected: {
+      status: "needs_input",
+      turnRef: FIRST_TURN_ID,
+      threadId: FIRST_THREAD_ID,
+      updatedAt: task.updatedAt,
+    },
+    targetStatus: "completed",
+  });
+
+  const failure = await manuallyTransitionTaskFromControl(
+    { stopPropagation: () => {} },
+    task,
+    "failed",
+    FIRST_ID,
+    {
+      fetchAction: async () => ({
+        ok: false,
+        json: async () => ({
+          code: "stale_task",
+          message: "This task changed.",
+          task: { ...task, updatedAt: "2026-08-28T12:01:00.000Z" },
+        }),
+      }),
+    },
+  );
+  assert.equal(failure.ok, false);
+  assert.equal(failure.code, "stale_task");
+  assert.equal(failure.task.updatedAt, "2026-08-28T12:01:00.000Z");
+
+  const timeout = await manuallyTransitionTaskFromControl(
+    { stopPropagation: () => {} },
+    task,
+    "failed",
+    FIRST_ID,
+    {
+      clearTimer: () => {},
+      fetchAction: async (_url, { signal }) => {
+        assert.equal(signal.aborted, true);
+        throw new Error("aborted");
+      },
+      setTimer: (callback) => { callback(); return 1; },
+    },
+  );
+  assert.equal(timeout.ok, false);
+  assert.equal(timeout.code, "request_timeout");
+  assert.equal(timeout.message, "Task state change timed out. Try again.");
+});
+
+test("manual transition keyboard helpers close the menu and focus pending status", () => {
+  const calls = [];
+  const event = {
+    key: "Escape",
+    preventDefault: () => calls.push("prevented"),
+    stopPropagation: () => calls.push("stopped"),
+  };
+  assert.equal(handleManualTransitionEscape(event, {
+    active: true,
+    pending: false,
+    cancel: () => calls.push("cancelled"),
+  }), true);
+  assert.deepEqual(calls, ["prevented", "stopped", "cancelled"]);
+
+  calls.length = 0;
+  assert.equal(handleManualTransitionEscape(event, {
+    active: true,
+    pending: true,
+    cancel: () => calls.push("cancelled"),
+  }), true);
+  assert.deepEqual(calls, ["prevented", "stopped"]);
+  assert.equal(handleManualTransitionEscape({ key: "Enter" }, {
+    active: true,
+    pending: false,
+    cancel: () => calls.push("cancelled"),
+  }), false);
+
+  const focused = [];
+  for (const node of ["initial-status", "replacement-status"]) {
+    assert.equal(focusManualTransitionStatus({
+      querySelector: (selector) => {
+        assert.equal(selector, '[data-manual-focus="pending"]');
+        return { focus: () => focused.push(node) };
+      },
+    }), true);
+  }
+  assert.deepEqual(focused, ["initial-status", "replacement-status"]);
+  assert.equal(focusManualTransitionStatus({ querySelector: () => null }), false);
+
+  const hiddenFailed = { hidden: true, disabled: false };
+  const copyTaskId = { hidden: false, disabled: false, focus: () => focused.push("copy") };
+  const panel = {
+    contains: (element) => element === hiddenFailed,
+    querySelector: (selector) => {
+      assert.equal(selector, '[data-manual-focus="copy"]');
+      return copyTaskId;
+    },
+  };
+  assert.equal(restoreTaskActionMenuFocus(panel, hiddenFailed, null), copyTaskId);
+
+  const disabledCopy = { hidden: false, disabled: true };
+  const fallback = { focus: () => focused.push("more") };
+  assert.equal(restoreTaskActionMenuFocus({
+    contains: () => true,
+    querySelector: () => disabledCopy,
+  }, { hidden: true, disabled: false }, fallback), fallback);
+  assert.deepEqual(focused, ["initial-status", "replacement-status", "copy", "more"]);
+});
+
 test("dashboard archive control confirms consequences and reports success", async () => {
   const requests = [];
   const confirmations = [];
@@ -725,6 +955,8 @@ test("dashboard notification labels describe immutable lifecycle events", () => 
   assert.equal(notificationTitle({ event: "completed" }), "Task completed");
   assert.equal(notificationTitle({ event: "needs_input" }), "Task needs input");
   assert.equal(notificationTitle({ event: "failed" }), "Task failed");
+  assert.equal(notificationTitle({ event: "manual_completed" }), "Task manually completed");
+  assert.equal(notificationTitle({ event: "manual_failed" }), "Task manually failed");
   const mutableTask = {
     id: FIRST_ID,
     title: "Captured title",
@@ -1774,6 +2006,122 @@ test("dashboard open action preserves the unresolved task project fallback", asy
   }
 });
 
+test("dashboard manual transition route validates origin, stale state, and durable retries", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, {
+    ...input(project, FIRST_ID, "Administrative outcome", null),
+    instruction: `<!-- taskchef_id=${FIRST_ID} -->\n\nWait for a dashboard outcome.`,
+  }, { now: "2026-08-28T12:00:00.000Z" });
+  await linkTask(workspace, FIRST_ID, FIRST_THREAD_ID, {
+    now: "2026-08-28T12:01:00.000Z",
+  });
+  await reportTaskState(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "working",
+    requestSummary: "Wait for an administrative decision.",
+  }, { now: "2026-08-28T12:02:00.000Z" });
+  const needsInput = await reportTaskState(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "needs_input",
+    summary: "An administrator must settle this task.",
+  }, { now: "2026-08-28T12:03:00.000Z" });
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    monitorOptions: { pollIntervalMs: 60_000 },
+  });
+  const body = {
+    schemaVersion: 1,
+    actionId: FIRST_ID,
+    expected: {
+      status: needsInput.status,
+      turnRef: needsInput.turnRef,
+      threadId: needsInput.threadId,
+      updatedAt: needsInput.updatedAt,
+    },
+    targetStatus: "completed",
+  };
+  const transition = (value = body, origin = server.origin) => fetch(
+    `${server.origin}/api/tasks/${FIRST_ID}/manual-transition`,
+    {
+      method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    },
+  );
+  try {
+    assert.equal((await transition(body, "http://example.invalid")).status, 403);
+    assert.equal((await fetch(
+      `${server.origin}/api/tasks/${FIRST_ID}/manual-transition`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+    )).status, 403);
+    assert.equal((await fetch(
+      `${server.origin}/api/tasks/${FIRST_ID}/manual-transition`,
+      { method: "POST", headers: { Origin: server.origin }, body: "{}" },
+    )).status, 415);
+    const malformed = await fetch(
+      `${server.origin}/api/tasks/${FIRST_ID}/manual-transition`,
+      {
+        method: "POST",
+        headers: { Origin: server.origin, "Content-Type": "application/json" },
+        body: "{",
+      },
+    );
+    assert.equal(malformed.status, 400);
+    assert.equal((await malformed.json()).code, "malformed_json");
+    assert.equal((await transition({ ...body, unexpected: true })).status, 400);
+    const oversized = await fetch(
+      `${server.origin}/api/tasks/${FIRST_ID}/manual-transition`,
+      {
+        method: "POST",
+        headers: { Origin: server.origin, "Content-Type": "application/json" },
+        body: JSON.stringify({ padding: "x".repeat(4097) }),
+      },
+    );
+    assert.equal(oversized.status, 413);
+    const stale = await transition({
+      ...body,
+      actionId: SECOND_ID,
+      expected: { ...body.expected, updatedAt: "2026-08-28T12:02:00.000Z" },
+    });
+    assert.equal(stale.status, 409);
+    const staleResult = await stale.json();
+    assert.equal(staleResult.code, "stale_task");
+    assert.equal(staleResult.task.status, "needs_input");
+
+    const completed = await transition();
+    assert.equal(completed.status, 200);
+    const completedResult = await completed.json();
+    assert.equal(completedResult.idempotent, false);
+    assert.equal(completedResult.task.status, "completed");
+    assert.equal(completedResult.task.updatedBy, "dashboard");
+    assert.equal(completedResult.task.latestTurn.provenance.actionId, FIRST_ID);
+
+    const retry = await transition();
+    assert.equal(retry.status, 200);
+    assert.equal((await retry.json()).idempotent, true);
+    const rejected = await transition({
+      ...body,
+      actionId: SECOND_ID,
+      expected: {
+        status: "completed",
+        turnRef: completedResult.task.turnRef,
+        threadId: completedResult.task.threadId,
+        updatedAt: completedResult.task.updatedAt,
+      },
+      targetStatus: "failed",
+    });
+    assert.equal(rejected.status, 409);
+    assert.equal((await rejected.json()).code, "invalid_transition");
+  } finally {
+    await server.close();
+  }
+});
+
 test("dashboard archive action accepts every non-working state and rejects working tasks", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, {
@@ -1940,6 +2288,17 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /id="notification-announcer"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
+  assert.match(html, /id="more-task-actions"[^>]+aria-label="More task actions"[^>]+aria-expanded="false"/);
+  assert.match(
+    html,
+    /id="more-task-actions"[\s\S]*?id="manual-transition-panel"[\s\S]*?id="copy-task-id"[\s\S]*?id="mark-task-completed"[\s\S]*?id="mark-task-failed"[\s\S]*?id="archive-codex"/,
+  );
+  assert.match(styles, /--control-height: 38px;/);
+  assert.match(styles, /\.primary-button, \.secondary-button, \.danger-button \{[^}]+min-height: var\(--control-height\)/);
+  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]+min-height: var\(--control-height\)[^}]+font-size: var\(--control-font-size\)/);
+  assert.match(html, /<div class="dialog-actions" role="group" aria-label="Task actions">/);
+  assert.match(styles, /\.manual-transition-panel, \.manual-transition-controls \{ display: contents; \}/);
+  assert.match(styles, /\.manual-transition-controls > button\[hidden\] \{ display: none; \}/);
   assert.match(html, /id="date-filter"/);
   const toolbarMarkup = html.match(/<section class="toolbar"[\s\S]*?<\/section>/)?.[0];
   assert.ok(toolbarMarkup);
@@ -1976,6 +2335,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /id="dialog-results"/);
   assert.match(html, /id="open-codex"[^>]+aria-label="Open this task in Codex"/);
   assert.match(html, /id="copy-task-id"[^>]+aria-label="Copy Task ID"[^>]*>Copy Task ID<\/button>/);
+  assert.match(html, /id="mark-task-completed"[^>]*>Mark completed<\/button>/);
+  assert.match(html, /id="mark-task-failed"[^>]*>Mark failed<\/button>/);
   assert.doesNotMatch(html, /copy-thread-id|Copy thread ID/);
   assert.match(html, /class="codex-icon" aria-hidden="true"/);
   assert.match(html, /<span>Open task<\/span>/);
@@ -2011,6 +2372,15 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /elements\.dismissDashboardMessage\.addEventListener\("click", \(\) => \{/);
   assert.match(script, /elements\.dashboardMessage\.hidden = true/);
   assert.match(script, /notificationOpenLabel\(notification, Boolean\(task\)\)/);
+  assert.match(script, /submitManualTransition\("completed", event\)/);
+  assert.match(script, /submitManualTransition\("failed", event\)/);
+  assert.match(actionScript, /event\.key !== "Escape"/);
+  assert.match(script, /dialog\.addEventListener\("cancel"/);
+  assert.match(script, /aria-busy/);
+  assert.match(script, /Saving task state…/);
+  assert.match(html, /id="manual-transition-status"[^>]+role="status"[^>]+aria-live="polite"/);
+  assert.doesNotMatch(script, /\b(?:alert|confirm)\s*\(/);
+  assert.match(actionScript, /manual-transition/);
   assert.match(script, /notificationDismissLabel\(notification\)/);
   assert.match(script, /text\.setAttribute\("aria-describedby", describedBy\.join\(" "\)\)/);
   assert.match(script, /dismiss\.setAttribute\("aria-describedby", describedBy\.join\(" "\)\)/);
@@ -2040,8 +2410,10 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-card \{[^}]*padding: 16px 18px;/);
   assert.match(styles, /\.task-summary \{[^}]*font-size: 0\.9rem;[^}]*line-height: 1\.45;/);
   assert.match(styles, /\.status-filter-option span \{[^}]*min-height: 34px;[^}]*padding: 5px 10px;/);
-  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]*min-height: 34px;/);
+  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]*min-height: var\(--control-height\);/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
+  assert.match(styles, /@media \(max-width: 650px\) \{\s*:root \{ --control-height: 40px; \}/);
+  assert.doesNotMatch(styles, /\.manual-transition-controls > button \{ min-height: 40px; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.status-filter-option span \{ min-height: 38px; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.task-title, \.timestamp-toggle \{[^}]*min-height: 36px;/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.github-links \{ max-width: 100%; \}/);
