@@ -1934,6 +1934,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   const timeScript = await readFile(path.resolve("src/dashboard/time.js"), "utf8");
   const styles = await readFile(path.resolve("src/dashboard/styles.css"), "utf8");
   assert.match(html, /aria-live="polite"/);
+  assert.match(script, /const USAGE_POLL_INTERVAL_MS = 1_500;/);
+  assert.match(script, /const MAX_USAGE_POLL_ATTEMPTS = 40;/);
+  assert.match(script, /attempt < MAX_USAGE_POLL_ATTEMPTS/);
   assert.match(html, /id="notification-announcer"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
