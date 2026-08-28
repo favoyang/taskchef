@@ -57,8 +57,10 @@ import {
   archiveTaskFromControl,
   focusManualTransitionStatus,
   handleManualTransitionEscape,
+  manualTransitionFocusKey,
   manuallyTransitionTaskFromControl,
   openTaskFromControl,
+  restoreManualTransitionFocus,
 } from "../src/dashboard/actions.js";
 import {
   RELATIVE_DATE_LIMIT_DAYS,
@@ -795,7 +797,7 @@ test("manual transition control sends one versioned optimistic request and prese
   assert.equal(failure.task.updatedAt, "2026-08-28T12:01:00.000Z");
 });
 
-test("manual transition keyboard helpers cancel idle state and restore pending focus after rerender", () => {
+test("manual transition keyboard helpers cancel idle state and preserve focus across rerenders", () => {
   const calls = [];
   const event = {
     key: "Escape",
@@ -826,13 +828,34 @@ test("manual transition keyboard helpers cancel idle state and restore pending f
   for (const node of ["initial-status", "replacement-status"]) {
     assert.equal(focusManualTransitionStatus({
       querySelector: (selector) => {
-        assert.equal(selector, "[data-manual-transition-status]");
+        assert.equal(selector, '[data-manual-focus="pending"]');
         return { focus: () => focused.push(node) };
       },
     }), true);
   }
   assert.deepEqual(focused, ["initial-status", "replacement-status"]);
   assert.equal(focusManualTransitionStatus({ querySelector: () => null }), false);
+
+  const activeElement = { dataset: { manualFocus: "confirm" } };
+  const panel = {
+    contains: (node) => node === activeElement,
+    querySelector: (selector) => {
+      assert.equal(selector, '[data-manual-focus="confirm"]');
+      return { focus: () => focused.push("replacement-confirm") };
+    },
+  };
+  assert.equal(manualTransitionFocusKey(panel, activeElement), "confirm");
+  assert.equal(manualTransitionFocusKey(panel, { dataset: { manualFocus: "cancel" } }), null);
+  assert.notEqual(restoreManualTransitionFocus(panel, "confirm"), null);
+
+  const fallback = { focus: () => focused.push("fallback") };
+  assert.equal(restoreManualTransitionFocus({ querySelector: () => null }, "target-failed", fallback), fallback);
+  assert.deepEqual(focused, [
+    "initial-status",
+    "replacement-status",
+    "replacement-confirm",
+    "fallback",
+  ]);
 });
 
 test("dashboard archive control confirms consequences and reports success", async () => {

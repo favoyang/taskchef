@@ -109,7 +109,19 @@ export function handleManualTransitionEscape(event, {
 }
 
 export function focusManualTransitionStatus(panel) {
-  const status = panel.querySelector("[data-manual-transition-status]");
-  status?.focus();
-  return status !== null;
+  return restoreManualTransitionFocus(panel, "pending") !== null;
+}
+
+export function manualTransitionFocusKey(panel, activeElement) {
+  if (!activeElement || !panel.contains(activeElement)) return null;
+  return activeElement.dataset.manualFocus ?? null;
+}
+
+export function restoreManualTransitionFocus(panel, key, fallback = null) {
+  const target = key === null
+    ? null
+    : panel.querySelector(`[data-manual-focus="${key}"]`);
+  const destination = target ?? fallback;
+  destination?.focus();
+  return destination;
 }

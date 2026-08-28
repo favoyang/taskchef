@@ -25,8 +25,10 @@ import {
   archiveTaskFromControl,
   focusManualTransitionStatus,
   handleManualTransitionEscape,
+  manualTransitionFocusKey,
   manuallyTransitionTaskFromControl,
   openTaskFromControl,
+  restoreManualTransitionFocus,
 } from "./actions.js";
 import {
   githubReferenceAccessibleLabel,
@@ -438,6 +440,10 @@ function replaceCurrentTask(task) {
 }
 
 function renderManualTransition(task) {
+  const focusKey = manualTransitionFocusKey(
+    elements.manualTransitionPanel,
+    document.activeElement,
+  );
   const eligible = canManuallyTransitionTask(task);
   state.manualTransition = reconcileManualTransition(state.manualTransition, task);
   const pending = manualTransitionPending();
@@ -449,6 +455,9 @@ function renderManualTransition(task) {
   elements.manualTransitionPanel.hidden = state.manualTransition === null;
   if (!state.manualTransition) {
     elements.closeDialog.disabled = false;
+    if (focusKey !== null) {
+      (eligible ? elements.changeTaskState : elements.dialogTitle).focus?.();
+    }
     return;
   }
 
@@ -480,6 +489,7 @@ function renderManualTransition(task) {
       },
     );
     completed.dataset.manualTarget = "completed";
+    completed.dataset.manualFocus = "target-completed";
     const failed = manualTransitionButton(
       "Mark failed",
       "danger-button",
@@ -496,9 +506,11 @@ function renderManualTransition(task) {
       },
     );
     failed.dataset.manualTarget = "failed";
+    failed.dataset.manualFocus = "target-failed";
     const cancel = manualTransitionButton("Cancel", "text-button", () => {
       resetManualTransition({ focus: true });
     });
+    cancel.dataset.manualFocus = "cancel";
     controls.append(completed, failed, cancel);
   } else {
     const target = transition.targetStatus;
@@ -556,9 +568,11 @@ function renderManualTransition(task) {
       },
     );
     confirm.dataset.confirmTransition = "true";
+    confirm.dataset.manualFocus = "confirm";
     const cancel = manualTransitionButton("Cancel", "text-button", () => {
       resetManualTransition({ focus: true });
     });
+    cancel.dataset.manualFocus = "cancel";
     const pending = transition.stage === "pending";
     confirm.disabled = pending;
     cancel.disabled = pending;
@@ -566,6 +580,7 @@ function renderManualTransition(task) {
       const pendingStatus = document.createElement("p");
       pendingStatus.className = "manual-transition-pending";
       pendingStatus.dataset.manualTransitionStatus = "true";
+      pendingStatus.dataset.manualFocus = "pending";
       pendingStatus.role = "status";
       pendingStatus.setAttribute("aria-live", "polite");
       pendingStatus.tabIndex = -1;
@@ -578,6 +593,7 @@ function renderManualTransition(task) {
       error.className = "manual-transition-error";
       error.role = "alert";
       error.tabIndex = -1;
+      error.dataset.manualFocus = "error";
       error.textContent = transition.error;
       elements.manualTransitionPanel.append(error);
     }
@@ -586,6 +602,8 @@ function renderManualTransition(task) {
   elements.manualTransitionPanel.append(controls);
   if (transition.stage === "pending") {
     focusManualTransitionStatus(elements.manualTransitionPanel);
+  } else if (focusKey !== null) {
+    restoreManualTransitionFocus(elements.manualTransitionPanel, focusKey);
   }
 }
 
