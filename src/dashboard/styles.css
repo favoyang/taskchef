@@ -158,6 +158,7 @@ dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); 
 .manual-transition-panel[hidden] { display: none; }
 .manual-transition-error, .manual-transition-pending { flex-basis: 100%; margin: 0; }
 .manual-transition-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.manual-transition-controls > button[hidden] { display: none; }
 .manual-transition-error { color: var(--danger); font-size: 0.86rem; }
 .manual-transition-pending { color: var(--muted); font-size: 0.86rem; }
 .primary-button, .secondary-button, .danger-button { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-height); padding: 0 var(--control-padding-inline); border-radius: var(--control-radius); font-size: var(--control-font-size); font-weight: 700; line-height: 1; cursor: pointer; }
