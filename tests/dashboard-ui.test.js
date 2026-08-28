@@ -146,6 +146,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     }));
     const clipboardWrites = [];
     const archiveRequests = [];
+    const pendingArchiveRequests = [];
     const manualRequests = [];
     const pendingClipboardWrites = [];
     let clipboardMode = "reject";
@@ -234,6 +235,7 @@ test("dashboard renders a live notification with time and shared accessible desc
       }
       if (url === `/api/tasks/${taskId}/archive-codex`) {
         archiveRequests.push({ url, options });
+        await new Promise((resolve) => pendingArchiveRequests.push(resolve));
         return {
           ok: true,
           json: async () => ({
@@ -427,8 +429,12 @@ test("dashboard renders a live notification with time and shared accessible desc
 
     const moreTaskActions = elements.get("#more-task-actions");
     const manualPanel = elements.get("#manual-transition-panel");
+    assert.equal(moreTaskActions.textContent, "…");
+    assert.equal(moreTaskActions.getAttribute("aria-label"), "More task actions");
     moreTaskActions.emit("click");
     assert.equal(moreTaskActions.getAttribute("aria-expanded"), "true");
+    assert.equal(moreTaskActions.textContent, "←");
+    assert.equal(moreTaskActions.getAttribute("aria-label"), "Hide more task actions");
     assert.equal(manualPanel.hidden, false);
     assert.equal(elements.get("#copy-task-id").hidden, false);
     assert.equal(elements.get("#mark-task-completed").hidden, false);
@@ -447,7 +453,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(archiveTask.hidden, false);
     assert.equal(archiveTask.disabled, false);
     assert.equal(archiveTask.textContent, "Archive chat");
-    await archiveTask.emit("click", {
+    const archiveRequest = archiveTask.emit("click", {
       currentTarget: archiveTask,
       stopPropagation() {},
     });
@@ -456,7 +462,19 @@ test("dashboard renders a live notification with time and shared accessible desc
       options: { method: "POST" },
     }]);
     assert.equal(archiveTask.disabled, true);
+    assert.equal(archiveTask.textContent, "Archiving…");
+    moreTaskActions.emit("click");
+    moreTaskActions.emit("click");
+    assert.equal(archiveTask.disabled, true);
+    await archiveTask.emit("click", {
+      currentTarget: archiveTask,
+      stopPropagation() {},
+    });
+    assert.equal(archiveRequests.length, 1);
+    pendingArchiveRequests.shift()();
+    await archiveRequest;
     assert.equal(archiveTask.textContent, "Archived");
+    assert.equal(moreTaskActions.textContent, "←");
     assert.equal(
       elements.get("#dashboard-message-text").textContent,
       "Archived the Codex chat. TaskChef history remains available.",

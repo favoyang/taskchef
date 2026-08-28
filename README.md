@@ -271,16 +271,18 @@ linked Codex tasks. List snapshots and SSE events carry only the latest
 request/result pair; opening task details fetches the full newest-first activity
 timeline, including clearly labeled interrupted turns.
 Task details offer infrequent administrative actions without cluttering task
-cards. The **More task actions** (`…`) menu contains **Copy Task ID** and, for a
-`working` or `needs_input` task, direct **Mark completed** and **Mark failed**
-actions. The menu disclosure is the deliberate first step; choosing a terminal
+cards. Selecting **More task actions** (`…`) reveals the action list immediately
+beside the disclosure and changes it to a back/hide control. The list contains
+**Copy Task ID**, direct **Mark completed** and **Mark failed** actions for a
+`working` or `needs_input` task, and **Archive chat** whenever archival is
+eligible. The menu disclosure is the deliberate first step; choosing a terminal
 outcome submits it immediately without a second confirmation. There is no
 free-form reason: the audit turn records a fixed summary, timestamp, dashboard
 provenance, optimistic preconditions, and a unique action ID while preserving
 every executor turn. Terminal tasks cannot be rewritten. Stale or concurrent
 changes are rejected and the dialog refreshes to the current task.
 
-Task details also offer **Archive chat** for every linked task whose current
+The More actions list offers **Archive chat** for every linked task whose current
 TaskChef state is not `working`. After confirmation, TaskChef invokes only the
 Codex CLI at the canonical ChatGPT or Codex desktop app location under
 `/Applications`, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record

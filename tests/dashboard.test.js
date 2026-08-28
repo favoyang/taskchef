@@ -2271,7 +2271,13 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
   assert.match(html, /id="more-task-actions"[^>]+aria-label="More task actions"[^>]+aria-expanded="false"/);
-  assert.match(html, /id="manual-transition-panel"/);
+  assert.match(
+    html,
+    /id="more-task-actions"[\s\S]*?id="manual-transition-panel"[\s\S]*?id="copy-task-id"[\s\S]*?id="mark-task-completed"[\s\S]*?id="mark-task-failed"[\s\S]*?id="archive-codex"/,
+  );
+  assert.match(styles, /--control-height: 38px;/);
+  assert.match(styles, /\.primary-button, \.secondary-button, \.danger-button \{[^}]+min-height: var\(--control-height\)/);
+  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]+min-height: var\(--control-height\)[^}]+font-size: var\(--control-font-size\)/);
   assert.match(html, /id="date-filter"/);
   const toolbarMarkup = html.match(/<section class="toolbar"[\s\S]*?<\/section>/)?.[0];
   assert.ok(toolbarMarkup);
@@ -2383,8 +2389,10 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.task-card \{[^}]*padding: 16px 18px;/);
   assert.match(styles, /\.task-summary \{[^}]*font-size: 0\.9rem;[^}]*line-height: 1\.45;/);
   assert.match(styles, /\.status-filter-option span \{[^}]*min-height: 34px;[^}]*padding: 5px 10px;/);
-  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]*min-height: 34px;/);
+  assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]*min-height: var\(--control-height\);/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.toolbar \.status-filter-option \{ width: auto; \}/);
+  assert.match(styles, /@media \(max-width: 650px\) \{\s*:root \{ --control-height: 40px; \}/);
+  assert.doesNotMatch(styles, /\.manual-transition-controls > button \{ min-height: 40px; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.status-filter-option span \{ min-height: 38px; \}/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.task-title, \.timestamp-toggle \{[^}]*min-height: 36px;/);
   assert.match(styles, /@media \(max-width: 650px\)[\s\S]*\.github-links \{ max-width: 100%; \}/);

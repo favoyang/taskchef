@@ -487,10 +487,13 @@ The task-detail dashboard MAY offer manual terminal outcomes only for current
 `working` or `needs_input` tasks. It MUST permit exactly `completed` and
 `failed`, MUST NOT rewrite a terminal task, and MUST keep this infrequent
 administrative action out of list cards. A keyboard-accessible **More task
-actions** menu MUST group **Copy Task ID**, **Mark completed**, and **Mark
-failed** for eligible tasks. Opening the menu is the deliberate disclosure
-step; choosing a terminal outcome submits it immediately without a second
-confirmation. Escape MUST close the idle menu, pending controls MUST be
+actions** disclosure MUST reveal its action list immediately beside it and
+change from an ellipsis to an accessible back/hide control while expanded. The
+list MUST group **Copy Task ID**, **Mark completed**, and **Mark failed** for
+eligible tasks, plus **Archive chat** when archival is eligible. Opening the
+list is the deliberate disclosure step; choosing a terminal outcome submits it
+immediately without a second confirmation. Escape MUST close the idle list,
+pending controls MUST be
 disabled, and failure feedback MUST remain in the dialog. Pending state MUST
 focus and announce a stable status inside the dialog. Failed MUST have
 destructive styling.

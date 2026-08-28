@@ -41,6 +41,7 @@ const USAGE_POLL_INTERVAL_MS = 1_500;
 const MAX_USAGE_POLL_ATTEMPTS = 40;
 
 const state = {
+  archivePendingThreadIds: new Set(),
   archivedThreadIds: new Set(),
   tasks: [],
   signatures: new Map(),
@@ -508,8 +509,15 @@ function renderManualTransition(task) {
   const eligible = canManuallyTransitionTask(task);
   state.manualTransition = reconcileManualTransition(state.manualTransition, task);
   const pending = manualTransitionPending();
+  const expanded = Boolean(state.manualTransition);
   elements.moreTaskActions.disabled = pending;
-  elements.moreTaskActions.setAttribute("aria-expanded", String(Boolean(state.manualTransition)));
+  elements.moreTaskActions.textContent = expanded ? "←" : "…";
+  elements.moreTaskActions.setAttribute(
+    "aria-label",
+    expanded ? "Hide more task actions" : "More task actions",
+  );
+  elements.moreTaskActions.setAttribute("title", expanded ? "Hide more task actions" : "More task actions");
+  elements.moreTaskActions.setAttribute("aria-expanded", String(expanded));
   elements.closeDialog.disabled = pending;
   elements.manualTransitionPanel.hidden = state.manualTransition === null;
   elements.manualTransitionPanel.setAttribute("aria-busy", String(pending));
@@ -518,6 +526,18 @@ function renderManualTransition(task) {
   elements.markTaskFailed.hidden = !eligible;
   elements.markTaskCompleted.disabled = pending;
   elements.markTaskFailed.disabled = pending;
+  const archivePending = state.archivePendingThreadIds.has(task.threadId);
+  const archived = state.archivedThreadIds.has(task.threadId);
+  elements.archiveTask.disabled = pending || archivePending || archived;
+  elements.archiveTask.textContent = archived ? "Archived" : archivePending ? "Archiving…" : "Archive chat";
+  elements.archiveTask.setAttribute(
+    "aria-label",
+    archived
+      ? `${task.title} is archived in Codex`
+      : archivePending
+        ? `Archiving ${task.title} in Codex`
+        : `Archive ${task.title} in Codex`,
+  );
   elements.manualTransitionStatus.hidden = !pending;
   elements.manualTransitionStatus.textContent = pending ? "Saving task state…" : "";
   const error = state.manualTransition?.error ?? "";
@@ -665,9 +685,10 @@ function renderDialog(task) {
   configureOpenTaskControl(elements.openProject, `Open ${task.title} in Codex`);
   const canArchive = canArchiveTask(task);
   const archived = state.archivedThreadIds.has(task.threadId);
+  const archivePending = state.archivePendingThreadIds.has(task.threadId);
   elements.archiveTask.hidden = !canArchive;
-  elements.archiveTask.disabled = archived;
-  elements.archiveTask.textContent = archived ? "Archived" : "Archive chat";
+  elements.archiveTask.disabled = archived || archivePending;
+  elements.archiveTask.textContent = archived ? "Archived" : archivePending ? "Archiving…" : "Archive chat";
   elements.archiveTask.setAttribute(
     "aria-label",
     archived ? `${task.title} is archived in Codex` : `Archive ${task.title} in Codex`,
@@ -925,12 +946,20 @@ elements.openProject.addEventListener("click", async (event) => {
 });
 elements.archiveTask.addEventListener("click", async (event) => {
   const task = state.selectedTask;
-  if (!task || !canArchiveTask(task)) return;
-  await archiveTaskFromControl(event, task, {
-    onArchived: (threadId) => {
-      state.archivedThreadIds.add(threadId);
-      if (state.selectedTask?.id === task.id) renderDialog(state.selectedTask);
-    },
-    showMessage,
-  });
+  if (
+    !task
+    || !canArchiveTask(task)
+    || state.archivePendingThreadIds.has(task.threadId)
+  ) return;
+  state.archivePendingThreadIds.add(task.threadId);
+  renderManualTransition(task);
+  try {
+    await archiveTaskFromControl(event, task, {
+      onArchived: (threadId) => state.archivedThreadIds.add(threadId),
+      showMessage,
+    });
+  } finally {
+    state.archivePendingThreadIds.delete(task.threadId);
+    if (state.selectedTask?.id === task.id) renderDialog(state.selectedTask);
+  }
 });

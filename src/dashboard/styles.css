@@ -11,6 +11,10 @@
   --danger: #8b3a35;
   --warning: #8a5c17;
   --shadow: 0 12px 30px rgb(24 33 29 / 10%);
+  --control-height: 38px;
+  --control-padding-inline: 11px;
+  --control-radius: 7px;
+  --control-font-size: 0.86rem;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -112,7 +116,7 @@ time, .timestamp-missing { font-size: 0.75rem; }
 .timestamp-toggle:hover time { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .task-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .task-open { flex: none; }
-.primary-button.task-action, .secondary-button.task-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 5px 9px; font-size: 0.78rem; line-height: 1.2; white-space: nowrap; }
+.primary-button.task-action, .secondary-button.task-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--control-height); padding: 0 var(--control-padding-inline); font-size: var(--control-font-size); line-height: 1; white-space: nowrap; }
 .codex-icon { display: block; flex: none; width: 18px; height: 18px; }
 .codex-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
 
@@ -148,16 +152,15 @@ dialog { width: min(760px, calc(100vw - 32px)); max-height: min(82vh, 900px); pa
 dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); }
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin-bottom: 12px; font-size: 1.6rem; }
-.dialog-actions { display: flex; gap: 8px; margin-bottom: 26px; }
-.more-task-actions { min-width: 40px; font-size: 1.1rem; line-height: 1; }
-.manual-transition-panel { display: grid; gap: 9px; margin: -16px 0 26px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
+.dialog-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+.more-task-actions { width: var(--control-height); min-width: var(--control-height); padding-inline: 0; font-size: 1.2rem; line-height: 1; }
+.manual-transition-panel { display: flex; flex: 1 1 420px; flex-wrap: wrap; gap: 9px; align-items: center; }
 .manual-transition-panel[hidden] { display: none; }
-.manual-transition-heading, .manual-transition-error, .manual-transition-pending { margin: 0; }
-.manual-transition-heading { font-weight: 700; }
+.manual-transition-error, .manual-transition-pending { flex-basis: 100%; margin: 0; }
 .manual-transition-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .manual-transition-error { color: var(--danger); font-size: 0.86rem; }
 .manual-transition-pending { color: var(--muted); font-size: 0.86rem; }
-.primary-button, .secondary-button, .danger-button { padding: 8px 12px; border-radius: 7px; font-weight: 700; cursor: pointer; }
+.primary-button, .secondary-button, .danger-button { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-height); padding: 0 var(--control-padding-inline); border-radius: var(--control-radius); font-size: var(--control-font-size); font-weight: 700; line-height: 1; cursor: pointer; }
 .primary-button { border: 1px solid var(--accent); background: var(--accent); color: white; }
 .secondary-button { border: 1px solid var(--border); background: var(--surface); }
 .danger-button { border: 1px solid var(--danger); background: var(--surface); color: var(--danger); }
@@ -192,6 +195,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
 :focus-visible { outline: 3px solid rgb(33 95 74 / 35%); outline-offset: 3px; }
 
 @media (max-width: 650px) {
+  :root { --control-height: 40px; }
   .site-header { align-items: flex-start; gap: 14px; padding-top: 28px; }
   .title-row { align-items: flex-start; }
   .toolbar-primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -206,9 +210,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .task-open { align-self: flex-start; }
   select { min-height: 40px; }
   .status-filter-option span { min-height: 38px; }
-  .primary-button.task-action, .secondary-button.task-action { min-height: 40px; }
   .dialog-actions { align-items: center; flex-flow: row wrap; }
-  .manual-transition-controls > button { min-height: 40px; }
   .metadata { grid-template-columns: 1fr; }
   .metadata dt { padding-bottom: 0; border-bottom: 0; }
 }

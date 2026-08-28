@@ -113,17 +113,16 @@
           <span>Open task</span>
         </button>
         <button id="more-task-actions" class="secondary-button more-task-actions" type="button" aria-label="More task actions" aria-expanded="false" aria-controls="manual-transition-panel">…</button>
-        <button id="archive-codex" class="danger-button" type="button" aria-label="Archive this chat in Codex" hidden>Archive chat</button>
-      </div>
-      <div id="manual-transition-panel" class="manual-transition-panel" aria-busy="false" hidden>
-        <p class="manual-transition-heading">More task actions</p>
-        <div class="manual-transition-controls">
-          <button id="copy-task-id" class="secondary-button" type="button" aria-label="Copy Task ID" data-manual-focus="copy">Copy Task ID</button>
-          <button id="mark-task-completed" class="secondary-button" type="button" data-manual-focus="target-completed">Mark completed</button>
-          <button id="mark-task-failed" class="danger-button" type="button" data-manual-focus="target-failed">Mark failed</button>
+        <div id="manual-transition-panel" class="manual-transition-panel" role="group" aria-label="More task actions" aria-busy="false" hidden>
+          <div class="manual-transition-controls">
+            <button id="copy-task-id" class="secondary-button" type="button" aria-label="Copy Task ID" data-manual-focus="copy">Copy Task ID</button>
+            <button id="mark-task-completed" class="secondary-button" type="button" data-manual-focus="target-completed">Mark completed</button>
+            <button id="mark-task-failed" class="danger-button" type="button" data-manual-focus="target-failed">Mark failed</button>
+            <button id="archive-codex" class="danger-button" type="button" aria-label="Archive this chat in Codex" hidden>Archive chat</button>
+          </div>
+          <p id="manual-transition-status" class="manual-transition-pending" role="status" aria-live="polite" tabindex="-1" data-manual-focus="pending" hidden></p>
+          <p id="manual-transition-error" class="manual-transition-error" role="alert" tabindex="-1" data-manual-focus="error" hidden></p>
         </div>
-        <p id="manual-transition-status" class="manual-transition-pending" role="status" aria-live="polite" tabindex="-1" data-manual-focus="pending" hidden></p>
-        <p id="manual-transition-error" class="manual-transition-error" role="alert" tabindex="-1" data-manual-focus="error" hidden></p>
       </div>
       <nav id="dialog-related-links" class="github-links" aria-label="Related GitHub links" hidden></nav>
       <section>
