@@ -2406,6 +2406,62 @@ test("fallback turnRefs survive lost working callbacks and reject stale terminal
   assert.equal(completed.lastResult.turnRef, secondRef);
 });
 
+test("schema 9 accepts fallback turnRefs without native Codex turn IDs", async () => {
+  const { workspace, projects } = await fixture(1);
+  const prepared = prepareDelegation("Preserve a schema 9 fallback identity.", { taskId: TASK_ID });
+  await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepared.instruction,
+  }, { now: FIXED_TIME });
+  await linkTask(workspace, TASK_ID, SELF_LINK_THREAD_ID);
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnRef: FALLBACK_TURN_REF,
+    turnId: null,
+    status: "working",
+    requestSummary: "Start without native turn metadata.",
+  });
+  const laterTurnRef = "3ec20a55-5f9d-48b0-bd41-dfda8a391e78";
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnRef: laterTurnRef,
+    turnId: null,
+    status: "working",
+    requestSummary: "Continue without native turn metadata.",
+  });
+  await reportTaskState(workspace, {
+    taskId: TASK_ID,
+    threadId: SELF_LINK_THREAD_ID,
+    turnRef: laterTurnRef,
+    turnId: null,
+    status: "completed",
+    summary: "Fallback lifecycle completed.",
+  });
+
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const raw = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  raw.schemaVersion = 9;
+  raw.turns.forEach((turn) => { delete turn.provenance; });
+  await writeFile(taskLog, `${JSON.stringify(raw)}\n`);
+
+  const [loaded] = await listTasks(workspace);
+  assert.equal(loaded.schemaVersion, 9);
+  assert.equal(loaded.turnRef, laterTurnRef);
+  assert.equal(loaded.turnId, null);
+  assert.deepEqual(loaded.turns.map((turn) => turn.turnId), [null, null]);
+  assert.equal(loaded.latestTurn.turnRef, laterTurnRef);
+  assert.equal(loaded.latestTurn.turnId, null);
+
+  const migrated = await migrateTaskLog(workspace);
+  assert.equal(migrated.action, "migrated");
+  const upgraded = await readTask(workspace, TASK_ID);
+  assert.equal(upgraded.schemaVersion, 10);
+  assert.equal(upgraded.turnRef, laterTurnRef);
+  assert.equal(upgraded.turnId, null);
+});
+
 test("copilot cached briefs normalize attention, next actions, and overview age filtering", async () => {
   const { workspace, projects } = await fixture(1);
   const needsInputInstruction = prepareDelegation("Choose a rollout region.", {

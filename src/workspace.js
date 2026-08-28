@@ -1218,7 +1218,7 @@ async function validateDispatchShape(dispatch, name = "task") {
   }
   if (
     normalized.schemaVersion >= FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION
-    && normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION
+    && normalized.schemaVersion < TURN_REF_TASK_SCHEMA_VERSION
     && normalized.turnId !== normalized.turnRef
   ) {
     throw new Error(`${name}.turnId must match the latest legacy turn identity`);
@@ -1279,7 +1279,7 @@ async function validateDispatchShape(dispatch, name = "task") {
       throw new Error(`${name}.turns must be ordered by startedAt`);
     }
     if (
-      normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION
+      normalized.schemaVersion < TURN_REF_TASK_SCHEMA_VERSION
       && isSelfLinkingRecord
       && index > 0
       && turn.turnId <= normalized.turns[index - 1].turnId
@@ -1287,7 +1287,7 @@ async function validateDispatchShape(dispatch, name = "task") {
       throw new Error(`${name}.turns must be ordered by turnId`);
     }
     if (
-      normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+      normalized.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
       && isSelfLinkingRecord
       && turn.turnId !== null
     ) {
