@@ -109,19 +109,18 @@ export function handleManualTransitionEscape(event, {
 }
 
 export function focusManualTransitionStatus(panel) {
-  return restoreManualTransitionFocus(panel, "pending") !== null;
+  const status = panel.querySelector('[data-manual-focus="pending"]');
+  status?.focus();
+  return status !== null;
 }
 
-export function manualTransitionFocusKey(panel, activeElement) {
+export function restoreTaskActionMenuFocus(panel, activeElement, fallback) {
   if (!activeElement || !panel.contains(activeElement)) return null;
-  return activeElement.dataset.manualFocus ?? null;
-}
-
-export function restoreManualTransitionFocus(panel, key, fallback = null) {
-  const target = key === null
-    ? null
-    : panel.querySelector(`[data-manual-focus="${key}"]`);
-  const destination = target ?? fallback;
+  if (!activeElement.hidden && !activeElement.disabled) return activeElement;
+  const copyTaskId = panel.querySelector('[data-manual-focus="copy"]');
+  const destination = copyTaskId && !copyTaskId.hidden && !copyTaskId.disabled
+    ? copyTaskId
+    : fallback;
   destination?.focus();
-  return destination;
+  return destination ?? null;
 }

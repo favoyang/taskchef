@@ -57,10 +57,9 @@ import {
   archiveTaskFromControl,
   focusManualTransitionStatus,
   handleManualTransitionEscape,
-  manualTransitionFocusKey,
   manuallyTransitionTaskFromControl,
   openTaskFromControl,
-  restoreManualTransitionFocus,
+  restoreTaskActionMenuFocus,
 } from "../src/dashboard/actions.js";
 import {
   RELATIVE_DATE_LIMIT_DAYS,
@@ -671,7 +670,7 @@ test("manual transition eligibility is limited to working and needs-input tasks"
   assert.equal(canManuallyTransitionTask({ status: "failed" }), false);
 });
 
-test("manual transition UI state drops stale choices but preserves an in-flight request", () => {
+test("task action menu refreshes stale choices but preserves an in-flight request", () => {
   const task = {
     id: FIRST_ID,
     status: "needs_input",
@@ -680,17 +679,26 @@ test("manual transition UI state drops stale choices but preserves an in-flight 
     updatedAt: "2026-08-28T12:00:00.000Z",
   };
   const expected = manualTransitionExpectedState(task);
-  const choice = { taskId: FIRST_ID, stage: "confirm", expected };
+  const choice = { taskId: FIRST_ID, stage: "choose", expected };
   const pending = { taskId: FIRST_ID, stage: "pending", expected };
   assert.equal(reconcileManualTransition(choice, task), choice);
-  assert.equal(reconcileManualTransition(choice, { ...task, status: "completed" }), null);
+  assert.deepEqual(reconcileManualTransition(choice, { ...task, status: "completed" }), {
+    taskId: FIRST_ID,
+    stage: "choose",
+    expected: { ...expected, status: "completed" },
+  });
   assert.equal(reconcileManualTransition(pending, { ...task, status: "failed" }), pending);
-  assert.equal(reconcileManualTransition(choice, {
+  const advanced = {
     ...task,
     status: "working",
     turnRef: SECOND_TURN_ID,
     updatedAt: "2026-08-28T12:01:00.000Z",
-  }), null);
+  };
+  assert.deepEqual(reconcileManualTransition(choice, advanced), {
+    taskId: FIRST_ID,
+    stage: "choose",
+    expected: manualTransitionExpectedState(advanced),
+  });
   assert.equal(reconcileManualTransition(choice, { ...task, id: SECOND_ID }), null);
 });
 
@@ -797,7 +805,7 @@ test("manual transition control sends one versioned optimistic request and prese
   assert.equal(failure.task.updatedAt, "2026-08-28T12:01:00.000Z");
 });
 
-test("manual transition keyboard helpers cancel idle state and preserve focus across rerenders", () => {
+test("manual transition keyboard helpers close the menu and focus pending status", () => {
   const calls = [];
   const event = {
     key: "Escape",
@@ -836,26 +844,24 @@ test("manual transition keyboard helpers cancel idle state and preserve focus ac
   assert.deepEqual(focused, ["initial-status", "replacement-status"]);
   assert.equal(focusManualTransitionStatus({ querySelector: () => null }), false);
 
-  const activeElement = { dataset: { manualFocus: "confirm" } };
+  const hiddenFailed = { hidden: true, disabled: false };
+  const copyTaskId = { hidden: false, disabled: false, focus: () => focused.push("copy") };
   const panel = {
-    contains: (node) => node === activeElement,
+    contains: (element) => element === hiddenFailed,
     querySelector: (selector) => {
-      assert.equal(selector, '[data-manual-focus="confirm"]');
-      return { focus: () => focused.push("replacement-confirm") };
+      assert.equal(selector, '[data-manual-focus="copy"]');
+      return copyTaskId;
     },
   };
-  assert.equal(manualTransitionFocusKey(panel, activeElement), "confirm");
-  assert.equal(manualTransitionFocusKey(panel, { dataset: { manualFocus: "cancel" } }), null);
-  assert.notEqual(restoreManualTransitionFocus(panel, "confirm"), null);
+  assert.equal(restoreTaskActionMenuFocus(panel, hiddenFailed, null), copyTaskId);
 
-  const fallback = { focus: () => focused.push("fallback") };
-  assert.equal(restoreManualTransitionFocus({ querySelector: () => null }, "target-failed", fallback), fallback);
-  assert.deepEqual(focused, [
-    "initial-status",
-    "replacement-status",
-    "replacement-confirm",
-    "fallback",
-  ]);
+  const disabledCopy = { hidden: false, disabled: true };
+  const fallback = { focus: () => focused.push("more") };
+  assert.equal(restoreTaskActionMenuFocus({
+    contains: () => true,
+    querySelector: () => disabledCopy,
+  }, { hidden: true, disabled: false }, fallback), fallback);
+  assert.deepEqual(focused, ["initial-status", "replacement-status", "copy", "more"]);
 });
 
 test("dashboard archive control confirms consequences and reports success", async () => {
@@ -2261,7 +2267,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /id="notification-announcer"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.doesNotMatch(html, /id="toast-list"[^>]+aria-live/);
   assert.match(html, /id="clear-notifications"/);
-  assert.match(html, /id="change-task-state"/);
+  assert.match(html, /id="more-task-actions"[^>]+aria-label="More task actions"[^>]+aria-expanded="false"/);
   assert.match(html, /id="manual-transition-panel"/);
   assert.match(html, /id="date-filter"/);
   const toolbarMarkup = html.match(/<section class="toolbar"[\s\S]*?<\/section>/)?.[0];
@@ -2299,6 +2305,8 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(html, /id="dialog-results"/);
   assert.match(html, /id="open-codex"[^>]+aria-label="Open this task in Codex"/);
   assert.match(html, /id="copy-task-id"[^>]+aria-label="Copy Task ID"[^>]*>Copy Task ID<\/button>/);
+  assert.match(html, /id="mark-task-completed"[^>]*>Mark completed<\/button>/);
+  assert.match(html, /id="mark-task-failed"[^>]*>Mark failed<\/button>/);
   assert.doesNotMatch(html, /copy-thread-id|Copy thread ID/);
   assert.match(html, /class="codex-icon" aria-hidden="true"/);
   assert.match(html, /<span>Open task<\/span>/);
@@ -2334,12 +2342,13 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(script, /elements\.dismissDashboardMessage\.addEventListener\("click", \(\) => \{/);
   assert.match(script, /elements\.dashboardMessage\.hidden = true/);
   assert.match(script, /notificationOpenLabel\(notification, Boolean\(task\)\)/);
-  assert.match(script, /Confirm \$\{target\}/);
+  assert.match(script, /submitManualTransition\("completed", event\)/);
+  assert.match(script, /submitManualTransition\("failed", event\)/);
   assert.match(actionScript, /event\.key !== "Escape"/);
   assert.match(script, /dialog\.addEventListener\("cancel"/);
   assert.match(script, /aria-busy/);
   assert.match(script, /Saving task state…/);
-  assert.match(script, /pendingStatus\.role = "status"/);
+  assert.match(html, /id="manual-transition-status"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.doesNotMatch(script, /\b(?:alert|confirm)\s*\(/);
   assert.match(actionScript, /manual-transition/);
   assert.match(script, /notificationDismissLabel\(notification\)/);

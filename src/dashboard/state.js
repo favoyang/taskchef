@@ -71,11 +71,12 @@ export function taskMatchesManualTransitionExpected(task, expected) {
 export function reconcileManualTransition(transition, task) {
   if (!transition || transition.taskId !== task.id) return null;
   if (transition.stage === "pending") return transition;
-  if (
-    !canManuallyTransitionTask(task)
-    || !taskMatchesManualTransitionExpected(task, transition.expected)
-  ) return null;
-  return transition;
+  if (taskMatchesManualTransitionExpected(task, transition.expected)) return transition;
+  return {
+    taskId: task.id,
+    stage: "choose",
+    expected: manualTransitionExpectedState(task),
+  };
 }
 
 export function reconcileManualTransitionResponse({

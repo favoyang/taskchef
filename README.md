@@ -264,12 +264,14 @@ linked Codex tasks. List snapshots and SSE events carry only the latest
 request/result pair; opening task details fetches the full newest-first activity
 timeline, including clearly labeled interrupted turns.
 Task details offer infrequent administrative actions without cluttering task
-cards. For a `working` or `needs_input` task, **Change state** can append a
-manual `completed` or `failed` outcome after an inline confirmation. There is
-no free-form reason: the audit turn records a fixed summary, timestamp,
-dashboard provenance, optimistic preconditions, and a unique action ID while
-preserving every executor turn. Terminal tasks cannot be rewritten. Stale or
-concurrent changes are rejected and the dialog refreshes to the current task.
+cards. The **More task actions** (`…`) menu contains **Copy Task ID** and, for a
+`working` or `needs_input` task, direct **Mark completed** and **Mark failed**
+actions. The menu disclosure is the deliberate first step; choosing a terminal
+outcome submits it immediately without a second confirmation. There is no
+free-form reason: the audit turn records a fixed summary, timestamp, dashboard
+provenance, optimistic preconditions, and a unique action ID while preserving
+every executor turn. Terminal tasks cannot be rewritten. Stale or concurrent
+changes are rejected and the dialog refreshes to the current task.
 
 Task details also offer **Archive chat** for every linked task whose current
 TaskChef state is not `working`. After confirmation, TaskChef invokes only the
@@ -294,7 +296,7 @@ revision, so reconnects and non-semantic rewrites do not replay a notice and a
 later task state cannot rewrite an older notice. A notice remains readable if
 its task disappears; selecting it then explains that current details are no
 longer available.
-Apart from the explicit, confirmed manual state action, it does not mutate
+Apart from an explicit manual state selection from the task-detail menu, it does not mutate
 TaskChef data and prints its local URL. A foreground dashboard identifies
 itself as standalone and is never reused on the canonical MCP port. If a
 standalone, unknown, different-workspace, or stale-version process owns port

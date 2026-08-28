@@ -437,11 +437,14 @@ current configuration before use.
 The task-detail dashboard MAY offer manual terminal outcomes only for current
 `working` or `needs_input` tasks. It MUST permit exactly `completed` and
 `failed`, MUST NOT rewrite a terminal task, and MUST keep this infrequent
-administrative action out of list cards. The browser MUST use an inline,
-keyboard-accessible confirmation rather than a native alert or confirm dialog;
-Escape MUST cancel while idle, pending controls MUST be disabled, and failure
-feedback MUST remain in the dialog. Pending state MUST focus and announce a
-stable status inside the dialog. Failed MUST have destructive styling.
+administrative action out of list cards. A keyboard-accessible **More task
+actions** menu MUST group **Copy Task ID**, **Mark completed**, and **Mark
+failed** for eligible tasks. Opening the menu is the deliberate disclosure
+step; choosing a terminal outcome submits it immediately without a second
+confirmation. Escape MUST close the idle menu, pending controls MUST be
+disabled, and failure feedback MUST remain in the dialog. Pending state MUST
+focus and announce a stable status inside the dialog. Failed MUST have
+destructive styling.
 
 `POST /api/tasks/:id/manual-transition` MUST require the exact loopback origin,
 `application/json`, a bounded body, and exactly this versioned shape:

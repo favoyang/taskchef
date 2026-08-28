@@ -149,6 +149,7 @@ dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); 
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin-bottom: 12px; font-size: 1.6rem; }
 .dialog-actions { display: flex; gap: 8px; margin-bottom: 26px; }
+.more-task-actions { min-width: 40px; font-size: 1.1rem; line-height: 1; }
 .manual-transition-panel { display: grid; gap: 9px; margin: -16px 0 26px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
 .manual-transition-panel[hidden] { display: none; }
 .manual-transition-heading, .manual-transition-error, .manual-transition-pending { margin: 0; }

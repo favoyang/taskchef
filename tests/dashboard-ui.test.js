@@ -48,6 +48,10 @@ class FakeElement {
     this.open = false;
   }
 
+  focus() {
+    this.focused = true;
+  }
+
   querySelector(selector) {
     if (selector === "input:checked") return this.inputs?.find(({ checked }) => checked) ?? null;
     return null;
@@ -142,6 +146,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     }));
     const clipboardWrites = [];
     const archiveRequests = [];
+    const manualRequests = [];
     const pendingClipboardWrites = [];
     let clipboardMode = "reject";
     globalThis.document = document;
@@ -208,6 +213,16 @@ test("dashboard renders a live notification with time and shared accessible desc
           json: async () => ({
             message: "Archived the Codex chat. TaskChef history remains available.",
             status: "archived",
+          }),
+        };
+      }
+      if (url === `/api/tasks/${taskId}/manual-transition`) {
+        manualRequests.push({ url, options });
+        return {
+          ok: false,
+          json: async () => ({
+            code: "dashboard_error",
+            message: "Preview transition failed.",
           }),
         };
       }
@@ -377,6 +392,24 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(result.children[1].className, "github-link");
     assert.match(result.children[1].getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
+
+    const moreTaskActions = elements.get("#more-task-actions");
+    const manualPanel = elements.get("#manual-transition-panel");
+    moreTaskActions.emit("click");
+    assert.equal(moreTaskActions.getAttribute("aria-expanded"), "true");
+    assert.equal(manualPanel.hidden, false);
+    assert.equal(elements.get("#copy-task-id").hidden, false);
+    assert.equal(elements.get("#mark-task-completed").hidden, false);
+    assert.equal(elements.get("#mark-task-failed").hidden, false);
+    const markFailed = elements.get("#mark-task-failed");
+    await markFailed.emit("click", {
+      currentTarget: markFailed,
+      stopPropagation() {},
+    });
+    assert.equal(manualRequests.length, 1);
+    assert.equal(manualRequests[0].url, `/api/tasks/${taskId}/manual-transition`);
+    assert.equal(JSON.parse(manualRequests[0].options.body).targetStatus, "failed");
+    assert.equal(elements.get("#manual-transition-error").textContent, "Preview transition failed.");
 
     const archiveTask = elements.get("#archive-codex");
     assert.equal(archiveTask.hidden, false);
