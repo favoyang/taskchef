@@ -147,6 +147,7 @@ test("dashboard manager starts once and repeated and concurrent ensures reuse it
   try {
     const concurrent = await Promise.all([manager.ensure(), manager.ensure(), manager.ensure()]);
     assert.deepEqual(concurrent.map((result) => result.action), ["started", "reused", "reused"]);
+    assert.deepEqual(concurrent.map((result) => result.launcher), ["mcp", "mcp", "mcp"]);
     assert.equal(concurrent[0].url, `http://127.0.0.1:${port}/`);
     assert.equal(concurrent[0].workspace, await realpath(workspace));
     assert.equal((await manager.ensure()).action, "reused");
@@ -162,8 +163,9 @@ test("dashboard health exposes bounded service identity independently of task sn
     const identity = await readDashboardIdentity({ host: server.host, port: server.port });
     assert.deepEqual(identity, server.identity);
     assert.deepEqual(Object.keys(identity).sort(), [
-      "schemaVersion", "serverVersion", "service", "taskchefVersion", "workspace",
+      "launcher", "schemaVersion", "serverVersion", "service", "taskchefVersion", "workspace",
     ]);
+    assert.equal(identity.launcher, "standalone");
     assert.equal(identity.workspace, await realpath(workspace));
     assert.equal((await fetch(`${server.origin}/api/health`)).headers.get("cache-control"), "no-store");
 
@@ -179,7 +181,7 @@ test("dashboard health exposes bounded service identity independently of task sn
 test("dashboard manager reuses only the same canonical workspace and exact version", async () => {
   const { workspace } = await fixture();
   const port = await unusedPort();
-  const server = await createDashboardServer({ workspace, port });
+  const server = await createDashboardServer({ workspace, port, launcher: "mcp" });
   const manager = createDashboardManager({ workspace: path.join(workspace, "."), port });
   try {
     const result = await manager.ensure();
@@ -193,9 +195,27 @@ test("dashboard manager reuses only the same canonical workspace and exact versi
     });
     await assert.rejects(
       staleManager.ensure(),
-      /unknown, stale, or different-workspace service[\s\S]+will not terminate it/,
+      /unknown, stale, different-workspace, or differently launched service[\s\S]+will not terminate it/,
     );
     await staleManager.close();
+  } finally {
+    await manager.close();
+    await server.close();
+  }
+});
+
+test("dashboard manager refuses a standalone dashboard even when workspace and version match", async () => {
+  const { workspace } = await fixture();
+  const port = await unusedPort();
+  const server = await createDashboardServer({ workspace, port });
+  const manager = createDashboardManager({ workspace, port });
+  try {
+    await assert.rejects(
+      manager.ensure(),
+      /unknown, stale, different-workspace, or differently launched service[\s\S]+will not terminate it/,
+    );
+    assert.equal(manager.owned, false);
+    assert.equal(server.identity.launcher, "standalone");
   } finally {
     await manager.close();
     await server.close();

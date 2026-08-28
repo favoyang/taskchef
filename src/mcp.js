@@ -88,6 +88,7 @@ const preparationSchema = z.object({
 
 const dashboardSchema = z.object({
   action: z.enum(["started", "reused"]),
+  launcher: z.literal("mcp"),
   url: z.string().url(),
   workspace: z.string(),
   taskchefVersion: z.string(),
@@ -163,7 +164,7 @@ export function createTaskChefMcpServer({
     return closePromise;
   };
   server.server.onclose = () => {
-    void dashboardManager.close();
+    void dashboardManager.close().catch(() => {});
   };
 
   server.registerTool(
@@ -171,7 +172,7 @@ export function createTaskChefMcpServer({
     {
       title: "Ensure TaskChef dashboard",
       description:
-        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts one dashboard inside this MCP process or reuses only an exact compatible TaskChef dashboard for the same canonical workspace; unknown listeners are never terminated or replaced.",
+        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts one dashboard inside this MCP process or reuses only an exact compatible MCP-launched TaskChef dashboard for the same canonical workspace; standalone and unknown listeners are never terminated or replaced.",
       inputSchema: {},
       outputSchema: { dashboard: dashboardSchema },
       annotations: {
@@ -325,8 +326,16 @@ export function createTaskChefMcpServer({
     ...(logDashboardDiagnostic ? { log: logDashboardDiagnostic } : {}),
   });
   server.connect = async (...args) => {
-    await originalConnect(...args);
-    void autostartDashboard();
+    await autostartDashboard();
+    try {
+      await originalConnect(...args);
+    } catch (error) {
+      await Promise.allSettled([
+        Promise.resolve().then(() => dashboardManager.close()),
+        Promise.resolve().then(() => originalClose()),
+      ]);
+      throw error;
+    }
   };
 
   return server;
