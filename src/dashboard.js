@@ -6,15 +6,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  archiveThreadInCodex,
+  discoverBundledCodexCli,
   isCodexThreadDeepLinkId,
   openThreadInCodex,
   openWorkspaceInCodex,
 } from "./codex-app.js";
 import {
+  acquireWorkspaceLock,
   canonicalDirectory,
   canonicalGitRoot,
   parseTaskLogContent,
   readConfig,
+  readTask,
 } from "./workspace.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
@@ -439,6 +443,8 @@ function publicMonitorError() {
 }
 
 export async function createDashboardServer({
+  archiveThread = archiveThreadInCodex,
+  discoverArchiveCli = discoverBundledCodexCli,
   workspace,
   host = "127.0.0.1",
   maxEventClients = DEFAULT_MAX_EVENT_CLIENTS,
@@ -472,6 +478,7 @@ export async function createDashboardServer({
     throw new Error("dashboard identity exceeds the health response limit");
   }
   const clients = new Set();
+  const archiveRequests = new Set();
   let allowedAuthority;
   let allowedOrigin;
 
@@ -613,6 +620,77 @@ export async function createDashboardServer({
         sendJson(response, 503, {
           message: "Codex could not be opened. Open the project and select the recorded thread instead.",
         });
+      }
+      return;
+    }
+
+    const archiveMatch = url.pathname.match(/^\/api\/tasks\/([a-zA-Z0-9._-]+)\/archive-codex$/);
+    if (archiveMatch && method === "POST") {
+      if (request.headers.origin !== allowedOrigin) {
+        sendJson(response, 403, { message: "Dashboard origin validation failed." });
+        return;
+      }
+      const taskId = archiveMatch[1];
+      const visibleTask = monitor.tasks.find((candidate) => candidate.id === taskId);
+      if (!visibleTask) {
+        sendJson(response, 404, { message: "Task not found." });
+        return;
+      }
+      if (!isCodexThreadDeepLinkId(visibleTask.threadId)) {
+        sendJson(response, 409, { message: "This task does not have an archivable Codex chat." });
+        return;
+      }
+      if (visibleTask.status === "working") {
+        sendJson(response, 409, { message: "Working tasks cannot be archived from the dashboard." });
+        return;
+      }
+      if (archiveRequests.has(taskId)) {
+        sendJson(response, 409, { message: "This Codex chat is already being archived." });
+        return;
+      }
+      archiveRequests.add(taskId);
+      let releaseWorkspaceLock = null;
+      try {
+        const cli = await discoverArchiveCli();
+        releaseWorkspaceLock = await acquireWorkspaceLock(monitor.workspace);
+        let task;
+        try {
+          task = await readTask(monitor.workspace, taskId);
+        } catch (error) {
+          if (/^task not found:/.test(error?.message ?? "")) {
+            sendJson(response, 404, { message: "Task not found." });
+            return;
+          }
+          throw error;
+        }
+        if (!isCodexThreadDeepLinkId(task.threadId)) {
+          sendJson(response, 409, { message: "This task does not have an archivable Codex chat." });
+          return;
+        }
+        if (task.status === "working") {
+          sendJson(response, 409, { message: "Working tasks cannot be archived from the dashboard." });
+          return;
+        }
+        await archiveThread(task.threadId, { cli, timeoutMs: 4_000 });
+        sendJson(response, 200, {
+          message: "Archived the Codex chat. TaskChef history remains available.",
+          status: "archived",
+        });
+      } catch (error) {
+        if (error?.killed || error?.code === "ETIMEDOUT") {
+          sendJson(response, 504, { message: "Codex chat archiving timed out. Try again." });
+        } else if (/requires the Codex CLI bundled/i.test(error?.message ?? "")) {
+          sendJson(response, 503, {
+            message: "Chat archiving requires the Codex CLI bundled with the ChatGPT or Codex desktop app.",
+          });
+        } else {
+          sendJson(response, 409, {
+            message: "Codex could not archive this chat. It may be active, already archived, or stored on another host or profile.",
+          });
+        }
+      } finally {
+        await releaseWorkspaceLock?.();
+        archiveRequests.delete(taskId);
       }
       return;
     }

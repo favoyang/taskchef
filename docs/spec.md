@@ -427,6 +427,17 @@ startup safely. Direct thread navigation
 MUST require a canonical Codex UUIDv7. Otherwise it MAY open the revalidated
 configured project. Project paths from task history MUST be matched against
 current configuration before use.
+The task-detail dashboard MAY offer Codex chat archival only when the stored
+thread ID is a canonical Codex UUID and the current TaskChef state is not
+`working`. It MUST revalidate both conditions for the POST request, require the
+exact loopback origin, and obtain explicit user confirmation in the browser.
+It MUST invoke the `archive` subcommand by directly executing only a Codex CLI
+inside the canonical ChatGPT or Codex desktop application bundle under macOS
+`/Applications`, with the thread UUID as a separate argument. It MUST NOT use a shell, a generic `PATH` fallback, a
+private desktop endpoint, or direct session-file manipulation. Successful
+archival MUST NOT modify dispatcher files or remove the TaskChef task record.
+The UI MUST disclose that spawned descendant chats may also be archived and
+that TaskChef history remains available.
 Snapshot and SSE list payloads MUST omit full `turns` and derived `results`
 history and include `latestTurn`. The bounded per-task detail endpoint MAY
 return the full validated task so the dialog can render the paired timeline newest first.

@@ -263,6 +263,12 @@ The loopback dashboard watches `tasks.jsonl`, groups current states, and opens
 linked Codex tasks. List snapshots and SSE events carry only the latest
 request/result pair; opening task details fetches the full newest-first activity
 timeline, including clearly labeled interrupted turns.
+Task details also offer **Archive chat** for every linked task whose current
+TaskChef state is not `working`. After confirmation, TaskChef invokes only the
+Codex CLI at the canonical ChatGPT or Codex desktop app location under
+`/Applications`, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record
+and its activity timeline remain unchanged. If the bundled CLI is unavailable,
+the dashboard does not fall back to another `codex` executable from `PATH`.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
 Task and result times are relative through 29 days (with minute detail for the

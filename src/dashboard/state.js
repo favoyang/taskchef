@@ -13,6 +13,7 @@ export const STATUS_FILTERS = [
   { value: "completed", label: "Completed" },
   { value: "failed", label: "Failed" },
 ];
+const CODEX_THREAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const NOTIFICATION_TITLES = new Map([
   ["created", "Task created"],
@@ -36,6 +37,12 @@ function taskMeaningfulTime(task) {
 
 export function taskStatusLabel(task) {
   return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
+}
+
+export function canArchiveTask(task) {
+  return task.status !== "working"
+    && typeof task.threadId === "string"
+    && CODEX_THREAD_ID_PATTERN.test(task.threadId);
 }
 
 export function latestTurnPresentation(task) {

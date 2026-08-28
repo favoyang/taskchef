@@ -15,3 +15,41 @@ export async function openTaskFromControl(event, taskId, {
     control.disabled = false;
   }
 }
+
+export async function archiveTaskFromControl(event, task, {
+  confirmAction = globalThis.confirm,
+  fetchAction = globalThis.fetch,
+  onArchived = () => {},
+  showMessage,
+} = {}) {
+  event.stopPropagation();
+  const accepted = confirmAction(
+    `Archive “${task.title}” in Codex?\n\n`
+    + "The chat will leave active Codex lists, and spawned descendant chats may also be archived. "
+    + "TaskChef history will remain available.",
+  );
+  if (!accepted) return false;
+  const control = event.currentTarget;
+  let archived = false;
+  control.disabled = true;
+  try {
+    const response = await fetchAction(
+      `/api/tasks/${encodeURIComponent(task.id)}/archive-codex`,
+      { method: "POST" },
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      showMessage(result.message ?? "Codex could not archive this chat.");
+      return false;
+    }
+    onArchived(task.threadId);
+    archived = true;
+    showMessage(result.message ?? "Archived the Codex chat. TaskChef history remains available.");
+    return true;
+  } catch {
+    showMessage("Codex chat archiving is temporarily unavailable. Try again.");
+    return false;
+  } finally {
+    if (!archived) control.disabled = false;
+  }
+}

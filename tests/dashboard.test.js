@@ -47,8 +47,9 @@ import {
   statusFilterText,
   taskWithinDateFilter,
   turnPresentation,
+  canArchiveTask,
 } from "../src/dashboard/state.js";
-import { openTaskFromControl } from "../src/dashboard/actions.js";
+import { archiveTaskFromControl, openTaskFromControl } from "../src/dashboard/actions.js";
 import {
   RELATIVE_DATE_LIMIT_DAYS,
   RELATIVE_TIME_REFRESH_MS,
@@ -616,6 +617,85 @@ test("dashboard task controls preserve open fallback and failure messages", asyn
     });
   }
   assert.deepEqual(messages, responses);
+});
+
+test("dashboard archive eligibility includes every linked non-working state", () => {
+  for (const status of ["needs_input", "completed", "failed"]) {
+    assert.equal(canArchiveTask({ status, threadId: FIRST_THREAD_ID }), true);
+  }
+  assert.equal(canArchiveTask({ status: "working", threadId: FIRST_THREAD_ID }), false);
+  assert.equal(canArchiveTask({ status: "failed", threadId: "opaque-thread" }), false);
+  assert.equal(canArchiveTask({
+    status: "failed",
+    threadId: "11111111-1111-4111-8111-111111111111",
+  }), false);
+  assert.equal(canArchiveTask({ status: "failed", threadId: null }), false);
+});
+
+test("dashboard archive control confirms consequences and reports success", async () => {
+  const requests = [];
+  const confirmations = [];
+  const archived = [];
+  const messages = [];
+  const control = { disabled: false };
+  const task = { id: FIRST_ID, threadId: FIRST_THREAD_ID, title: "Close stalled work" };
+  const result = await archiveTaskFromControl({
+    currentTarget: control,
+    stopPropagation: () => {},
+  }, task, {
+    confirmAction: (message) => { confirmations.push(message); return true; },
+    fetchAction: async (url, options) => {
+      requests.push({ url, options, disabledDuringRequest: control.disabled });
+      return {
+        ok: true,
+        json: async () => ({
+          message: "Archived the Codex chat. TaskChef history remains available.",
+          status: "archived",
+        }),
+      };
+    },
+    onArchived: (threadId) => archived.push(threadId),
+    showMessage: (message) => messages.push(message),
+  });
+  assert.equal(result, true);
+  assert.match(confirmations[0], /spawned descendant chats may also be archived/);
+  assert.match(confirmations[0], /TaskChef history will remain available/);
+  assert.deepEqual(requests, [{
+    url: `/api/tasks/${FIRST_ID}/archive-codex`,
+    options: { method: "POST" },
+    disabledDuringRequest: true,
+  }]);
+  assert.deepEqual(archived, [FIRST_THREAD_ID]);
+  assert.deepEqual(messages, ["Archived the Codex chat. TaskChef history remains available."]);
+  assert.equal(control.disabled, true);
+});
+
+test("dashboard archive control leaves a declined or failed action unchanged", async () => {
+  const messages = [];
+  const task = { id: FIRST_ID, threadId: FIRST_THREAD_ID, title: "Keep this chat" };
+  let fetched = false;
+  assert.equal(await archiveTaskFromControl({
+    currentTarget: { disabled: false },
+    stopPropagation: () => {},
+  }, task, {
+    confirmAction: () => false,
+    fetchAction: async () => { fetched = true; },
+    showMessage: (message) => messages.push(message),
+  }), false);
+  assert.equal(fetched, false);
+
+  assert.equal(await archiveTaskFromControl({
+    currentTarget: { disabled: false },
+    stopPropagation: () => {},
+  }, task, {
+    confirmAction: () => true,
+    fetchAction: async () => ({
+      ok: false,
+      json: async () => ({ message: "Working tasks cannot be archived from the dashboard." }),
+    }),
+    showMessage: (message) => messages.push(message),
+  }), false);
+  assert.deepEqual(messages, ["Working tasks cannot be archived from the dashboard."]);
 });
 
 test("dashboard notification labels describe immutable lifecycle events", () => {
@@ -1474,7 +1554,6 @@ test("dashboard server serves independent clients without sessions and protects 
     openProject: async (projectPath) => { openedProject = projectPath; },
     openThread: async (threadId) => { openedThread = threadId; },
   });
-
   try {
     assert.equal(new URL(server.url).search, "");
     const page = await fetch(server.url);
@@ -1671,6 +1750,114 @@ test("dashboard open action preserves the unresolved task project fallback", asy
     assert.equal((await response.json()).message,
       "Opened the project in Codex; this task does not yet have a thread ID.");
   } finally {
+    await server.close();
+  }
+});
+
+test("dashboard archive action accepts every non-working state and rejects working tasks", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, {
+    ...input(project, FIRST_ID, "Archivable task", null),
+    instruction: `<!-- taskchef_id=${FIRST_ID} -->\n\nTest dashboard archiving.`,
+  });
+  await linkTask(workspace, FIRST_ID, FIRST_THREAD_ID);
+  await reportTaskResult(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "completed",
+    summary: "Initial work completed.",
+  });
+  const archived = [];
+  let releaseArchive = null;
+  let blockArchive = false;
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    monitorOptions: { pollIntervalMs: 60_000 },
+    discoverArchiveCli: async () => ({ path: "/mock/Codex.app/Contents/Resources/codex", source: "desktop-bundle" }),
+    archiveThread: async (threadId) => {
+      archived.push(threadId);
+      if (blockArchive) await new Promise((resolve) => { releaseArchive = resolve; });
+    },
+  });
+  server.monitor.watcher?.close();
+  server.monitor.watcher = null;
+  const archive = () => fetch(`${server.origin}/api/tasks/${FIRST_ID}/archive-codex`, {
+    method: "POST",
+    headers: { Origin: server.origin },
+  });
+  try {
+    const forgedOrigin = await fetch(
+      `${server.origin}/api/tasks/${FIRST_ID}/archive-codex`,
+      { method: "POST", headers: { Origin: "http://example.invalid" } },
+    );
+    assert.equal(forgedOrigin.status, 403);
+    assert.deepEqual(archived, []);
+
+    const completed = await archive();
+    assert.equal(completed.status, 200);
+    assert.equal((await completed.json()).status, "archived");
+
+    await reportTaskState(workspace, {
+      taskId: FIRST_ID,
+      threadId: FIRST_THREAD_ID,
+      turnId: SECOND_TURN_ID,
+      status: "working",
+      requestSummary: "Continue after completion.",
+    });
+    const working = await archive();
+    assert.equal(working.status, 409);
+    assert.match((await working.json()).message, /Working tasks cannot be archived/);
+
+    await reportTaskState(workspace, {
+      taskId: FIRST_ID,
+      threadId: FIRST_THREAD_ID,
+      turnId: SECOND_TURN_ID,
+      status: "needs_input",
+      summary: "Choose whether to continue.",
+    });
+    assert.equal((await archive()).status, 200);
+
+    const thirdTurnId = "01a03275-d532-7043-ab4a-513a1ad6ae1e";
+    await reportTaskState(workspace, {
+      taskId: FIRST_ID,
+      threadId: FIRST_THREAD_ID,
+      turnId: thirdTurnId,
+      status: "working",
+      requestSummary: "Try one final time.",
+    });
+    await reportTaskState(workspace, {
+      taskId: FIRST_ID,
+      threadId: FIRST_THREAD_ID,
+      turnId: thirdTurnId,
+      status: "failed",
+      summary: "The final attempt failed.",
+    });
+    assert.equal((await archive()).status, 200);
+    assert.deepEqual(archived, [FIRST_THREAD_ID, FIRST_THREAD_ID, FIRST_THREAD_ID]);
+
+    blockArchive = true;
+    const first = archive();
+    await waitFor(() => releaseArchive !== null);
+    let transitionSettled = false;
+    const concurrentTransition = reportTaskState(workspace, {
+      taskId: FIRST_ID,
+      threadId: FIRST_THREAD_ID,
+      turnId: "01a03275-d533-7043-ab4a-513a1ad6ae1e",
+      status: "working",
+      requestSummary: "Start only after archival finishes.",
+    }).finally(() => { transitionSettled = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(transitionSettled, false);
+    const duplicate = await archive();
+    assert.equal(duplicate.status, 409);
+    assert.match((await duplicate.json()).message, /already being archived/);
+    releaseArchive();
+    assert.equal((await first).status, 200);
+    await concurrentTransition;
+  } finally {
+    releaseArchive?.();
     await server.close();
   }
 });
