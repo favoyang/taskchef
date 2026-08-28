@@ -100,7 +100,7 @@
       <div class="dialog-header">
         <div>
           <p id="dialog-project" class="eyebrow"></p>
-          <h2 id="dialog-title"></h2>
+          <h2 id="dialog-title" tabindex="-1"></h2>
         </div>
         <button id="close-dialog" class="icon-button" type="button" aria-label="Close task details">×</button>
       </div>
@@ -113,8 +113,10 @@
           <span>Open task</span>
         </button>
         <button id="copy-task-id" class="secondary-button" type="button" aria-label="Copy Task ID">Copy Task ID</button>
+        <button id="change-task-state" class="secondary-button" type="button" hidden>Change state</button>
         <button id="archive-codex" class="danger-button" type="button" aria-label="Archive this chat in Codex" hidden>Archive chat</button>
       </div>
+      <div id="manual-transition-panel" class="manual-transition-panel" hidden></div>
       <nav id="dialog-related-links" class="github-links" aria-label="Related GitHub links" hidden></nav>
       <section>
         <h3>Activity timeline</h3>

@@ -1,22 +1,33 @@
 import {
   canArchiveTask,
+  canManuallyTransitionTask,
   clearNotifications,
   dismissNotification,
   filterTasks,
   findCurrentTask,
   latestTurnPresentation,
+  manualTransitionExpectedState,
   mergeProjectedTurns,
   nextDateFilterRefreshDelay,
   notificationDismissLabel,
   notificationOpenLabel,
   notificationTitle,
   reconcileNotifications,
+  reconcileManualTransition,
+  reconcileManualTransitionResponse,
   statusFilterCounts,
   statusFilterText,
   taskStatusLabel,
+  taskMatchesManualTransitionExpected,
   turnPresentation,
 } from "./state.js";
-import { archiveTaskFromControl, openTaskFromControl } from "./actions.js";
+import {
+  archiveTaskFromControl,
+  focusManualTransitionStatus,
+  handleManualTransitionEscape,
+  manuallyTransitionTaskFromControl,
+  openTaskFromControl,
+} from "./actions.js";
 import {
   githubReferenceAccessibleLabel,
   githubReferenceDisplayLabels,
@@ -32,6 +43,7 @@ const state = {
   notifications: [],
   seenNotificationIds: new Set(),
   initialized: false,
+  manualTransition: null,
   selectedTask: null,
 };
 let dateRefreshTimer = null;
@@ -43,6 +55,7 @@ const relativeTimes = new RelativeTimeController();
 const elements = {
   archiveTask: document.querySelector("#archive-codex"),
   clearNotifications: document.querySelector("#clear-notifications"),
+  changeTaskState: document.querySelector("#change-task-state"),
   closeDialog: document.querySelector("#close-dialog"),
   connectionDot: document.querySelector("#connection-dot"),
   connectionLabel: document.querySelector("#connection-label"),
@@ -61,6 +74,7 @@ const elements = {
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
   notificationAnnouncer: document.querySelector("#notification-announcer"),
+  manualTransitionPanel: document.querySelector("#manual-transition-panel"),
   openProject: document.querySelector("#open-codex"),
   projectFilter: document.querySelector("#project-filter"),
   statusFilter: document.querySelector("#status-filter"),
@@ -370,6 +384,12 @@ function turnTimeline(task) {
       key: `detail:${task.id}:turn:${turnKey}`,
     });
     header.append(status, timestamp);
+    if (presentation.sourceLabel) {
+      const source = document.createElement("span");
+      source.className = "result-history-source";
+      source.textContent = presentation.sourceLabel;
+      header.insertBefore(source, timestamp);
+    }
     const requestLabel = document.createElement("h4");
     requestLabel.textContent = "Request";
     const request = document.createElement("p");
@@ -390,6 +410,183 @@ function turnTimeline(task) {
     item.append(header, requestLabel, request, resultLabel, result, turnMetadata);
     return item;
   });
+}
+
+function manualTransitionPending() {
+  return state.manualTransition?.stage === "pending";
+}
+
+function resetManualTransition({ focus = false } = {}) {
+  state.manualTransition = null;
+  elements.closeDialog.disabled = false;
+  if (state.selectedTask) renderManualTransition(state.selectedTask);
+  if (focus && !elements.changeTaskState.hidden) elements.changeTaskState.focus();
+}
+
+function manualTransitionButton(label, className, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function replaceCurrentTask(task) {
+  state.tasks = state.tasks.map((candidate) => candidate.id === task.id ? task : candidate);
+  state.selectedTask = task;
+}
+
+function renderManualTransition(task) {
+  const eligible = canManuallyTransitionTask(task);
+  state.manualTransition = reconcileManualTransition(state.manualTransition, task);
+  const pending = manualTransitionPending();
+  elements.changeTaskState.hidden = !eligible;
+  elements.changeTaskState.disabled = pending;
+  elements.changeTaskState.setAttribute("aria-expanded", String(Boolean(state.manualTransition)));
+  elements.closeDialog.disabled = pending;
+  elements.manualTransitionPanel.replaceChildren();
+  elements.manualTransitionPanel.hidden = state.manualTransition === null;
+  if (!state.manualTransition) {
+    elements.closeDialog.disabled = false;
+    return;
+  }
+
+  const transition = state.manualTransition;
+  const heading = document.createElement("p");
+  heading.className = "manual-transition-heading";
+  const controls = document.createElement("div");
+  controls.className = "manual-transition-controls";
+  elements.manualTransitionPanel.setAttribute(
+    "aria-busy",
+    String(transition.stage === "pending"),
+  );
+
+  if (transition.stage === "choose") {
+    heading.textContent = "Choose the final task state.";
+    const completed = manualTransitionButton(
+      "Mark completed",
+      "primary-button",
+      () => {
+        state.manualTransition = {
+          ...state.manualTransition,
+          stage: "confirm",
+          targetStatus: "completed",
+          actionId: crypto.randomUUID(),
+          error: null,
+        };
+        renderManualTransition(task);
+        elements.manualTransitionPanel.querySelector("[data-confirm-transition]")?.focus();
+      },
+    );
+    completed.dataset.manualTarget = "completed";
+    const failed = manualTransitionButton(
+      "Mark failed",
+      "danger-button",
+      () => {
+        state.manualTransition = {
+          ...state.manualTransition,
+          stage: "confirm",
+          targetStatus: "failed",
+          actionId: crypto.randomUUID(),
+          error: null,
+        };
+        renderManualTransition(task);
+        elements.manualTransitionPanel.querySelector("[data-confirm-transition]")?.focus();
+      },
+    );
+    failed.dataset.manualTarget = "failed";
+    const cancel = manualTransitionButton("Cancel", "text-button", () => {
+      resetManualTransition({ focus: true });
+    });
+    controls.append(completed, failed, cancel);
+  } else {
+    const target = transition.targetStatus;
+    heading.textContent = `Mark “${task.title}” ${target}?`;
+    const confirm = manualTransitionButton(
+      transition.stage === "pending" ? "Saving…" : `Confirm ${target}`,
+      target === "failed" ? "danger-button" : "primary-button",
+      async (event) => {
+        if (manualTransitionPending()) return;
+        const attempt = { ...state.manualTransition, stage: "pending", error: null };
+        state.manualTransition = attempt;
+        elements.closeDialog.disabled = true;
+        renderManualTransition(task);
+        const result = await manuallyTransitionTaskFromControl(
+          event,
+          { ...task, ...attempt.expected },
+          target,
+          attempt.actionId,
+        );
+        const current = reconcileManualTransitionResponse({
+          requestTask: task,
+          expected: attempt.expected,
+          responseTask: result.task,
+          selectedTask: state.selectedTask,
+        });
+        if (result.ok) {
+          state.manualTransition = null;
+          if (current === result.task) replaceCurrentTask(result.task);
+          renderDialog(current);
+          render();
+          showMessage(result.task.summary);
+          elements.dialogTitle.focus?.();
+          return;
+        }
+        if (current === result.task) replaceCurrentTask(result.task);
+        if (
+          !canManuallyTransitionTask(current)
+          || !taskMatchesManualTransitionExpected(current, attempt.expected)
+        ) {
+          state.manualTransition = null;
+          renderDialog(current);
+          render();
+          showMessage("This task changed. Review its current state before trying again.");
+          elements.dialogTitle.focus?.();
+          return;
+        }
+        state.manualTransition = {
+          ...attempt,
+          stage: "confirm",
+          error: result.message,
+          actionId: result.code === "stale_task" ? crypto.randomUUID() : attempt.actionId,
+        };
+        renderDialog(current);
+        elements.manualTransitionPanel.querySelector("[role=alert]")?.focus();
+      },
+    );
+    confirm.dataset.confirmTransition = "true";
+    const cancel = manualTransitionButton("Cancel", "text-button", () => {
+      resetManualTransition({ focus: true });
+    });
+    const pending = transition.stage === "pending";
+    confirm.disabled = pending;
+    cancel.disabled = pending;
+    if (pending) {
+      const pendingStatus = document.createElement("p");
+      pendingStatus.className = "manual-transition-pending";
+      pendingStatus.dataset.manualTransitionStatus = "true";
+      pendingStatus.role = "status";
+      pendingStatus.setAttribute("aria-live", "polite");
+      pendingStatus.tabIndex = -1;
+      pendingStatus.textContent = "Saving task state…";
+      elements.manualTransitionPanel.append(pendingStatus);
+    }
+    controls.append(confirm, cancel);
+    if (transition.error) {
+      const error = document.createElement("p");
+      error.className = "manual-transition-error";
+      error.role = "alert";
+      error.tabIndex = -1;
+      error.textContent = transition.error;
+      elements.manualTransitionPanel.append(error);
+    }
+  }
+  elements.manualTransitionPanel.prepend(heading);
+  elements.manualTransitionPanel.append(controls);
+  if (transition.stage === "pending") {
+    focusManualTransitionStatus(elements.manualTransitionPanel);
+  }
 }
 
 function renderDialog(task) {
@@ -458,6 +655,7 @@ function renderDialog(task) {
     "aria-label",
     archived ? `${task.title} is archived in Codex` : `Archive ${task.title} in Codex`,
   );
+  renderManualTransition(detailedTask);
 }
 
 async function openDialog(task) {
@@ -634,9 +832,37 @@ elements.clearNotifications.addEventListener("click", () => {
   state.notifications = clearNotifications();
   renderNotifications();
 });
-elements.closeDialog.addEventListener("click", () => elements.dialog.close());
+elements.closeDialog.addEventListener("click", () => {
+  if (!manualTransitionPending()) elements.dialog.close();
+});
 elements.dialog.addEventListener("click", (event) => {
-  if (event.target === elements.dialog) elements.dialog.close();
+  if (event.target === elements.dialog && !manualTransitionPending()) elements.dialog.close();
+});
+elements.dialog.addEventListener("keydown", (event) => {
+  handleManualTransitionEscape(event, {
+    active: Boolean(state.manualTransition),
+    pending: manualTransitionPending(),
+    cancel: () => resetManualTransition({ focus: true }),
+  });
+});
+elements.dialog.addEventListener("cancel", (event) => {
+  if (!state.manualTransition) return;
+  event.preventDefault();
+  if (!manualTransitionPending()) resetManualTransition({ focus: true });
+});
+elements.dialog.addEventListener("close", () => {
+  if (!manualTransitionPending()) state.manualTransition = null;
+});
+elements.changeTaskState.addEventListener("click", () => {
+  const task = state.selectedTask;
+  if (!task || !canManuallyTransitionTask(task)) return;
+  state.manualTransition = {
+    taskId: task.id,
+    stage: "choose",
+    expected: manualTransitionExpectedState(task),
+  };
+  renderManualTransition(task);
+  elements.manualTransitionPanel.querySelector('[data-manual-target="completed"]')?.focus();
 });
 elements.copyTaskId.addEventListener("click", async () => {
   const taskId = state.selectedTask?.id;

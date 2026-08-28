@@ -149,6 +149,13 @@ dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); 
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin-bottom: 12px; font-size: 1.6rem; }
 .dialog-actions { display: flex; gap: 8px; margin-bottom: 26px; }
+.manual-transition-panel { display: grid; gap: 9px; margin: -16px 0 26px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
+.manual-transition-panel[hidden] { display: none; }
+.manual-transition-heading, .manual-transition-error, .manual-transition-pending { margin: 0; }
+.manual-transition-heading { font-weight: 700; }
+.manual-transition-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.manual-transition-error { color: var(--danger); font-size: 0.86rem; }
+.manual-transition-pending { color: var(--muted); font-size: 0.86rem; }
 .primary-button, .secondary-button, .danger-button { padding: 8px 12px; border-radius: 7px; font-weight: 700; cursor: pointer; }
 .primary-button { border: 1px solid var(--accent); background: var(--accent); color: white; }
 .secondary-button { border: 1px solid var(--border); background: var(--surface); }
@@ -160,6 +167,8 @@ dialog section + section { margin-top: 24px; }
 .result-history-item { padding: 13px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); }
 .result-history-latest { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
 .result-history-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.result-history-header .timestamp-toggle { margin-left: auto; }
+.result-history-source { color: var(--muted); font-size: 0.72rem; font-weight: 700; }
 .result-history-item p { margin-bottom: 7px; }
 .result-history-item p:last-child { margin-bottom: 0; }
 .result-history-item h4 { margin: 10px 0 3px; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -191,6 +200,7 @@ pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius
   .status-filter-option span { min-height: 38px; }
   .primary-button.task-action, .secondary-button.task-action { min-height: 40px; }
   .dialog-actions { align-items: center; flex-flow: row wrap; }
+  .manual-transition-controls > button { min-height: 40px; }
   .metadata { grid-template-columns: 1fr; }
   .metadata dt { padding-bottom: 0; border-bottom: 0; }
 }
