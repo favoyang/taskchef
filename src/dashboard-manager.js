@@ -14,13 +14,14 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3210;
 const HEALTH_TIMEOUT_MS = 750;
 
-function expectedIdentity(workspace, taskchefVersion, serverVersion) {
+function expectedIdentity(workspace, taskchefVersion, serverVersion, launcher) {
   return {
     schemaVersion: 1,
     service: "taskchef-dashboard",
     taskchefVersion,
     serverVersion,
     workspace,
+    launcher,
   };
 }
 
@@ -107,6 +108,7 @@ export function createDashboardManager({
   port = DEFAULT_PORT,
   taskchefVersion = TASKCHEF_VERSION,
   serverVersion = DASHBOARD_SERVER_VERSION,
+  launcher = "mcp",
   createServer = createDashboardServer,
   readIdentity = readDashboardIdentity,
 } = {}) {
@@ -117,6 +119,7 @@ export function createDashboardManager({
 
   const publicResult = (action) => ({
     action,
+    launcher,
     url: `http://${dashboardAuthority(host, ownedServer?.port ?? port)}/`,
     workspace: canonicalWorkspace,
     taskchefVersion,
@@ -132,9 +135,12 @@ export function createDashboardManager({
       if (listenerAbsent(error)) return false;
       throw listenerConflict(url, `is occupied but did not return a compatible identity (${error.message}).`);
     }
-    const expected = expectedIdentity(canonicalWorkspace, taskchefVersion, serverVersion);
+    const expected = expectedIdentity(canonicalWorkspace, taskchefVersion, serverVersion, launcher);
     if (!isExactIdentity(identity, expected)) {
-      throw listenerConflict(url, "belongs to an unknown, stale, or different-workspace service.");
+      throw listenerConflict(
+        url,
+        "belongs to an unknown, stale, different-workspace, or differently launched service.",
+      );
     }
     return true;
   };
@@ -150,6 +156,7 @@ export function createDashboardManager({
         port,
         taskchefVersion,
         serverVersion,
+        launcher,
       });
       return publicResult("started");
     } catch (error) {

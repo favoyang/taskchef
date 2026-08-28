@@ -452,6 +452,7 @@ export async function createDashboardServer({
   monitorOptions = {},
   openProject = null,
   openThread = null,
+  launcher = "standalone",
   taskchefVersion = TASKCHEF_VERSION,
   serverVersion = DASHBOARD_SERVER_VERSION,
 } = {}) {
@@ -464,6 +465,9 @@ export async function createDashboardServer({
   if (!Number.isInteger(maxEventClients) || maxEventClients < 0) {
     throw new Error("dashboard event-client limit must be a non-negative integer");
   }
+  if (!new Set(["mcp", "standalone"]).has(launcher)) {
+    throw new Error("dashboard launcher must be mcp or standalone");
+  }
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   await monitor.start();
   const identity = Object.freeze({
@@ -472,6 +476,7 @@ export async function createDashboardServer({
     taskchefVersion,
     serverVersion,
     workspace: monitor.workspace,
+    launcher,
   });
   if (Buffer.byteLength(`${JSON.stringify(identity)}\n`) > DASHBOARD_HEALTH_MAX_BYTES) {
     monitor.close();

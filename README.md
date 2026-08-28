@@ -271,6 +271,11 @@ and its activity timeline remain unchanged. If the bundled CLI is unavailable,
 the dashboard does not fall back to another `codex` executable from `PATH`.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
+The canonical port is owned by a dashboard initialized in the TaskChef MCP host
+before its tool transport connects. Health identity records an `mcp` launcher,
+and MCP recovery reuses only another exact-compatible MCP-launched dashboard;
+a foreground `taskchef dashboard` process is intentionally standalone so its
+child commands cannot silently inherit an agent-shell sandbox.
 Task and result times are relative through 29 days (with minute detail for the
 first six hours), then use a locale-aware calendar date. Each time is a keyboard-
 accessible toggle for its full locale-aware date and time, and one shared
@@ -281,16 +286,17 @@ revision, so reconnects and non-semantic rewrites do not replay a notice and a
 later task state cannot rewrite an older notice. A notice remains readable if
 its task disappears; selecting it then explains that current details are no
 longer available.
-It does not mutate TaskChef data and prints its local URL.
-When a compatible foreground dashboard already owns port 3210,
-`ensure_dashboard` reuses it but does not take ownership. If an unknown,
-different-workspace, or stale-version process owns the port, TaskChef reports a
-concise conflict and never kills or replaces that process. The foreground CLI
-similarly asks you to stop the listener or choose another `--port`.
+It does not mutate TaskChef data and prints its local URL. A foreground
+dashboard identifies itself as standalone and is never reused on the canonical
+MCP port. If a standalone, unknown, different-workspace, or stale-version
+process owns port 3210, TaskChef reports a concise conflict and never kills or
+replaces that process. The foreground CLI similarly asks you to stop the
+listener or choose another `--port`.
 
 The health endpoint contains only a fixed service marker, health schema,
-TaskChef version, dashboard-server version, and canonical workspace. It exposes
-no task data, credentials, environment variables, process control, or secrets.
+TaskChef version, dashboard-server version, canonical workspace, and launcher.
+It exposes no task data, credentials, environment variables, process control,
+or secrets.
 
 ![TaskChef dashboard identity and version](docs/images/dashboard-identity.jpg)
 
@@ -351,13 +357,15 @@ does not necessarily reload Codex. Then run `$taskchef-dashboard` (or call
 
 - the expected released TaskChef version;
 - the expected dashboard protocol `serverVersion`;
+- the `mcp` dashboard launcher;
 - the canonical TaskChef workspace path;
 - the canonical `http://127.0.0.1:3210/` URL.
 
 The release-install sequence is therefore: install plugin, activate or reload
 the new MCP process, ensure the dashboard, then verify TaskChef version,
-protocol `serverVersion`, canonical workspace, and URL. Exact-compatible
-servers may be reused; unknown listeners remain untouched.
+protocol `serverVersion`, `mcp` launcher, canonical workspace, and URL.
+Exact-compatible MCP servers may be reused; standalone and unknown listeners
+remain untouched.
 
 ## Development
 

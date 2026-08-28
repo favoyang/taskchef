@@ -40,11 +40,11 @@ sequenceDiagram
   participant H as Loopback health
   participant S as Dashboard server
   M->>M: Read dashboard.autostart (absent means true)
-  M->>M: Best-effort ensure after MCP connect
+  M->>M: Best-effort ensure before MCP transport connects
   D->>M: ensure_dashboard()
   M->>M: Serialize concurrent ensure calls
   M->>H: GET 127.0.0.1:3210/api/health
-  alt Exact service, versions, and canonical workspace
+  alt Exact service, versions, canonical workspace, and MCP launcher
     H-->>M: Bounded compatible identity
     M-->>D: reused, URL, workspace, versions
   else No listener
@@ -52,7 +52,7 @@ sequenceDiagram
     M->>S: Start in this MCP process on 127.0.0.1:3210
     S-->>M: Owned server
     M-->>D: started, URL, workspace, versions
-  else Unknown, stale, or different workspace
+  else Standalone, unknown, stale, or different workspace
     H-->>M: Missing or incompatible identity
     M-->>D: Actionable conflict, listener untouched
   end
@@ -62,9 +62,10 @@ sequenceDiagram
 ```
 
 When the MCP transport or plugin process closes, it closes only the server it
-started. A compatible foreground `taskchef dashboard` listener may be reused
-but remains owned by that CLI process. No TaskChef path terminates an unknown
-listener or installs OS persistence.
+started. A foreground `taskchef dashboard` listener identifies itself as
+standalone and is never reused as the canonical MCP dashboard, because its
+archive child process may inherit a different host environment. No TaskChef
+path terminates an incompatible listener or installs OS persistence.
 
 Autostart and explicit ensures share the same manager promise, so concurrent
 initialization and recovery calls produce at most one owned listener. An
@@ -79,13 +80,13 @@ The practical release handoff ends in this order:
 1. Install the released plugin.
 2. Activate or reload its new TaskChef MCP process.
 3. Run `$taskchef-dashboard` or call `ensure_dashboard`.
-4. Verify the expected TaskChef version, protocol `serverVersion`, canonical
-   workspace, and canonical URL returned by the dashboard identity.
+4. Verify the expected TaskChef version, protocol `serverVersion`, `mcp`
+   launcher, canonical workspace, and canonical URL returned by the dashboard identity.
 
 Replacing plugin files alone cannot execute autostart because old code remains
 in the already-running MCP process. Installation does not necessarily reload
-Codex. An exact-compatible dashboard may be reused; an unknown listener is
-never terminated or replaced.
+Codex. An exact-compatible MCP dashboard may be reused; a standalone or unknown
+listener is never terminated or replaced.
 
 ## Normal delegation and self-linking
 

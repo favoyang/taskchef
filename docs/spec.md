@@ -121,13 +121,16 @@ fields MUST NOT change after recording.
 
 ## Required lifecycle
 
-When the canonical TaskChef MCP server finishes connecting, it MUST invoke the
-same serialized dashboard ensure path once by default. It MUST read the
+Before the canonical TaskChef MCP server connects and exposes its transport, it
+MUST invoke the same serialized dashboard ensure path once by default. It MUST read the
 canonical configuration and skip this only for explicit
 `dashboard.autostart: false`. Initialization failures, invalid workspace state,
 port conflicts, and dashboard errors MUST NOT prevent tool registration or MCP
 availability. They MUST emit only a bounded non-sensitive diagnostic through
 the MCP process logging channel. MCP initialization MUST NOT open a browser.
+If transport connection fails after dashboard startup, the MCP server MUST
+best-effort close both its owned dashboard and partially attached transport,
+then propagate the original connection failure even when cleanup also fails.
 
 At the start of every dispatcher turn, the dispatcher SHOULD call
 `ensure_dashboard` best-effort. Failure MUST NOT block direct TaskChef answers,
@@ -228,6 +231,7 @@ HTTP server; it does not mutate dispatcher workspace files.
 ```text
 { dashboard: {
   action: "started" | "reused",
+  launcher: "mcp",
   url: "http://127.0.0.1:3210/",
   workspace: string,
   taskchefVersion: string,
@@ -235,20 +239,22 @@ HTTP server; it does not mutate dispatcher workspace files.
 } }
 ```
 
-Calls MUST serialize within one MCP process. The first call starts an owned
-dashboard or reuses an exact compatible listener; later and concurrent calls
-are idempotent and report reuse after the single start. The stable default MUST
+MCP initialization MUST complete its best-effort dashboard start before exposing
+the MCP transport. Calls MUST serialize within one MCP process. The first call
+starts an owned dashboard or reuses an exact compatible MCP-launched listener;
+later and concurrent calls are idempotent and report reuse after the single start. The stable default MUST
 bind only to `127.0.0.1:3210` and MUST NOT accept a model-supplied workspace,
 host, or port.
 
 Before reuse, TaskChef MUST query a bounded loopback identity endpoint and
 require the exact fixed service/schema, TaskChef version, dashboard-server
-version, and canonical workspace. An unknown, malformed, different-workspace,
-or stale-version listener MUST produce a concise actionable conflict. TaskChef
+version, canonical workspace, and `mcp` launcher identity. A standalone,
+unknown, malformed, different-workspace, or stale-version listener MUST produce a concise actionable conflict. TaskChef
 MUST NOT kill, replace, signal, or otherwise control that listener. A startup
 failure MUST leave no owned listener. The MCP server MUST close its owned
-dashboard when its transport or process shuts down; it MUST NOT close a reused
-external foreground server.
+dashboard when its transport or process shuts down. This keeps dashboard child
+operations in the MCP host environment and prevents an agent-shell or foreground
+CLI dashboard from being mistaken for the canonical MCP-owned runtime.
 
 The packaged `$taskchef-dashboard` skill MUST call this tool, report `started`
 or `reused`, and return the canonical clickable URL. It MAY use an available
@@ -510,6 +516,6 @@ closed.
 Installing or replacing plugin files MUST NOT be described as activating the
 new MCP code. Release verification MUST install the plugin, activate or reload
 the new MCP process, ensure the dashboard, and verify the expected TaskChef
-version, dashboard protocol `serverVersion`, canonical workspace, and canonical
-URL. Exact-compatible listener reuse remains valid; installation MUST NOT be
+version, dashboard protocol `serverVersion`, `mcp` launcher, canonical workspace,
+and canonical URL. Exact-compatible MCP-listener reuse remains valid; installation MUST NOT be
 claimed to reload Codex automatically.

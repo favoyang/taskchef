@@ -590,6 +590,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   const dashboardManager = {
     ensure: async () => ({
       action: ensureCount++ === 0 ? "started" : "reused",
+      launcher: "mcp",
       url: "http://127.0.0.1:3210/",
       workspace: await realpath(workspace),
       taskchefVersion: "7.3.0",
@@ -606,8 +607,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(ensureCount, 1, "MCP connection should autostart the dashboard");
+  assert.equal(ensureCount, 1, "MCP initialization should start the dashboard before connecting");
 
   try {
     const listed = await client.listTools();
@@ -813,6 +813,40 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
     await client.close();
     await server.close();
   }
+});
+
+test("MCP transport failure closes a dashboard started during initialization", async () => {
+  let ensureCount = 0;
+  let closeCount = 0;
+  let transportCloseCount = 0;
+  const server = createTaskChefMcpServer({
+    workspace: "/canonical/taskchef",
+    dashboardManager: {
+      ensure: async () => {
+        ensureCount += 1;
+        return { action: "started", launcher: "mcp" };
+      },
+      close: async () => {
+        closeCount += 1;
+        throw new Error("dashboard close failed");
+      },
+    },
+    readConfiguration: async () => ({ schemaVersion: 2, projects: [] }),
+  });
+  const transport = {
+    start: async () => { throw new Error("transport start failed"); },
+    send: async () => {},
+    close: async () => {
+      transportCloseCount += 1;
+      transport.onclose?.();
+    },
+  };
+
+  await assert.rejects(server.connect(transport), /transport start failed/);
+  assert.equal(ensureCount, 1);
+  assert.equal(closeCount >= 1, true);
+  assert.equal(transportCloseCount, 1);
+  assert.equal(server.server.transport, undefined);
 });
 
 test("bundled stdio MCP entry resolves TASKCHEF_WORKSPACE without model path input", async () => {
