@@ -78,6 +78,7 @@ class FakeEventSource {
 test("dashboard renders a live notification with time and shared accessible description", async () => {
   const previous = {
     clearInterval: globalThis.clearInterval,
+    confirm: globalThis.confirm,
     document: globalThis.document,
     EventSource: globalThis.EventSource,
     fetch: globalThis.fetch,
@@ -140,11 +141,13 @@ test("dashboard renders a live notification with time and shared accessible desc
       url: `https://github.com/acme/${repository}/${type === "pull" ? "pull" : "issues"}/${number}`,
     }));
     const clipboardWrites = [];
+    const archiveRequests = [];
     const pendingClipboardWrites = [];
     let clipboardMode = "reject";
     globalThis.document = document;
     globalThis.Node = FakeElement;
     globalThis.EventSource = FakeEventSource;
+    globalThis.confirm = () => true;
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
       value: { clipboard: { writeText: async (value) => {
@@ -155,7 +158,7 @@ test("dashboard renders a live notification with time and shared accessible desc
         clipboardWrites.push(value);
       } } },
     });
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, options) => {
       if (url === "/api/health") {
         return { ok: true, json: async () => ({ taskchefVersion: "test" }) };
       }
@@ -195,6 +198,16 @@ test("dashboard renders a live notification with time and shared accessible desc
               updatedAt: timestamp,
               updatedBy: "executor",
             },
+          }),
+        };
+      }
+      if (url === `/api/tasks/${taskId}/archive-codex`) {
+        archiveRequests.push({ url, options });
+        return {
+          ok: true,
+          json: async () => ({
+            message: "Archived the Codex chat. TaskChef history remains available.",
+            status: "archived",
           }),
         };
       }
@@ -365,6 +378,25 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.match(result.children[1].getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
 
+    const archiveTask = elements.get("#archive-codex");
+    assert.equal(archiveTask.hidden, false);
+    assert.equal(archiveTask.disabled, false);
+    assert.equal(archiveTask.textContent, "Archive chat");
+    await archiveTask.emit("click", {
+      currentTarget: archiveTask,
+      stopPropagation() {},
+    });
+    assert.deepEqual(archiveRequests, [{
+      url: `/api/tasks/${taskId}/archive-codex`,
+      options: { method: "POST" },
+    }]);
+    assert.equal(archiveTask.disabled, true);
+    assert.equal(archiveTask.textContent, "Archived");
+    assert.equal(
+      elements.get("#dashboard-message-text").textContent,
+      "Archived the Codex chat. TaskChef history remains available.",
+    );
+
     const copyTaskId = elements.get("#copy-task-id");
     assert.equal(copyTaskId.textContent, "Copy Task ID");
     assert.equal(copyTaskId.getAttribute("aria-label"), "Copy Task ID");
@@ -417,6 +449,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(elements.get("#task-list").children.length, 0);
   } finally {
     globalThis.clearInterval = previous.clearInterval;
+    globalThis.confirm = previous.confirm;
     globalThis.document = previous.document;
     globalThis.EventSource = previous.EventSource;
     globalThis.fetch = previous.fetch;

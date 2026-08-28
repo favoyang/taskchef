@@ -53,6 +53,8 @@ export {
 } from "./src/workspace-path.js";
 
 export {
+  archiveThreadInCodex,
+  discoverBundledCodexCli,
   discoverCodexCli,
   isCodexThreadDeepLinkId,
   openThreadInCodex,

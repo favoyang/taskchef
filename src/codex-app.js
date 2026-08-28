@@ -1,14 +1,22 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { normalizeCodexThreadId } from "./delegation.js";
+
 const execFile = promisify(execFileCallback);
 const CODEX_COMMAND_TIMEOUT_MS = 10_000;
-const CODEX_THREAD_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const CODEX_ARCHIVE_TIMEOUT_MS = 4_000;
+const CODEX_COMMAND_MAX_BUFFER_BYTES = 64 * 1024;
+const OPENAI_TEAM_IDENTIFIER = "2DC432GLL2";
 
-function runCodex(run, filePath, args) {
-  return run(filePath, args, { timeout: CODEX_COMMAND_TIMEOUT_MS, killSignal: "SIGKILL" });
+function runCodex(run, filePath, args, timeout = CODEX_COMMAND_TIMEOUT_MS) {
+  return run(filePath, args, {
+    timeout,
+    killSignal: "SIGKILL",
+    maxBuffer: CODEX_COMMAND_MAX_BUFFER_BYTES,
+  });
 }
 
 async function executable(filePath) {
@@ -20,15 +28,31 @@ async function executable(filePath) {
   }
 }
 
-function pathCandidates(env) {
+function pathCandidates(env, platform = process.platform) {
   return (env.PATH ?? "")
     .split(path.delimiter)
     .filter(Boolean)
-    .map((directory) => path.join(directory, process.platform === "win32" ? "codex.exe" : "codex"));
+    .map((directory) => path.join(directory, platform === "win32" ? "codex.exe" : "codex"));
 }
 
-function isDesktopBundleCandidate(filePath) {
-  return filePath.includes(`${path.sep}Contents${path.sep}Resources${path.sep}`);
+function isDesktopBundleCandidate(filePath, platform = process.platform) {
+  if (platform !== "darwin" || path.basename(filePath) !== "codex") return false;
+  const resources = path.dirname(filePath);
+  const contents = path.dirname(resources);
+  const application = path.dirname(contents);
+  return path.basename(resources) === "Resources"
+    && path.basename(contents) === "Contents"
+    && new Set(["ChatGPT.app", "Codex.app"]).has(path.basename(application));
+}
+
+function defaultDesktopBundleCandidates(env, platform) {
+  if (platform !== "darwin") return [];
+  const applicationRoots = ["/Applications"];
+  if (env.HOME) applicationRoots.push(path.join(env.HOME, "Applications"));
+  return applicationRoots.flatMap((root) => [
+    path.join(root, "ChatGPT.app", "Contents", "Resources", "codex"),
+    path.join(root, "Codex.app", "Contents", "Resources", "codex"),
+  ]);
 }
 
 async function supportsAppCommand(filePath, run) {
@@ -38,6 +62,50 @@ async function supportsAppCommand(filePath, run) {
   } catch {
     return false;
   }
+}
+
+async function supportsArchiveCommand(filePath, run) {
+  try {
+    const { stdout, stderr } = await runCodex(run, filePath, ["archive", "--help"]);
+    return /(?:^|\n)Usage:\s+codex\s+archive(?:\s|$)/.test(`${stdout}\n${stderr}`);
+  } catch {
+    return false;
+  }
+}
+
+async function hasOpenAiBundleIdentity(applicationPath) {
+  try {
+    const { stderr } = await runCodex(
+      execFile,
+      "/usr/bin/codesign",
+      ["-dv", "--verbose=4", applicationPath],
+    );
+    return new RegExp(`(?:^|\\n)TeamIdentifier=${OPENAI_TEAM_IDENTIFIER}(?:\\n|$)`)
+      .test(stderr);
+  } catch {
+    return false;
+  }
+}
+
+export async function discoverBundledCodexCli({
+  candidates = null,
+  env = process.env,
+  platform = process.platform,
+  run = execFile,
+  inspectBundle = hasOpenAiBundleIdentity,
+} = {}) {
+  const bundledCandidates = candidates ?? defaultDesktopBundleCandidates(env, platform);
+  for (const filePath of new Set(bundledCandidates.map((candidate) => path.resolve(candidate)))) {
+    const executableCandidate = await executable(filePath);
+    const candidate = executableCandidate === null ? null : await realpath(executableCandidate);
+    const applicationPath = candidate === null ? null : path.dirname(path.dirname(path.dirname(candidate)));
+    if (candidate && isDesktopBundleCandidate(candidate, platform)
+      && await inspectBundle(applicationPath)
+      && await supportsArchiveCommand(candidate, run)) {
+      return { path: candidate, source: "desktop-bundle" };
+    }
+  }
+  throw new Error("Chat archiving requires the Codex CLI bundled with the ChatGPT or Codex desktop app");
 }
 
 export async function discoverCodexCli({
@@ -56,7 +124,7 @@ export async function discoverCodexCli({
   }
 
   const candidates = pathCandidates(env);
-  for (const pathCandidate of candidates.filter(isDesktopBundleCandidate)) {
+  for (const pathCandidate of candidates.filter((candidate) => isDesktopBundleCandidate(candidate))) {
     const candidate = await executable(pathCandidate);
     if (candidate && await supportsAppCommand(candidate, run)) {
       return { path: candidate, source: "desktop-path" };
@@ -89,7 +157,12 @@ export async function openWorkspaceInCodex(workspace, options = {}) {
 }
 
 export function isCodexThreadDeepLinkId(threadId) {
-  return typeof threadId === "string" && CODEX_THREAD_ID_PATTERN.test(threadId);
+  try {
+    normalizeCodexThreadId(threadId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function openThreadInCodex(threadId, options = {}) {
@@ -107,4 +180,25 @@ export async function openThreadInCodex(threadId, options = {}) {
     await runCodex(run, "xdg-open", [url]);
   }
   return { status: "requested", mechanism: "codex-deep-link", threadId, url };
+}
+
+export async function archiveThreadInCodex(threadId, options = {}) {
+  if (!isCodexThreadDeepLinkId(threadId)) {
+    throw new Error("Codex thread ID is not supported by chat archiving");
+  }
+  const run = options.run ?? execFile;
+  const cli = options.cli ?? await discoverBundledCodexCli({ ...options, run });
+  await runCodex(
+    run,
+    cli.path,
+    ["archive", threadId],
+    options.timeoutMs ?? CODEX_ARCHIVE_TIMEOUT_MS,
+  );
+  return {
+    status: "archived",
+    mechanism: "codex-archive-cli",
+    codexCli: cli.path,
+    codexCliSource: cli.source,
+    threadId,
+  };
 }

@@ -149,10 +149,11 @@ dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); 
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dialog-header h2 { margin-bottom: 12px; font-size: 1.6rem; }
 .dialog-actions { display: flex; gap: 8px; margin-bottom: 26px; }
-.primary-button, .secondary-button { padding: 8px 12px; border-radius: 7px; font-weight: 700; cursor: pointer; }
+.primary-button, .secondary-button, .danger-button { padding: 8px 12px; border-radius: 7px; font-weight: 700; cursor: pointer; }
 .primary-button { border: 1px solid var(--accent); background: var(--accent); color: white; }
 .secondary-button { border: 1px solid var(--border); background: var(--surface); }
-.primary-button:disabled, .secondary-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.danger-button { border: 1px solid var(--danger); background: var(--surface); color: var(--danger); }
+.primary-button:disabled, .secondary-button:disabled, .danger-button:disabled { opacity: 0.5; cursor: not-allowed; }
 dialog section + section { margin-top: 24px; }
 .preserve-lines { white-space: pre-wrap; }
 .result-history { display: grid; gap: 10px; }

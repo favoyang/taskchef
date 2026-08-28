@@ -28,6 +28,7 @@ import * as taskchef from "../index.js";
 
 import {
   EXECUTOR_SKILL_INVOCATION,
+  archiveThreadInCodex,
   createAndRecordDelegation,
   createDashboardAutostart,
   createTaskChefMcpServer,
@@ -40,6 +41,7 @@ import {
   defaultWorkspacePath,
   dashboardAutostartEnabled,
   discoverCodexCli,
+  discoverBundledCodexCli,
   doctorWorkspace,
   ensureWorkspaceInstructions,
   filterTasks,
@@ -384,6 +386,87 @@ test("Codex CLI discovery never probes lower-precedence PATH entries", async () 
   await assert.rejects(lstat(lowerProbe), { code: "ENOENT" });
 });
 
+test("Codex archive discovery accepts only a desktop-bundled CLI with archive support", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-codex-archive-"));
+  const genericDirectory = path.join(root, "generic");
+  const bundledDirectory = path.join(root, "ChatGPT.app", "Contents", "Resources");
+  await Promise.all([mkdir(genericDirectory), mkdir(bundledDirectory, { recursive: true })]);
+  await writeFile(
+    path.join(genericDirectory, "codex"),
+    "#!/bin/sh\nprintf 'Usage: codex archive [OPTIONS] <SESSION>\\n'\n",
+    { mode: 0o700 },
+  );
+  const unrelatedBundle = path.join(root, "Fake.app", "Contents", "Resources", "codex");
+  await mkdir(path.dirname(unrelatedBundle), { recursive: true });
+  await writeFile(
+    unrelatedBundle,
+    "#!/bin/sh\nprintf 'Usage: codex archive [OPTIONS] <SESSION>\\n'\n",
+    { mode: 0o700 },
+  );
+  const escapedBundle = path.join(root, "Codex.app", "Contents", "Resources", "codex");
+  await mkdir(path.dirname(escapedBundle), { recursive: true });
+  await symlink(path.join(genericDirectory, "codex"), escapedBundle);
+  for (const rejected of [unrelatedBundle, escapedBundle]) {
+    await assert.rejects(
+      discoverBundledCodexCli({ candidates: [rejected], platform: "darwin" }),
+      /bundled with the ChatGPT or Codex desktop app/,
+    );
+  }
+  const bundled = path.join(bundledDirectory, "codex");
+  await writeFile(
+    bundled,
+    "#!/bin/sh\nprintf 'Usage: codex archive [OPTIONS] <SESSION>\\n'\n",
+    { mode: 0o700 },
+  );
+  await assert.rejects(
+    discoverBundledCodexCli({ candidates: [bundled], platform: "darwin" }),
+    /bundled with the ChatGPT or Codex desktop app/,
+  );
+  const inspectedApplications = [];
+  const found = await discoverBundledCodexCli({
+    candidates: [bundled],
+    platform: "darwin",
+    inspectBundle: async (applicationPath) => {
+      inspectedApplications.push(applicationPath);
+      return true;
+    },
+  });
+  assert.deepEqual(found, { path: await realpath(bundled), source: "desktop-bundle" });
+  assert.deepEqual(inspectedApplications, [await realpath(path.join(root, "ChatGPT.app"))]);
+
+  await assert.rejects(
+    discoverBundledCodexCli({
+      env: { PATH: genericDirectory },
+      platform: "linux",
+    }),
+    /bundled with the ChatGPT or Codex desktop app/,
+  );
+});
+
+test("Codex chat archiving directly invokes the bundled CLI with an argument array", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-codex-archive-run-"));
+  const bundled = path.join(root, "ChatGPT.app", "Contents", "Resources", "codex");
+  await mkdir(path.dirname(bundled), { recursive: true });
+  await writeFile(bundled, "#!/bin/sh\n", { mode: 0o700 });
+  const invocations = [];
+  const canonicalBundled = await realpath(bundled);
+  const threadId = "019ffb69-57a6-7801-8b7a-8ff4c32a398c";
+  const result = await archiveThreadInCodex(threadId, {
+    cli: { path: canonicalBundled, source: "desktop-bundle" },
+    run: async (...args) => {
+      invocations.push(args);
+      return { stdout: "", stderr: "" };
+    },
+  });
+  assert.deepEqual(invocations, [[
+    canonicalBundled,
+    ["archive", threadId],
+    { timeout: 4_000, killSignal: "SIGKILL", maxBuffer: 64 * 1024 },
+  ]]);
+  assert.equal(result.status, "archived");
+  assert.equal(result.codexCliSource, "desktop-bundle");
+});
+
 test("Codex thread opening uses the registered desktop deep link", async () => {
   const invocations = [];
   const threadId = "019FFB69-57A6-7801-8B7A-8FF4C32A398C";
@@ -394,7 +477,7 @@ test("Codex thread opening uses the registered desktop deep link", async () => {
   assert.deepEqual(invocations, [[
     "/usr/bin/open",
     [`codex://threads/${threadId}`],
-    { timeout: 10_000, killSignal: "SIGKILL" },
+    { timeout: 10_000, killSignal: "SIGKILL", maxBuffer: 64 * 1024 },
   ]]);
   assert.equal(result.mechanism, "codex-deep-link");
   assert.equal(result.threadId, threadId);
@@ -403,6 +486,10 @@ test("Codex thread opening uses the registered desktop deep link", async () => {
 test("Codex thread opening rejects missing and opaque non-native thread IDs", async () => {
   await assert.rejects(openThreadInCodex(""), /not supported/);
   await assert.rejects(openThreadInCodex("durable-thread"), /not supported/);
+  await assert.rejects(
+    openThreadInCodex("11111111-1111-4111-8111-111111111111"),
+    /not supported/,
+  );
 });
 
 test("workspace init can request Codex app opening through an explicit validated CLI", async () => {

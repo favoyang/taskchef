@@ -1,4 +1,5 @@
 import {
+  canArchiveTask,
   clearNotifications,
   dismissNotification,
   filterTasks,
@@ -15,7 +16,7 @@ import {
   taskStatusLabel,
   turnPresentation,
 } from "./state.js";
-import { openTaskFromControl } from "./actions.js";
+import { archiveTaskFromControl, openTaskFromControl } from "./actions.js";
 import {
   githubReferenceAccessibleLabel,
   githubReferenceDisplayLabels,
@@ -25,6 +26,7 @@ import {
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
 
 const state = {
+  archivedThreadIds: new Set(),
   tasks: [],
   signatures: new Map(),
   notifications: [],
@@ -39,6 +41,7 @@ let copyTaskIdTimer = null;
 const relativeTimes = new RelativeTimeController();
 
 const elements = {
+  archiveTask: document.querySelector("#archive-codex"),
   clearNotifications: document.querySelector("#clear-notifications"),
   closeDialog: document.querySelector("#close-dialog"),
   connectionDot: document.querySelector("#connection-dot"),
@@ -446,6 +449,15 @@ function renderDialog(task) {
     ...detailRow("Updated by", task.updatedBy),
   );
   configureOpenTaskControl(elements.openProject, `Open ${task.title} in Codex`);
+  const canArchive = canArchiveTask(task);
+  const archived = state.archivedThreadIds.has(task.threadId);
+  elements.archiveTask.hidden = !canArchive;
+  elements.archiveTask.disabled = archived;
+  elements.archiveTask.textContent = archived ? "Archived" : "Archive chat";
+  elements.archiveTask.setAttribute(
+    "aria-label",
+    archived ? `${task.title} is archived in Codex` : `Archive ${task.title} in Codex`,
+  );
 }
 
 async function openDialog(task) {
@@ -651,4 +663,15 @@ elements.copyTaskId.addEventListener("click", async () => {
 elements.openProject.addEventListener("click", async (event) => {
   if (!state.selectedTask) return;
   await openTaskFromControl(event, state.selectedTask.id, { showMessage });
+});
+elements.archiveTask.addEventListener("click", async (event) => {
+  const task = state.selectedTask;
+  if (!task || !canArchiveTask(task)) return;
+  await archiveTaskFromControl(event, task, {
+    onArchived: (threadId) => {
+      state.archivedThreadIds.add(threadId);
+      if (state.selectedTask?.id === task.id) renderDialog(state.selectedTask);
+    },
+    showMessage,
+  });
 });
