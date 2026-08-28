@@ -21,6 +21,8 @@ research.
 | `src/cli.js` | Administration, normalized cached briefs, inspection, diagnostics, and dashboard startup. |
 | `src/dashboard.js` | Versioned health identity, validated compact snapshots, SSE fan-out, on-demand details, and bounded open actions. |
 | `src/dashboard-manager.js` | Concurrent singleton ensure, exact listener reuse, conflicts, and owned shutdown. |
+| `src/usage.js` | Optional bounded ccusage execution, exact primary-thread mapping, normalized aggregation, and the private usage cache. |
+| `src/usage-tracker.js` | Deferred sampling, cumulative boundaries, historical availability, and per-turn deltas. |
 
 The MCP process resolves `TASKCHEF_WORKSPACE` once and never accepts a model
 supplied path. The CLI resolves `--workspace`, then the environment, then the

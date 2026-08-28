@@ -23,6 +23,7 @@ import {
 } from "./workspace.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
+import { createUsageTracker } from "./usage-tracker.js";
 
 const TASKS_FILE_NAME = "tasks.jsonl";
 const STATIC_ROOT = fileURLToPath(new URL("./dashboard/", import.meta.url));
@@ -540,6 +541,7 @@ export async function createDashboardServer({
   launcher = "standalone",
   taskchefVersion = TASKCHEF_VERSION,
   serverVersion = DASHBOARD_SERVER_VERSION,
+  usageTracker = null,
 } = {}) {
   if (!LOOPBACK_HOSTS.has(host)) {
     throw new Error("dashboard host must be a loopback address");
@@ -555,6 +557,7 @@ export async function createDashboardServer({
   }
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   await monitor.start();
+  const taskUsageTracker = usageTracker ?? createUsageTracker({ workspace: monitor.workspace });
   const identity = Object.freeze({
     schemaVersion: 1,
     service: "taskchef-dashboard",
@@ -659,7 +662,16 @@ export async function createDashboardServer({
         response.writeHead(200, securityHeaders("application/json; charset=utf-8"));
         response.end();
       } else {
-        sendJson(response, 200, { schemaVersion: 1, task: taskDetailProjection(task) });
+        const usage = await taskUsageTracker.get(task).catch(() => ({
+          status: "unavailable",
+          reason: "Task usage is temporarily unavailable.",
+          task: null,
+          turns: {},
+        }));
+        sendJson(response, 200, {
+          schemaVersion: 1,
+          task: { ...taskDetailProjection(task), usage },
+        });
       }
       return;
     }

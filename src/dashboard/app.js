@@ -37,6 +37,9 @@ import {
 } from "./github-links.js";
 import { formatRelativeTime, RelativeTimeController, parsedTimestamp } from "./time.js";
 
+const USAGE_POLL_INTERVAL_MS = 1_500;
+const MAX_USAGE_POLL_ATTEMPTS = 40;
+
 const state = {
   archivedThreadIds: new Set(),
   tasks: [],
@@ -70,6 +73,7 @@ const elements = {
   dialogRelatedLinks: document.querySelector("#dialog-related-links"),
   dialogResults: document.querySelector("#dialog-results"),
   dialogTitle: document.querySelector("#dialog-title"),
+  dialogUsage: document.querySelector("#dialog-usage"),
   dismissDashboardMessage: document.querySelector("#dismiss-dashboard-message"),
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
@@ -366,6 +370,58 @@ function detailRow(term, value) {
   return [dt, dd];
 }
 
+const tokenFormatter = new Intl.NumberFormat();
+
+function formatEstimatedCost(value) {
+  if (typeof value !== "number") return "cost unavailable";
+  if (value === 0) return "estimated $0.00";
+  return `estimated $${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
+function usageBreakdownText(usage) {
+  return [
+    `${tokenFormatter.format(usage.inputTokens)} input`,
+    `${tokenFormatter.format(usage.cachedInputTokens)} cached input`,
+    `${tokenFormatter.format(usage.outputTokens)} output`,
+    `${tokenFormatter.format(usage.reasoningOutputTokens)} reasoning`,
+  ].join(" · ");
+}
+
+function usagePresentation(usage, { wholeTask = false } = {}) {
+  const container = document.createElement("div");
+  container.className = `usage-summary usage-${usage?.status ?? "calculating"}`;
+  if (!usage || usage.status === "calculating") {
+    const indicator = document.createElement("span");
+    indicator.className = "usage-spinner";
+    indicator.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = "Tokens: calculating…";
+    container.replaceChildren(indicator, text);
+    return container;
+  }
+  if (usage.status !== "available") {
+    container.textContent = `Tokens unavailable${usage.reason ? ` — ${usage.reason}` : "."}`;
+    return container;
+  }
+  const headline = document.createElement("strong");
+  headline.textContent = `${tokenFormatter.format(usage.totalTokens)} tokens · ${formatEstimatedCost(usage.estimatedCostUsd)}`;
+  const breakdown = document.createElement("span");
+  breakdown.textContent = usageBreakdownText(usage);
+  container.append(headline, breakdown);
+  const provenance = document.createElement("span");
+  const version = usage.provenance?.version ? ` ${usage.provenance.version}` : "";
+  const freshness = usage.sourceUpdatedAt ?? usage.sampledAt;
+  provenance.textContent = `Source: ccusage${version}${freshness ? ` · updated ${formatRelativeTime(freshness)}` : ""}. Dollar cost is an API-equivalent estimate${wholeTask ? " for the task" : " for this turn"}.`;
+  container.append(provenance);
+  return container;
+}
+
+function usageStillCalculating(task) {
+  return task.usage?.status === "calculating"
+    || (task.status !== "working" && Object.values(task.usage?.turns ?? {})
+      .some((turn) => turn.status === "calculating"));
+}
+
 function turnTimeline(task) {
   if (task.turns.length === 0) {
     const empty = document.createElement("p");
@@ -412,7 +468,20 @@ function turnTimeline(task) {
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
     turnMetadata.textContent = `Turn ref ${turn.turnRef ?? "not recorded"}; Codex turn ${turn.turnId ?? "unavailable"}`;
-    item.append(header, requestLabel, request, resultLabel, result, turnMetadata);
+    const turnUsage = task.usage?.turns?.[turn.turnRef ?? turn.turnId] ?? (
+      turn.result === null
+        ? { status: "calculating" }
+        : { status: "unavailable", reason: "No reliable turn boundary is available." }
+    );
+    item.append(
+      header,
+      requestLabel,
+      request,
+      resultLabel,
+      result,
+      usagePresentation(turnUsage),
+      turnMetadata,
+    );
     return item;
   });
 }
@@ -557,6 +626,12 @@ function renderDialog(task) {
     (task.relatedGitHubLinks?.length ?? 0) === 0 && !task.relatedGitHubLinksTruncated
   );
   elements.dialogResults.replaceChildren(...turnTimeline(detailedTask));
+  elements.dialogUsage.replaceChildren(usagePresentation(
+    task.usage?.status === "available" && task.usage.task
+      ? { status: "available", ...task.usage.task }
+      : task.usage ?? { status: task.threadId ? "calculating" : "unavailable" },
+    { wholeTask: true },
+  ));
   elements.dialogInstruction.textContent = task.instruction;
   elements.copyTaskId.disabled = !task.id;
   setCopyTaskIdLabel("Copy Task ID");
@@ -604,22 +679,28 @@ async function openDialog(task) {
   const requestGeneration = ++detailRequestGeneration;
   renderDialog(task);
   if (!elements.dialog.open) elements.dialog.showModal();
-  try {
-    const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`);
-    if (!response.ok) throw new Error("Task details are unavailable.");
-    const detail = await response.json();
-    if (
-      requestGeneration === detailRequestGeneration
-      && state.selectedTask?.id === task.id
-      && elements.dialog.open
-    ) {
-      renderDialog(detail.task);
+  const load = async (attempt = 0) => {
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`);
+      if (!response.ok) throw new Error("Task details are unavailable.");
+      const detail = await response.json();
+      if (
+        requestGeneration === detailRequestGeneration
+        && state.selectedTask?.id === task.id
+        && elements.dialog.open
+      ) {
+        renderDialog(detail.task);
+        if (usageStillCalculating(detail.task) && attempt < MAX_USAGE_POLL_ATTEMPTS) {
+          setTimeout(() => load(attempt + 1), USAGE_POLL_INTERVAL_MS);
+        }
+      }
+    } catch {
+      if (state.selectedTask?.id === task.id) {
+        showMessage("Task activity timeline is temporarily unavailable.");
+      }
     }
-  } catch {
-    if (state.selectedTask?.id === task.id) {
-      showMessage("Task activity timeline is temporarily unavailable.");
-    }
-  }
+  };
+  await load();
 }
 
 function taskCard(task) {

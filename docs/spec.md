@@ -28,7 +28,7 @@ is dated research, not contract.
 | **Last semantic result** | The final result-history entry, exposed through the derived `lastResult` compatibility alias. |
 | **Turn reference** | Required lifecycle identity for one executor prompt. It is the native Codex turn ID when available, otherwise a retained client-generated UUID. |
 | **Current turn ID** | Optional Codex metadata for the reported prompt; null when native turn reading is unavailable. |
-| **Dashboard** | The loopback UI derived from validated workspace snapshots, with bounded native actions and an explicit audited manual-outcome mutation. |
+| **Dashboard** | The loopback UI derived from validated workspace snapshots, with optional local usage projections, bounded native actions, and an explicit audited manual-outcome mutation. |
 | **Skill** | One packaged agent procedure: `taskchef-bootstrap`, `taskchef-dashboard`, `taskchef-delegate`, `taskchef-executor`, or `taskchef-copilot`. |
 
 ## Components and ownership
@@ -57,7 +57,8 @@ is dated research, not contract.
 
 ## Workspace contract
 
-TaskChef MUST manage only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl`
+TaskChef MUST manage only `AGENTS.md`, `taskchef.json`, `tasks.jsonl`, and the
+optional `.taskchef-usage.json` cache
 inside the dispatcher workspace. It MUST preserve unrelated paths.
 
 `taskchef.json` MUST have schema version 2, the following required fields, and
@@ -116,6 +117,54 @@ semantic `needs_input`, `completed`, and `failed` turn results and `lastResult`
 from the final derived semantic result. Interrupted outcomes MUST be excluded.
 These projections MUST NOT be persisted in schema 10 and remain compatibility
 aliases for existing callers.
+
+## Optional usage projection
+
+TaskChef MAY invoke an installed `ccusage` executable as an optional local
+adapter using `ccusage codex session --json --offline`. TaskChef MUST NOT parse,
+store, or serve raw Codex rollout files, prompts, responses, transcripts, or
+reasoning. Analyzer absence, timeout, malformed output, unknown pricing, or an
+unresolved thread MUST NOT block lifecycle tools or dashboard loading.
+
+Dashboard-manual turns are administrative events, not Codex executions. They
+MUST immediately report per-turn usage as unavailable, MUST NOT schedule or
+store a cumulative usage boundary, and MUST NOT receive a token or cost delta.
+A later executor turn MUST use the nearest preceding reliable executor
+boundary, skipping any intervening dashboard-manual turns.
+
+The mode-0600 `.taskchef-usage.json` cache stores only normalized cumulative
+token boundaries, per-turn deltas, model names, estimated cost, source version,
+and freshness. It is independent of task-log schema versions so legacy logs remain
+readable. Writes MUST use the workspace lock and atomic replacement. Symlinked
+or unsupported cache files MUST be rejected. Writes MUST compact the derived
+cache to recent task projections, recent per-turn results, and the latest
+cumulative boundary. An oversized legacy cache MUST be treated as rebuildable
+derived data so it cannot permanently disable usage reporting.
+
+A linked Codex thread MAY map to multiple ccusage session segments. TaskChef
+MUST aggregate only records whose primary durable thread UUID is that exact
+identity; a UUID appearing only as a nested suffix MUST NOT be attributed to
+the parent or child TaskChef task. It MUST retain input, cached-input, output,
+reasoning-output, and total fields without adding cached or reasoning subsets
+into totals a second time.
+
+After a terminal report, TaskChef MUST mark the turn `calculating` and perform
+bounded deferred reconciliation without delaying the lifecycle response.
+Per-turn usage MUST be a non-negative delta between adjacent reliable cumulative
+boundaries. A first recorded turn MAY use zero as its baseline. Historical
+turns without boundaries and decreasing or ambiguous snapshots MUST be labeled
+`unavailable`, never zero or estimated. A historical task MAY still show its
+resolvable cumulative total. A boundary is reliable only after two consecutive
+samples agree. Exhausted unstable sampling and a newer turn beginning before
+stabilization MUST leave that turn unavailable and MUST NOT establish a delta
+baseline. Zero is valid for the first turn only when TaskChef observed that turn
+in progress before its terminal report; a first historical terminal turn MUST
+remain unavailable even when its cumulative task total is resolvable.
+
+Every available projection MUST identify ccusage, its version when available,
+and freshness. Dollar values MUST be labeled API-equivalent estimates. Positive
+token usage with a zero or missing analyzer cost MUST display cost unavailable,
+not `$0.00`.
 
 Task IDs and non-null thread identities MUST be unique. The immutable intent
 fields MUST NOT change after recording.

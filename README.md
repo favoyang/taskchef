@@ -25,6 +25,12 @@ request -> recorded TaskChef task -> Codex executor -> request/result turn timel
 TaskChef requires Node.js 18 or newer, Git, Codex desktop, and local access to
 the projects that will receive work.
 
+Install [`ccusage`](https://github.com/ccusage/ccusage) separately when you want
+the optional dashboard token and API-equivalent cost estimates. TaskChef calls
+its structured offline Codex report and does not parse Codex rollout files
+itself. Lifecycle reporting and the dashboard continue to work when `ccusage`
+is absent or incompatible.
+
 ```sh
 codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
@@ -50,6 +56,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 Codex project index, dashboard preference, and delegation metadata
 tasks.jsonl     one task snapshot per line (schema 10; schema 4-9 migration supported)
+.taskchef-usage.json   optional mode-0600 ccusage snapshot and turn-boundary cache
 ```
 
 Index or inspect Codex projects conversationally:
@@ -279,6 +286,16 @@ Codex CLI at the canonical ChatGPT or Codex desktop app location under
 `/Applications`, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record
 and its activity timeline remain unchanged. If the bundled CLI is unavailable,
 the dashboard does not fall back to another `codex` executable from `PATH`.
+
+Task details also show whole-task and per-turn token usage when `ccusage` can
+map the linked Codex thread. A completed turn briefly shows “Tokens:
+calculating…” while TaskChef performs bounded deferred reconciliation, because
+the terminal lifecycle callback precedes Codex's final output write. Historical
+tasks may show a trustworthy task total while older turns remain “Tokens
+unavailable” when no cumulative turn boundaries were recorded. Input, cached
+input, output, reasoning, and total counts retain ccusage's categories. Dollar
+figures are labeled API-equivalent estimates; zero-priced unknown models show
+cost unavailable rather than a misleading `$0.00`.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
 The canonical port is owned by a dashboard initialized in the TaskChef MCP host
@@ -314,6 +331,8 @@ or secrets.
 ![Immutable event-time dashboard notifications](docs/images/notification-event-snapshots.jpg)
 
 ![Task detail activity timeline](docs/images/result-history-dashboard.jpg)
+
+![Deferred ccusage token consumption in task details](docs/images/ccusage-token-consumption.png)
 
 ![Interrupted turn followed by active recovery](docs/images/interrupted-turn-recovery.jpg)
 

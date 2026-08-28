@@ -13,6 +13,7 @@ import { parseTaskChefMarker } from "./delegation.js";
 import { createDashboardManager } from "./dashboard-manager.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
+import { createUsageTracker } from "./usage-tracker.js";
 
 const projectSchema = z.object({
   name: z.string(),
@@ -163,6 +164,7 @@ export function createTaskChefMcpServer({
   dashboardManager = createDashboardManager({ workspace }),
   readConfiguration = readConfig,
   logDashboardDiagnostic,
+  usageTracker = createUsageTracker({ workspace }),
 } = {}) {
   const server = new McpServer(
     { name: "taskchef", version: TASKCHEF_VERSION },
@@ -305,6 +307,7 @@ export function createTaskChefMcpServer({
     },
     async (input) => {
       const task = await reportState(workspace, input);
+      void usageTracker.observe(task).catch(() => {});
       return toolResult("task", task, `Recorded ${task.status} state for TaskChef task ${task.id}.`);
     },
   );
@@ -332,6 +335,7 @@ export function createTaskChefMcpServer({
     },
     async (input) => {
       const task = await reportResult(workspace, input);
+      void usageTracker.observe(task).catch(() => {});
       return toolResult("task", task, `Recorded ${task.status} result for TaskChef task ${task.id}.`);
     },
   );

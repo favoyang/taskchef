@@ -190,6 +190,32 @@ test("dashboard renders a live notification with time and shared accessible desc
               threadId,
               title: "Continue MarketLake V1",
               turnId: "turn-one",
+              usage: {
+                status: "available",
+                task: {
+                  status: "available",
+                  inputTokens: 100,
+                  cachedInputTokens: 200,
+                  outputTokens: 30,
+                  reasoningOutputTokens: 10,
+                  totalTokens: 330,
+                  estimatedCostUsd: 0.12,
+                  provenance: { provider: "ccusage", version: "20.0.14" },
+                  sampledAt: timestamp,
+                  sourceUpdatedAt: timestamp,
+                },
+                turns: {
+                  "turn-one": {
+                    status: "available",
+                    inputTokens: 100,
+                    cachedInputTokens: 200,
+                    outputTokens: 30,
+                    reasoningOutputTokens: 10,
+                    totalTokens: 330,
+                    estimatedCostUsd: 0.12,
+                  },
+                },
+              },
               turns: [{
                 requestSummary: "Review https://github.com/acme/marketlake/issues/25, not <script>bad()</script>.",
                 result: {
@@ -392,6 +418,12 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(result.children[1].className, "github-link");
     assert.match(result.children[1].getAttribute("aria-label"), /GitHub issue.*opens in a new tab/);
     assert.equal(request.children.some(({ tagName }) => tagName === "SCRIPT"), false);
+    const turnUsage = latestTurn.children[5];
+    assert.equal(turnUsage.children[0].textContent, "330 tokens · estimated $0.12");
+    const taskUsage = elements.get("#dialog-usage").children[0];
+    assert.equal(taskUsage.children[0].textContent, "330 tokens · estimated $0.12");
+    assert.match(taskUsage.children[2].textContent, /Source: ccusage 20\.0\.14/);
+    assert.match(taskUsage.children[2].textContent, /API-equivalent estimate/);
 
     const moreTaskActions = elements.get("#more-task-actions");
     const manualPanel = elements.get("#manual-transition-panel");

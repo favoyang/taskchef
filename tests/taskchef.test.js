@@ -3673,6 +3673,7 @@ test("published package includes the README dashboard screenshots", async () => 
   const manifest = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
   for (const screenshot of [
     "docs/images/dashboard-identity.jpg",
+    "docs/images/ccusage-token-consumption.png",
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
     "docs/images/interrupted-turn-recovery.jpg",

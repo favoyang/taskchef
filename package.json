@@ -1,6 +1,6 @@
 {
   "name": "taskchef",
-  "version": "7.19.1",
+  "version": "7.20.0",
   "description": "A non-blocking interactive dispatcher for visible Codex tasks.",
   "license": "MIT",
   "author": "Favo Yang",
@@ -27,6 +27,7 @@
     "docs/workflows.md",
     "docs/firstmate-taskchef-comparison.md",
     "docs/images/dashboard-identity.jpg",
+    "docs/images/ccusage-token-consumption.png",
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
     "docs/images/interrupted-turn-recovery.jpg",
