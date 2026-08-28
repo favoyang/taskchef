@@ -2296,6 +2296,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /--control-height: 38px;/);
   assert.match(styles, /\.primary-button, \.secondary-button, \.danger-button \{[^}]+min-height: var\(--control-height\)/);
   assert.match(styles, /\.primary-button\.task-action, \.secondary-button\.task-action \{[^}]+min-height: var\(--control-height\)[^}]+font-size: var\(--control-font-size\)/);
+  assert.match(styles, /\.manual-transition-panel \{[^}]*flex: 1 1 140px;[^}]*min-width: 0;/);
   assert.match(styles, /\.manual-transition-controls > button\[hidden\] \{ display: none; \}/);
   assert.match(html, /id="date-filter"/);
   const toolbarMarkup = html.match(/<section class="toolbar"[\s\S]*?<\/section>/)?.[0];

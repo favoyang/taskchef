@@ -154,7 +154,7 @@ dialog::backdrop { background: rgb(18 23 21 / 50%); backdrop-filter: blur(2px); 
 .dialog-header h2 { margin-bottom: 12px; font-size: 1.6rem; }
 .dialog-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
 .more-task-actions { width: var(--control-height); min-width: var(--control-height); padding-inline: 0; font-size: 1.2rem; line-height: 1; }
-.manual-transition-panel { display: flex; flex: 1 1 420px; flex-wrap: wrap; gap: 9px; align-items: center; }
+.manual-transition-panel { display: flex; flex: 1 1 140px; min-width: 0; flex-wrap: wrap; gap: 9px; align-items: center; }
 .manual-transition-panel[hidden] { display: none; }
 .manual-transition-error, .manual-transition-pending { flex-basis: 100%; margin: 0; }
 .manual-transition-controls { display: flex; flex-wrap: wrap; gap: 8px; }
