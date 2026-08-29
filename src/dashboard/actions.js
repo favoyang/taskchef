@@ -20,7 +20,7 @@ export async function archiveTaskFromControl(event, task, {
   confirmAction = globalThis.confirm,
   fetchAction = globalThis.fetch,
   onArchived = () => {},
-  showMessage,
+  showUpdate,
 } = {}) {
   event.stopPropagation();
   const accepted = confirmAction(
@@ -39,15 +39,15 @@ export async function archiveTaskFromControl(event, task, {
     );
     const result = await response.json();
     if (!response.ok) {
-      showMessage(result.message ?? "Codex could not archive this chat.");
+      showUpdate(result.message ?? "Codex could not archive this chat.", { failed: true });
       return false;
     }
     onArchived(task.threadId);
     archived = true;
-    showMessage(result.message ?? "Archived the Codex chat. TaskChef history remains available.");
+    showUpdate(result.message ?? "Archived the Codex chat. TaskChef history remains available.");
     return true;
   } catch {
-    showMessage("Codex chat archiving is temporarily unavailable. Try again.");
+    showUpdate("Codex chat archiving is temporarily unavailable. Try again.", { failed: true });
     return false;
   } finally {
     if (!archived) control.disabled = false;

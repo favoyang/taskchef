@@ -1,4 +1,5 @@
 import {
+  MAX_NOTIFICATIONS,
   canArchiveTask,
   canManuallyTransitionTask,
   clearNotifications,
@@ -56,6 +57,7 @@ let dateRefreshTimer = null;
 let detailRequestGeneration = 0;
 let copyTaskIdGeneration = 0;
 let copyTaskIdTimer = null;
+let archiveUpdateSerial = 0;
 const relativeTimes = new RelativeTimeController();
 
 const elements = {
@@ -361,6 +363,22 @@ function renderNotifications(additions = []) {
       .map(notificationAnnouncement)
       .join(". ");
   }
+}
+
+export function showArchiveUpdate(task, message, { failed = false } = {}) {
+  const notification = Object.freeze({
+    id: `archive:${task.id}:${Date.now()}:${archiveUpdateSerial += 1}`,
+    taskId: task.id,
+    title: task.title,
+    status: task.status,
+    event: failed ? "archive_failed" : "archive_succeeded",
+    turnRef: null,
+    turnId: null,
+    timestamp: new Date().toISOString(),
+    summary: message,
+  });
+  state.notifications = [notification, ...state.notifications].slice(0, MAX_NOTIFICATIONS);
+  renderNotifications([notification]);
 }
 
 function detailRow(term, value) {
@@ -965,7 +983,7 @@ elements.archiveTask.addEventListener("click", async (event) => {
   try {
     await archiveTaskFromControl(event, task, {
       onArchived: (threadId) => state.archivedThreadIds.add(threadId),
-      showMessage,
+      showUpdate: (message, options) => showArchiveUpdate(task, message, options),
     });
   } finally {
     state.archivePendingThreadIds.delete(task.threadId);

@@ -30,6 +30,8 @@ const NOTIFICATION_TITLES = new Map([
   ["failed", "Task failed"],
   ["manual_completed", "Task manually completed"],
   ["manual_failed", "Task manually failed"],
+  ["archive_succeeded", "Chat archived"],
+  ["archive_failed", "Chat archive failed"],
   ["unresolved", "Task updated"],
 ]);
 

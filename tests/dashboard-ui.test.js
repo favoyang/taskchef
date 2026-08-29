@@ -315,7 +315,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     };
     globalThis.setInterval = () => 1;
     globalThis.clearInterval = () => {};
-    await import(`../src/dashboard/app.js?dashboard-ui=${Date.now()}`);
+    const dashboardApp = await import(`../src/dashboard/app.js?dashboard-ui=${Date.now()}`);
 
     FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: [] });
     FakeEventSource.instance.emit("dashboard-error", {
@@ -615,6 +615,52 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(
       manualCompletionToast.children[0].children[2].textContent,
       "Manually marked completed from the TaskChef dashboard.",
+    );
+    const dashboardMessageBeforeArchiveUpdates = {
+      hidden: elements.get("#dashboard-message").hidden,
+      text: elements.get("#dashboard-message-text").textContent,
+    };
+    dashboardApp.showArchiveUpdate(
+      manualCompletedTask,
+      "Archived the Codex chat. TaskChef history remains available.",
+    );
+    assert.deepEqual({
+      hidden: elements.get("#dashboard-message").hidden,
+      text: elements.get("#dashboard-message-text").textContent,
+    }, dashboardMessageBeforeArchiveUpdates);
+    assert.match(
+      elements.get("#notification-announcer").textContent,
+      /Chat archived.*Archived the Codex chat\. TaskChef history remains available\./,
+    );
+    const archiveSuccessToast = elements.get("#toast-list").children.find((toast) => (
+      toast.children[0]?.children[0]?.textContent === "Chat archived"
+    ));
+    assert.ok(archiveSuccessToast);
+    assert.equal(
+      archiveSuccessToast.children[0].children[2].textContent,
+      "Archived the Codex chat. TaskChef history remains available.",
+    );
+
+    dashboardApp.showArchiveUpdate(
+      manualCompletedTask,
+      "Codex chat archiving is temporarily unavailable. Try again.",
+      { failed: true },
+    );
+    assert.deepEqual({
+      hidden: elements.get("#dashboard-message").hidden,
+      text: elements.get("#dashboard-message-text").textContent,
+    }, dashboardMessageBeforeArchiveUpdates);
+    assert.match(
+      elements.get("#notification-announcer").textContent,
+      /Chat archive failed.*Codex chat archiving is temporarily unavailable\. Try again\./,
+    );
+    const archiveFailureToast = elements.get("#toast-list").children.find((toast) => (
+      toast.children[0]?.children[0]?.textContent === "Chat archive failed"
+    ));
+    assert.ok(archiveFailureToast);
+    assert.equal(
+      archiveFailureToast.children[0].children[2].textContent,
+      "Codex chat archiving is temporarily unavailable. Try again.",
     );
     assert.equal(elements.get("#task-list").children.length, 1);
   } finally {
