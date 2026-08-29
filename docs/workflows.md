@@ -4,7 +4,8 @@ This developer and advanced-agent guide explains how the current implementation
 moves data through TaskChef. The [specification](spec.md) is normative; the
 [README](../README.md) owns user operation. The
 [FirstMate comparison](firstmate-taskchef-comparison.md) is non-normative
-research.
+research. The [dashboard lifecycle](dashboard-lifecycle.md) owns the focused
+start, upgrade, shutdown, and security rationale.
 
 ## Implementation map
 
@@ -15,12 +16,14 @@ research.
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize the workspace and maintain the Codex project index. |
 | `skills/taskchef-dashboard/SKILL.md` | Ensure or recover the canonical dashboard and return its URL. |
 | `skills/taskchef-copilot/SKILL.md` | Explain normalized cached briefs and coordinate safe next actions. |
-| `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, shutdown ownership, and MCP annotations. |
+| `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, MCP cleanup, and annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
 | `src/cli.js` | Administration, normalized cached briefs, inspection, diagnostics, and dashboard startup. |
 | `src/dashboard.js` | Versioned health identity, validated compact snapshots, SSE fan-out, on-demand details, and bounded open actions. |
-| `src/dashboard-manager.js` | Concurrent singleton ensure, exact listener reuse, conflicts, and owned shutdown. |
+| `src/dashboard-manager.js` | Concurrent session ensure, authenticated reuse and upgrade handoff, and safe conflicts. |
+| `src/dashboard-session-process.js` | Independent loopback server, private ownership publication, signals, and Codex-session lease. |
+| `src/dashboard-session.js` | Exact registered-PID liveness checks and grace-period expiry. |
 | `src/usage.js` | Optional bounded ccusage execution, exact primary-thread mapping, normalized aggregation, and the private usage cache. |
 | `src/usage-tracker.js` | Deferred sampling, cumulative boundaries, historical availability, and per-turn deltas. |
 
@@ -40,19 +43,25 @@ sequenceDiagram
   participant D as Dispatcher
   participant M as TaskChef MCP
   participant H as Loopback health
-  participant S as Dashboard server
+  participant S as Dashboard session process
   M->>M: Read dashboard.autostart (absent means true)
   M->>M: Best-effort ensure before MCP transport connects
   D->>M: ensure_dashboard()
   M->>M: Serialize concurrent ensure calls
   M->>H: GET 127.0.0.1:3210/api/health
-  alt Exact service, versions, canonical workspace, and MCP launcher
+  alt Exact service, versions, canonical workspace, and session launcher
     H-->>M: Bounded compatible identity
+    M->>S: Authenticate owner and register Codex parent PID
     M-->>D: reused, URL, workspace, versions
   else No listener
     H--xM: Connection refused
-    M->>S: Start in this MCP process on 127.0.0.1:3210
-    S-->>M: Owned server
+    M->>S: Launch session process on 127.0.0.1:3210
+    S-->>M: Private owner metadata and bounded identity
+    M-->>D: started, URL, workspace, versions
+  else Verified older TaskChef listener for this workspace
+    M->>S: Authenticated prepare, lease join, and commit
+    S-->>M: Signed final leases and bounded retry before shutdown
+    M->>S: Launch installed session version
     M-->>D: started, URL, workspace, versions
   else Standalone, unknown, stale, or different workspace
     H-->>M: Missing or incompatible identity
@@ -63,14 +72,15 @@ sequenceDiagram
   Note over D: Created-thread directive, when any, precedes final dashboard link
 ```
 
-When the MCP transport or plugin process closes, it closes only the server it
-started. A foreground `taskchef dashboard` listener identifies itself as
-standalone and is never reused as the canonical MCP dashboard, because its
-archive child process may inherit a different host environment. No TaskChef
-path terminates an incompatible listener or installs OS persistence.
+When one MCP transport or plugin process closes, the dashboard remains while a
+registered Codex session PID is alive. After every registered PID disappears
+for the grace period, the dashboard closes and exits. A foreground
+`taskchef dashboard` listener identifies itself as standalone and is never
+reused as the canonical session dashboard. No TaskChef path terminates an
+incompatible listener or installs OS persistence.
 
-Autostart and explicit ensures share the same manager promise, so concurrent
-initialization and recovery calls produce at most one owned listener. An
+Autostart and explicit ensures share the same manager promise, while
+cross-process port races converge through authenticated reuse. An
 explicit `dashboard.autostart: false` skips only activation-time ensure. Any
 failure is reduced to a fixed stderr diagnostic; tool registration and MCP
 availability continue. Activation never opens a browser.
@@ -82,13 +92,15 @@ The practical release handoff ends in this order:
 1. Install the released plugin.
 2. Activate or reload its new TaskChef MCP process.
 3. Run `$taskchef-dashboard` or call `ensure_dashboard`.
-4. Verify the expected TaskChef version, protocol `serverVersion`, `mcp`
+4. Verify the expected TaskChef version, protocol `serverVersion`, `session`
    launcher, canonical workspace, and canonical URL returned by the dashboard identity.
 
 Replacing plugin files alone cannot execute autostart because old code remains
-in the already-running MCP process. Installation does not necessarily reload
-Codex. An exact-compatible MCP dashboard may be reused; a standalone or unknown
-listener is never terminated or replaced.
+in an already-running MCP process. Installation does not necessarily reload
+Codex. Activation of the installed MCP authenticates and retires a verified
+older TaskChef listener before starting the installed session version. An
+exact-compatible session dashboard may be reused; a newer, standalone, or
+unknown listener is never terminated or replaced.
 
 ## Normal delegation and self-linking
 

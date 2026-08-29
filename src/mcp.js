@@ -107,7 +107,7 @@ const preparationSchema = z.object({
 
 const dashboardSchema = z.object({
   action: z.enum(["started", "reused"]),
-  launcher: z.literal("mcp"),
+  launcher: z.literal("session"),
   url: z.string().url(),
   workspace: z.string(),
   taskchefVersion: z.string(),
@@ -201,7 +201,7 @@ export function createTaskChefMcpServer({
     {
       title: "Ensure TaskChef dashboard",
       description:
-        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts one dashboard inside this MCP process or reuses only an exact compatible MCP-launched TaskChef dashboard for the same canonical workspace; standalone and unknown listeners are never terminated or replaced.",
+        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts or reuses the authenticated TaskChef dashboard for this Codex session and canonical workspace; verified older TaskChef session listeners are handed off to the installed version, while standalone and unknown listeners are never terminated or replaced.",
       inputSchema: {},
       outputSchema: { dashboard: dashboardSchema },
       annotations: {

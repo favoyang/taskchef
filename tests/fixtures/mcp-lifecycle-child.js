@@ -6,7 +6,8 @@ import { runTaskChefMcpProcess } from "../../src/mcp-process.js";
 
 const workspace = process.env.TASKCHEF_WORKSPACE;
 const port = Number(process.env.TASKCHEF_TEST_DASHBOARD_PORT);
-const dashboardManager = createDashboardManager({ workspace, port });
+const sessionPid = Number(process.env.TASKCHEF_TEST_SESSION_PID ?? process.ppid);
+const dashboardManager = createDashboardManager({ workspace, port, sessionPid });
 if (process.env.TASKCHEF_TEST_DASHBOARD_CLOSE_FAIL === "1") {
   const close = dashboardManager.close.bind(dashboardManager);
   dashboardManager.close = async () => {
@@ -33,4 +34,11 @@ if (process.env.TASKCHEF_TEST_TRANSPORT_CLOSE_MS) {
   );
 }
 
-await runTaskChefMcpProcess({ server, transport });
+const startupKeepAlive = process.env.TASKCHEF_TEST_CONNECT_NEVER === "1"
+  ? setInterval(() => {}, 1_000)
+  : null;
+try {
+  await runTaskChefMcpProcess({ server, transport });
+} finally {
+  if (startupKeepAlive) clearInterval(startupKeepAlive);
+}
