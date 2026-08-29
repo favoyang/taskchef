@@ -327,10 +327,10 @@ app-callable archive interface or guarantees CLI compatibility. The dormant
 server path also rejects requests before discovering or invoking the CLI.
 
 Task details also show whole-task and per-turn token usage when `ccusage` can
-map the linked Codex thread. A completed turn briefly shows “Tokens:
-calculating…” while TaskChef performs bounded deferred reconciliation, because
+map the linked Codex thread. A completed turn briefly shows “Calculating token
+usage…” while TaskChef performs bounded deferred reconciliation, because
 the terminal lifecycle callback precedes Codex's final output write. Historical
-tasks may show a trustworthy task total while older turns remain “Tokens
+tasks may show a trustworthy task total while older turns remain “Token usage
 unavailable” when no cumulative turn boundaries were recorded. Input, cached
 input, output, reasoning, and total counts retain ccusage's categories. Dollar
 figures are labeled API-equivalent estimates; provenance identifies the online

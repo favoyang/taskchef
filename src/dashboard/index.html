@@ -87,14 +87,16 @@
       </section>
     </main>
 
-    <aside id="notifications" class="notifications" aria-label="Task notifications" hidden>
-      <div class="notifications-heading">
-        <strong>Updates</strong>
-        <button id="clear-notifications" class="text-button" type="button">Clear all</button>
-      </div>
-      <p id="notification-announcer" class="visually-hidden" role="status" aria-live="polite"></p>
-      <div id="toast-list" class="toast-list"></div>
-    </aside>
+    <div id="notification-host">
+      <aside id="notifications" class="notifications" aria-label="Task notifications" popover="manual">
+        <div class="notifications-heading">
+          <strong>Updates</strong>
+          <button id="clear-notifications" class="text-button" type="button">Clear all</button>
+        </div>
+        <p id="notification-announcer" class="visually-hidden" role="status" aria-live="polite"></p>
+        <div id="toast-list" class="toast-list"></div>
+      </aside>
+    </div>
 
     <dialog id="task-dialog" aria-labelledby="dialog-title">
       <div class="dialog-header">

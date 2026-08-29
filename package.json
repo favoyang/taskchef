@@ -32,6 +32,7 @@
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
     "docs/images/interrupted-turn-recovery.jpg",
+    "docs/images/dashboard-token-pending.jpg",
     "index.js",
     "mcp",
     "scripts/benchmark-dispatch-prepare.js",

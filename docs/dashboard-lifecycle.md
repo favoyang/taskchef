@@ -25,6 +25,15 @@ workspace resolution, and startup isolation, but none of those requires the
 HTTP listener to share one MCP transport's lifetime. The session process keeps
 those benefits without retaining the obsolete per-transport ownership.
 
+## Token usage presentation
+
+The detail view distinguishes an active turn whose final usage is pending from
+a terminal turn whose usage is being calculated. Available usage keeps both
+the token total and API-equivalent USD estimate; an available cumulative value
+shown during a newer active turn is labeled as known so far.
+
+![Pending token usage in the task detail view](images/dashboard-token-pending.jpg)
+
 ## Start and reuse
 
 Unless `dashboard.autostart` is explicitly `false`, MCP activation runs the
