@@ -5,8 +5,12 @@ import path from "node:path";
 
 export const DASHBOARD_CONTROL_VERSION = 1;
 export const DASHBOARD_OWNER_FILE = ".taskchef-dashboard-owner.json";
+export const DASHBOARD_HANDOFF_FILE = ".taskchef-dashboard-handoff.json";
 export const DASHBOARD_CONTROL_CHALLENGE_PATH = "/api/control/challenge";
 export const DASHBOARD_CONTROL_SHUTDOWN_PATH = "/api/control/shutdown";
+export const DASHBOARD_CONTROL_SESSION_PATH = "/api/control/session";
+export const DASHBOARD_CONTROL_HANDOFF_PATH = "/api/control/handoff";
+export const DASHBOARD_CONTROL_HANDOFF_COMMIT_PATH = "/api/control/handoff/commit";
 
 const OWNER_MAX_BYTES = 4_096;
 const SECRET_PATTERN = /^[a-f0-9]{64}$/;
@@ -15,6 +19,19 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 
 function ownerPath(workspace) {
   return path.join(workspace, DASHBOARD_OWNER_FILE);
+}
+
+function handoffPath(workspace) {
+  return path.join(workspace, DASHBOARD_HANDOFF_FILE);
+}
+
+async function syncDirectory(directory) {
+  const handle = await open(directory, constants.O_RDONLY);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 function exactKeys(value, keys) {
@@ -75,6 +92,32 @@ export function dashboardOwnerMetadata({
   };
 }
 
+export function dashboardHandoffMetadata({
+  workspace,
+  host,
+  port,
+  taskchefVersion,
+  serverVersion,
+  id,
+  pids,
+  secret,
+}) {
+  return {
+    schemaVersion: 1,
+    service: "taskchef-dashboard-handoff",
+    controlVersion: DASHBOARD_CONTROL_VERSION,
+    workspace,
+    host,
+    port,
+    taskchefVersion,
+    serverVersion,
+    launcher: "session",
+    id,
+    pids,
+    proof: dashboardControlProof(secret, `handoff-final:${JSON.stringify(pids)}`, id),
+  };
+}
+
 function validOwner(value) {
   const keys = [
     "schemaVersion", "service", "controlVersion", "workspace", "host", "port",
@@ -89,40 +132,107 @@ function validOwner(value) {
     && Number.isInteger(value.port) && value.port >= 0 && value.port <= 65_535
     && typeof value.taskchefVersion === "string"
     && typeof value.serverVersion === "string"
-    && value.launcher === "mcp"
+    && new Set(["mcp", "session"]).has(value.launcher)
     && typeof value.secret === "string" && SECRET_PATTERN.test(value.secret);
 }
 
-export async function readDashboardOwner(workspace) {
-  const filePath = ownerPath(workspace);
+function validHandoff(value) {
+  const keys = [
+    "schemaVersion", "service", "controlVersion", "workspace", "host", "port",
+    "taskchefVersion", "serverVersion", "launcher", "id", "pids", "proof",
+  ];
+  return exactKeys(value, keys)
+    && value.schemaVersion === 1
+    && value.service === "taskchef-dashboard-handoff"
+    && value.controlVersion === DASHBOARD_CONTROL_VERSION
+    && typeof value.workspace === "string"
+    && LOOPBACK_HOSTS.has(value.host)
+    && Number.isInteger(value.port) && value.port >= 1 && value.port <= 65_535
+    && typeof value.taskchefVersion === "string"
+    && typeof value.serverVersion === "string"
+    && value.launcher === "session"
+    && validDashboardControlNonce(value.id)
+    && Array.isArray(value.pids) && value.pids.length <= 64
+    && value.pids.every((pid) => Number.isSafeInteger(pid) && pid > 1)
+    && new Set(value.pids).size === value.pids.length
+    && typeof value.proof === "string" && SECRET_PATTERN.test(value.proof);
+}
+
+async function readPrivateJson(filePath) {
   const handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const info = await handle.stat();
     if (!info.isFile() || (info.mode & 0o777) !== 0o600) {
-      throw new Error("dashboard owner record is not a private regular file");
+      throw new Error("dashboard ownership record is not a private regular file");
     }
     if (typeof process.getuid === "function" && info.uid !== process.getuid()) {
-      throw new Error("dashboard owner record has a different owner");
+      throw new Error("dashboard ownership record has a different owner");
     }
-    if (info.size > OWNER_MAX_BYTES) throw new Error("dashboard owner record is too large");
+    if (info.size > OWNER_MAX_BYTES) throw new Error("dashboard ownership record is too large");
     const buffer = Buffer.alloc(OWNER_MAX_BYTES + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > OWNER_MAX_BYTES) throw new Error("dashboard owner record is too large");
-    const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
-    if (!validOwner(value) || value.workspace !== workspace) {
-      throw new Error("dashboard owner record is invalid");
-    }
-    return value;
+    if (bytesRead > OWNER_MAX_BYTES) throw new Error("dashboard ownership record is too large");
+    return JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
   } finally {
     await handle.close();
   }
 }
 
-export async function writeDashboardOwner(workspace, value) {
+export async function readDashboardOwner(workspace) {
+  const filePath = ownerPath(workspace);
+  const value = await readPrivateJson(filePath);
+  if (!validOwner(value) || value.workspace !== workspace) {
+    throw new Error("dashboard owner record is invalid");
+  }
+  return value;
+}
+
+export async function readDashboardHandoff(workspace) {
+  const value = await readPrivateJson(handoffPath(workspace));
+  if (!validHandoff(value) || value.workspace !== workspace) {
+    throw new Error("dashboard handoff record is invalid");
+  }
+  return value;
+}
+
+export async function writeDashboardOwner(workspace, value, { signal } = {}) {
   if (!validOwner(value) || value.workspace !== workspace) {
     throw new Error("dashboard owner record does not match its canonical workspace");
   }
   const filePath = ownerPath(workspace);
+  const temporary = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+  const throwIfAborted = () => {
+    if (signal?.aborted) {
+      throw Object.assign(new Error("dashboard owner publication was cancelled"), {
+        code: "TASKCHEF_DASHBOARD_START_TIMEOUT",
+      });
+    }
+  };
+  try {
+    throwIfAborted();
+    const handle = await open(temporary, "wx", 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}\n`, { encoding: "utf8" });
+      throwIfAborted();
+      await handle.sync();
+      throwIfAborted();
+    } finally {
+      await handle.close();
+    }
+    throwIfAborted();
+    await rename(temporary, filePath);
+    await syncDirectory(workspace);
+  } catch (error) {
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
+}
+
+export async function writeDashboardHandoff(workspace, value) {
+  if (!validHandoff(value) || value.workspace !== workspace) {
+    throw new Error("dashboard handoff record does not match its canonical workspace");
+  }
+  const filePath = handoffPath(workspace);
   const temporary = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   try {
     const handle = await open(temporary, "wx", 0o600);
@@ -133,6 +243,7 @@ export async function writeDashboardOwner(workspace, value) {
       await handle.close();
     }
     await rename(temporary, filePath);
+    await syncDirectory(workspace);
   } catch (error) {
     await unlink(temporary).catch(() => {});
     throw error;

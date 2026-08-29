@@ -33,13 +33,20 @@ async function processFixture() {
   const workspace = path.join(root, "workspace");
   await initializeWorkspace(workspace);
   const port = await unusedPort();
+  const session = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: "ignore",
+  });
   return {
     workspace,
     port,
+    session,
     env: {
       ...process.env,
       TASKCHEF_WORKSPACE: workspace,
       TASKCHEF_TEST_DASHBOARD_PORT: String(port),
+      TASKCHEF_TEST_SESSION_PID: String(session.pid),
+      TASKCHEF_DASHBOARD_CHECK_INTERVAL_MS: "25",
+      TASKCHEF_DASHBOARD_EXIT_GRACE_MS: "100",
     },
   };
 }
@@ -77,8 +84,9 @@ async function stopChild(child) {
   await waitForExit(child).catch(() => {});
 }
 
-test("stdio MCP client close and stdin EOF release the owned dashboard", async (t) => {
+test("stdio close and EOF stop MCP transports while the Codex session dashboard survives", async (t) => {
   const clientFixture = await processFixture();
+  t.after(() => stopChild(clientFixture.session));
   const client = new Client({ name: "taskchef-lifecycle-test", version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -88,9 +96,12 @@ test("stdio MCP client close and stdin EOF release the owned dashboard", async (
   await client.connect(transport);
   await waitForDashboard(clientFixture.port);
   await client.close();
+  await waitForDashboard(clientFixture.port);
+  await stopChild(clientFixture.session);
   await waitForDashboard(clientFixture.port, false);
 
   const eofFixture = await processFixture();
+  t.after(() => stopChild(eofFixture.session));
   const child = spawn(process.execPath, [CHILD_PATH], {
     env: eofFixture.env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -100,12 +111,15 @@ test("stdio MCP client close and stdin EOF release the owned dashboard", async (
   child.stdin.end();
   const exited = await waitForExit(child);
   assert.equal(exited.code, 0);
+  await waitForDashboard(eofFixture.port);
+  await stopChild(eofFixture.session);
   await waitForDashboard(eofFixture.port, false);
 });
 
-test("SIGTERM and SIGINT gracefully close the MCP-owned dashboard", async (t) => {
+test("SIGTERM and SIGINT close MCP transports without ending the Codex session dashboard", async (t) => {
   for (const signal of ["SIGTERM", "SIGINT"]) {
     const fixture = await processFixture();
+    t.after(() => stopChild(fixture.session));
     const child = spawn(process.execPath, [CHILD_PATH], {
       env: fixture.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -117,12 +131,15 @@ test("SIGTERM and SIGINT gracefully close the MCP-owned dashboard", async (t) =>
       throw new Error(`${signal} shutdown failed: ${error.message}`);
     });
     assert.equal(exited.code, 0);
+    await waitForDashboard(fixture.port);
+    await stopChild(fixture.session);
     await waitForDashboard(fixture.port, false);
   }
 });
 
 test("transport-driven protocol close exits with stdin still open", async (t) => {
   const fixture = await processFixture();
+  t.after(() => stopChild(fixture.session));
   const child = spawn(process.execPath, [CHILD_PATH], {
     env: { ...fixture.env, TASKCHEF_TEST_TRANSPORT_CLOSE_MS: "250" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -131,11 +148,14 @@ test("transport-driven protocol close exits with stdin still open", async (t) =>
   await waitForDashboard(fixture.port);
   assert.equal(child.stdin.writableEnded, false);
   assert.equal((await waitForExit(child)).code, 0);
+  await waitForDashboard(fixture.port);
+  await stopChild(fixture.session);
   await waitForDashboard(fixture.port, false);
 });
 
 test("SIGTERM during MCP connection startup cannot attach a transport after shutdown", async (t) => {
   const fixture = await processFixture();
+  t.after(() => stopChild(fixture.session));
   const child = spawn(process.execPath, [CHILD_PATH], {
     env: { ...fixture.env, TASKCHEF_TEST_CONNECT_DELAY_MS: "500" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -144,11 +164,14 @@ test("SIGTERM during MCP connection startup cannot attach a transport after shut
   await waitForDashboard(fixture.port);
   assert.equal(child.kill("SIGTERM"), true);
   assert.equal((await waitForExit(child)).code, 0);
+  await waitForDashboard(fixture.port);
+  await stopChild(fixture.session);
   await waitForDashboard(fixture.port, false);
 });
 
 test("SIGTERM bounds shutdown when MCP transport startup never settles", async (t) => {
   const fixture = await processFixture();
+  t.after(() => stopChild(fixture.session));
   const child = spawn(process.execPath, [CHILD_PATH], {
     env: { ...fixture.env, TASKCHEF_TEST_CONNECT_NEVER: "1" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -159,11 +182,14 @@ test("SIGTERM bounds shutdown when MCP transport startup never settles", async (
   assert.equal(child.kill("SIGTERM"), true);
   assert.equal((await waitForExit(child)).code, 0);
   assert.equal(Date.now() - startedAt < 4_000, true);
+  await waitForDashboard(fixture.port);
+  await stopChild(fixture.session);
   await waitForDashboard(fixture.port, false);
 });
 
-test("SIGTERM still closes the MCP transport when dashboard cleanup reports failure", async (t) => {
+test("SIGTERM still closes the MCP transport when manager cleanup reports failure", async (t) => {
   const fixture = await processFixture();
+  t.after(() => stopChild(fixture.session));
   const child = spawn(process.execPath, [CHILD_PATH], {
     env: { ...fixture.env, TASKCHEF_TEST_DASHBOARD_CLOSE_FAIL: "1" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -173,13 +199,18 @@ test("SIGTERM still closes the MCP transport when dashboard cleanup reports fail
   assert.equal(child.kill("SIGTERM"), true);
   const exited = await waitForExit(child);
   assert.equal(exited.code, 1);
+  await waitForDashboard(fixture.port);
+  await stopChild(fixture.session);
   await waitForDashboard(fixture.port, false);
 });
 
 test("abrupt parent exit is detected even while the inherited MCP stdin remains open", async (t) => {
   const fixture = await processFixture();
+  t.after(() => stopChild(fixture.session));
+  const parentEnv = { ...fixture.env };
+  delete parentEnv.TASKCHEF_TEST_SESSION_PID;
   const parent = spawn(process.execPath, [PARENT_PATH], {
-    env: fixture.env,
+    env: parentEnv,
     stdio: ["pipe", "pipe", "pipe"],
   });
   let childPid = null;

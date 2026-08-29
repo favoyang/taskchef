@@ -606,7 +606,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   const dashboardManager = {
     ensure: async () => ({
       action: ensureCount++ === 0 ? "started" : "reused",
-      launcher: "mcp",
+      launcher: "session",
       url: "http://127.0.0.1:3210/",
       workspace: await realpath(workspace),
       taskchefVersion: "7.3.0",
@@ -850,7 +850,7 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
   }
 });
 
-test("MCP transport failure closes a dashboard started during initialization", async () => {
+test("MCP transport failure closes its dashboard manager without masking startup failure", async () => {
   let ensureCount = 0;
   let closeCount = 0;
   let transportCloseCount = 0;
@@ -859,7 +859,7 @@ test("MCP transport failure closes a dashboard started during initialization", a
     dashboardManager: {
       ensure: async () => {
         ensureCount += 1;
-        return { action: "started", launcher: "mcp" };
+        return { action: "started", launcher: "session" };
       },
       close: async () => {
         closeCount += 1;
@@ -3809,6 +3809,24 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
   assert.match(workflows, /Concurrency and trust boundaries/);
   assert.doesNotMatch(workflows, /task resolve|schema 1-3|updatedBy: hook/);
 });
+
+test("workspace contract inventories both private dashboard lifecycle records", async () => {
+  const readme = await readFile(path.resolve("README.md"), "utf8");
+  const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
+  const lifecycle = await readFile(path.resolve("docs/dashboard-lifecycle.md"), "utf8");
+  for (const fileName of [
+    ".taskchef-dashboard-owner.json",
+    ".taskchef-dashboard-handoff.json",
+  ]) {
+    assert.ok(readme.includes(fileName));
+    assert.ok(spec.includes(fileName));
+    assert.ok(lifecycle.includes(fileName));
+  }
+  assert.match(readme, /mode-0600[\s\S]*retained[\s\S]*atomically/);
+  assert.match(spec, /mode-`0600`[\s\S]*retained[\s\S]*atomically/);
+  assert.match(lifecycle, /contains no control secret/);
+});
+
 test("release automation pins the shared marketplace to the exact npm version", async () => {
   const marketplace = {
     name: "favoyang-plugins",

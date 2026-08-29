@@ -26,8 +26,17 @@ import { taskGitHubProjection } from "./dashboard/github-links.js";
 import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
 import {
+  MAX_DASHBOARD_SESSION_PIDS,
+  MAX_TRANSFERRED_DASHBOARD_SESSION_PIDS,
+  validSessionPid,
+} from "./dashboard-session.js";
+import {
   DASHBOARD_CONTROL_CHALLENGE_PATH,
+  DASHBOARD_CONTROL_HANDOFF_COMMIT_PATH,
+  DASHBOARD_CONTROL_SESSION_PATH,
+  DASHBOARD_CONTROL_HANDOFF_PATH,
   DASHBOARD_CONTROL_SHUTDOWN_PATH,
+  createDashboardControlNonce,
   dashboardControlProof,
   validDashboardControlNonce,
   validDashboardControlSecret,
@@ -41,6 +50,11 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_TASKS = 2_000;
 const DEFAULT_MAX_EVENT_CLIENTS = 16;
+const DASHBOARD_HANDOFF_PREPARE_TTL_MS = 5_000;
+const DASHBOARD_HANDOFF_COMMIT_GRACE_MS = 250;
+const DASHBOARD_HANDOFF_COMMIT_RETRY_MS = 1_000;
+const DASHBOARD_CONTROL_NONCE_LIMIT = 4_096;
+const DASHBOARD_CONTROL_NONCE_TTL_MS = 5 * 60_000;
 const MAX_MANUAL_TRANSITION_BODY_BYTES = 4 * 1024;
 export const DASHBOARD_HEALTH_PATH = "/api/health";
 export const DASHBOARD_HEALTH_MAX_BYTES = 8 * 1024;
@@ -537,6 +551,33 @@ function publicMonitorError() {
   };
 }
 
+export function createDashboardControlReplayCache({
+  maximum = DASHBOARD_CONTROL_NONCE_LIMIT,
+  ttlMs = DASHBOARD_CONTROL_NONCE_TTL_MS,
+  now = Date.now,
+} = {}) {
+  if (!Number.isSafeInteger(maximum) || maximum <= 0) {
+    throw new Error("dashboard control replay limit must be a positive integer");
+  }
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0 || typeof now !== "function") {
+    throw new Error("dashboard control replay window is invalid");
+  }
+  const entries = new Map();
+  return {
+    accept(nonce) {
+      const timestamp = now();
+      for (const [candidate, expiresAt] of entries) {
+        if (expiresAt > timestamp) break;
+        entries.delete(candidate);
+      }
+      if (entries.has(nonce) || entries.size >= maximum) return false;
+      entries.set(nonce, timestamp + ttlMs);
+      return true;
+    },
+    get size() { return entries.size; },
+  };
+}
+
 export async function createDashboardServer({
   archiveEnabled = CODEX_CHAT_ARCHIVE_ENABLED,
   archiveThread = archiveThreadInCodex,
@@ -553,6 +594,7 @@ export async function createDashboardServer({
   serverVersion = DASHBOARD_SERVER_VERSION,
   usageTracker = null,
   control = null,
+  controlReplayCache = createDashboardControlReplayCache(),
 } = {}) {
   if (!LOOPBACK_HOSTS.has(host)) {
     throw new Error("dashboard host must be a loopback address");
@@ -563,13 +605,15 @@ export async function createDashboardServer({
   if (!Number.isInteger(maxEventClients) || maxEventClients < 0) {
     throw new Error("dashboard event-client limit must be a non-negative integer");
   }
-  if (!new Set(["mcp", "standalone"]).has(launcher)) {
-    throw new Error("dashboard launcher must be mcp or standalone");
+  if (!new Set(["mcp", "session", "standalone"]).has(launcher)) {
+    throw new Error("dashboard launcher must be mcp, session, or standalone");
   }
-  if (control !== null && (launcher !== "mcp"
+  if (control !== null && (!new Set(["mcp", "session"]).has(launcher)
       || !validDashboardControlSecret(control?.secret)
-      || typeof control?.onShutdown !== "function")) {
-    throw new Error("dashboard control requires a valid MCP ownership controller");
+      || typeof control?.onShutdown !== "function"
+      || (launcher === "session" && (typeof control?.onSession !== "function"
+        || typeof control?.onHandoff !== "function")))) {
+    throw new Error("dashboard control requires a valid TaskChef ownership controller");
   }
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   await monitor.start();
@@ -588,7 +632,8 @@ export async function createDashboardServer({
   }
   const clients = new Set();
   const archiveRequests = new Set();
-  const controlNonces = new Set();
+  let controlHandoff = null;
+  let controlHandoffTimer = null;
   let allowedAuthority;
   let allowedOrigin;
 
@@ -655,13 +700,248 @@ export async function createDashboardServer({
         sendJson(response, 403, { message: "Dashboard control authentication failed." });
         return;
       }
-      if (controlNonces.has(nonce)) {
+      if (!controlReplayCache.accept(nonce)) {
         sendJson(response, 409, { message: "Dashboard control credential was already used." });
         return;
       }
-      controlNonces.add(nonce);
       sendJson(response, 202, { schemaVersion: 1, accepted: true });
       setImmediate(() => { void control.onShutdown().catch(() => {}); });
+      return;
+    }
+
+    if (url.pathname === DASHBOARD_CONTROL_SESSION_PATH && method === "POST") {
+      if (!control || typeof control.onSession !== "function") {
+        sendJson(response, 404, { message: "Not found." });
+        return;
+      }
+      const body = await readBoundedJsonBody(request);
+      const nonce = body?.nonce;
+      const pid = body?.pid;
+      if (!Number.isSafeInteger(pid) || pid <= 1
+          || !verifyDashboardControlProof(
+            control.secret, `session:${pid}`, nonce, body?.proof,
+          )) {
+        sendJson(response, 403, { message: "Dashboard control authentication failed." });
+        return;
+      }
+      if (controlHandoff) {
+        sendJson(response, 409, {
+          message: "Dashboard handoff is already in progress.",
+          reason: "retiring",
+        });
+        return;
+      }
+      if (!controlReplayCache.accept(nonce)) {
+        sendJson(response, 409, { message: "Dashboard control credential was already used." });
+        return;
+      }
+      try {
+        await control.onSession(pid);
+        sendJson(response, 200, {
+          schemaVersion: 1,
+          accepted: true,
+          nonce,
+          proof: dashboardControlProof(control.secret, `session-accepted:${pid}`, nonce),
+        });
+      } catch (error) {
+        sendJson(response, 409, {
+          message: "Dashboard session registration was refused.",
+          reason: error?.code === "TASKCHEF_DASHBOARD_SESSION_RETIRING"
+            ? "retiring"
+            : "refused",
+        });
+      }
+      return;
+    }
+
+    if (url.pathname === DASHBOARD_CONTROL_HANDOFF_PATH && method === "POST") {
+      if (!control || typeof control.onHandoff !== "function") {
+        sendJson(response, 404, { message: "Not found." });
+        return;
+      }
+      const body = await readBoundedJsonBody(request);
+      const nonce = body?.nonce;
+      const pid = body?.pid;
+      if (!Number.isSafeInteger(pid) || pid <= 1
+          || !verifyDashboardControlProof(
+            control.secret, `handoff:${pid}`, nonce, body?.proof,
+          )) {
+        sendJson(response, 403, { message: "Dashboard control authentication failed." });
+        return;
+      }
+      if (!controlReplayCache.accept(nonce)) {
+        sendJson(response, 409, { message: "Dashboard control credential was already used." });
+        return;
+      }
+      if (controlHandoff) {
+        if (controlHandoff.pending || controlHandoff.finalizing || controlHandoff.finalized) {
+          sendJson(response, 409, {
+            message: "Dashboard handoff is already in progress.",
+            reason: "retiring",
+          });
+          return;
+        }
+        try {
+          const pids = controlHandoff.participants.has(pid)
+            ? controlHandoff.pids
+            : await control.onHandoff(pid);
+          if (!Array.isArray(pids) || pids.length > MAX_DASHBOARD_SESSION_PIDS
+              || pids.some((value) => !validSessionPid(value))
+              || new Set(pids).size !== pids.length
+              || !pids.includes(pid)) {
+            throw new Error("dashboard handoff returned invalid session leases");
+          }
+          controlHandoff.pids = pids;
+          controlHandoff.participants.add(pid);
+          const { id } = controlHandoff;
+          sendJson(response, 200, {
+            schemaVersion: 1,
+            accepted: true,
+            id,
+            pids,
+            nonce,
+            proof: dashboardControlProof(
+              control.secret,
+              `handoff-prepared:${pid}:${id}:${JSON.stringify(pids)}`,
+              nonce,
+            ),
+          });
+        } catch {
+          sendJson(response, 409, {
+            message: "Dashboard handoff was refused.",
+            reason: "refused",
+          });
+        }
+        return;
+      }
+      controlHandoff = { pid, pending: true, committed: false };
+      try {
+        const pids = await control.onHandoff(pid);
+        if (!Array.isArray(pids) || pids.length > MAX_DASHBOARD_SESSION_PIDS
+            || pids.some((value) => !validSessionPid(value))
+            || new Set(pids).size !== pids.length
+            || !pids.includes(pid)) {
+          throw new Error("dashboard handoff returned invalid session leases");
+        }
+        const id = createDashboardControlNonce();
+        controlHandoff = {
+          id,
+          pid,
+          pids,
+          participants: new Set([pid]),
+          pending: false,
+          committed: false,
+        };
+        controlHandoffTimer = setTimeout(() => {
+          if (controlHandoff?.id === id && !controlHandoff.committed) controlHandoff = null;
+          controlHandoffTimer = null;
+        }, DASHBOARD_HANDOFF_PREPARE_TTL_MS);
+        controlHandoffTimer.unref?.();
+        sendJson(response, 200, {
+          schemaVersion: 1,
+          accepted: true,
+          id,
+          pids,
+          nonce,
+          proof: dashboardControlProof(
+            control.secret,
+            `handoff-prepared:${pid}:${id}:${JSON.stringify(pids)}`,
+            nonce,
+          ),
+        });
+      } catch {
+        if (controlHandoff?.pid === pid && controlHandoff.pending) controlHandoff = null;
+        sendJson(response, 409, {
+          message: "Dashboard handoff was refused.",
+          reason: "refused",
+        });
+      }
+      return;
+    }
+
+    if (url.pathname === DASHBOARD_CONTROL_HANDOFF_COMMIT_PATH && method === "POST") {
+      if (!control || typeof control.onHandoff !== "function") {
+        sendJson(response, 404, { message: "Not found." });
+        return;
+      }
+      const body = await readBoundedJsonBody(request);
+      const nonce = body?.nonce;
+      const id = body?.id;
+      if (!validDashboardControlNonce(id)
+          || !verifyDashboardControlProof(
+            control.secret, `handoff-commit:${id}`, nonce, body?.proof,
+          )) {
+        sendJson(response, 403, { message: "Dashboard control authentication failed." });
+        return;
+      }
+      if (!controlReplayCache.accept(nonce)) {
+        sendJson(response, 409, { message: "Dashboard control credential was already used." });
+        return;
+      }
+      if (!controlHandoff || controlHandoff.id !== id) {
+        sendJson(response, 409, {
+          message: "Dashboard handoff preparation expired or did not match.",
+          reason: "refused",
+        });
+        return;
+      }
+      if (!controlHandoff.commitPromise) {
+        controlHandoff.committed = true;
+        if (controlHandoffTimer) clearTimeout(controlHandoffTimer);
+        controlHandoffTimer = null;
+        controlHandoff.commitPromise = new Promise((resolve, reject) => {
+          const finalizationTimer = setTimeout(async () => {
+            try {
+              controlHandoff.finalizing = true;
+              const pids = await control.onHandoff(controlHandoff.pid);
+              if (!Array.isArray(pids)
+                  || pids.length > MAX_TRANSFERRED_DASHBOARD_SESSION_PIDS
+                  || pids.some((value) => !validSessionPid(value))
+                  || new Set(pids).size !== pids.length
+                  || !pids.includes(controlHandoff.pid)) {
+                throw new Error("dashboard handoff returned invalid final session leases");
+              }
+              controlHandoff.pids = pids;
+              await control.onHandoffFinalized?.({ id, pids });
+              controlHandoff.finalized = true;
+              resolve(pids);
+            } catch (error) {
+              reject(error);
+            }
+          }, DASHBOARD_HANDOFF_COMMIT_GRACE_MS);
+          finalizationTimer.unref?.();
+        });
+      }
+      let pids;
+      try {
+        pids = await controlHandoff.commitPromise;
+      } catch {
+        if (controlHandoff?.id === id) controlHandoff = null;
+        sendJson(response, 409, {
+          message: "Dashboard handoff finalization was refused.",
+          reason: "refused",
+        });
+        return;
+      }
+      sendJson(response, 202, {
+        schemaVersion: 1,
+        accepted: true,
+        id,
+        pids,
+        nonce,
+        proof: dashboardControlProof(
+          control.secret,
+          `handoff-committed:${id}:${JSON.stringify(pids)}`,
+          nonce,
+        ),
+      });
+      if (!controlHandoff.shutdownScheduled) {
+        controlHandoff.shutdownScheduled = true;
+        const shutdownTimer = setTimeout(() => {
+          void control.onShutdown().catch(() => {});
+        }, DASHBOARD_HANDOFF_COMMIT_RETRY_MS);
+        shutdownTimer.unref?.();
+      }
       return;
     }
 
