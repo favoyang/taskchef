@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   aggregateCcusageSessions,
   compactUsageStore,
+  ensureCcusageExecutable,
   managedCcusageInvocation,
   readUsageStore,
   readCcusageThreadUsage,
@@ -197,6 +198,22 @@ test("managed ccusage resolution prefers the pinned package and has a pinned npx
     "@ccusage/ccusage-win32-x64", "ccusage.exe",
   ]);
   assert.equal(windows.resolvesNative, true);
+});
+
+test("managed ccusage makes an npx-cached native binary executable", {
+  skip: process.platform === "win32",
+}, async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-ccusage-mode-"));
+  const binary = path.join(workspace, "ccusage");
+  await writeFile(binary, "fixture");
+  await chmod(binary, 0o640);
+  ensureCcusageExecutable(binary);
+  assert.equal((await stat(binary)).mode & 0o777, 0o740);
+
+  const linkedBinary = path.join(workspace, "ccusage-link");
+  await symlink(binary, linkedBinary);
+  assert.throws(() => ensureCcusageExecutable(linkedBinary));
+  assert.equal((await stat(binary)).mode & 0o777, 0o740);
 });
 
 test("bounded native analyzer execution stops the process before rejecting a timeout", {
