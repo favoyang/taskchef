@@ -1993,7 +1993,7 @@ test("manual dashboard transitions interrupt active work and append one idempote
   }), /current working turnRef|different semantic result/);
 });
 
-test("manual dashboard transitions preserve needs-input history and reject stale or terminal rewrites", async () => {
+test("manual dashboard transitions preserve needs-input history and audit terminal recovery", async () => {
   const { workspace, projects } = await fixture(1);
   const prepared = prepareDelegation("Ask for input before completion.", { taskId: TASK_ID });
   await recordTask(workspace, {
@@ -2029,14 +2029,25 @@ test("manual dashboard transitions preserve needs-input history and reject stale
   );
   assert.equal(completed.task.turns[0].result.summary, "Choose a deployment region.");
   assert.equal(completed.task.turns[1].result.status, "completed");
-  await assert.rejects(
-    manuallyTransitionTask(
-      workspace,
-      TASK_ID,
-      manualTransitionInput(completed.task, "failed", SECOND_MANUAL_ACTION_ID),
-    ),
-    (error) => error.code === "invalid_transition",
+  const failed = await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(completed.task, "failed", SECOND_MANUAL_ACTION_ID),
   );
+  assert.equal(failed.task.status, "failed");
+  assert.deepEqual(failed.task.turns.map((turn) => turn.result.status), [
+    "needs_input", "completed", "failed",
+  ]);
+  assert.equal(failed.task.latestTurn.provenance.fromStatus, "completed");
+  assert.equal(failed.task.latestTurn.provenance.toStatus, "failed");
+  const recovered = await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(failed.task, "completed", TASK_ID),
+  );
+  assert.equal(recovered.task.status, "completed");
+  assert.equal(recovered.task.latestTurn.provenance.fromStatus, "failed");
+  assert.equal(recovered.task.latestTurn.provenance.toStatus, "completed");
   await assert.rejects(
     manuallyTransitionTask(workspace, TASK_ID, {
       ...manualTransitionInput(needsInput, "failed"),
@@ -2066,7 +2077,7 @@ test("manual dashboard transitions can settle a link-pending task without a Code
   assert.equal((await readTask(workspace, TASK_ID)).updatedBy, "dashboard");
 });
 
-test("the manual transition table allows needs-input failure and rejects every terminal rewrite", async () => {
+test("the manual transition table rejects same-state terminal rewrites", async () => {
   const needsFixture = await fixture(1);
   await recordTask(needsFixture.workspace, {
     ...dispatchInput(needsFixture.projects[0], TASK_ID, null),
@@ -2095,19 +2106,14 @@ test("the manual transition table allows needs-input failure and rejects every t
     manualTransitionInput(needsInput, "failed"),
   );
   assert.equal(failed.task.status, "failed");
-  for (const [targetStatus, actionId] of [
-    ["completed", SECOND_MANUAL_ACTION_ID],
-    ["failed", TASK_ID],
-  ]) {
-    await assert.rejects(
-      manuallyTransitionTask(
-        needsFixture.workspace,
-        TASK_ID,
-        manualTransitionInput(failed.task, targetStatus, actionId),
-      ),
-      (error) => error.code === "invalid_transition",
-    );
-  }
+  await assert.rejects(
+    manuallyTransitionTask(
+      needsFixture.workspace,
+      TASK_ID,
+      manualTransitionInput(failed.task, "failed", SECOND_MANUAL_ACTION_ID),
+    ),
+    (error) => error.code === "invalid_transition",
+  );
 
   const completedFixture = await fixture(1);
   const pending = await recordTask(completedFixture.workspace, {
@@ -2121,19 +2127,14 @@ test("the manual transition table allows needs-input failure and rejects every t
     TASK_ID,
     manualTransitionInput(pending, "completed"),
   );
-  for (const [targetStatus, actionId] of [
-    ["completed", SECOND_MANUAL_ACTION_ID],
-    ["failed", TASK_ID],
-  ]) {
-    await assert.rejects(
-      manuallyTransitionTask(
-        completedFixture.workspace,
-        TASK_ID,
-        manualTransitionInput(completed.task, targetStatus, actionId),
-      ),
-      (error) => error.code === "invalid_transition",
-    );
-  }
+  await assert.rejects(
+    manuallyTransitionTask(
+      completedFixture.workspace,
+      TASK_ID,
+      manualTransitionInput(completed.task, "completed", SECOND_MANUAL_ACTION_ID),
+    ),
+    (error) => error.code === "invalid_transition",
+  );
   await assert.rejects(
     manuallyTransitionTask(completedFixture.workspace, TASK_ID, {
       ...manualTransitionInput(pending, "completed", SECOND_MANUAL_ACTION_ID),
@@ -2162,6 +2163,34 @@ test("schema 10 rejects a latest manual turn whose dashboard attribution was tam
   await assert.rejects(
     listTasks(workspace),
     /latest manual dashboard turn requires updatedBy dashboard/,
+  );
+});
+
+test("schema 10 rejects same-state terminal manual provenance", async () => {
+  const { workspace, projects } = await fixture(1);
+  const pending = await recordTask(workspace, {
+    ...dispatchInput(projects[0], TASK_ID, null),
+    instruction: prepareDelegation("Keep terminal recovery auditable.", {
+      taskId: TASK_ID,
+    }).instruction,
+  });
+  const completed = await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(pending, "completed"),
+  );
+  await manuallyTransitionTask(
+    workspace,
+    TASK_ID,
+    manualTransitionInput(completed.task, "failed", SECOND_MANUAL_ACTION_ID),
+  );
+  const taskLog = path.join(workspace, "tasks.jsonl");
+  const stored = JSON.parse((await readFile(taskLog, "utf8")).trim());
+  stored.turns[1].provenance.toStatus = "completed";
+  await writeFile(taskLog, `${JSON.stringify(stored)}\n`);
+  await assert.rejects(
+    listTasks(workspace),
+    /provenance describes an invalid manual transition/,
   );
 });
 
@@ -2281,7 +2310,7 @@ test("concurrent manual transitions serialize to one audited terminal outcome", 
   assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
   assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
   assert.equal(attempts.find((attempt) => attempt.status === "rejected").reason.code,
-    "invalid_transition");
+    "stale_task");
   const stored = await readTask(workspace, TASK_ID);
   assert.ok(["completed", "failed"].includes(stored.status));
   assert.equal(stored.turns.length, 1);
