@@ -23,6 +23,7 @@ import {
 } from "./workspace.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
+import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
 
 const TASKS_FILE_NAME = "tasks.jsonl";
@@ -529,6 +530,7 @@ function publicMonitorError() {
 }
 
 export async function createDashboardServer({
+  archiveEnabled = CODEX_CHAT_ARCHIVE_ENABLED,
   archiveThread = archiveThreadInCodex,
   discoverArchiveCli = discoverBundledCodexCli,
   workspace,
@@ -759,6 +761,10 @@ export async function createDashboardServer({
 
     const archiveMatch = url.pathname.match(/^\/api\/tasks\/([a-zA-Z0-9._-]+)\/archive-codex$/);
     if (archiveMatch && method === "POST") {
+      if (!archiveEnabled) {
+        sendJson(response, 404, { message: "Chat archiving is not available." });
+        return;
+      }
       if (request.headers.origin !== allowedOrigin) {
         sendJson(response, 403, { message: "Dashboard origin validation failed." });
         return;

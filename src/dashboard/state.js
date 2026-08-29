@@ -15,6 +15,12 @@ export const STATUS_FILTERS = [
 ];
 const CODEX_THREAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// Disabled because the bundled `codex archive` command can reject valid idle
+// desktop-app threads while Codex's native archive operation succeeds. Keep
+// the implementation behind this gate until Codex exposes a reliable,
+// supported app-callable archive interface or guarantees CLI compatibility.
+export const CODEX_CHAT_ARCHIVE_ENABLED = false;
+
 const NOTIFICATION_TITLES = new Map([
   ["created", "Task created"],
   ["task_started", "Task started"],
@@ -41,10 +47,14 @@ export function taskStatusLabel(task) {
   return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
 }
 
-export function canArchiveTask(task) {
+export function isArchiveTaskEligible(task) {
   return task.status !== "working"
     && typeof task.threadId === "string"
     && CODEX_THREAD_ID_PATTERN.test(task.threadId);
+}
+
+export function canArchiveTask(task) {
+  return CODEX_CHAT_ARCHIVE_ENABLED && isArchiveTaskEligible(task);
 }
 
 export function canManuallyTransitionTask(task) {
