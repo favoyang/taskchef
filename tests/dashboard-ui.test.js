@@ -588,10 +588,6 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(statusFilter.inputs[3].checked, true);
     assert.equal(elements.get("#task-list").children.length, 0);
 
-    const dashboardMessageBeforeManualSuccess = {
-      hidden: elements.get("#dashboard-message").hidden,
-      text: elements.get("#dashboard-message-text").textContent,
-    };
     manualTransitionSucceeds = true;
     const markCompleted = elements.get("#mark-task-completed");
     await markCompleted.emit("click", {
@@ -600,10 +596,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     });
     assert.equal(manualRequests.length, 2);
     assert.equal(JSON.parse(manualRequests[1].options.body).targetStatus, "completed");
-    assert.deepEqual({
-      hidden: elements.get("#dashboard-message").hidden,
-      text: elements.get("#dashboard-message-text").textContent,
-    }, dashboardMessageBeforeManualSuccess);
+    assert.equal(elements.get("#dashboard-message").hidden, true);
     assert.match(
       elements.get("#notification-announcer").textContent,
       /Task manually completed.*Manually marked completed from the TaskChef dashboard\./,

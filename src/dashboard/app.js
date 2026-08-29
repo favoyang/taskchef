@@ -49,7 +49,6 @@ const state = {
   notifications: [],
   seenNotificationIds: new Set(),
   initialized: false,
-  dashboardMessageKind: null,
   manualTransition: null,
   selectedTask: null,
 };
@@ -851,13 +850,9 @@ function applySnapshot(snapshot) {
   state.seenNotificationIds = reconciled.seenIds;
   state.initialized = true;
   if (snapshot.healthy === false) {
-    showMessage(
-      "The task log is temporarily unavailable. Showing the last valid snapshot.",
-      { kind: "task_log_unavailable" },
-    );
-  } else if (state.dashboardMessageKind === "task_log_unavailable") {
+    showMessage("The task log is temporarily unavailable. Showing the last valid snapshot.");
+  } else {
     elements.dashboardMessage.hidden = true;
-    state.dashboardMessageKind = null;
   }
   replaceOptions(
     elements.projectFilter,
@@ -872,10 +867,9 @@ function applySnapshot(snapshot) {
   render();
 }
 
-function showMessage(message, { kind = "general" } = {}) {
+function showMessage(message) {
   elements.dashboardMessageText.textContent = message;
   elements.dashboardMessage.hidden = false;
-  state.dashboardMessageKind = kind;
 }
 
 void loadDashboardVersion();
@@ -888,7 +882,7 @@ events.addEventListener("snapshot", (event) => {
   applySnapshot(JSON.parse(event.data));
 });
 events.addEventListener("dashboard-error", (event) => {
-  showMessage(JSON.parse(event.data).message, { kind: "task_log_unavailable" });
+  showMessage(JSON.parse(event.data).message);
 });
 
 elements.projectFilter.addEventListener("change", render);
@@ -897,7 +891,6 @@ elements.statusFilter.addEventListener("keydown", selectStatusFromKeyboard);
 elements.dateFilter.addEventListener("change", render);
 elements.dismissDashboardMessage.addEventListener("click", () => {
   elements.dashboardMessage.hidden = true;
-  state.dashboardMessageKind = null;
 });
 elements.clearNotifications.addEventListener("click", () => {
   state.notifications = clearNotifications();
