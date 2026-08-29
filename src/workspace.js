@@ -105,7 +105,9 @@ const MANUAL_TURN_PROVENANCE_FIELDS = new Set([
   "expectedUpdatedAt",
 ]);
 const INTERRUPTED_TURN_SUMMARY = "Turn interrupted before a terminal report.";
-const MANUAL_TRANSITION_STATUSES = new Set(["working", "needs_input"]);
+const MANUAL_TRANSITION_STATUSES = new Set([
+  "working", "needs_input", "completed", "failed",
+]);
 const MANUAL_TARGET_STATUSES = new Set(["completed", "failed"]);
 const MANUAL_TRANSITION_FIELDS = new Set([
   "actionId", "expected", "targetStatus",
@@ -1035,9 +1037,14 @@ async function validateDispatchShape(dispatch, name = "task") {
       if (provenance.expectedTurnRef !== (predecessor?.turnRef ?? null)) {
         throw new Error(`${turnName}.provenance.expectedTurnRef must match the prior turn`);
       }
+      if (!canManuallyTransition(provenance.fromStatus, provenance.toStatus)) {
+        throw new Error(`${turnName}.provenance describes an invalid manual transition`);
+      }
       const validPriorState = provenance.fromStatus === "needs_input"
         ? predecessor?.result?.status === "needs_input"
-        : predecessor === null || predecessor.result?.status === "interrupted";
+        : provenance.fromStatus === "working"
+          ? predecessor === null || predecessor.result?.status === "interrupted"
+          : predecessor?.result?.status === provenance.fromStatus;
       if (!validPriorState) {
         throw new Error(`${turnName}.provenance.fromStatus does not match the prior turn`);
       }
@@ -1048,9 +1055,9 @@ async function validateDispatchShape(dispatch, name = "task") {
       ) {
         throw new Error(`${turnName} must share its timestamp with the interrupted prior turn`);
       }
-      const expectedPriorTimestamp = provenance.fromStatus === "needs_input"
-        ? predecessor.result.updatedAt
-        : predecessor?.startedAt ?? null;
+      const expectedPriorTimestamp = provenance.fromStatus === "working"
+        ? predecessor?.startedAt ?? null
+        : predecessor.result.updatedAt;
       if (
         Date.parse(provenance.expectedUpdatedAt) < Date.parse(normalized.createdAt)
         || (
@@ -1666,6 +1673,13 @@ function manualTransitionRequestSummary(fromStatus, toStatus) {
   return `Manual dashboard transition from ${fromStatus} to ${toStatus}.`;
 }
 
+function canManuallyTransition(fromStatus, toStatus) {
+  if (!MANUAL_TRANSITION_STATUSES.has(fromStatus) || !MANUAL_TARGET_STATUSES.has(toStatus)) {
+    return false;
+  }
+  return ["working", "needs_input"].includes(fromStatus) || fromStatus !== toStatus;
+}
+
 function taskOperationError(code, message, task = null) {
   const error = new Error(message);
   error.code = code;
@@ -2009,7 +2023,7 @@ export async function manuallyTransitionTask(
     }
 
     const dispatch = dispatches[index];
-    if (!MANUAL_TRANSITION_STATUSES.has(dispatch.status)) {
+    if (!canManuallyTransition(dispatch.status, normalizedInput.targetStatus)) {
       throw taskOperationError(
         "invalid_transition",
         `task status cannot be changed manually from ${dispatch.status}: ${id}`,
