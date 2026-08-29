@@ -120,11 +120,17 @@ aliases for existing callers.
 
 ## Optional usage projection
 
-TaskChef MAY invoke an installed `ccusage` executable as an optional local
-adapter using `ccusage codex session --json --offline`. TaskChef MUST NOT parse,
-store, or serve raw Codex rollout files, prompts, responses, transcripts, or
-reasoning. Analyzer absence, timeout, malformed output, unknown pricing, or an
-unresolved thread MUST NOT block lifecycle tools or dashboard loading.
+TaskChef MUST pin one tested `ccusage` version as an optional dependency. It
+MUST prefer that package-local executable and MAY use an exact-version,
+cache-friendly `npx` invocation when a plugin-only installation has no local
+dependency. The `npx` invocation MUST only resolve the pinned native executable
+and MUST NOT launch the analyzer against Codex data. TaskChef MUST execute that
+native binary directly. The adapter MUST first request structured Codex output
+with live-capable online pricing and retry with ccusage's bundled offline
+pricing after a bounded failure. TaskChef MUST NOT parse, store, or serve raw
+Codex rollout files, prompts, responses, transcripts, or reasoning. Analyzer,
+npm, network, timeout, malformed output, unknown pricing, or an unresolved
+thread MUST NOT block lifecycle tools or dashboard loading.
 
 Dashboard-manual turns are administrative events, not Codex executions. They
 MUST immediately report per-turn usage as unavailable, MUST NOT schedule or
@@ -162,9 +168,15 @@ in progress before its terminal report; a first historical terminal turn MUST
 remain unavailable even when its cumulative task total is resolvable.
 
 Every available projection MUST identify ccusage, its version when available,
-and freshness. Dollar values MUST be labeled API-equivalent estimates. Positive
-token usage with a zero or missing analyzer cost MUST display cost unavailable,
-not `$0.00`.
+the requested online or fallback offline pricing mode, and usage freshness.
+The online mode records TaskChef's request, not a claim about ccusage's internal
+cache. Dollar values MUST be labeled API-equivalent estimates. Positive token
+usage with a zero or missing analyzer cost MUST display cost unavailable, not
+`$0.00`. A per-turn dollar delta MUST be unavailable when its adjacent
+cumulative boundaries use different analyzer versions, requested pricing modes,
+or declared cost coverage. For GPT-5.6 with ccusage 20.0.20, provenance MUST
+disclose unverified cache-write coverage and TaskChef MUST NOT claim that the
+estimate includes those charges.
 
 Task IDs and non-null thread identities MUST be unique. The immutable intent
 fields MUST NOT change after recording.

@@ -429,8 +429,16 @@ function usagePresentation(usage, { wholeTask = false } = {}) {
   container.append(headline, breakdown);
   const provenance = document.createElement("span");
   const version = usage.provenance?.version ? ` ${usage.provenance.version}` : "";
+  const pricingMode = usage.provenance?.pricingMode
+    ? ` · ${usage.provenance.pricingMode === "online"
+      ? "online pricing requested"
+      : "offline pricing fallback"}`
+    : "";
   const freshness = usage.sourceUpdatedAt ?? usage.sampledAt;
-  provenance.textContent = `Source: ccusage${version}${freshness ? ` · updated ${formatRelativeTime(freshness)}` : ""}. Dollar cost is an API-equivalent estimate${wholeTask ? " for the task" : " for this turn"}.`;
+  provenance.textContent = `Source: ccusage${version}${pricingMode}${freshness ? ` · updated ${formatRelativeTime(freshness)}` : ""}. Dollar cost is an API-equivalent estimate${wholeTask ? " for the task" : " for this turn"}.`;
+  if (usage.provenance?.costCoverage === "cache_writes_unverified") {
+    provenance.textContent += " ccusage may omit GPT-5.6 cache-write charges.";
+  }
   container.append(provenance);
   return container;
 }

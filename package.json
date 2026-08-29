@@ -64,5 +64,8 @@
     "@modelcontextprotocol/sdk",
     "proper-lockfile",
     "zod"
-  ]
+  ],
+  "optionalDependencies": {
+    "ccusage": "20.0.20"
+  }
 }
