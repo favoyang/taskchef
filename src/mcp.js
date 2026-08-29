@@ -123,6 +123,9 @@ function toolResult(key, value, message) {
 
 function dashboardAutostartDiagnostic(error) {
   const message = typeof error?.message === "string" ? error.message : "";
+  if (typeof error?.staleTaskchefVersion === "string") {
+    return `TaskChef dashboard autostart skipped: verified older TaskChef ${error.staleTaskchefVersion} listener could not complete authenticated handoff; it was left untouched.`;
+  }
   if (error?.code === "EADDRINUSE" || /port conflict|already in use/i.test(message)) {
     return "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.";
   }
@@ -176,10 +179,16 @@ export function createTaskChefMcpServer({
 
   const originalClose = server.close.bind(server);
   let closePromise = null;
+  let closing = false;
   server.close = async () => {
+    closing = true;
     closePromise ??= (async () => {
-      await dashboardManager.close();
-      await originalClose();
+      const results = await Promise.allSettled([
+        dashboardManager.close(),
+        originalClose(),
+      ]);
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
     })();
     return closePromise;
   };
@@ -349,8 +358,13 @@ export function createTaskChefMcpServer({
   });
   server.connect = async (...args) => {
     await autostartDashboard();
+    if (closing) throw new Error("TaskChef MCP server is shutting down");
     try {
       await originalConnect(...args);
+      if (closing) {
+        await originalClose();
+        throw new Error("TaskChef MCP server shut down during transport startup");
+      }
     } catch (error) {
       await Promise.allSettled([
         Promise.resolve().then(() => dashboardManager.close()),

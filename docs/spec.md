@@ -272,7 +272,10 @@ failures are surfaced as tool errors and MUST NOT partially mutate the log.
 ### `ensure_dashboard`
 
 **Caller:** dispatcher. **Mutation:** starts at most one in-process loopback
-HTTP server; it does not mutate dispatcher workspace files.
+HTTP server. The first owned start writes a private dashboard ownership record
+in the canonical workspace. The record remains after shutdown and the next
+owner atomically replaces it before reporting startup success.
+Exact-compatible reuse does not write it.
 
 **Input:** empty object.
 
@@ -298,13 +301,42 @@ host, or port.
 
 Before reuse, TaskChef MUST query a bounded loopback identity endpoint and
 require the exact fixed service/schema, TaskChef version, dashboard-server
-version, canonical workspace, and `mcp` launcher identity. A standalone,
-unknown, malformed, different-workspace, or stale-version listener MUST produce a concise actionable conflict. TaskChef
-MUST NOT kill, replace, signal, or otherwise control that listener. A startup
-failure MUST leave no owned listener. The MCP server MUST close its owned
-dashboard when its transport or process shuts down. This keeps dashboard child
-operations in the MCP host environment and prevents an agent-shell or foreground
-CLI dashboard from being mistaken for the canonical MCP-owned runtime.
+version, canonical workspace, and `mcp` launcher identity. Exact-compatible
+reuse MUST remain non-destructive and MUST NOT require ownership metadata. A
+manager that reuses another same-version MCP listener MUST monitor that listener
+for the remainder of its own lifetime and perform ordinary singleton startup if
+the reused owner exits, so overlapping plugin reloads converge on the surviving
+MCP process without signaling or terminating either process. A temporary
+different or unknown occupant remains untouched and does not disable that
+non-destructive availability monitor.
+
+An older TaskChef version MAY be retired only when all of these facts hold: its
+health identity is exact and reports the same canonical workspace, `mcp`
+launcher, and dashboard-server version; its semantic version is older than the
+requesting TaskChef version; a private regular mode-0600 owner record in that
+same workspace exactly matches the listener; and a fresh nonce-bound HMAC
+challenge proves control of that record's secret. Only after that proof MAY the
+new process send a separately nonce-bound authenticated loopback shutdown
+request. Shutdown nonces MUST be single-use. The secret MUST NOT appear in
+health responses, requests, diagnostics, or logs. Shutdown MUST retain the
+durable owner record so retirement cannot expose a credentialless live-listener
+window or delete a replacement's record. An owner accepting handoff MUST retire its in-memory dashboard manager
+so later tool calls cannot restart the older listener. Concurrent handoffs MUST
+converge on one listener and exact-compatible reuse.
+
+A standalone, unknown, malformed, different-workspace, newer, incompatible,
+unproven, spoofed, or legacy listener without valid ownership metadata MUST
+produce a concise actionable conflict and MUST NOT receive a shutdown request,
+signal, or process-level termination attempt. TaskChef MUST NOT discover or
+kill port owners. A startup or owner-record-write failure MUST leave no owned
+listener. The MCP server MUST close its owned dashboard on explicit MCP close,
+transport close, stdin EOF, SIGINT, SIGTERM, or detected replacement of its
+original parent process. Parent-loss detection is a local best-effort guard,
+not a Codex restart guarantee. Signal and parent-loss shutdown MUST bound the
+wait for an in-flight transport startup before closing the MCP server, so a
+never-settling startup cannot retain the dashboard indefinitely. This keeps dashboard child operations in the MCP
+host environment and prevents an agent-shell or foreground CLI dashboard from
+being mistaken for the canonical MCP-owned runtime.
 
 The packaged `$taskchef-dashboard` skill MUST call this tool, report `started`
 or `reused`, and return the canonical clickable URL. It MAY use an available
@@ -602,6 +634,12 @@ system services, cron jobs, hooks, privileged components, or elevated/system
 permissions for dashboard availability. Availability is best-effort while the
 owning Codex/plugin MCP process is alive and is not guaranteed while Codex is
 closed.
+
+Releases predating authenticated dashboard handoff are legacy listeners. A
+verified legacy listener MUST be reported distinctly from an unknown port
+conflict but MUST remain untouched; one final manual cleanup MAY be required
+when upgrading from such a release. Once both sides implement the same control
+protocol, compatible prior-version handoff is automatic.
 
 Installing or replacing plugin files MUST NOT be described as activating the
 new MCP code. Release verification MUST install the plugin, activate or reload

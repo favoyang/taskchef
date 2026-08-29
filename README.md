@@ -241,9 +241,27 @@ identity proves the exact TaskChef/dashboard-server version and the same
 canonical workspace. The response says `started` or `reused` and includes the
 stable URL, canonical workspace, and versions.
 
-The in-process dashboard closes with the MCP process. Closing Codex or reloading
-the plugin may therefore stop the dashboard; activating the next TaskChef MCP
-process normally restores it. TaskChef adds no OS-persistent component.
+The in-process dashboard closes on MCP transport close, stdin EOF, SIGINT,
+SIGTERM, or detected loss of the MCP process's original parent. Activating a
+newer TaskChef MCP can also retire an older compatible MCP-owned dashboard for
+the same canonical workspace through an authenticated loopback handoff. These
+guards reduce unnecessary orphans but do not claim that Codex supplies a
+restart or child-process cleanup guarantee. TaskChef adds no daemon or other
+OS-persistent component, and dashboard availability remains best-effort while
+Codex is closed.
+
+Authenticated handoff requires the older listener to use the same dashboard
+protocol and to have written TaskChef's private mode-0600 ownership record in
+that canonical workspace. A nonce-bound HMAC challenge proves the listener has
+the matching secret before TaskChef sends a separately authenticated graceful
+shutdown request. The secret is never returned by `/api/health`, sent in a
+request, or logged. Standalone, different-workspace, newer, malformed,
+unverified, and spoofed listeners are left untouched. Versions predating this
+protocol cannot be taken over safely and may require one final manual cleanup.
+The ownership record is durable metadata: shutdown retains it, and the next
+MCP owner atomically replaces it after binding. This avoids both a live
+credentialless retirement window and an old process deleting its replacement's
+proof.
 
 Autostart is enabled when `dashboard` is absent and in new workspaces. To opt
 out, add this optional exact object to `taskchef.json` while retaining its other
@@ -402,6 +420,15 @@ the new MCP process, ensure the dashboard, then verify TaskChef version,
 protocol `serverVersion`, `mcp` launcher, canonical workspace, and URL.
 Exact-compatible MCP servers may be reused; standalone and unknown listeners
 remain untouched.
+
+If autostart reports a **verified older TaskChef** listener, the port occupant
+passed the bounded TaskChef identity check but could not complete authenticated
+handoff. For a release older than the ownership protocol, stop that one known
+legacy MCP process once through the application/session that launched it, then
+activate the installed plugin again. Do not kill an arbitrary port owner. A
+listener from a handoff-capable prior release should retire automatically; if
+it does not, retain it for diagnosis because TaskChef deliberately refuses to
+weaken the ownership proof.
 
 ## Development
 
