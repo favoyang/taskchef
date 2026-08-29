@@ -1,5 +1,12 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { existsSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  openSync,
+} from "node:fs";
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -356,10 +363,28 @@ export function managedCcusageInvocation({
   };
 }
 
+export function ensureCcusageExecutable(command, {
+  platform = process.platform,
+} = {}) {
+  if (platform === "win32") return;
+  const descriptor = openSync(command, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const file = fstatSync(descriptor);
+    if (!file.isFile()) throw new Error("ccusage native binary is not a regular file");
+    if ((file.mode & 0o100) === 0) fchmodSync(descriptor, file.mode | 0o100);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
 async function resolveManagedCcusageInvocation(invocation, run, timeoutMs) {
-  if (invocation.resolvesNative !== true) return invocation;
+  if (invocation.resolvesNative !== true) {
+    ensureCcusageExecutable(invocation.command);
+    return invocation;
+  }
   if (npxResolvedCcusageInvocation !== null
     && existsSync(npxResolvedCcusageInvocation.command)) {
+    ensureCcusageExecutable(npxResolvedCcusageInvocation.command);
     return npxResolvedCcusageInvocation;
   }
   npxResolvedCcusageInvocation = null;
@@ -374,6 +399,7 @@ async function resolveManagedCcusageInvocation(invocation, run, timeoutMs) {
     || !existsSync(command)) {
     throw new Error("npx returned an invalid ccusage executable");
   }
+  ensureCcusageExecutable(command);
   npxResolvedCcusageInvocation = {
     command,
     args: [],
@@ -504,7 +530,9 @@ export async function readCcusageThreadUsage(threadId, {
   const invocation = command === null
     ? managedCcusageInvocation()
     : { command, args: commandArgs, version: null };
-  const resolvedInvocation = await resolveManagedCcusageInvocation(invocation, run, timeoutMs);
+  const resolvedInvocation = command === null
+    ? await resolveManagedCcusageInvocation(invocation, run, timeoutMs)
+    : invocation;
   const invoke = (args, options) => run(
     resolvedInvocation.command,
     [...resolvedInvocation.args, ...args],
