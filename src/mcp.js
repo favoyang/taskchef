@@ -28,7 +28,7 @@ const turnProvenanceSchema = z.union([
   z.object({
     kind: z.literal("dashboard_manual"),
     actionId: z.string(),
-    fromStatus: z.enum(["working", "needs_input"]),
+    fromStatus: z.enum(["working", "needs_input", "completed", "failed"]),
     toStatus: z.enum(["completed", "failed"]),
     expectedTurnRef: z.string().nullable(),
     expectedThreadId: z.string().nullable(),

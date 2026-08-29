@@ -506,7 +506,6 @@ function replaceCurrentTask(task) {
 function renderManualTransition(task) {
   const activeElement = document.activeElement;
   const focusWasInPanel = elements.manualTransitionPanel.contains?.(activeElement) ?? false;
-  const eligible = canManuallyTransitionTask(task);
   state.manualTransition = reconcileManualTransition(state.manualTransition, task);
   const pending = manualTransitionPending();
   const expanded = Boolean(state.manualTransition);
@@ -522,8 +521,8 @@ function renderManualTransition(task) {
   elements.manualTransitionPanel.hidden = state.manualTransition === null;
   elements.manualTransitionPanel.setAttribute("aria-busy", String(pending));
   elements.copyTaskId.disabled = pending || !task.id;
-  elements.markTaskCompleted.hidden = !eligible;
-  elements.markTaskFailed.hidden = !eligible;
+  elements.markTaskCompleted.hidden = !canManuallyTransitionTask(task, "completed");
+  elements.markTaskFailed.hidden = !canManuallyTransitionTask(task, "failed");
   elements.markTaskCompleted.disabled = pending;
   elements.markTaskFailed.disabled = pending;
   const archivePending = state.archivePendingThreadIds.has(task.threadId);
@@ -561,7 +560,11 @@ function renderManualTransition(task) {
 
 async function submitManualTransition(targetStatus, event) {
   const task = state.selectedTask;
-  if (!task || !canManuallyTransitionTask(task) || manualTransitionPending()) return;
+  if (
+    !task
+    || !canManuallyTransitionTask(task, targetStatus)
+    || manualTransitionPending()
+  ) return;
   const previous = state.manualTransition;
   const actionId = previous?.targetStatus === targetStatus && previous.actionId
     ? previous.actionId

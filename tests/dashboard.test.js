@@ -663,11 +663,16 @@ test("dashboard archive eligibility includes every linked non-working state", ()
   assert.equal(canArchiveTask({ status: "failed", threadId: null }), false);
 });
 
-test("manual transition eligibility is limited to working and needs-input tasks", () => {
+test("manual transition eligibility includes opposite terminal recovery only", () => {
   assert.equal(canManuallyTransitionTask({ status: "working" }), true);
   assert.equal(canManuallyTransitionTask({ status: "needs_input" }), true);
-  assert.equal(canManuallyTransitionTask({ status: "completed" }), false);
-  assert.equal(canManuallyTransitionTask({ status: "failed" }), false);
+  assert.equal(canManuallyTransitionTask({ status: "completed" }), true);
+  assert.equal(canManuallyTransitionTask({ status: "failed" }), true);
+  assert.equal(canManuallyTransitionTask({ status: "completed" }, "completed"), false);
+  assert.equal(canManuallyTransitionTask({ status: "completed" }, "failed"), true);
+  assert.equal(canManuallyTransitionTask({ status: "failed" }, "completed"), true);
+  assert.equal(canManuallyTransitionTask({ status: "failed" }, "failed"), false);
+  assert.equal(canManuallyTransitionTask({ status: "unknown" }), false);
 });
 
 test("task action menu refreshes stale choices but preserves an in-flight request", () => {
@@ -2104,7 +2109,7 @@ test("dashboard manual transition route validates origin, stale state, and durab
     const retry = await transition();
     assert.equal(retry.status, 200);
     assert.equal((await retry.json()).idempotent, true);
-    const rejected = await transition({
+    const failed = await transition({
       ...body,
       actionId: SECOND_ID,
       expected: {
@@ -2112,6 +2117,23 @@ test("dashboard manual transition route validates origin, stale state, and durab
         turnRef: completedResult.task.turnRef,
         threadId: completedResult.task.threadId,
         updatedAt: completedResult.task.updatedAt,
+      },
+      targetStatus: "failed",
+    });
+    assert.equal(failed.status, 200);
+    const failedResult = await failed.json();
+    assert.equal(failedResult.task.status, "failed");
+    assert.equal(failedResult.task.turns.at(-2).result.status, "completed");
+    assert.equal(failedResult.task.latestTurn.provenance.fromStatus, "completed");
+
+    const rejected = await transition({
+      ...body,
+      actionId: SECOND_TURN_ID,
+      expected: {
+        status: "failed",
+        turnRef: failedResult.task.turnRef,
+        threadId: failedResult.task.threadId,
+        updatedAt: failedResult.task.updatedAt,
       },
       targetStatus: "failed",
     });

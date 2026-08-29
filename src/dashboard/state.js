@@ -47,8 +47,15 @@ export function canArchiveTask(task) {
     && CODEX_THREAD_ID_PATTERN.test(task.threadId);
 }
 
-export function canManuallyTransitionTask(task) {
-  return ["working", "needs_input"].includes(task.status);
+export function canManuallyTransitionTask(task, targetStatus = null) {
+  const targets = task.status === "completed"
+    ? ["failed"]
+    : task.status === "failed"
+      ? ["completed"]
+      : ["working", "needs_input"].includes(task.status)
+        ? ["completed", "failed"]
+        : [];
+  return targetStatus === null ? targets.length > 0 : targets.includes(targetStatus);
 }
 
 export function manualTransitionExpectedState(task) {

@@ -273,14 +273,15 @@ timeline, including clearly labeled interrupted turns.
 Task details offer infrequent administrative actions without cluttering task
 cards. Selecting **More task actions** (`…`) reveals the action list immediately
 beside the disclosure and changes it to a back/hide control. The list contains
-**Copy Task ID**, direct **Mark completed** and **Mark failed** actions for a
-`working` or `needs_input` task, and **Archive chat** whenever archival is
-eligible. The menu disclosure is the deliberate first step; choosing a terminal
-outcome submits it immediately without a second confirmation. There is no
+**Copy Task ID**, direct **Mark completed** and **Mark failed** actions, and
+**Archive chat** whenever archival is eligible. Working and needs-input tasks
+offer either terminal outcome; completed tasks offer **Mark failed**, and failed
+tasks offer **Mark completed**. The menu disclosure is the deliberate first
+step; choosing an outcome submits it immediately without a second confirmation. There is no
 free-form reason: the audit turn records a fixed summary, timestamp, dashboard
 provenance, optimistic preconditions, and a unique action ID while preserving
-every executor turn. Terminal tasks cannot be rewritten. Stale or concurrent
-changes are rejected and the dialog refreshes to the current task. A stalled
+every executor turn. Same-state terminal rewrites remain invalid. Stale or
+concurrent changes are rejected and the dialog refreshes to the current task. A stalled
 local request is aborted after a bounded wait so the dialog cannot remain
 permanently locked; retry keeps the same idempotency identity.
 

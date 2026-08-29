@@ -483,14 +483,15 @@ startup safely. Direct thread navigation
 MUST require a canonical Codex UUIDv7. Otherwise it MAY open the revalidated
 configured project. Project paths from task history MUST be matched against
 current configuration before use.
-The task-detail dashboard MAY offer manual terminal outcomes only for current
-`working` or `needs_input` tasks. It MUST permit exactly `completed` and
-`failed`, MUST NOT rewrite a terminal task, and MUST keep this infrequent
-administrative action out of list cards. A keyboard-accessible **More task
+The task-detail dashboard MAY offer manual outcomes from `working` or
+`needs_input` to either `completed` or `failed`, from `completed` to `failed`,
+and from `failed` to `completed`. It MUST reject same-state terminal
+transitions and MUST keep this infrequent administrative action out of list
+cards. A keyboard-accessible **More task
 actions** disclosure MUST reveal its action list immediately beside it and
 change from an ellipsis to an accessible back/hide control while expanded. The
-list MUST group **Copy Task ID**, **Mark completed**, and **Mark failed** for
-eligible tasks, plus **Archive chat** when archival is eligible. Opening the
+list MUST group **Copy Task ID**, each currently valid **Mark completed** or
+**Mark failed** action, and **Archive chat** when archival is eligible. Opening the
 list is the deliberate disclosure step; choosing a terminal outcome submits it
 immediately without a second confirmation. Escape MUST close the idle list,
 pending controls MUST be
