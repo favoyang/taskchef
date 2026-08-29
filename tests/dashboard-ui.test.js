@@ -25,7 +25,13 @@ class FakeElement {
   }
 
   append(...children) {
-    this.children.push(...children);
+    for (const child of children) {
+      if (child?.parentNode) {
+        child.parentNode.children = child.parentNode.children.filter((candidate) => candidate !== child);
+      }
+      if (child && typeof child === "object") child.parentNode = this;
+      this.children.push(child);
+    }
   }
 
   insertBefore(child, before) {
@@ -35,7 +41,11 @@ class FakeElement {
   }
 
   replaceChildren(...children) {
-    this.children = children;
+    for (const child of this.children) {
+      if (child?.parentNode === this) child.parentNode = null;
+    }
+    this.children = [];
+    this.append(...children);
   }
 
   setAttribute(name, value) {
@@ -50,12 +60,28 @@ class FakeElement {
     this.open = true;
   }
 
+  showPopover() {
+    this.popoverOpen = true;
+    this.showPopoverCalls = (this.showPopoverCalls ?? 0) + 1;
+  }
+
+  hidePopover() {
+    this.popoverOpen = false;
+    this.hidePopoverCalls = (this.hidePopoverCalls ?? 0) + 1;
+  }
+
   close() {
     this.open = false;
   }
 
+  contains(candidate) {
+    return candidate === this || this.children.some((child) => child?.contains?.(candidate));
+  }
+
   focus() {
+    if (globalThis.document.activeElement) globalThis.document.activeElement.focused = false;
     this.focused = true;
+    globalThis.document.activeElement = this;
   }
 
   querySelector(selector) {
@@ -98,6 +124,7 @@ test("dashboard renders a live notification with time and shared accessible desc
   };
   const elements = new Map();
   const document = {
+    activeElement: null,
     createElement: (tagName) => new FakeElement(tagName),
     createTextNode(text) {
       const node = new FakeElement("#text");
@@ -158,6 +185,10 @@ test("dashboard renders a live notification with time and shared accessible desc
     let clipboardMode = "reject";
     let manualCompletedTask = null;
     let manualTransitionSucceeds = false;
+    let deferNextDetailFetch = false;
+    let failNextDetailFetch = false;
+    let rejectDeferredDetailFetch = false;
+    let resolveDeferredDetailFetch = null;
     globalThis.document = document;
     globalThis.Node = FakeElement;
     globalThis.EventSource = FakeEventSource;
@@ -177,7 +208,18 @@ test("dashboard renders a live notification with time and shared accessible desc
         return { ok: true, json: async () => ({ taskchefVersion: "test" }) };
       }
       if (url === `/api/tasks/${taskId}`) {
+        if (failNextDetailFetch) {
+          failNextDetailFetch = false;
+          return { ok: false };
+        }
         if (manualCompletedTask) {
+          if (deferNextDetailFetch) {
+            deferNextDetailFetch = false;
+            const rejectThisFetch = rejectDeferredDetailFetch;
+            rejectDeferredDetailFetch = false;
+            await new Promise((resolve) => { resolveDeferredDetailFetch = resolve; });
+            if (rejectThisFetch) throw new Error("Superseded detail request failed.");
+          }
           return { ok: true, json: async () => ({ task: manualCompletedTask }) };
         }
         return {
@@ -202,10 +244,11 @@ test("dashboard renders a live notification with time and shared accessible desc
               threadId,
               title: "Continue MarketLake V1",
               turnId: "turn-one",
+              turnRef: "turn-one",
               usage: {
+                generationTurnRef: "turn-one",
                 status: "available",
                 task: {
-                  status: "available",
                   inputTokens: 100,
                   cachedInputTokens: 200,
                   outputTokens: 30,
@@ -270,7 +313,7 @@ test("dashboard renders a live notification with time and shared accessible desc
             instruction: "Address the reported failures safely.",
             latestTurn: {
               provenance: { kind: "dashboard_manual" },
-              requestSummary: "Manual dashboard transition from needs_input to completed.",
+              requestSummary: "Manual dashboard transition. See https://github.com/acme/marketlake/issues/25 and https://github.com/acme/marketlake/issues/25.",
               result: {
                 status: "completed",
                 summary: "Manually marked completed from the TaskChef dashboard.",
@@ -322,6 +365,32 @@ test("dashboard renders a live notification with time and shared accessible desc
     globalThis.clearInterval = () => {};
     const dashboardApp = await import(`../src/dashboard/app.js?dashboard-ui=${Date.now()}`);
 
+    const pendingUsage = dashboardApp.usagePresentation({ status: "pending" });
+    assert.equal(pendingUsage.children[0].textContent,
+      "Tokens pending · available when turn finishes");
+    assert.equal(pendingUsage.children[0].className, "usage-shimmer");
+    const calculatingUsage = dashboardApp.usagePresentation({ status: "calculating" });
+    assert.equal(calculatingUsage.children[0].textContent, "Calculating token usage…");
+    assert.equal(calculatingUsage.children[0].className, "usage-shimmer");
+    const unavailableUsage = dashboardApp.usagePresentation({
+      status: "unavailable",
+      reason: "No matching session.",
+    });
+    assert.equal(unavailableUsage.children[0].textContent, "Token usage unavailable");
+    assert.equal(unavailableUsage.children[1].textContent, "No matching session.");
+    const knownUsage = dashboardApp.usagePresentation({
+      status: "available",
+      inputTokens: 100,
+      cachedInputTokens: 200,
+      outputTokens: 30,
+      reasoningOutputTokens: 10,
+      totalTokens: 330,
+      estimatedCostUsd: 0.12,
+      knownSoFar: true,
+    });
+    assert.equal(knownUsage.children[0].textContent,
+      "330 tokens · estimated $0.12 · known so far");
+
     FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: [] });
     FakeEventSource.instance.emit("dashboard-error", {
       message: "The task log is temporarily unavailable. Showing the last valid snapshot.",
@@ -334,9 +403,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: [] });
     assert.equal(elements.get("#dashboard-message").hidden, true);
     const timestamp = new Date().toISOString();
-    FakeEventSource.instance.emit("snapshot", {
-      healthy: true,
-      tasks: [{
+    const snapshotTasks = [{
         createdAt: timestamp,
         id: taskId,
         instruction: "Continue the import",
@@ -366,11 +433,13 @@ test("dashboard renders a live notification with time and shared accessible desc
           },
           startedAt: timestamp,
           turnId: "turn-one",
+          turnRef: "turn-one",
         },
         status: "needs_input",
         threadId,
         title: "Continue MarketLake V1",
         turnId: "turn-one",
+        turnRef: "turn-one",
         updatedAt: timestamp,
         updatedBy: "executor",
       }, {
@@ -385,8 +454,8 @@ test("dashboard renders a live notification with time and shared accessible desc
         turnId: "turn-two",
         updatedAt: timestamp,
         updatedBy: "executor",
-      }],
-    });
+      }];
+    FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: snapshotTasks });
 
     const [toast] = elements.get("#toast-list").children;
     const [open, dismiss] = toast.children;
@@ -398,6 +467,24 @@ test("dashboard renders a live notification with time and shared accessible desc
       dismiss.getAttribute("aria-describedby"),
       open.getAttribute("aria-describedby"),
     );
+    assert.equal(elements.get("#notifications").popoverOpen, true);
+    assert.equal(elements.get("#notifications").parentNode, elements.get("#notification-host"));
+    const initialNotificationCount = elements.get("#toast-list").children.length;
+    assert.ok(initialNotificationCount > 1);
+    const initialNotificationOpen = open.emit("click");
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "Calculating token usage…",
+      "a linked terminal compact task must calculate while detail usage loads",
+    );
+    await initialNotificationOpen;
+    assert.equal(elements.get("#task-dialog").open, true);
+    assert.equal(elements.get("#toast-list").children.length, initialNotificationCount - 1);
+    assert.equal(elements.get("#notifications").parentNode, elements.get("#task-dialog"));
+    assert.equal(elements.get("#notifications").popoverOpen, true);
+    elements.get("#task-dialog").close();
+    elements.get("#task-dialog").emit("close");
+    assert.equal(elements.get("#notifications").parentNode, elements.get("#notification-host"));
 
     const [firstCard, secondCard] = elements.get("#task-list").children;
     const project = firstCard.children[1];
@@ -469,6 +556,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     }
 
     firstCard.children[0].children[0].emit("click");
+    assert.equal(elements.get("#notifications").parentNode, elements.get("#task-dialog"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(elements.get("#dialog-related-links").children.length, 2);
     assert.deepEqual(
@@ -501,6 +589,92 @@ test("dashboard renders a live notification with time and shared accessible desc
     );
     assert.match(taskUsage.children[2].textContent, /API-equivalent estimate/);
     assert.match(taskUsage.children[2].textContent, /may omit GPT-5\.6 cache-write charges/);
+    const workingTaskWithRetainedUsage = {
+      ...snapshotTasks[0],
+      status: "working",
+      turnRef: "turn-two",
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "calculating",
+        task: {
+          inputTokens: 100,
+          cachedInputTokens: 200,
+          outputTokens: 30,
+          reasoningOutputTokens: 10,
+          totalTokens: 330,
+          estimatedCostUsd: 0.12,
+        },
+        turns: {},
+      },
+    };
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [workingTaskWithRetainedUsage, snapshotTasks[1]],
+    });
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "330 tokens · estimated $0.12 · known so far",
+      "a newer working turn must retain the available cumulative usage and cost",
+    );
+    const terminalTaskCalculatingUsage = {
+      ...workingTaskWithRetainedUsage,
+      status: "completed",
+    };
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [terminalTaskCalculatingUsage, snapshotTasks[1]],
+    });
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "Calculating token usage…",
+      "terminal reconciliation must not present the prior cumulative snapshot as final",
+    );
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [{
+        ...snapshotTasks[0],
+        usage: {
+          generationTurnRef: "turn-one",
+          status: "available",
+          task: workingTaskWithRetainedUsage.usage.task,
+          turns: {},
+        },
+      }, snapshotTasks[1]],
+    });
+    failNextDetailFetch = true;
+    FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: snapshotTasks });
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "330 tokens · estimated $0.12",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "330 tokens · estimated $0.12",
+      "failed compact-detail refresh must retain known usage and cost",
+    );
+    failNextDetailFetch = true;
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [{
+        ...snapshotTasks[0],
+        status: "completed",
+        turnRef: "turn-two",
+      }, snapshotTasks[1]],
+    });
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "Calculating token usage…",
+      "a newer terminal generation must not reuse prior available usage as final",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "Calculating token usage…",
+      "failed detail refresh must keep the newer terminal generation calculating",
+    );
+    FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: snapshotTasks });
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const moreTaskActions = elements.get("#more-task-actions");
     const manualPanel = elements.get("#manual-transition-panel");
@@ -559,6 +733,10 @@ test("dashboard renders a live notification with time and shared accessible desc
     clipboardMode = "defer";
     const staleCopy = copyTaskId.emit("click");
     secondCard.children[0].children[0].emit("click");
+    assert.equal(
+      elements.get("#dialog-usage").children[0].children[0].textContent,
+      "Tokens pending · available when turn finishes",
+    );
     pendingClipboardWrites.shift().resolve();
     await staleCopy;
     assert.equal(copyTaskId.textContent, "Copy Task ID");
@@ -614,10 +792,61 @@ test("dashboard renders a live notification with time and shared accessible desc
       toast.children[0]?.children[0]?.textContent === "Task manually completed"
     ));
     assert.ok(manualCompletionToast);
+    assert.ok(elements.get("#notifications").hidePopoverCalls > 0);
+    assert.equal(elements.get("#notifications").popoverOpen, true);
+    assert.equal(elements.get("#notifications").parentNode, elements.get("#task-dialog"));
     assert.equal(
       manualCompletionToast.children[0].children[2].textContent,
       "Manually marked completed from the TaskChef dashboard.",
     );
+    deferNextDetailFetch = true;
+    rejectDeferredDetailFetch = true;
+    const notificationNavigation = manualCompletionToast.children[0].emit("click");
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [manualCompletedTask],
+    });
+    resolveDeferredDetailFetch();
+    await notificationNavigation;
+    assert.equal(
+      elements.get("#toast-list").children.includes(manualCompletionToast),
+      false,
+    );
+    const [changedTurn] = elements.get("#dialog-results").children;
+    assert.match(changedTurn.className, /result-history-notified/);
+    assert.equal(changedTurn.focused, true);
+    const turnTimestamp = changedTurn.children[0].children.at(-1);
+    turnTimestamp.focus();
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [manualCompletedTask],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [refreshedChangedTurn] = elements.get("#dialog-results").children;
+    const refreshedTurnTimestamp = refreshedChangedTurn.children[0].children.at(-1);
+    assert.notEqual(refreshedChangedTurn, changedTurn);
+    assert.notEqual(refreshedTurnTimestamp, turnTimestamp);
+    assert.equal(refreshedTurnTimestamp.focused, true,
+      "detail refresh must preserve focus on the replacement timestamp control");
+    const duplicateLinks = refreshedChangedTurn.children[2].children.filter((child) => (
+      child.tagName === "A"
+    ));
+    assert.equal(duplicateLinks.length, 2);
+    duplicateLinks[1].focus();
+    FakeEventSource.instance.emit("snapshot", {
+      healthy: true,
+      tasks: [manualCompletedTask],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const [linkRefreshedTurn] = elements.get("#dialog-results").children;
+    const refreshedDuplicateLinks = linkRefreshedTurn.children[2].children.filter((child) => (
+      child.tagName === "A"
+    ));
+    assert.equal(refreshedDuplicateLinks[0].focused, undefined);
+    assert.equal(refreshedDuplicateLinks[1].focused, true,
+      "detail refresh must preserve focus on the exact duplicate-link occurrence");
+    assert.equal(elements.get("#dashboard-message").hidden, true,
+      "superseded detail failure must not report an error");
     const dashboardMessageBeforeArchiveUpdates = {
       hidden: elements.get("#dashboard-message").hidden,
       text: elements.get("#dashboard-message-text").textContent,

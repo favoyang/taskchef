@@ -49,6 +49,7 @@ const state = {
   notifications: [],
   seenNotificationIds: new Set(),
   initialized: false,
+  detailNavigation: null,
   manualTransition: null,
   selectedTask: null,
 };
@@ -80,6 +81,7 @@ const elements = {
   dismissDashboardMessage: document.querySelector("#dismiss-dashboard-message"),
   emptyState: document.querySelector("#empty-state"),
   notifications: document.querySelector("#notifications"),
+  notificationHost: document.querySelector("#notification-host"),
   notificationAnnouncer: document.querySelector("#notification-announcer"),
   manualTransitionPanel: document.querySelector("#manual-transition-panel"),
   manualTransitionError: document.querySelector("#manual-transition-error"),
@@ -103,6 +105,7 @@ function referenceLink(link, { compact = false, displayLabel } = {}) {
   anchor.href = link.url;
   anchor.target = "_blank";
   anchor.rel = "noopener noreferrer";
+  anchor.dataset.focusKey = `link:${link.url}`;
   const label = link.label ?? link.text;
   anchor.textContent = displayLabel ?? label;
   const accessibleLabel = githubReferenceAccessibleLabel(link);
@@ -211,6 +214,7 @@ function timestampControl(value, { accessibleName, key, prefix = "" }) {
   const control = document.createElement("button");
   control.type = "button";
   control.className = "timestamp-toggle";
+  control.dataset.focusKey = `timestamp:${key}`;
   const time = document.createElement("time");
   control.append(time);
   relativeTimes.register(key, value, ({ exact, iso, label }) => {
@@ -323,10 +327,16 @@ function notificationToast(notification) {
   text.append(metadata);
   describedBy.push(metadata.id);
   text.setAttribute("aria-describedby", describedBy.join(" "));
-  text.addEventListener("click", () => {
+  text.addEventListener("click", async () => {
     const current = findCurrentTask(state.tasks, notification.taskId);
-    if (current) openDialog(current);
-    else showMessage("This task is no longer present in the current snapshot.");
+    state.notifications = dismissNotification(state.notifications, notification.id);
+    renderNotifications();
+    if (current) {
+      await openDialog(current, {
+        focus: true,
+        highlightTurnRef: notification.turnRef ?? notification.turnId,
+      });
+    } else showMessage("This task is no longer present in the current snapshot.");
   });
   const dismiss = document.createElement("button");
   dismiss.type = "button";
@@ -356,7 +366,31 @@ function renderNotifications(additions = []) {
   elements.toastList.replaceChildren(
     ...state.notifications.map(notificationToast),
   );
-  elements.notifications.hidden = state.notifications.length === 0;
+  const notificationHost = elements.dialog.open ? elements.dialog : elements.notificationHost;
+  const movingLayer = elements.notifications.parentNode !== notificationHost;
+  if ((movingLayer || additions.length > 0) && state.notifications.length > 0) {
+    try {
+      elements.notifications.hidePopover?.();
+    } catch {
+      // The notification layer is not open yet.
+    }
+  }
+  if (movingLayer) notificationHost.append(elements.notifications);
+  if (state.notifications.length === 0) {
+    try {
+      elements.notifications.hidePopover?.();
+    } catch {
+      // The notification layer is already closed.
+    }
+    elements.notifications.hidden = true;
+  } else {
+    elements.notifications.hidden = false;
+    try {
+      elements.notifications.showPopover?.();
+    } catch {
+      // Re-rendering an already-open manual popover needs no further action.
+    }
+  }
   if (additions.length > 0) {
     elements.notificationAnnouncer.textContent = additions
       .map(notificationAnnouncement)
@@ -406,24 +440,31 @@ function usageBreakdownText(usage) {
   ].join(" · ");
 }
 
-function usagePresentation(usage, { wholeTask = false } = {}) {
+export function usagePresentation(usage, { wholeTask = false } = {}) {
   const container = document.createElement("div");
-  container.className = `usage-summary usage-${usage?.status ?? "calculating"}`;
-  if (!usage || usage.status === "calculating") {
-    const indicator = document.createElement("span");
-    indicator.className = "usage-spinner";
-    indicator.setAttribute("aria-hidden", "true");
+  container.className = `usage-summary usage-${usage?.status ?? "unavailable"}`;
+  if (usage?.status === "pending" || usage?.status === "calculating") {
     const text = document.createElement("span");
-    text.textContent = "Tokens: calculating…";
-    container.replaceChildren(indicator, text);
+    text.className = "usage-shimmer";
+    text.textContent = usage.status === "pending"
+      ? "Tokens pending · available when turn finishes"
+      : "Calculating token usage…";
+    container.replaceChildren(text);
     return container;
   }
-  if (usage.status !== "available") {
-    container.textContent = `Tokens unavailable${usage.reason ? ` — ${usage.reason}` : "."}`;
+  if (usage?.status !== "available") {
+    const headline = document.createElement("strong");
+    headline.textContent = "Token usage unavailable";
+    container.append(headline);
+    if (usage?.reason) {
+      const reason = document.createElement("span");
+      reason.textContent = usage.reason;
+      container.append(reason);
+    }
     return container;
   }
   const headline = document.createElement("strong");
-  headline.textContent = `${tokenFormatter.format(usage.totalTokens)} tokens · ${formatEstimatedCost(usage.estimatedCostUsd)}`;
+  headline.textContent = `${tokenFormatter.format(usage.totalTokens)} tokens · ${formatEstimatedCost(usage.estimatedCostUsd)}${usage.knownSoFar ? " · known so far" : ""}`;
   const breakdown = document.createElement("span");
   breakdown.textContent = usageBreakdownText(usage);
   container.append(headline, breakdown);
@@ -449,7 +490,7 @@ function usageStillCalculating(task) {
       .some((turn) => turn.status === "calculating"));
 }
 
-function turnTimeline(task) {
+function turnTimeline(task, { highlightTurnRef = null } = {}) {
   if (task.turns.length === 0) {
     const empty = document.createElement("p");
     empty.className = "result-history-empty";
@@ -467,6 +508,11 @@ function turnTimeline(task) {
     status.className = `status status-${turnStatus}`;
     status.textContent = turnStatus.replaceAll("_", " ");
     const turnKey = turn.turnRef ?? turn.turnId ?? `no-turn:${index}`;
+    item.dataset.turnRef = turnKey;
+    if (highlightTurnRef !== null && turnKey === highlightTurnRef) {
+      item.className += " result-history-notified";
+      item.tabIndex = -1;
+    }
     const timestamp = timestampControl(presentation.updatedAt, {
       accessibleName: `Turn updated time for ${turnStatus.replaceAll("_", " ")}`,
       key: `detail:${task.id}:turn:${turnKey}`,
@@ -495,11 +541,13 @@ function turnTimeline(task) {
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
     turnMetadata.textContent = `Turn ref ${turn.turnRef ?? "not recorded"}; Codex turn ${turn.turnId ?? "unavailable"}`;
-    const turnUsage = task.usage?.turns?.[turn.turnRef ?? turn.turnId] ?? (
-      turn.result === null
-        ? { status: "calculating" }
-        : { status: "unavailable", reason: "No reliable turn boundary is available." }
-    );
+    const recordedUsage = task.usage?.turns?.[turn.turnRef ?? turn.turnId];
+    const turnUsage = turn.result === null
+      ? { status: "pending" }
+      : recordedUsage ?? {
+        status: "unavailable",
+        reason: "No reliable turn boundary is available.",
+      };
     item.append(
       header,
       requestLabel,
@@ -511,6 +559,39 @@ function turnTimeline(task) {
     );
     return item;
   });
+}
+
+function descendantPath(root, descendant) {
+  const path = [];
+  let current = descendant;
+  while (current && current !== root) {
+    const parent = current.parentNode;
+    if (!parent) return null;
+    const index = Array.prototype.indexOf.call(parent.children, current);
+    if (index < 0) return null;
+    path.unshift(index);
+    current = parent;
+  }
+  return current === root ? path : null;
+}
+
+function descendantAtPath(root, path) {
+  let current = root;
+  for (const index of path ?? []) {
+    current = current?.children?.[index];
+    if (!current) return null;
+  }
+  return current;
+}
+
+function descendantWithFocusKey(root, focusKey) {
+  if (!root || !focusKey) return null;
+  if (root.dataset?.focusKey === focusKey) return root;
+  for (const child of root.children ?? []) {
+    const match = descendantWithFocusKey(child, focusKey);
+    if (match) return match;
+  }
+  return null;
 }
 
 function manualTransitionPending() {
@@ -648,7 +729,7 @@ async function submitManualTransition(targetStatus, event) {
   elements.manualTransitionError.focus();
 }
 
-function renderDialog(task) {
+function renderDialog(task, { highlightTurnRef = null } = {}) {
   if (state.selectedTask?.id !== task.id) {
     copyTaskIdGeneration += 1;
     clearTimeout(copyTaskIdTimer);
@@ -657,11 +738,27 @@ function renderDialog(task) {
   const preservedResults = state.selectedTask?.id === task.id
     ? state.selectedTask.results
     : null;
+  const preservedUsage = state.selectedTask?.id === task.id
+    ? state.selectedTask.usage
+    : null;
   const detailedTask = {
     ...task,
     turns: mergeProjectedTurns(task, state.selectedTask?.turns ?? []),
     results: task.results ?? preservedResults ?? [],
+    usage: task.usage ?? preservedUsage ?? null,
   };
+  const focusedElement = elements.dialogResults.contains?.(document.activeElement)
+    ? document.activeElement
+    : null;
+  let focusedTurn = focusedElement;
+  while (focusedTurn && focusedTurn !== elements.dialogResults && !focusedTurn.dataset?.turnRef) {
+    focusedTurn = focusedTurn.parentNode;
+  }
+  const focusedTurnRef = focusedTurn?.dataset?.turnRef ?? null;
+  const focusedDescendantKey = focusedElement?.dataset?.focusKey ?? null;
+  const focusedDescendantPath = focusedTurn && focusedElement
+    ? descendantPath(focusedTurn, focusedElement)
+    : null;
   state.selectedTask = detailedTask;
   renderProject(elements.dialogProject, task);
   elements.dialogTitle.textContent = task.title;
@@ -673,11 +770,48 @@ function renderDialog(task) {
   elements.dialogRelatedLinks.hidden = (
     (task.relatedGitHubLinks?.length ?? 0) === 0 && !task.relatedGitHubLinksTruncated
   );
-  elements.dialogResults.replaceChildren(...turnTimeline(detailedTask));
+  const timeline = turnTimeline(detailedTask, { highlightTurnRef });
+  elements.dialogResults.replaceChildren(...timeline);
+  const highlightedTurn = timeline.find((item) => item.dataset.turnRef === highlightTurnRef) ?? null;
+  const replacedFocusedTurn = timeline.find((item) => item.dataset.turnRef === focusedTurnRef) ?? null;
+  if (replacedFocusedTurn) {
+    const pathMatchedElement = descendantAtPath(replacedFocusedTurn, focusedDescendantPath);
+    const replacedFocusedElement = (
+      pathMatchedElement?.dataset?.focusKey === focusedDescendantKey
+        ? pathMatchedElement
+        : null
+    ) ?? descendantWithFocusKey(replacedFocusedTurn, focusedDescendantKey);
+    if (replacedFocusedElement && replacedFocusedElement !== replacedFocusedTurn) {
+      replacedFocusedElement.focus?.();
+    } else {
+      replacedFocusedTurn.tabIndex = -1;
+      replacedFocusedTurn.focus?.();
+    }
+  }
+  const currentTurnRef = task.turnRef ?? task.latestTurn?.turnRef ?? null;
+  const preservedUsageIsPriorGeneration = task.usage == null
+    && preservedUsage != null
+    && currentTurnRef != null
+    && preservedUsage.generationTurnRef !== currentTurnRef;
+  const taskUsage = detailedTask.usage?.task
+    && (detailedTask.usage.status === "available" || task.status === "working")
+    && (!preservedUsageIsPriorGeneration || task.status === "working")
+    ? {
+      status: "available",
+      ...detailedTask.usage.task,
+      knownSoFar: task.status === "working",
+    }
+    : detailedTask.usage?.status === "calculating" || preservedUsageIsPriorGeneration
+      ? { ...detailedTask.usage, status: task.status === "working" ? "pending" : "calculating" }
+      : detailedTask.usage ?? {
+        status: task.status === "working"
+          ? "pending"
+          : task.threadId
+            ? "calculating"
+            : "unavailable",
+      };
   elements.dialogUsage.replaceChildren(usagePresentation(
-    task.usage?.status === "available" && task.usage.task
-      ? { status: "available", ...task.usage.task }
-      : task.usage ?? { status: task.threadId ? "calculating" : "unavailable" },
+    taskUsage,
     { wholeTask: true },
   ));
   elements.dialogInstruction.textContent = task.instruction;
@@ -722,12 +856,31 @@ function renderDialog(task) {
     archived ? `${task.title} is archived in Codex` : `Archive ${task.title} in Codex`,
   );
   renderManualTransition(detailedTask);
+  return highlightedTurn;
 }
 
-async function openDialog(task) {
+async function openDialog(task, {
+  focus = false,
+  highlightTurnRef = null,
+  preserveNavigation = false,
+} = {}) {
+  if (focus) {
+    state.detailNavigation = {
+      focusPending: true,
+      highlightTurnRef,
+      taskId: task.id,
+    };
+  } else if (!preserveNavigation) state.detailNavigation = null;
+  const navigation = state.detailNavigation?.taskId === task.id
+    ? state.detailNavigation
+    : null;
+  const activeHighlightTurnRef = navigation?.highlightTurnRef ?? highlightTurnRef;
   const requestGeneration = ++detailRequestGeneration;
-  renderDialog(task);
-  if (!elements.dialog.open) elements.dialog.showModal();
+  renderDialog(task, { highlightTurnRef: activeHighlightTurnRef });
+  if (!elements.dialog.open) {
+    elements.dialog.showModal();
+    renderNotifications();
+  }
   const load = async (attempt = 0) => {
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`);
@@ -738,14 +891,34 @@ async function openDialog(task) {
         && state.selectedTask?.id === task.id
         && elements.dialog.open
       ) {
-        renderDialog(detail.task);
+        const activeNavigation = state.detailNavigation?.taskId === task.id
+          ? state.detailNavigation
+          : null;
+        const highlightedTurn = renderDialog(detail.task, {
+          highlightTurnRef: activeNavigation?.highlightTurnRef ?? activeHighlightTurnRef,
+        });
+        if (activeNavigation?.focusPending) {
+          (highlightedTurn ?? elements.dialogTitle).focus?.();
+          activeNavigation.focusPending = false;
+        }
         if (usageStillCalculating(detail.task) && attempt < MAX_USAGE_POLL_ATTEMPTS) {
           setTimeout(() => load(attempt + 1), USAGE_POLL_INTERVAL_MS);
         }
       }
     } catch {
-      if (state.selectedTask?.id === task.id) {
+      if (
+        requestGeneration === detailRequestGeneration
+        && state.selectedTask?.id === task.id
+        && elements.dialog.open
+      ) {
         showMessage("Task activity timeline is temporarily unavailable.");
+        const activeNavigation = state.detailNavigation?.taskId === task.id
+          ? state.detailNavigation
+          : null;
+        if (activeNavigation?.focusPending) {
+          elements.dialogTitle.focus?.();
+          activeNavigation.focusPending = false;
+        }
       }
     }
   };
@@ -869,7 +1042,7 @@ function applySnapshot(snapshot) {
   );
   if (state.selectedTask) {
     const updated = state.tasks.find((task) => task.id === state.selectedTask.id);
-    if (updated && elements.dialog.open) openDialog(updated);
+    if (updated && elements.dialog.open) openDialog(updated, { preserveNavigation: true });
   }
   renderNotifications(reconciled.additions);
   render();
@@ -924,6 +1097,8 @@ elements.dialog.addEventListener("cancel", (event) => {
 });
 elements.dialog.addEventListener("close", () => {
   if (!manualTransitionPending()) state.manualTransition = null;
+  state.detailNavigation = null;
+  renderNotifications();
 });
 elements.moreTaskActions.addEventListener("click", () => {
   const task = state.selectedTask;

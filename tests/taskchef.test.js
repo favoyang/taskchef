@@ -3774,7 +3774,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.equal(await readFile(taggedOutputPath, "utf8"), "version=2.3.4\n");
 });
 
-test("published package includes the README dashboard screenshots", async () => {
+test("published package includes the documented dashboard screenshots", async () => {
   const manifest = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
   for (const screenshot of [
     "docs/images/dashboard-identity.jpg",
@@ -3782,6 +3782,7 @@ test("published package includes the README dashboard screenshots", async () => 
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
     "docs/images/interrupted-turn-recovery.jpg",
+    "docs/images/dashboard-token-pending.jpg",
   ]) {
     assert.ok(manifest.files.includes(screenshot));
     assert.equal((await stat(path.resolve(screenshot))).isFile(), true);
