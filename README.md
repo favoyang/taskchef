@@ -25,11 +25,15 @@ request -> recorded TaskChef task -> Codex executor -> request/result turn timel
 TaskChef requires Node.js 18 or newer, Git, Codex desktop, and local access to
 the projects that will receive work.
 
-Install [`ccusage`](https://github.com/ccusage/ccusage) separately when you want
-the optional dashboard token and API-equivalent cost estimates. TaskChef calls
-its structured offline Codex report and does not parse Codex rollout files
-itself. Lifecycle reporting and the dashboard continue to work when `ccusage`
-is absent or incompatible.
+TaskChef pins [`ccusage`](https://github.com/ccusage/ccusage) as an optional
+dependency for dashboard token and API-equivalent cost estimates. A normal npm
+installation uses that package-local executable; plugin-only installations use
+an npm-cache-friendly `npx` fallback to resolve the same exact version's native
+executable. `npx` never launches the analyzer against Codex data. TaskChef then
+requests ccusage's live-capable online pricing and falls back to its bundled
+offline snapshot, while never parsing Codex rollout files itself. Lifecycle
+reporting and the dashboard continue to work when ccusage, npm, or pricing is
+unavailable.
 
 ```sh
 codex plugin marketplace add favoyang/codex-plugins
@@ -318,8 +322,12 @@ the terminal lifecycle callback precedes Codex's final output write. Historical
 tasks may show a trustworthy task total while older turns remain “Tokens
 unavailable” when no cumulative turn boundaries were recorded. Input, cached
 input, output, reasoning, and total counts retain ccusage's categories. Dollar
-figures are labeled API-equivalent estimates; zero-priced unknown models show
-cost unavailable rather than a misleading `$0.00`.
+figures are labeled API-equivalent estimates; provenance identifies the online
+pricing request or offline fallback mode, and zero-priced unknown models show
+cost unavailable rather than a misleading `$0.00`. Per-turn cost is also
+unavailable when its cumulative boundaries used different ccusage versions or
+pricing modes. ccusage 20.0.20 may omit GPT-5.6 cache-write charges, so TaskChef
+labels that analyzer limitation instead of presenting the estimate as complete.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
 The canonical port is owned by a dashboard initialized in the TaskChef MCP host

@@ -212,7 +212,12 @@ test("dashboard renders a live notification with time and shared accessible desc
                   reasoningOutputTokens: 10,
                   totalTokens: 330,
                   estimatedCostUsd: 0.12,
-                  provenance: { provider: "ccusage", version: "20.0.14" },
+                  provenance: {
+                    provider: "ccusage",
+                    version: "20.0.20",
+                    pricingMode: "online",
+                    costCoverage: "cache_writes_unverified",
+                  },
                   sampledAt: timestamp,
                   sourceUpdatedAt: timestamp,
                 },
@@ -490,8 +495,12 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(turnUsage.children[0].textContent, "330 tokens · estimated $0.12");
     const taskUsage = elements.get("#dialog-usage").children[0];
     assert.equal(taskUsage.children[0].textContent, "330 tokens · estimated $0.12");
-    assert.match(taskUsage.children[2].textContent, /Source: ccusage 20\.0\.14/);
+    assert.match(
+      taskUsage.children[2].textContent,
+      /Source: ccusage 20\.0\.20 · online pricing requested/,
+    );
     assert.match(taskUsage.children[2].textContent, /API-equivalent estimate/);
+    assert.match(taskUsage.children[2].textContent, /may omit GPT-5\.6 cache-write charges/);
 
     const moreTaskActions = elements.get("#more-task-actions");
     const manualPanel = elements.get("#manual-transition-panel");

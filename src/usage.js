@@ -1,10 +1,16 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
-const execFile = promisify(execFileCallback);
+const require = createRequire(import.meta.url);
+const taskchefPackage = require("../package.json");
+const PINNED_CCUSAGE_VERSION = taskchefPackage.optionalDependencies?.ccusage;
+const CCUSAGE_RESOLVER = fileURLToPath(new URL("./resolve-ccusage.js", import.meta.url));
+let npxResolvedCcusageInvocation = null;
 const USAGE_FILE_NAME = ".taskchef-usage.json";
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
 const TOKEN_FIELDS = [
@@ -76,6 +82,13 @@ function normalizeProvenance(value, name, { includeSessionCount = false } = {}) 
   return {
     provider: "ccusage",
     version: typeof value.version === "string" ? value.version.slice(0, 64) : null,
+    pricingMode: value.pricingMode === "online" || value.pricingMode === "offline"
+      ? value.pricingMode
+      : null,
+    costCoverage: value.costCoverage === "cache_writes_unverified"
+      || value.costCoverage === "ccusage_reported"
+      ? value.costCoverage
+      : null,
     ...(includeSessionCount ? {
       sessionCount: nonNegativeNumber(value.sessionCount, `${name}.provenance.sessionCount`),
     } : {}),
@@ -107,6 +120,10 @@ function normalizeStoredSnapshot(value, name) {
   }
   snapshot.models = models;
   snapshot.provenance = normalizeProvenance(value.provenance, name, { includeSessionCount: true });
+  if (snapshot.provenance.pricingMode === null || snapshot.provenance.costCoverage === null) {
+    snapshot.estimatedCostUsd = null;
+    snapshot.costStatus = "unavailable";
+  }
   snapshot.sampledAt = timestampOrNull(value.sampledAt, `${name}.sampledAt`);
   snapshot.sourceUpdatedAt = timestampOrNull(value.sourceUpdatedAt, `${name}.sourceUpdatedAt`);
   return snapshot;
@@ -125,11 +142,15 @@ function normalizeStoredTurn(value, name) {
     normalized.estimatedCostUsd = value.estimatedCostUsd === null
       ? null
       : nonNegativeNumber(value.estimatedCostUsd, `${name}.estimatedCostUsd`);
+    const provenance = normalizeProvenance(value.provenance, name);
+    if (provenance.pricingMode === null || provenance.costCoverage === null) {
+      normalized.estimatedCostUsd = null;
+    }
     return {
       status: "available",
       ...normalized,
       costStatus: normalized.estimatedCostUsd === null ? "unavailable" : "estimated",
-      provenance: normalizeProvenance(value.provenance, name),
+      provenance,
       sampledAt: timestampOrNull(value.sampledAt, `${name}.sampledAt`),
       sourceUpdatedAt: timestampOrNull(value.sourceUpdatedAt, `${name}.sourceUpdatedAt`),
       updatedAt,
@@ -196,6 +217,7 @@ function normalizeStoredRecord(value, name) {
 export function aggregateCcusageSessions(payload, threadId, {
   sampledAt = new Date().toISOString(),
   version = null,
+  pricingMode = null,
 } = {}) {
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.sessions)) {
     throw new Error("ccusage output must contain a sessions array");
@@ -241,6 +263,10 @@ export function aggregateCcusageSessions(payload, threadId, {
     provenance: {
       provider: "ccusage",
       version,
+      pricingMode,
+      costCoverage: Object.keys(models).some((model) => /^gpt-5\.6(?:-|$)/i.test(model))
+        ? "cache_writes_unverified"
+        : "ccusage_reported",
       sessionCount: sessions.length,
     },
     sampledAt,
@@ -248,41 +274,291 @@ export function aggregateCcusageSessions(payload, threadId, {
   };
 }
 
+export function managedCcusageInvocation({
+  platform = process.platform,
+  arch = process.arch,
+  env = process.env,
+  resolvePath = (id) => require.resolve(id),
+  exists = existsSync,
+  npxCliPath = null,
+} = {}) {
+  if (typeof PINNED_CCUSAGE_VERSION !== "string" || PINNED_CCUSAGE_VERSION.length === 0) {
+    throw new Error("TaskChef has no pinned ccusage version");
+  }
+  const packageName = {
+    "darwin-arm64": "@ccusage/ccusage-darwin-arm64",
+    "darwin-x64": "@ccusage/ccusage-darwin-x64",
+    "linux-arm64": "@ccusage/ccusage-linux-arm64",
+    "linux-x64": "@ccusage/ccusage-linux-x64",
+    "win32-arm64": "@ccusage/ccusage-win32-arm64",
+    "win32-x64": "@ccusage/ccusage-win32-x64",
+  }[`${platform}-${arch}`];
+  let nativeBinary = null;
+  if (packageName !== undefined) {
+    try {
+      nativeBinary = resolvePath(
+        `${packageName}/bin/${platform === "win32" ? "ccusage.exe" : "ccusage"}`,
+      );
+    } catch {
+      // Plugin-only installations can resolve the same pinned release through npx.
+    }
+  }
+  if (nativeBinary !== null) {
+    return {
+      command: nativeBinary,
+      args: [],
+      version: PINNED_CCUSAGE_VERSION,
+    };
+  }
+  if (packageName === undefined) {
+    throw new Error(`ccusage does not support ${platform}-${arch}`);
+  }
+  const binaryName = platform === "win32" ? "ccusage.exe" : "ccusage";
+  const npxArgs = [
+    "--yes",
+    "--prefer-offline",
+    `--package=ccusage@${PINNED_CCUSAGE_VERSION}`,
+    "node",
+    CCUSAGE_RESOLVER,
+    packageName,
+    binaryName,
+  ];
+  if (platform === "win32") {
+    const platformPath = path.win32;
+    const nodeDirectory = platformPath.dirname(process.execPath);
+    const candidates = [
+      npxCliPath,
+      typeof env.npm_execpath === "string"
+        ? platformPath.join(platformPath.dirname(env.npm_execpath), "npx-cli.js")
+        : null,
+      platformPath.join(nodeDirectory, "node_modules", "npm", "bin", "npx-cli.js"),
+      platformPath.resolve(
+        nodeDirectory,
+        "..", "lib", "node_modules", "npm", "bin", "npx-cli.js",
+      ),
+    ];
+    const npxCli = candidates.find((candidate) => typeof candidate === "string"
+      && platformPath.isAbsolute(candidate)
+      && exists(candidate));
+    if (npxCli === undefined) throw new Error("TaskChef could not resolve npm's npx CLI safely");
+    return {
+      command: process.execPath,
+      args: [npxCli, ...npxArgs],
+      version: PINNED_CCUSAGE_VERSION,
+      resolvesNative: true,
+    };
+  }
+  return {
+    command: "npx",
+    args: npxArgs,
+    version: PINNED_CCUSAGE_VERSION,
+    resolvesNative: true,
+  };
+}
+
+async function resolveManagedCcusageInvocation(invocation, run, timeoutMs) {
+  if (invocation.resolvesNative !== true) return invocation;
+  if (npxResolvedCcusageInvocation !== null
+    && existsSync(npxResolvedCcusageInvocation.command)) {
+    return npxResolvedCcusageInvocation;
+  }
+  npxResolvedCcusageInvocation = null;
+  const result = await run(invocation.command, invocation.args, {
+    timeout: timeoutMs,
+    maxBuffer: 64 * 1024,
+    env: { ...process.env, NO_COLOR: "1" },
+  });
+  const command = String(result.stdout).trim();
+  if (!path.isAbsolute(command)
+    || !/^ccusage(?:\.exe)?$/iu.test(path.basename(command))
+    || !existsSync(command)) {
+    throw new Error("npx returned an invalid ccusage executable");
+  }
+  npxResolvedCcusageInvocation = {
+    command,
+    args: [],
+    version: invocation.version,
+  };
+  return npxResolvedCcusageInvocation;
+}
+
+function processTable() {
+  return new Promise((resolve) => {
+    execFileCallback("ps", ["-axo", "pid=,ppid="], {
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 250,
+      windowsHide: true,
+    }, (error, stdout) => {
+      if (error) {
+        resolve([]);
+        return;
+      }
+      resolve(String(stdout).trim().split("\n").flatMap((line) => {
+        const [pid, parentPid] = line.trim().split(/\s+/u).map(Number);
+        return Number.isInteger(pid) && Number.isInteger(parentPid)
+          ? [{ pid, parentPid }]
+          : [];
+      }));
+    });
+  });
+}
+
+async function descendantProcessIds(parentPid) {
+  const table = await processTable();
+  const visit = (pid) => table
+    .filter((entry) => entry.parentPid === pid)
+    .flatMap((entry) => [...visit(entry.pid), entry.pid]);
+  return visit(parentPid);
+}
+
+async function terminateProcessTree(child, platform = process.platform) {
+  if (!Number.isInteger(child.pid)) return;
+  if (platform === "win32") {
+    await new Promise((resolve) => {
+      execFileCallback(
+        "taskkill",
+        ["/pid", String(child.pid), "/t", "/f"],
+        { timeout: 500, windowsHide: true },
+        () => {
+          child.kill("SIGKILL");
+          resolve();
+        },
+      );
+    });
+    return;
+  }
+  try {
+    process.kill(-child.pid, "SIGKILL");
+    return;
+  } catch {
+    // Resolve descendants only when process-group termination is unavailable.
+  }
+  let descendants = [];
+  try {
+    descendants = await descendantProcessIds(child.pid);
+  } catch {
+    // The detached process-group kill remains the fallback when ps is unavailable.
+  }
+  for (const pid of descendants) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // The group kill or normal process exit may have won the race.
+    }
+  }
+  child.kill("SIGKILL");
+}
+
+export function runBoundedProcess(command, args, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const timeout = options.timeout ?? 0;
+  const { platform: _platform, ...childOptions } = options;
+  return new Promise((resolve, reject) => {
+    let timedOut = false;
+    let timer = null;
+    let settled = false;
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const child = execFileCallback(command, args, {
+      ...childOptions,
+      timeout: undefined,
+      detached: platform !== "win32",
+      windowsHide: true,
+    }, async (error, stdout, stderr) => {
+      if (timer !== null) clearTimeout(timer);
+      if (timedOut || settled) return;
+      if (error) {
+        await terminateProcessTree(child, platform);
+        rejectOnce(error);
+        return;
+      }
+      settled = true;
+      resolve({ stdout, stderr });
+    });
+    if (timeout > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        const timeoutError = new Error(`${command} timed out`);
+        timeoutError.code = "ETIMEDOUT";
+        timeoutError.killed = true;
+        Promise.race([
+          terminateProcessTree(child, platform),
+          new Promise((resolveTermination) => setTimeout(resolveTermination, 750)),
+        ]).catch(() => {}).then(() => rejectOnce(timeoutError));
+      }, timeout);
+      timer.unref();
+    }
+  });
+}
+
 export async function readCcusageThreadUsage(threadId, {
-  command = "ccusage",
-  run = execFile,
+  command = null,
+  commandArgs = [],
+  run = runBoundedProcess,
   sampledAt = new Date().toISOString(),
   timeoutMs = 8_000,
 } = {}) {
-  let version = null;
-  try {
-    const result = await run(command, ["--version"], {
-      timeout: Math.min(timeoutMs, 2_000),
-      maxBuffer: 64 * 1024,
+  const invocation = command === null
+    ? managedCcusageInvocation()
+    : { command, args: commandArgs, version: null };
+  const resolvedInvocation = await resolveManagedCcusageInvocation(invocation, run, timeoutMs);
+  const invoke = (args, options) => run(
+    resolvedInvocation.command,
+    [...resolvedInvocation.args, ...args],
+    options,
+  );
+  let version = resolvedInvocation.version;
+  if (version === null) {
+    try {
+      const result = await invoke(["--version"], {
+        timeout: Math.min(timeoutMs, 2_000),
+        maxBuffer: 64 * 1024,
+      });
+      version = String(result.stdout).trim().replace(/^ccusage\s+/i, "") || null;
+    } catch {
+      // Usage remains useful if a custom compatible ccusage cannot print its version.
+    }
+  }
+  const report = async (pricingMode) => {
+    let result;
+    try {
+      result = await invoke([
+        "codex", "session", "--json",
+        pricingMode === "online" ? "--no-offline" : "--offline",
+      ], {
+        timeout: timeoutMs,
+        maxBuffer: 32 * 1024 * 1024,
+        env: { ...process.env, NO_COLOR: "1" },
+      });
+    } catch (error) {
+      if (error?.code === "ENOENT") throw new Error("ccusage is not installed");
+      if (error?.killed || error?.code === "ETIMEDOUT") throw new Error("ccusage timed out");
+      throw new Error("ccusage could not read Codex usage");
+    }
+    let payload;
+    try {
+      payload = JSON.parse(result.stdout);
+    } catch {
+      throw new Error("ccusage returned malformed JSON");
+    }
+    return aggregateCcusageSessions(payload, threadId, {
+      sampledAt,
+      version,
+      pricingMode,
     });
-    version = String(result.stdout).trim().replace(/^ccusage\s+/i, "") || null;
-  } catch {
-    // Usage remains useful if an older compatible ccusage cannot print its version.
-  }
-  let result;
+  };
   try {
-    result = await run(command, ["codex", "session", "--json", "--offline"], {
-      timeout: timeoutMs,
-      maxBuffer: 32 * 1024 * 1024,
-      env: { ...process.env, NO_COLOR: "1" },
-    });
-  } catch (error) {
-    if (error?.code === "ENOENT") throw new Error("ccusage is not installed");
-    if (error?.killed || error?.code === "ETIMEDOUT") throw new Error("ccusage timed out");
-    throw new Error("ccusage could not read Codex usage");
+    return await report("online");
+  } catch (onlineError) {
+    try {
+      return await report("offline");
+    } catch {
+      throw onlineError;
+    }
   }
-  let payload;
-  try {
-    payload = JSON.parse(result.stdout);
-  } catch {
-    throw new Error("ccusage returned malformed JSON");
-  }
-  return aggregateCcusageSessions(payload, threadId, { sampledAt, version });
 }
 
 function usageFile(workspace) {
@@ -372,7 +648,10 @@ export function usageDelta(current, previous = null) {
     if (!Number.isFinite(value) || value < 0) return null;
     delta[field] = value;
   }
-  let estimatedCostUsd = current.estimatedCostUsd === null
+  const samePricingSource = previous === null || ["version", "pricingMode", "costCoverage"]
+    .every((field) => current.provenance?.[field] === previous.provenance?.[field]);
+  let estimatedCostUsd = !samePricingSource
+    || current.estimatedCostUsd === null
     || (previous !== null && previous.estimatedCostUsd === null)
     ? null
     : current.estimatedCostUsd - (previous?.estimatedCostUsd ?? 0);

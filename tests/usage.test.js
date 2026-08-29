@@ -7,8 +7,10 @@ import test from "node:test";
 import {
   aggregateCcusageSessions,
   compactUsageStore,
+  managedCcusageInvocation,
   readUsageStore,
   readCcusageThreadUsage,
+  runBoundedProcess,
   usageDelta,
   writeUsageStore,
 } from "../src/usage.js";
@@ -94,7 +96,11 @@ test("ccusage adapter aggregates every session segment for one exact Codex threa
         sessionId: `rollout-019ffb69-57a6-7801-8b7a-8ff4c32a398c_${THREAD_ID}`,
         sessionFile: `rollout-019ffb69-57a6-7801-8b7a-8ff4c32a398c_${THREAD_ID}` },
     ],
-  }, THREAD_ID, { sampledAt: "2026-08-28T13:42:00.000Z", version: "20.0.14" });
+  }, THREAD_ID, {
+    sampledAt: "2026-08-28T13:42:00.000Z",
+    version: "20.0.20",
+    pricingMode: "online",
+  });
 
   assert.equal(usage.inputTokens, 13);
   assert.equal(usage.cachedInputTokens, 24);
@@ -103,6 +109,8 @@ test("ccusage adapter aggregates every session segment for one exact Codex threa
   assert.equal(usage.totalTokens, 44);
   assert.equal(usage.estimatedCostUsd, 0.03);
   assert.equal(usage.provenance.sessionCount, 2);
+  assert.equal(usage.provenance.pricingMode, "online");
+  assert.equal(usage.provenance.costCoverage, "ccusage_reported");
   assert.deepEqual(Object.keys(usage.models).sort(), ["gpt-test", "gpt-test-next"]);
   assert.equal(usage.sourceUpdatedAt, "2026-08-28T13:41:00.000Z");
 });
@@ -144,21 +152,112 @@ test("ccusage model names cannot mutate object prototypes", () => {
   assert.equal(({}).inputTokens, undefined);
 });
 
-test("ccusage execution is offline, bounded, structured, and optional", async () => {
+test("managed ccusage resolution prefers the pinned package and has a pinned npx fallback", () => {
+  const local = managedCcusageInvocation({
+    platform: "darwin",
+    arch: "arm64",
+    resolvePath: (id) => `/managed/${id}`,
+  });
+  assert.equal(
+    local.command,
+    "/managed/@ccusage/ccusage-darwin-arm64/bin/ccusage",
+  );
+  assert.deepEqual(local.args, []);
+  assert.equal(local.version, "20.0.20");
+  const missing = () => { throw new Error("missing"); };
+  const fallback = managedCcusageInvocation({ resolvePath: missing });
+  assert.equal(fallback.command, "npx");
+  assert.deepEqual(fallback.args.slice(0, 4), [
+    "--yes", "--prefer-offline", "--package=ccusage@20.0.20", "node",
+  ]);
+  assert.match(fallback.args[4], /resolve-ccusage\.js$/u);
+  assert.deepEqual(fallback.args.slice(5), [
+    "@ccusage/ccusage-darwin-arm64", "ccusage",
+  ]);
+  assert.equal(fallback.version, "20.0.20");
+  assert.equal(fallback.resolvesNative, true);
+  const windows = managedCcusageInvocation({
+    platform: "win32",
+    arch: "x64",
+    resolvePath: missing,
+    npxCliPath: "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+    exists: () => true,
+  });
+  assert.equal(windows.command, process.execPath);
+  assert.deepEqual(windows.args.slice(0, 5), [
+    "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+    "--yes", "--prefer-offline", "--package=ccusage@20.0.20", "node",
+  ]);
+  assert.match(windows.args[5], /resolve-ccusage\.js$/u);
+  assert.deepEqual(windows.args.slice(6), [
+    "@ccusage/ccusage-win32-x64", "ccusage.exe",
+  ]);
+  assert.equal(windows.resolvesNative, true);
+});
+
+test("bounded native analyzer execution stops the process before rejecting a timeout", {
+  skip: process.platform === "win32",
+}, async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-process-"));
+  const heartbeatFile = path.join(workspace, "analyzer-heartbeat");
+  const program = [
+    'const { writeFileSync } = require("node:fs");',
+    `const file = ${JSON.stringify(heartbeatFile)};`,
+    'let beat = 0;',
+    'const write = () => writeFileSync(file, String(beat += 1));',
+    'write();',
+    'setInterval(write, 20);',
+  ].join("\n");
+  await assert.rejects(
+    runBoundedProcess(process.execPath, ["-e", program], { timeout: 200 }),
+    /timed out/,
+  );
+  const stoppedAt = await readFile(heartbeatFile, "utf8");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await readFile(heartbeatFile, "utf8"), stoppedAt);
+});
+
+test("ccusage execution prefers online pricing and remains bounded and structured", async () => {
   const calls = [];
   const run = async (_command, args, options) => {
     calls.push({ args, options });
-    if (args[0] === "--version") return { stdout: "ccusage 20.0.14\n" };
+    if (args[0] === "--version") return { stdout: "ccusage 20.0.20\n" };
     return { stdout: JSON.stringify({ sessions: [session("")] }) };
   };
-  const usage = await readCcusageThreadUsage(THREAD_ID, { run });
-  assert.equal(usage.provenance.version, "20.0.14");
-  assert.deepEqual(calls[1].args, ["codex", "session", "--json", "--offline"]);
+  const usage = await readCcusageThreadUsage(THREAD_ID, { command: "ccusage", run });
+  assert.equal(usage.provenance.version, "20.0.20");
+  assert.equal(usage.provenance.pricingMode, "online");
+  assert.deepEqual(calls[1].args, ["codex", "session", "--json", "--no-offline"]);
   assert.equal(calls[1].options.timeout, 8_000);
   await assert.rejects(
-    readCcusageThreadUsage(THREAD_ID, { run: async () => { const error = new Error(); error.code = "ENOENT"; throw error; } }),
+    readCcusageThreadUsage(THREAD_ID, {
+      command: "ccusage",
+      run: async () => { const error = new Error(); error.code = "ENOENT"; throw error; },
+    }),
     /not installed/,
   );
+});
+
+test("ccusage execution falls back to bundled offline pricing when online pricing fails", async () => {
+  const calls = [];
+  const run = async (_command, args) => {
+    calls.push(args);
+    if (args[0] === "--version") return { stdout: "ccusage 20.0.20\n" };
+    if (args.includes("--no-offline")) throw new Error("pricing network unavailable");
+    return { stdout: JSON.stringify({ sessions: [session("")] }) };
+  };
+  const usage = await readCcusageThreadUsage(THREAD_ID, { command: "ccusage", run });
+  assert.equal(usage.provenance.pricingMode, "offline");
+  assert.deepEqual(calls.slice(1).map((args) => args.at(-1)), ["--no-offline", "--offline"]);
+});
+
+test("GPT-5.6 estimates disclose that ccusage cache-write coverage is unverified", () => {
+  const usage = aggregateCcusageSessions({ sessions: [session("", {
+    model: "gpt-5.6-sol",
+    costUSD: 0.2884664,
+  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  assert.equal(usage.estimatedCostUsd, 0.2884664);
+  assert.equal(usage.provenance.costCoverage, "cache_writes_unverified");
 });
 
 test("turn deltas preserve cached and reasoning subsets and reject decreasing snapshots", () => {
@@ -206,6 +305,25 @@ test("positive token growth with unchanged cumulative cost is cost-unavailable",
     reasoningOutputTokens: 4,
     costUSD: 0.05,
   })] }, THREAD_ID);
+  const delta = usageDelta(current, previous);
+  assert.equal(delta.totalTokens, 14);
+  assert.equal(delta.estimatedCostUsd, null);
+  assert.equal(delta.costStatus, "unavailable");
+});
+
+test("a pricing-mode or analyzer-version change invalidates only the cost delta", () => {
+  const previous = aggregateCcusageSessions(
+    { sessions: [session("", { costUSD: 0.02 })] },
+    THREAD_ID,
+    { version: "20.0.19", pricingMode: "offline" },
+  );
+  const current = aggregateCcusageSessions({ sessions: [session("", {
+    inputTokens: 13,
+    cacheReadTokens: 27,
+    outputTokens: 9,
+    reasoningOutputTokens: 4,
+    costUSD: 0.03,
+  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
   const delta = usageDelta(current, previous);
   assert.equal(delta.totalTokens, 14);
   assert.equal(delta.estimatedCostUsd, null);
@@ -294,7 +412,11 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
   const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-delta-"));
   await writeFile(path.join(workspace, "tasks.jsonl"), "");
   const timers = [];
-  let snapshot = aggregateCcusageSessions({ sessions: [session("")] }, THREAD_ID);
+  let snapshot = aggregateCcusageSessions(
+    { sessions: [session("")] },
+    THREAD_ID,
+    { version: "20.0.20", pricingMode: "online" },
+  );
   const tracker = createUsageTracker({
     workspace,
     retryDelaysMs: [0, 0],
@@ -322,7 +444,7 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
     outputTokens: 8,
     reasoningOutputTokens: 3,
     costUSD: 0.03,
-  })] }, THREAD_ID);
+  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
   const second = {
     ...completedFirst,
     turns: [...completedFirst.turns, { turnRef: SECOND_TURN, result: { status: "completed" } }],
@@ -337,6 +459,16 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
   assert.equal(store.tasks[second.id].turns[SECOND_TURN].estimatedCostUsd, 0.009999999999999998);
   assert.equal(store.tasks[second.id].turns[SECOND_TURN].provenance.provider, "ccusage");
   assert.ok(store.tasks[second.id].turns[SECOND_TURN].sampledAt);
+
+  delete store.tasks[second.id].task.provenance.pricingMode;
+  delete store.tasks[second.id].task.provenance.costCoverage;
+  delete store.tasks[second.id].turns[SECOND_TURN].provenance.pricingMode;
+  delete store.tasks[second.id].turns[SECOND_TURN].provenance.costCoverage;
+  await writeFile(path.join(workspace, ".taskchef-usage.json"), JSON.stringify(store));
+  const legacy = await readUsageStore(workspace);
+  assert.equal(legacy.tasks[second.id].task.estimatedCostUsd, null);
+  assert.equal(legacy.tasks[second.id].turns[SECOND_TURN].estimatedCostUsd, null);
+  assert.equal(legacy.tasks[second.id].turns[SECOND_TURN].provenance.costCoverage, null);
 });
 
 test("a stable pre-turn snapshot waits for advancement before recording a boundary", async () => {
