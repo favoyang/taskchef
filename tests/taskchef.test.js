@@ -803,6 +803,25 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
   ]);
   assert.doesNotMatch(diagnostics[0], /secret|token/);
 
+  const staleDiagnostics = [];
+  const stale = createDashboardAutostart({
+    workspace,
+    dashboardManager: {
+      ensure: async () => {
+        const error = new Error("sensitive owner record details");
+        error.staleTaskchefVersion = "7.22.0";
+        throw error;
+      },
+    },
+    readConfiguration: async () => ({ schemaVersion: 2, projects: [] }),
+    log: (message) => staleDiagnostics.push(message),
+  });
+  assert.deepEqual(await stale(), { action: "failed" });
+  assert.deepEqual(staleDiagnostics, [
+    "TaskChef dashboard autostart skipped: verified older TaskChef 7.22.0 listener could not complete authenticated handoff; it was left untouched.",
+  ]);
+  assert.doesNotMatch(staleDiagnostics[0], /owner record|sensitive/);
+
   const isolatedDiagnostics = [];
   const server = createTaskChefMcpServer({
     workspace,

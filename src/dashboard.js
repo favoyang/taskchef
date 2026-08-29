@@ -25,6 +25,14 @@ import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
 import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
+import {
+  DASHBOARD_CONTROL_CHALLENGE_PATH,
+  DASHBOARD_CONTROL_SHUTDOWN_PATH,
+  dashboardControlProof,
+  validDashboardControlNonce,
+  validDashboardControlSecret,
+  verifyDashboardControlProof,
+} from "./dashboard-ownership.js";
 
 const TASKS_FILE_NAME = "tasks.jsonl";
 const STATIC_ROOT = fileURLToPath(new URL("./dashboard/", import.meta.url));
@@ -544,6 +552,7 @@ export async function createDashboardServer({
   taskchefVersion = TASKCHEF_VERSION,
   serverVersion = DASHBOARD_SERVER_VERSION,
   usageTracker = null,
+  control = null,
 } = {}) {
   if (!LOOPBACK_HOSTS.has(host)) {
     throw new Error("dashboard host must be a loopback address");
@@ -556,6 +565,11 @@ export async function createDashboardServer({
   }
   if (!new Set(["mcp", "standalone"]).has(launcher)) {
     throw new Error("dashboard launcher must be mcp or standalone");
+  }
+  if (control !== null && (launcher !== "mcp"
+      || !validDashboardControlSecret(control?.secret)
+      || typeof control?.onShutdown !== "function")) {
+    throw new Error("dashboard control requires a valid MCP ownership controller");
   }
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   await monitor.start();
@@ -574,6 +588,7 @@ export async function createDashboardServer({
   }
   const clients = new Set();
   const archiveRequests = new Set();
+  const controlNonces = new Set();
   let allowedAuthority;
   let allowedOrigin;
 
@@ -612,6 +627,41 @@ export async function createDashboardServer({
       } else {
         sendJson(response, 200, identity);
       }
+      return;
+    }
+
+    if (url.pathname === DASHBOARD_CONTROL_CHALLENGE_PATH && method === "GET") {
+      const nonce = url.searchParams.get("nonce");
+      if (!control || !validDashboardControlNonce(nonce)) {
+        sendJson(response, control ? 400 : 404, { message: "Not found." });
+        return;
+      }
+      sendJson(response, 200, {
+        schemaVersion: 1,
+        nonce,
+        proof: dashboardControlProof(control.secret, "challenge", nonce),
+      });
+      return;
+    }
+
+    if (url.pathname === DASHBOARD_CONTROL_SHUTDOWN_PATH && method === "POST") {
+      if (!control) {
+        sendJson(response, 404, { message: "Not found." });
+        return;
+      }
+      const body = await readBoundedJsonBody(request);
+      const nonce = body?.nonce;
+      if (!verifyDashboardControlProof(control.secret, "shutdown", nonce, body?.proof)) {
+        sendJson(response, 403, { message: "Dashboard control authentication failed." });
+        return;
+      }
+      if (controlNonces.has(nonce)) {
+        sendJson(response, 409, { message: "Dashboard control credential was already used." });
+        return;
+      }
+      controlNonces.add(nonce);
+      sendJson(response, 202, { schemaVersion: 1, accepted: true });
+      setImmediate(() => { void control.onShutdown().catch(() => {}); });
       return;
     }
 
@@ -882,8 +932,10 @@ export async function createDashboardServer({
       monitor.off("monitorError", errorListener);
       monitor.close();
       for (const client of clients) client.close();
-      await new Promise((resolve, reject) => server.close((error) =>
+      const closed = new Promise((resolve, reject) => server.close((error) =>
         error ? reject(error) : resolve()));
+      server.closeAllConnections?.();
+      await closed;
     },
   };
 }
