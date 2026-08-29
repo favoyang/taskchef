@@ -450,35 +450,26 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(elements.get("#manual-transition-error").textContent, "Preview transition failed.");
 
     const archiveTask = elements.get("#archive-codex");
-    assert.equal(archiveTask.hidden, false);
+    assert.equal(archiveTask.hidden, true);
     assert.equal(archiveTask.disabled, false);
     assert.equal(archiveTask.textContent, "Archive chat");
-    const archiveRequest = archiveTask.emit("click", {
-      currentTarget: archiveTask,
-      stopPropagation() {},
-    });
-    assert.deepEqual(archiveRequests, [{
-      url: `/api/tasks/${taskId}/archive-codex`,
-      options: { method: "POST" },
-    }]);
-    assert.equal(archiveTask.disabled, true);
-    assert.equal(archiveTask.textContent, "Archiving…");
-    moreTaskActions.emit("click");
-    moreTaskActions.emit("click");
-    assert.equal(archiveTask.disabled, true);
     await archiveTask.emit("click", {
       currentTarget: archiveTask,
       stopPropagation() {},
     });
-    assert.equal(archiveRequests.length, 1);
-    pendingArchiveRequests.shift()();
-    await archiveRequest;
-    assert.equal(archiveTask.textContent, "Archived");
+    assert.deepEqual(archiveRequests, []);
+    assert.equal(archiveTask.hidden, true);
+    assert.equal(archiveTask.textContent, "Archive chat");
+    moreTaskActions.emit("click");
+    moreTaskActions.emit("click");
+    assert.equal(archiveTask.hidden, true);
+    await archiveTask.emit("click", {
+      currentTarget: archiveTask,
+      stopPropagation() {},
+    });
+    assert.equal(archiveRequests.length, 0);
+    assert.equal(archiveTask.textContent, "Archive chat");
     assert.equal(moreTaskActions.textContent, "←");
-    assert.equal(
-      elements.get("#dashboard-message-text").textContent,
-      "Archived the Codex chat. TaskChef history remains available.",
-    );
 
     const copyTaskId = elements.get("#copy-task-id");
     assert.equal(copyTaskId.textContent, "Copy Task ID");

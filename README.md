@@ -274,9 +274,9 @@ Task details offer infrequent administrative actions without cluttering task
 cards. Selecting **More task actions** (`…`) reveals the action list immediately
 beside the disclosure and changes it to a back/hide control. The list contains
 **Copy Task ID**, direct **Mark completed** and **Mark failed** actions for a
-`working` or `needs_input` task, and **Archive chat** whenever archival is
-eligible. The menu disclosure is the deliberate first step; choosing a terminal
-outcome submits it immediately without a second confirmation. There is no
+`working` or `needs_input` task. The menu disclosure is the deliberate first
+step; choosing a terminal outcome submits it immediately without a second
+confirmation. There is no
 free-form reason: the audit turn records a fixed summary, timestamp, dashboard
 provenance, optimistic preconditions, and a unique action ID while preserving
 every executor turn. Terminal tasks cannot be rewritten. Stale or concurrent
@@ -284,12 +284,13 @@ changes are rejected and the dialog refreshes to the current task. A stalled
 local request is aborted after a bounded wait so the dialog cannot remain
 permanently locked; retry keeps the same idempotency identity.
 
-The More actions list offers **Archive chat** for every linked task whose current
-TaskChef state is not `working`. After confirmation, TaskChef invokes only the
-Codex CLI at the canonical ChatGPT or Codex desktop app location under
-`/Applications`, to archive the exact thread UUID. The Codex chat leaves active chat lists while the TaskChef record
-and its activity timeline remain unchanged. If the bundled CLI is unavailable,
-the dashboard does not fall back to another `codex` executable from `PATH`.
+The archive implementation is retained behind a disabled capability gate, and
+the **Archive chat** control is hidden. The bundled `codex archive` command can
+reject a valid idle desktop-app thread even when the dashboard runs in the MCP
+host environment, while Codex's native app archive operation succeeds. TaskChef
+will keep the feature disabled until Codex exposes a reliable supported
+app-callable archive interface or guarantees CLI compatibility. The dormant
+server path also rejects requests before discovering or invoking the CLI.
 
 Task details also show whole-task and per-turn token usage when `ccusage` can
 map the linked Codex thread. A completed turn briefly shows “Tokens:

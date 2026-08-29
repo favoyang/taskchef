@@ -490,7 +490,11 @@ administrative action out of list cards. A keyboard-accessible **More task
 actions** disclosure MUST reveal its action list immediately beside it and
 change from an ellipsis to an accessible back/hide control while expanded. The
 list MUST group **Copy Task ID**, **Mark completed**, and **Mark failed** for
-eligible tasks, plus **Archive chat** when archival is eligible. Opening the
+eligible tasks. **Archive chat** MUST remain hidden while the archive capability
+gate is disabled because the bundled CLI does not reliably archive desktop-app
+threads. The dormant server endpoint MUST reject requests before discovering or
+invoking the CLI. Re-enabling requires a reliable supported app-callable archive
+interface or guaranteed CLI compatibility. Opening the
 list is the deliberate disclosure step; choosing a terminal outcome submits it
 immediately without a second confirmation. Escape MUST close the idle list,
 pending controls MUST be

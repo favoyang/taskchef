@@ -52,6 +52,8 @@ import {
   turnPresentation,
   canArchiveTask,
   canManuallyTransitionTask,
+  CODEX_CHAT_ARCHIVE_ENABLED,
+  isArchiveTaskEligible,
 } from "../src/dashboard/state.js";
 import {
   archiveTaskFromControl,
@@ -650,17 +652,20 @@ test("dashboard task controls preserve open fallback and failure messages", asyn
   assert.deepEqual(messages, responses);
 });
 
-test("dashboard archive eligibility includes every linked non-working state", () => {
+test("dashboard hides archive while preserving dormant eligibility rules", () => {
+  assert.equal(CODEX_CHAT_ARCHIVE_ENABLED, false);
   for (const status of ["needs_input", "completed", "failed"]) {
-    assert.equal(canArchiveTask({ status, threadId: FIRST_THREAD_ID }), true);
+    const task = { status, threadId: FIRST_THREAD_ID };
+    assert.equal(isArchiveTaskEligible(task), true);
+    assert.equal(canArchiveTask(task), false);
   }
-  assert.equal(canArchiveTask({ status: "working", threadId: FIRST_THREAD_ID }), false);
-  assert.equal(canArchiveTask({ status: "failed", threadId: "opaque-thread" }), false);
-  assert.equal(canArchiveTask({
+  assert.equal(isArchiveTaskEligible({ status: "working", threadId: FIRST_THREAD_ID }), false);
+  assert.equal(isArchiveTaskEligible({ status: "failed", threadId: "opaque-thread" }), false);
+  assert.equal(isArchiveTaskEligible({
     status: "failed",
     threadId: "11111111-1111-4111-8111-111111111111",
   }), false);
-  assert.equal(canArchiveTask({ status: "failed", threadId: null }), false);
+  assert.equal(isArchiveTaskEligible({ status: "failed", threadId: null }), false);
 });
 
 test("manual transition eligibility is limited to working and needs-input tasks", () => {
@@ -1955,6 +1960,48 @@ test("dashboard server serves independent clients without sessions and protects 
   }
 });
 
+test("dashboard archive endpoint is unavailable by default without invoking the CLI", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, {
+    ...input(project, FIRST_ID, "Dormant archive task", null),
+    instruction: `<!-- taskchef_id=${FIRST_ID} -->\n\nDo not invoke archived code.`,
+  });
+  await linkTask(workspace, FIRST_ID, FIRST_THREAD_ID);
+  await reportTaskResult(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "completed",
+    summary: "Ready to remain visible.",
+  });
+  let discoveryCount = 0;
+  let archiveCount = 0;
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    monitorOptions: { pollIntervalMs: 60_000 },
+    discoverArchiveCli: async () => {
+      discoveryCount += 1;
+      return { path: "/mock/Codex.app/Contents/Resources/codex", source: "desktop-bundle" };
+    },
+    archiveThread: async () => { archiveCount += 1; },
+  });
+  server.monitor.watcher?.close();
+  server.monitor.watcher = null;
+  try {
+    const response = await fetch(`${server.origin}/api/tasks/${FIRST_ID}/archive-codex`, {
+      method: "POST",
+      headers: { Origin: server.origin },
+    });
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { message: "Chat archiving is not available." });
+    assert.equal(discoveryCount, 0);
+    assert.equal(archiveCount, 0);
+  } finally {
+    await server.close();
+  }
+});
+
 test("dashboard Open task uses the Codex thread ID rather than the TaskChef task ID", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, input(project, FIRST_ID, "Historical task", FIRST_THREAD_ID));
@@ -2140,6 +2187,7 @@ test("dashboard archive action accepts every non-working state and rejects worki
   let releaseArchive = null;
   let blockArchive = false;
   const server = await createDashboardServer({
+    archiveEnabled: true,
     workspace,
     port: 0,
     monitorOptions: { pollIntervalMs: 60_000 },
