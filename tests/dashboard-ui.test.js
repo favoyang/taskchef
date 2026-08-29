@@ -28,6 +28,12 @@ class FakeElement {
     this.children.push(...children);
   }
 
+  insertBefore(child, before) {
+    const index = this.children.indexOf(before);
+    if (index < 0) this.children.push(child);
+    else this.children.splice(index, 0, child);
+  }
+
   replaceChildren(...children) {
     this.children = children;
   }
@@ -150,6 +156,8 @@ test("dashboard renders a live notification with time and shared accessible desc
     const manualRequests = [];
     const pendingClipboardWrites = [];
     let clipboardMode = "reject";
+    let manualCompletedTask = null;
+    let manualTransitionSucceeds = false;
     globalThis.document = document;
     globalThis.Node = FakeElement;
     globalThis.EventSource = FakeEventSource;
@@ -169,6 +177,9 @@ test("dashboard renders a live notification with time and shared accessible desc
         return { ok: true, json: async () => ({ taskchefVersion: "test" }) };
       }
       if (url === `/api/tasks/${taskId}`) {
+        if (manualCompletedTask) {
+          return { ok: true, json: async () => ({ task: manualCompletedTask }) };
+        }
         return {
           ok: true,
           json: async () => ({
@@ -246,6 +257,51 @@ test("dashboard renders a live notification with time and shared accessible desc
       }
       if (url === `/api/tasks/${taskId}/manual-transition`) {
         manualRequests.push({ url, options });
+        if (manualTransitionSucceeds) {
+          const manualUpdatedAt = new Date(Date.parse(timestamp) + 1_000).toISOString();
+          manualCompletedTask = {
+            createdAt: timestamp,
+            id: taskId,
+            instruction: "Address the reported failures safely.",
+            latestTurn: {
+              provenance: { kind: "dashboard_manual" },
+              requestSummary: "Manual dashboard transition from needs_input to completed.",
+              result: {
+                status: "completed",
+                summary: "Manually marked completed from the TaskChef dashboard.",
+                updatedAt: manualUpdatedAt,
+              },
+              startedAt: manualUpdatedAt,
+              turnId: null,
+              turnRef: "8f7d8e68-c72c-4a3f-9ef0-10409e22b482",
+            },
+            meaningfulUpdatedAt: manualUpdatedAt,
+            project: {
+              githubRepos: ["https://github.com/acme/marketlake"],
+              name: "MarketLake",
+              path: "/tmp/marketlake",
+            },
+            status: "completed",
+            summary: "Manually marked completed from the TaskChef dashboard.",
+            threadId,
+            title: "Continue MarketLake V1",
+            turnId: null,
+            turnRef: "8f7d8e68-c72c-4a3f-9ef0-10409e22b482",
+            updatedAt: manualUpdatedAt,
+            updatedBy: "dashboard",
+          };
+          FakeEventSource.instance.emit("snapshot", {
+            healthy: true,
+            tasks: [manualCompletedTask],
+          });
+          return {
+            ok: true,
+            json: async () => ({
+              idempotent: false,
+              task: manualCompletedTask,
+            }),
+          };
+        }
         return {
           ok: false,
           json: async () => ({
@@ -259,9 +315,19 @@ test("dashboard renders a live notification with time and shared accessible desc
     };
     globalThis.setInterval = () => 1;
     globalThis.clearInterval = () => {};
-    await import(`../src/dashboard/app.js?dashboard-ui=${Date.now()}`);
+    const dashboardApp = await import(`../src/dashboard/app.js?dashboard-ui=${Date.now()}`);
 
     FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: [] });
+    FakeEventSource.instance.emit("dashboard-error", {
+      message: "The task log is temporarily unavailable. Showing the last valid snapshot.",
+    });
+    assert.equal(elements.get("#dashboard-message").hidden, false);
+    assert.equal(
+      elements.get("#dashboard-message-text").textContent,
+      "The task log is temporarily unavailable. Showing the last valid snapshot.",
+    );
+    FakeEventSource.instance.emit("snapshot", { healthy: true, tasks: [] });
+    assert.equal(elements.get("#dashboard-message").hidden, true);
     const timestamp = new Date().toISOString();
     FakeEventSource.instance.emit("snapshot", {
       healthy: true,
@@ -521,6 +587,75 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(prevented, true);
     assert.equal(statusFilter.inputs[3].checked, true);
     assert.equal(elements.get("#task-list").children.length, 0);
+
+    manualTransitionSucceeds = true;
+    const markCompleted = elements.get("#mark-task-completed");
+    await markCompleted.emit("click", {
+      currentTarget: markCompleted,
+      stopPropagation() {},
+    });
+    assert.equal(manualRequests.length, 2);
+    assert.equal(JSON.parse(manualRequests[1].options.body).targetStatus, "completed");
+    assert.equal(elements.get("#dashboard-message").hidden, true);
+    assert.match(
+      elements.get("#notification-announcer").textContent,
+      /Task manually completed.*Manually marked completed from the TaskChef dashboard\./,
+    );
+    const manualCompletionToast = elements.get("#toast-list").children.find((toast) => (
+      toast.children[0]?.children[0]?.textContent === "Task manually completed"
+    ));
+    assert.ok(manualCompletionToast);
+    assert.equal(
+      manualCompletionToast.children[0].children[2].textContent,
+      "Manually marked completed from the TaskChef dashboard.",
+    );
+    const dashboardMessageBeforeArchiveUpdates = {
+      hidden: elements.get("#dashboard-message").hidden,
+      text: elements.get("#dashboard-message-text").textContent,
+    };
+    dashboardApp.showArchiveUpdate(
+      manualCompletedTask,
+      "Archived the Codex chat. TaskChef history remains available.",
+    );
+    assert.deepEqual({
+      hidden: elements.get("#dashboard-message").hidden,
+      text: elements.get("#dashboard-message-text").textContent,
+    }, dashboardMessageBeforeArchiveUpdates);
+    assert.match(
+      elements.get("#notification-announcer").textContent,
+      /Chat archived.*Archived the Codex chat\. TaskChef history remains available\./,
+    );
+    const archiveSuccessToast = elements.get("#toast-list").children.find((toast) => (
+      toast.children[0]?.children[0]?.textContent === "Chat archived"
+    ));
+    assert.ok(archiveSuccessToast);
+    assert.equal(
+      archiveSuccessToast.children[0].children[2].textContent,
+      "Archived the Codex chat. TaskChef history remains available.",
+    );
+
+    dashboardApp.showArchiveUpdate(
+      manualCompletedTask,
+      "Codex chat archiving is temporarily unavailable. Try again.",
+      { failed: true },
+    );
+    assert.deepEqual({
+      hidden: elements.get("#dashboard-message").hidden,
+      text: elements.get("#dashboard-message-text").textContent,
+    }, dashboardMessageBeforeArchiveUpdates);
+    assert.match(
+      elements.get("#notification-announcer").textContent,
+      /Chat archive failed.*Codex chat archiving is temporarily unavailable\. Try again\./,
+    );
+    const archiveFailureToast = elements.get("#toast-list").children.find((toast) => (
+      toast.children[0]?.children[0]?.textContent === "Chat archive failed"
+    ));
+    assert.ok(archiveFailureToast);
+    assert.equal(
+      archiveFailureToast.children[0].children[2].textContent,
+      "Codex chat archiving is temporarily unavailable. Try again.",
+    );
+    assert.equal(elements.get("#task-list").children.length, 1);
   } finally {
     globalThis.clearInterval = previous.clearInterval;
     globalThis.confirm = previous.confirm;

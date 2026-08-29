@@ -1364,7 +1364,7 @@ test("dashboard archive control confirms consequences and reports success", asyn
   const requests = [];
   const confirmations = [];
   const archived = [];
-  const messages = [];
+  const updates = [];
   const control = { disabled: false };
   const task = { id: FIRST_ID, threadId: FIRST_THREAD_ID, title: "Close stalled work" };
   const result = await archiveTaskFromControl({
@@ -1383,7 +1383,7 @@ test("dashboard archive control confirms consequences and reports success", asyn
       };
     },
     onArchived: (threadId) => archived.push(threadId),
-    showMessage: (message) => messages.push(message),
+    showUpdate: (message, options) => updates.push({ message, options }),
   });
   assert.equal(result, true);
   assert.match(confirmations[0], /spawned descendant chats may also be archived/);
@@ -1394,12 +1394,15 @@ test("dashboard archive control confirms consequences and reports success", asyn
     disabledDuringRequest: true,
   }]);
   assert.deepEqual(archived, [FIRST_THREAD_ID]);
-  assert.deepEqual(messages, ["Archived the Codex chat. TaskChef history remains available."]);
+  assert.deepEqual(updates, [{
+    message: "Archived the Codex chat. TaskChef history remains available.",
+    options: undefined,
+  }]);
   assert.equal(control.disabled, true);
 });
 
 test("dashboard archive control leaves a declined or failed action unchanged", async () => {
-  const messages = [];
+  const updates = [];
   const task = { id: FIRST_ID, threadId: FIRST_THREAD_ID, title: "Keep this chat" };
   let fetched = false;
   assert.equal(await archiveTaskFromControl({
@@ -1408,7 +1411,7 @@ test("dashboard archive control leaves a declined or failed action unchanged", a
   }, task, {
     confirmAction: () => false,
     fetchAction: async () => { fetched = true; },
-    showMessage: (message) => messages.push(message),
+    showUpdate: (message, options) => updates.push({ message, options }),
   }), false);
   assert.equal(fetched, false);
 
@@ -1421,9 +1424,25 @@ test("dashboard archive control leaves a declined or failed action unchanged", a
       ok: false,
       json: async () => ({ message: "Working tasks cannot be archived from the dashboard." }),
     }),
-    showMessage: (message) => messages.push(message),
+    showUpdate: (message, options) => updates.push({ message, options }),
   }), false);
-  assert.deepEqual(messages, ["Working tasks cannot be archived from the dashboard."]);
+  assert.deepEqual(updates, [{
+    message: "Working tasks cannot be archived from the dashboard.",
+    options: { failed: true },
+  }]);
+
+  assert.equal(await archiveTaskFromControl({
+    currentTarget: { disabled: false },
+    stopPropagation: () => {},
+  }, task, {
+    confirmAction: () => true,
+    fetchAction: async () => { throw new Error("offline"); },
+    showUpdate: (message, options) => updates.push({ message, options }),
+  }), false);
+  assert.deepEqual(updates.at(-1), {
+    message: "Codex chat archiving is temporarily unavailable. Try again.",
+    options: { failed: true },
+  });
 });
 
 test("dashboard notification labels describe immutable lifecycle events", () => {
@@ -1435,6 +1454,8 @@ test("dashboard notification labels describe immutable lifecycle events", () => 
   assert.equal(notificationTitle({ event: "failed" }), "Task failed");
   assert.equal(notificationTitle({ event: "manual_completed" }), "Task manually completed");
   assert.equal(notificationTitle({ event: "manual_failed" }), "Task manually failed");
+  assert.equal(notificationTitle({ event: "archive_succeeded" }), "Chat archived");
+  assert.equal(notificationTitle({ event: "archive_failed" }), "Chat archive failed");
   const mutableTask = {
     id: FIRST_ID,
     title: "Captured title",
