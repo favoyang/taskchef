@@ -165,7 +165,11 @@ test("managed ccusage resolution prefers the pinned package and has a pinned npx
   assert.deepEqual(local.args, []);
   assert.equal(local.version, "20.0.20");
   const missing = () => { throw new Error("missing"); };
-  const fallback = managedCcusageInvocation({ resolvePath: missing });
+  const fallback = managedCcusageInvocation({
+    platform: "darwin",
+    arch: "arm64",
+    resolvePath: missing,
+  });
   assert.equal(fallback.command, "npx");
   assert.deepEqual(fallback.args.slice(0, 4), [
     "--yes", "--prefer-offline", "--package=ccusage@20.0.20", "node",
