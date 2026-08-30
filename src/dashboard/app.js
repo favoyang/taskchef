@@ -445,7 +445,7 @@ export function usagePresentation(usage, { wholeTask = false } = {}) {
   container.className = `usage-summary usage-${usage?.status ?? "unavailable"}`;
   if (usage?.status === "pending" || usage?.status === "calculating") {
     const text = document.createElement("span");
-    text.className = "usage-shimmer";
+    text.className = "text-shimmer";
     text.textContent = usage.status === "pending"
       ? "Tokens pending · available when turn finishes"
       : "Calculating token usage…";
@@ -536,7 +536,7 @@ function turnTimeline(task, { highlightTurnRef = null } = {}) {
     const resultLabel = document.createElement("h4");
     resultLabel.textContent = "Result";
     const result = document.createElement("p");
-    result.className = "preserve-lines";
+    result.className = `preserve-lines${turnStatus === "working" ? " text-shimmer" : ""}`;
     appendLinkedText(result, presentation.summary, task);
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
@@ -953,7 +953,7 @@ function taskCard(task) {
   const resultLabel = document.createElement("strong");
   resultLabel.textContent = "Result";
   const result = document.createElement("span");
-  result.className = "preserve-lines";
+  result.className = `preserve-lines${latest.resultStatus === "working" ? " text-shimmer" : ""}`;
   appendLinkedText(result, latest.resultSummary, task);
   summary.replaceChildren(requestLabel, request, resultLabel, result);
   const relatedLinks = relatedGitHubLinks(task, { compact: true });

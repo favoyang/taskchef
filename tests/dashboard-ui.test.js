@@ -368,10 +368,10 @@ test("dashboard renders a live notification with time and shared accessible desc
     const pendingUsage = dashboardApp.usagePresentation({ status: "pending" });
     assert.equal(pendingUsage.children[0].textContent,
       "Tokens pending · available when turn finishes");
-    assert.equal(pendingUsage.children[0].className, "usage-shimmer");
+    assert.equal(pendingUsage.children[0].className, "text-shimmer");
     const calculatingUsage = dashboardApp.usagePresentation({ status: "calculating" });
     assert.equal(calculatingUsage.children[0].textContent, "Calculating token usage…");
-    assert.equal(calculatingUsage.children[0].className, "usage-shimmer");
+    assert.equal(calculatingUsage.children[0].className, "text-shimmer");
     const unavailableUsage = dashboardApp.usagePresentation({
       status: "unavailable",
       reason: "No matching session.",
@@ -546,6 +546,11 @@ test("dashboard renders a live notification with time and shared accessible desc
       cardResult.children[1].getAttribute("aria-label"),
     );
     assert.equal(cardRequest.children.some(({ tagName }) => tagName === "SCRIPT"), false);
+    assert.equal(
+      secondCard.children[2].children[3].className,
+      "preserve-lines text-shimmer",
+      "a working task's in-progress result uses the same text shimmer",
+    );
     for (const anchor of [cardRequest.children[1], cardRequest.children[3], cardResult.children[1]]) {
       assert.equal(anchor.target, "_blank");
       assert.equal(anchor.rel, "noopener noreferrer");

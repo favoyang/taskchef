@@ -183,22 +183,22 @@ dialog section + section { margin-top: 24px; }
 .usage-summary { display: grid; gap: 3px; margin: 10px 0 4px; color: var(--muted); font-size: 0.8rem; }
 .usage-summary strong { color: var(--text); font-size: 0.9rem; }
 .usage-pending, .usage-calculating { display: flex; align-items: center; }
-.usage-shimmer {
+.text-shimmer {
   color: var(--muted);
-  background: linear-gradient(100deg, var(--muted) 35%, var(--text) 50%, var(--muted) 65%);
+  background: linear-gradient(100deg, var(--muted) 46%, var(--text) 50%, var(--muted) 54%);
   background-size: 250% 100%;
   background-position: 100% 0;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: usage-shimmer 2.8s ease-in-out infinite;
+  animation: text-shimmer 4.2s ease-in-out infinite;
 }
-@keyframes usage-shimmer {
+@keyframes text-shimmer {
   0% { background-position: 100% 0; }
   72%, 100% { background-position: -100% 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .usage-shimmer { background: none; animation: none; -webkit-text-fill-color: currentcolor; }
+  .text-shimmer { background: none; animation: none; -webkit-text-fill-color: currentcolor; }
 }
 pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius: 7px; background: var(--surface-muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 0.86rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .metadata { display: grid; grid-template-columns: minmax(100px, 150px) 1fr; margin: 0; font-size: 0.88rem; }
