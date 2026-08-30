@@ -2389,9 +2389,10 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(styles, /\.github-links \{[^}]*display: grid;/);
   assert.match(styles, /\.github-links-group \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
   assert.match(styles, /\.dialog-actions \{ align-items: center; flex-flow: row wrap; \}/);
-  assert.match(styles, /\.usage-shimmer \{[\s\S]*animation: usage-shimmer 2\.8s ease-in-out infinite;/);
-  assert.match(styles, /@keyframes usage-shimmer \{[\s\S]*72%, 100% \{ background-position: -100% 0; \}/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.usage-shimmer \{ background: none; animation: none;/);
+  assert.match(styles, /\.text-shimmer \{[\s\S]*linear-gradient\(100deg, var\(--muted\) 46%, var\(--text\) 50%, var\(--muted\) 54%\);/);
+  assert.match(styles, /\.text-shimmer \{[\s\S]*animation: text-shimmer 4\.2s ease-in-out infinite;/);
+  assert.match(styles, /@keyframes text-shimmer \{[\s\S]*72%, 100% \{ background-position: -100% 0; \}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.text-shimmer \{ background: none; animation: none;/);
   assert.doesNotMatch(styles, /usage-spinner|usage-spin\b/);
   assert.match(styles, /\.toolbar \{[^}]*display: grid;/);
   assert.match(styles, /\.toolbar-primary \{[^}]*grid-template-columns: repeat\(2, minmax\(180px, 240px\)\);/);
