@@ -185,12 +185,25 @@ dialog section + section { margin-top: 24px; }
 .usage-pending, .usage-calculating { display: flex; align-items: center; }
 .text-shimmer {
   color: var(--muted);
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+  vertical-align: top;
+  background: linear-gradient(100deg, var(--muted) 48%, var(--text) 50%, var(--muted) 52%);
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer-sweep 6.4s linear infinite;
 }
-.text-shimmer-glyph {
-  color: var(--muted);
+@keyframes text-shimmer-sweep {
+  0% { background-position: 100% 0; }
+  72%, 100% { background-position: -100% 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .text-shimmer-glyph { color: currentcolor; text-shadow: none; }
+  .text-shimmer { background: none; animation: none; -webkit-text-fill-color: currentcolor; }
 }
 pre { max-height: 280px; margin: 0; padding: 14px; overflow: auto; border-radius: 7px; background: var(--surface-muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 0.86rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .metadata { display: grid; grid-template-columns: minmax(100px, 150px) 1fr; margin: 0; font-size: 0.88rem; }
