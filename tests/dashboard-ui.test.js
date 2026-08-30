@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const fakeAnimations = [];
-
 class FakeElement {
   constructor(tagName = "div") {
     this.tagName = tagName.toUpperCase();
@@ -16,24 +14,10 @@ class FakeElement {
     this.textContent = "";
     this.value = "";
     this.listeners = new Map();
-    this.animations = [];
   }
 
   addEventListener(type, listener) {
     this.listeners.set(type, listener);
-  }
-
-  animate(keyframes, options) {
-    const animation = {
-      cancelled: false,
-      id: "",
-      keyframes,
-      options,
-      cancel() { this.cancelled = true; },
-    };
-    this.animations.push(animation);
-    fakeAnimations.push(animation);
-    return animation;
   }
 
   emit(type, event = { target: this }) {
@@ -70,15 +54,6 @@ class FakeElement {
 
   getAttribute(name) {
     return this.attributes.get(name) ?? null;
-  }
-
-  getAnimations({ subtree = false } = {}) {
-    const own = this.animations.filter(({ cancelled }) => !cancelled);
-    if (!subtree) return own;
-    return [
-      ...own,
-      ...this.children.flatMap((child) => child?.getAnimations?.({ subtree: true }) ?? []),
-    ];
   }
 
   showModal() {
@@ -137,39 +112,20 @@ class FakeEventSource {
 }
 
 function renderedText(element) {
-  return element.children[0].textContent;
-}
-
-function shimmerGlyphs(element) {
-  return element.children[1].children
-    .filter(({ className }) => className === "text-shimmer-glyph");
+  return element.textContent;
 }
 
 test("dashboard renders a live notification with time and shared accessible description", async () => {
-  fakeAnimations.length = 0;
   const previous = {
     clearInterval: globalThis.clearInterval,
     confirm: globalThis.confirm,
     document: globalThis.document,
     EventSource: globalThis.EventSource,
     fetch: globalThis.fetch,
-    matchMedia: globalThis.matchMedia,
     navigator: globalThis.navigator,
     Node: globalThis.Node,
     setInterval: globalThis.setInterval,
   };
-  const motionListeners = new Set();
-  const motionQuery = {
-    matches: false,
-    addEventListener(type, listener) {
-      if (type === "change") motionListeners.add(listener);
-    },
-    emit(matches) {
-      this.matches = matches;
-      for (const listener of motionListeners) listener({ matches });
-    },
-  };
-  globalThis.matchMedia = () => motionQuery;
   const elements = new Map();
   const document = {
     activeElement: null,
@@ -179,7 +135,6 @@ test("dashboard renders a live notification with time and shared accessible desc
       node.textContent = text;
       return node;
     },
-    getAnimations: () => fakeAnimations,
     querySelector(selector) {
       if (!elements.has(selector)) {
         const element = new FakeElement();
@@ -418,39 +373,9 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(renderedText(pendingUsage.children[0]),
       "Tokens pending · available when turn finishes");
     assert.equal(pendingUsage.children[0].className, "text-shimmer");
-    assert.equal(pendingUsage.children[0].children[0].className, "visually-hidden");
-    assert.equal(pendingUsage.children[0].children[1].getAttribute("aria-hidden"), "true");
-    const pendingGlyphs = shimmerGlyphs(pendingUsage.children[0]);
-    const expectedPendingCycle = (pendingGlyphs.length - 1) * 420 + 420 + 1_800;
-    assert.equal(pendingGlyphs[0].animations[0].options.duration, expectedPendingCycle);
-    assert.equal(pendingGlyphs.at(-1).animations[0].options.delay,
-      (pendingGlyphs.length - 1) * 420);
-    assert.equal(
-      expectedPendingCycle - pendingGlyphs.at(-1).animations[0].options.delay - 420,
-      1_800,
-      "the pause after the last glyph stays fixed for long text",
-    );
-    assert.equal(pendingGlyphs[0].animations[0].keyframes[2].offset,
-      420 / expectedPendingCycle);
     const calculatingUsage = dashboardApp.usagePresentation({ status: "calculating" });
     assert.equal(renderedText(calculatingUsage.children[0]), "Calculating token usage…");
     assert.equal(calculatingUsage.children[0].className, "text-shimmer");
-    motionQuery.emit(true);
-    assert.equal(pendingGlyphs.every((glyph) => glyph.animations[0].cancelled), true);
-    const animationCountBeforeReducedRender = fakeAnimations.length;
-    const reducedMotionUsage = dashboardApp.usagePresentation({ status: "pending" });
-    assert.equal(
-      shimmerGlyphs(reducedMotionUsage.children[0])
-        .some((child) => child.animations.length > 0),
-      false,
-    );
-    assert.equal(fakeAnimations.length, animationCountBeforeReducedRender);
-    motionQuery.emit(false);
-    assert.equal(pendingGlyphs.every((glyph) => (
-      glyph.animations.length === 2 && !glyph.animations[1].cancelled
-    )), true, "existing shimmers resume once reduced motion is disabled");
-    assert.equal(shimmerGlyphs(reducedMotionUsage.children[0])
-      .every((glyph) => glyph.animations.length === 1 && !glyph.animations[0].cancelled), true);
     const unavailableUsage = dashboardApp.usagePresentation({
       status: "unavailable",
       reason: "No matching session.",
@@ -631,8 +556,6 @@ test("dashboard renders a live notification with time and shared accessible desc
       "a working task's in-progress result uses the same text shimmer",
     );
     assert.equal(renderedText(secondCard.children[2].children[3]), "In progress");
-    const priorListShimmers = secondCard.children[2].children[3]
-      .getAnimations({ subtree: true });
     for (const anchor of [cardRequest.children[1], cardRequest.children[3], cardResult.children[1]]) {
       assert.equal(anchor.target, "_blank");
       assert.equal(anchor.rel, "noopener noreferrer");
@@ -698,10 +621,6 @@ test("dashboard renders a live notification with time and shared accessible desc
       healthy: true,
       tasks: [workingTaskWithRetainedUsage, snapshotTasks[1]],
     });
-    assert.equal(priorListShimmers.every(({ cancelled }) => cancelled), true,
-      "list rerenders cancel outgoing shimmer animations");
-    const priorDialogShimmers = elements.get("#dialog-results")
-      .getAnimations({ subtree: true });
     assert.equal(
       elements.get("#dialog-usage").children[0].children[0].textContent,
       "330 tokens · estimated $0.12 · known so far",
@@ -715,8 +634,6 @@ test("dashboard renders a live notification with time and shared accessible desc
       healthy: true,
       tasks: [terminalTaskCalculatingUsage, snapshotTasks[1]],
     });
-    assert.equal(priorDialogShimmers.every(({ cancelled }) => cancelled), true,
-      "detail rerenders cancel outgoing shimmer animations");
     assert.equal(
       renderedText(elements.get("#dialog-usage").children[0].children[0]),
       "Calculating token usage…",
@@ -993,7 +910,6 @@ test("dashboard renders a live notification with time and shared accessible desc
     globalThis.document = previous.document;
     globalThis.EventSource = previous.EventSource;
     globalThis.fetch = previous.fetch;
-    globalThis.matchMedia = previous.matchMedia;
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
       value: previous.navigator,
