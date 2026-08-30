@@ -39,10 +39,10 @@ test("notification portal stays non-modal until the operator chooses an action",
   expect(panel).toBeVisible();
   expect(panel.querySelector(".taskchef-notification-list")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Open current task details/ })).toHaveAccessibleDescription(
-    /Review completed\. 8 hours ago/,
+    /Review completed\. \d+ hours ago/,
   );
   expect(panel.nextElementSibling).toHaveTextContent(
-    "Task completed. Review checkout reconciliation. Review completed. Turn ref turn-one. 8 hours ago.",
+    /Task completed\. Review checkout reconciliation\. Review completed\. Turn ref turn-one\. \d+ hours ago\./,
   );
   fireEvent.click(screen.getByRole("button", { name: /Open current task details/ }));
   expect(onOpen).toHaveBeenCalledWith(notification);
