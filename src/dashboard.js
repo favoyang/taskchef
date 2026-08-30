@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { randomBytes } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { open, readFile, realpath, stat } from "node:fs/promises";
 import http from "node:http";
@@ -45,6 +46,7 @@ import {
 
 const TASKS_FILE_NAME = "tasks.jsonl";
 const STATIC_ROOT = fileURLToPath(new URL("./dashboard/", import.meta.url));
+const DASHBOARD_BUNDLE_ROOT = path.join(STATIC_ROOT, "dist");
 const ASSET_ROOT = fileURLToPath(new URL("../assets/", import.meta.url));
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -58,26 +60,30 @@ const DASHBOARD_CONTROL_NONCE_TTL_MS = 5 * 60_000;
 const MAX_MANUAL_TRANSITION_BODY_BYTES = 4 * 1024;
 export const DASHBOARD_HEALTH_PATH = "/api/health";
 export const DASHBOARD_HEALTH_MAX_BYTES = 8 * 1024;
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "base-uri 'none'",
-  "connect-src 'self'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-  "img-src 'self' data:",
-  "object-src 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-].join("; ");
+function contentSecurityPolicy(styleNonce = null) {
+  return [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "connect-src 'self'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data:",
+    "object-src 'none'",
+    "script-src 'self'",
+    `style-src 'self'${styleNonce ? ` 'nonce-${styleNonce}'` : ""}`,
+    // Mantine uses style attributes for component variables and dynamic positioning.
+    "style-src-attr 'unsafe-inline'",
+  ].join("; ");
+}
 
 const STATIC_FILES = new Map([
-  ["/", [path.join(STATIC_ROOT, "index.html"), "text/html; charset=utf-8"]],
+  ["/", [path.join(DASHBOARD_BUNDLE_ROOT, "index.html"), "text/html; charset=utf-8"]],
   ["/actions.js", [path.join(STATIC_ROOT, "actions.js"), "text/javascript; charset=utf-8"]],
-  ["/app.js", [path.join(STATIC_ROOT, "app.js"), "text/javascript; charset=utf-8"]],
+  ["/app.js", [path.join(DASHBOARD_BUNDLE_ROOT, "app.js"), "text/javascript; charset=utf-8"]],
   ["/github-links.js", [path.join(STATIC_ROOT, "github-links.js"), "text/javascript; charset=utf-8"]],
   ["/time.js", [path.join(STATIC_ROOT, "time.js"), "text/javascript; charset=utf-8"]],
   ["/state.js", [path.join(STATIC_ROOT, "state.js"), "text/javascript; charset=utf-8"]],
-  ["/styles.css", [path.join(STATIC_ROOT, "styles.css"), "text/css; charset=utf-8"]],
+  ["/styles.css", [path.join(DASHBOARD_BUNDLE_ROOT, "styles.css"), "text/css; charset=utf-8"]],
   ["/assets/taskchef-dark.svg", [path.join(ASSET_ROOT, "taskchef-dark.svg"), "image/svg+xml"]],
   ["/assets/taskchef.svg", [path.join(ASSET_ROOT, "taskchef.svg"), "image/svg+xml"]],
   ["/assets/codex-app-dark.png", [path.join(ASSET_ROOT, "codex-app-dark.png"), "image/png"]],
@@ -401,10 +407,10 @@ export class DashboardMonitor extends EventEmitter {
   }
 }
 
-function securityHeaders(contentType) {
+function securityHeaders(contentType, { styleNonce = null } = {}) {
   return {
     "Cache-Control": "no-store",
-    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+    "Content-Security-Policy": contentSecurityPolicy(styleNonce),
     "Content-Type": contentType,
     "Cross-Origin-Opener-Policy": "same-origin",
     "Referrer-Policy": "no-referrer",
@@ -1175,8 +1181,13 @@ export async function createDashboardServer({
       return;
     }
     const [filePath, contentType] = staticFile;
-    const body = await readFile(filePath);
-    response.writeHead(200, securityHeaders(contentType));
+    let body = await readFile(filePath);
+    let styleNonce = null;
+    if (url.pathname === "/") {
+      styleNonce = randomBytes(18).toString("base64");
+      body = Buffer.from(body.toString("utf8").replaceAll("__TASKCHEF_STYLE_NONCE__", styleNonce));
+    }
+    response.writeHead(200, securityHeaders(contentType, { styleNonce }));
     response.end(method === "HEAD" ? undefined : body);
   };
 

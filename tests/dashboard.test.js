@@ -1723,8 +1723,14 @@ test("dashboard server serves independent clients without sessions and protects 
     assert.equal(page.status, 200);
     assert.equal(page.headers.get("set-cookie"), null);
     assert.match(page.headers.get("content-security-policy"), /default-src 'self'/);
+    const policy = page.headers.get("content-security-policy");
+    const styleNonce = htmlNonce(await page.clone().text());
+    assert.ok(policy.includes(`style-src 'self' 'nonce-${styleNonce}'`));
+    assert.match(policy, /style-src-attr 'unsafe-inline'/);
+    assert.doesNotMatch(policy, /style-src 'self' 'unsafe-inline'/);
     assert.match(page.headers.get("x-frame-options"), /DENY/);
     const html = await page.text();
+    assert.equal(htmlNonce(html), styleNonce);
     assert.doesNotMatch(html, /onerror=alert/);
 
     for (const assetName of ["taskchef.svg", "taskchef-dark.svg"]) {
@@ -1865,6 +1871,10 @@ test("dashboard server serves independent clients without sessions and protects 
     await server.close();
   }
 });
+
+function htmlNonce(html) {
+  return html.match(/<meta name="taskchef-style-nonce" content="([^"]+)"/)?.[1] ?? null;
+}
 
 test("dashboard archive endpoint is unavailable by default without invoking the CLI", async () => {
   const { workspace, project } = await fixture();
@@ -2246,6 +2256,9 @@ test("in-app and external-style clients use one dashboard concurrently without s
 });
 
 test("dashboard assets remain part of the shipped source tree", async () => {
+  const bundledHtml = await readFile(path.resolve("src/dashboard/dist/index.html"), "utf8");
+  const bundledScript = await readFile(path.resolve("src/dashboard/dist/app.js"), "utf8");
+  const bundledStyles = await readFile(path.resolve("src/dashboard/dist/styles.css"), "utf8");
   const html = await readFile(path.resolve("src/dashboard/index.html"), "utf8");
   const script = await readFile(path.resolve("src/dashboard/app.js"), "utf8");
   const actionScript = await readFile(path.resolve("src/dashboard/actions.js"), "utf8");
@@ -2253,6 +2266,12 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   const timeScript = await readFile(path.resolve("src/dashboard/time.js"), "utf8");
   const styles = await readFile(path.resolve("src/dashboard/styles.css"), "utf8");
   const dashboardLifecycle = await readFile(path.resolve("docs/dashboard-lifecycle.md"), "utf8");
+  assert.match(bundledHtml, /src="\/app\.js"/);
+  assert.match(bundledHtml, /href="\/styles\.css"/);
+  assert.match(bundledScript, /TaskChef/);
+  assert.match(bundledStyles, /taskchef-text-shimmer/);
+  assert.match(bundledStyles, /prefers-reduced-motion/);
+  assert.doesNotMatch(bundledHtml, /https?:\/\//);
   assert.match(html, /aria-live="polite"/);
   assert.match(script, /const USAGE_POLL_INTERVAL_MS = 1_500;/);
   assert.match(script, /const MAX_USAGE_POLL_ATTEMPTS = 40;/);
