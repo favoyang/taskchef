@@ -440,15 +440,94 @@ function usageBreakdownText(usage) {
   ].join(" · ");
 }
 
+const SHIMMER_STEP_MS = 420;
+const SHIMMER_PAUSE_MS = 1_800;
+const SHIMMER_PULSE_MS = 420;
+const SHIMMER_ANIMATION_ID = "taskchef-text-shimmer";
+const shimmerMotionQuery = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+const shimmerRecords = new Set();
+
+function animateShimmerRecord(record, reducedMotion) {
+  for (const animation of record.animations) animation.cancel();
+  record.animations = [];
+  if (reducedMotion) return;
+  for (const [shimmerIndex, glyph] of record.glyphs.entries()) {
+    if (typeof glyph.animate !== "function") continue;
+    const pulseEnd = SHIMMER_PULSE_MS / record.cycleMs;
+    const animation = glyph.animate([
+      { color: "var(--muted)", textShadow: "none", offset: 0 },
+      {
+        color: "var(--text)",
+        textShadow: "0 0 0.28em color-mix(in srgb, var(--text) 22%, transparent)",
+        offset: pulseEnd / 2,
+      },
+      { color: "var(--muted)", textShadow: "none", offset: pulseEnd },
+      { color: "var(--muted)", textShadow: "none", offset: 1 },
+    ], {
+      delay: shimmerIndex * SHIMMER_STEP_MS,
+      duration: record.cycleMs,
+      easing: "linear",
+      iterations: Infinity,
+    });
+    animation.id = SHIMMER_ANIMATION_ID;
+    record.animations.push(animation);
+  }
+}
+
+shimmerMotionQuery?.addEventListener?.("change", ({ matches }) => {
+  for (const record of shimmerRecords) animateShimmerRecord(record, matches);
+});
+
+export function cancelTextShimmers(root) {
+  for (const record of shimmerRecords) {
+    if (root !== record.element && !root?.contains?.(record.element)) continue;
+    for (const animation of record.animations) animation.cancel();
+    shimmerRecords.delete(record);
+  }
+}
+
+export function renderTextShimmer(element, value) {
+  const text = String(value ?? "");
+  const characters = Array.from(text);
+  const highlightedCharacters = characters.filter((character) => !/\s/u.test(character));
+  const cycleMs = Math.max(
+    SHIMMER_PULSE_MS + SHIMMER_PAUSE_MS,
+    (highlightedCharacters.length - 1) * SHIMMER_STEP_MS
+      + SHIMMER_PULSE_MS
+      + SHIMMER_PAUSE_MS,
+  );
+  const glyphs = [];
+  const nodes = characters.map((character) => {
+    if (/\s/u.test(character)) return document.createTextNode(character);
+    const glyph = document.createElement("span");
+    glyph.className = "text-shimmer-glyph";
+    glyph.textContent = character;
+    glyphs.push(glyph);
+    return glyph;
+  });
+  const accessibleText = document.createElement("span");
+  accessibleText.className = "visually-hidden";
+  accessibleText.textContent = text;
+  const animatedText = document.createElement("span");
+  animatedText.className = "text-shimmer-visual";
+  animatedText.setAttribute("aria-hidden", "true");
+  animatedText.append(...nodes);
+  element.replaceChildren(accessibleText, animatedText);
+  const record = { animations: [], cycleMs, element, glyphs };
+  shimmerRecords.add(record);
+  animateShimmerRecord(record, shimmerMotionQuery?.matches ?? false);
+  return element;
+}
+
 export function usagePresentation(usage, { wholeTask = false } = {}) {
   const container = document.createElement("div");
   container.className = `usage-summary usage-${usage?.status ?? "unavailable"}`;
   if (usage?.status === "pending" || usage?.status === "calculating") {
     const text = document.createElement("span");
     text.className = "text-shimmer";
-    text.textContent = usage.status === "pending"
+    renderTextShimmer(text, usage.status === "pending"
       ? "Tokens pending · available when turn finishes"
-      : "Calculating token usage…";
+      : "Calculating token usage…");
     container.replaceChildren(text);
     return container;
   }
@@ -537,7 +616,8 @@ function turnTimeline(task, { highlightTurnRef = null } = {}) {
     resultLabel.textContent = "Result";
     const result = document.createElement("p");
     result.className = `preserve-lines${turnStatus === "working" ? " text-shimmer" : ""}`;
-    appendLinkedText(result, presentation.summary, task);
+    if (turnStatus === "working") renderTextShimmer(result, presentation.summary);
+    else appendLinkedText(result, presentation.summary, task);
     const turnMetadata = document.createElement("p");
     turnMetadata.className = "result-history-turn";
     turnMetadata.textContent = `Turn ref ${turn.turnRef ?? "not recorded"}; Codex turn ${turn.turnId ?? "unavailable"}`;
@@ -771,6 +851,7 @@ function renderDialog(task, { highlightTurnRef = null } = {}) {
     (task.relatedGitHubLinks?.length ?? 0) === 0 && !task.relatedGitHubLinksTruncated
   );
   const timeline = turnTimeline(detailedTask, { highlightTurnRef });
+  cancelTextShimmers(elements.dialogResults);
   elements.dialogResults.replaceChildren(...timeline);
   const highlightedTurn = timeline.find((item) => item.dataset.turnRef === highlightTurnRef) ?? null;
   const replacedFocusedTurn = timeline.find((item) => item.dataset.turnRef === focusedTurnRef) ?? null;
@@ -810,6 +891,7 @@ function renderDialog(task, { highlightTurnRef = null } = {}) {
             ? "calculating"
             : "unavailable",
       };
+  cancelTextShimmers(elements.dialogUsage);
   elements.dialogUsage.replaceChildren(usagePresentation(
     taskUsage,
     { wholeTask: true },
@@ -954,7 +1036,8 @@ function taskCard(task) {
   resultLabel.textContent = "Result";
   const result = document.createElement("span");
   result.className = `preserve-lines${latest.resultStatus === "working" ? " text-shimmer" : ""}`;
-  appendLinkedText(result, latest.resultSummary, task);
+  if (latest.resultStatus === "working") renderTextShimmer(result, latest.resultSummary);
+  else appendLinkedText(result, latest.resultSummary, task);
   summary.replaceChildren(requestLabel, request, resultLabel, result);
   const relatedLinks = relatedGitHubLinks(task, { compact: true });
   const time = timestampControl(
@@ -991,7 +1074,9 @@ function render() {
     const value = label.dataset.statusLabel;
     label.textContent = statusFilterText(value, counts[value]);
   }
-  elements.taskList.replaceChildren(...visible.map(taskCard));
+  const cards = visible.map(taskCard);
+  cancelTextShimmers(elements.taskList);
+  elements.taskList.replaceChildren(...cards);
   elements.emptyState.hidden = visible.length > 0;
   elements.taskCount.textContent = `${visible.length} of ${state.tasks.length} task${state.tasks.length === 1 ? "" : "s"}`;
   clearTimeout(dateRefreshTimer);
@@ -1096,6 +1181,8 @@ elements.dialog.addEventListener("cancel", (event) => {
   if (!manualTransitionPending()) resetManualTransition({ focus: true });
 });
 elements.dialog.addEventListener("close", () => {
+  cancelTextShimmers(elements.dialogResults);
+  cancelTextShimmers(elements.dialogUsage);
   if (!manualTransitionPending()) state.manualTransition = null;
   state.detailNavigation = null;
   renderNotifications();
