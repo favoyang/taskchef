@@ -119,7 +119,8 @@ export function listUsageView(task: Task): ListUsageView {
   const cost = view.usage.estimatedCostUsd == null
     ? "cost unavailable"
     : `est. ${formatEstimatedCost(view.usage.estimatedCostUsd)}`;
-  const qualifier = view.knownSoFar ? " · known so far" : "";
+  const qualifier = view.knownSoFar ? " · Updating…" : "";
+  const accessibleQualifier = view.knownSoFar ? "; updating" : "";
   const freshness = view.usage.sourceUpdatedAt ?? view.usage.sampledAt ?? task.usage?.updatedAt ?? null;
   const freshnessLabel = freshness && !Number.isNaN(Date.parse(freshness))
     ? ` Cached usage updated ${new Date(freshness).toLocaleString()}.`
@@ -127,12 +128,12 @@ export function listUsageView(task: Task): ListUsageView {
   return {
     accessibleLabel: `${fullTokens} tokens; ${view.usage.estimatedCostUsd == null
       ? "estimated cost unavailable"
-      : `estimated cost ${formatEstimatedCost(view.usage.estimatedCostUsd)}`}${view.knownSoFar ? "; known so far" : ""}.${freshnessLabel}`,
+      : `estimated cost ${formatEstimatedCost(view.usage.estimatedCostUsd)}`}${accessibleQualifier}.${freshnessLabel}`,
     kind: "ready",
     label: `${compactTokens} tokens · ${cost}${qualifier}`,
     title: `${fullTokens} tokens · ${view.usage.estimatedCostUsd == null
       ? "estimated cost unavailable"
-      : `unrounded estimate $${view.usage.estimatedCostUsd}`}${view.knownSoFar ? " · known so far" : ""}.${freshnessLabel}`,
+      : `unrounded estimate $${view.usage.estimatedCostUsd}`}${qualifier}.${freshnessLabel}`,
   };
 }
 

@@ -118,6 +118,7 @@ function cachedUsageRecord({
   status = "available",
   totalTokens = 1_324_567,
   estimatedCostUsd = 12.3449,
+  includeTask = status === "available",
   reason,
 } = {}) {
   const updatedAt = "2026-08-30T09:00:00.000Z";
@@ -130,7 +131,7 @@ function cachedUsageRecord({
     status,
     updatedAt,
     retryAfter: null,
-    task: status === "available" ? {
+    task: includeTask ? {
       inputTokens: totalTokens,
       cachedInputTokens: 0,
       outputTokens: 0,
@@ -1769,7 +1770,25 @@ test("list usage projection distinguishes cached, pending, calculating, and unav
   }), {
     generationTurnRef: FIRST_TURN_ID,
     status: "unavailable",
+    updatedAt: calculatingUpdatedAt,
     reason: "Token usage calculation was interrupted.",
+  });
+  assert.deepEqual(taskListUsageProjection(task, cachedUsageRecord({
+    status: "calculating",
+    includeTask: true,
+  }), {
+    now: Date.parse(calculatingUpdatedAt) + 120_000,
+  }), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "unavailable",
+    updatedAt: calculatingUpdatedAt,
+    reason: "Token usage calculation was interrupted.",
+    task: {
+      totalTokens: 1_324_567,
+      estimatedCostUsd: 12.3449,
+      sampledAt: calculatingUpdatedAt,
+      sourceUpdatedAt: calculatingUpdatedAt,
+    },
   });
   assert.deepEqual(taskListUsageProjection(task, cachedUsageRecord()), {
     generationTurnRef: FIRST_TURN_ID,
@@ -1819,6 +1838,7 @@ test("usage summary monitor reads one cache revision for every projected card", 
   assert.deepEqual(monitor.project(task), {
     generationTurnRef: FIRST_TURN_ID,
     status: "unavailable",
+    updatedAt: "2026-08-30T09:00:00.000Z",
     reason: "Token usage calculation was interrupted.",
   });
   monitor.close();
