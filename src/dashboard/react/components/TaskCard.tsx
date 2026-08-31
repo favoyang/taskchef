@@ -3,6 +3,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { latestTurnPresentation } from "../../state.js";
 import type { Task } from "../types";
 import { GitHubLinks } from "./GitHubLinks";
+import { LinkedText } from "./LinkedText";
 import { RelativeTime } from "./RelativeTime";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
@@ -34,12 +35,14 @@ export function TaskCard({
 
           <Box className="taskchef-summary-grid">
             <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
-            <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">{latest.requestSummary}</Text>
+            <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">
+              <LinkedText task={task} text={latest.requestSummary} />
+            </Text>
             <Text c="dimmed" className="taskchef-field-label" size="xs">Result</Text>
             <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">
               {latest.resultStatus === "working"
                 ? <ShimmerText>{latest.resultSummary}</ShimmerText>
-                : latest.resultSummary}
+                : <LinkedText task={task} text={latest.resultSummary} />}
             </Text>
           </Box>
 

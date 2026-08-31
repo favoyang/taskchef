@@ -1,5 +1,27 @@
 import type { Task, UsageNumbers, UsageProjection } from "./types";
 
+export function formatCompactTokens(value: number, locales?: Intl.LocalesArgument) {
+  return new Intl.NumberFormat(locales, {
+    maximumFractionDigits: 2,
+    notation: "compact",
+  }).format(value);
+}
+
+export function formatFullTokens(value: number, locales?: Intl.LocalesArgument) {
+  return new Intl.NumberFormat(locales, { maximumFractionDigits: 2 }).format(value);
+}
+
+export function formatEstimatedCost(value: number | null | undefined, locales?: Intl.LocalesArgument) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(locales, {
+    currency: "USD",
+    currencyDisplay: "narrowSymbol",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
 export type UsageView =
   | { kind: "pending"; label: "Token usage pending" }
   | { kind: "calculating"; label: "Calculating token usage" }
@@ -29,10 +51,10 @@ export function usageView(task: Task): UsageView {
 }
 
 function readyUsageView(usage: UsageNumbers, knownSoFar: boolean): UsageView {
-  const tokens = new Intl.NumberFormat().format(usage.totalTokens);
+  const tokens = formatCompactTokens(usage.totalTokens);
   const cost = usage.estimatedCostUsd == null
     ? "Estimated cost unavailable"
-    : `Estimated cost $${usage.estimatedCostUsd.toFixed(4)}`;
+    : `Estimated cost ${formatEstimatedCost(usage.estimatedCostUsd)}`;
   return {
     kind: "ready",
     knownSoFar,
@@ -49,10 +71,10 @@ export function turnUsageView(task: Task, turn: NonNullable<Task["turns"]>[numbe
     return { kind: "calculating" as const, label: "Calculating turn usage" };
   }
   if (usage?.status === "available" && typeof usage.totalTokens === "number") {
-    const tokens = new Intl.NumberFormat().format(usage.totalTokens);
+    const tokens = formatFullTokens(usage.totalTokens);
     const cost = usage.estimatedCostUsd == null
       ? "Estimated cost unavailable"
-      : `Estimated cost $${usage.estimatedCostUsd.toFixed(4)}`;
+      : `Estimated cost ${formatEstimatedCost(usage.estimatedCostUsd)}`;
     return { kind: "ready" as const, label: `${tokens} tokens · ${cost}` };
   }
   return {
