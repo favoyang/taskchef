@@ -89,6 +89,53 @@ export function usageStillCalculating(task: Task) {
       || Object.values(task.usage?.turns ?? {}).some((turn) => turn.status === "calculating"));
 }
 
+export type ListUsageView = {
+  accessibleLabel: string;
+  kind: "pending" | "calculating" | "ready" | "unavailable";
+  label: string;
+  title: string;
+};
+
+export function listUsageView(task: Task): ListUsageView {
+  const view = usageView(task);
+  if (view.kind === "pending" || view.kind === "calculating") {
+    return {
+      accessibleLabel: view.label,
+      kind: view.kind,
+      label: view.label,
+      title: view.label,
+    };
+  }
+  if (view.kind === "unavailable") {
+    return {
+      accessibleLabel: `Token usage unavailable${view.label === "Token usage unavailable" ? "" : `: ${view.label}`}`,
+      kind: "unavailable",
+      label: "Token usage unavailable",
+      title: view.label,
+    };
+  }
+  const compactTokens = formatCompactTokens(view.usage.totalTokens);
+  const fullTokens = formatFullTokens(view.usage.totalTokens);
+  const cost = view.usage.estimatedCostUsd == null
+    ? "cost unavailable"
+    : `est. ${formatEstimatedCost(view.usage.estimatedCostUsd)}`;
+  const qualifier = view.knownSoFar ? " · known so far" : "";
+  const freshness = view.usage.sourceUpdatedAt ?? view.usage.sampledAt ?? task.usage?.updatedAt ?? null;
+  const freshnessLabel = freshness && !Number.isNaN(Date.parse(freshness))
+    ? ` Cached usage updated ${new Date(freshness).toLocaleString()}.`
+    : "";
+  return {
+    accessibleLabel: `${fullTokens} tokens; ${view.usage.estimatedCostUsd == null
+      ? "estimated cost unavailable"
+      : `estimated cost ${formatEstimatedCost(view.usage.estimatedCostUsd)}`}${view.knownSoFar ? "; known so far" : ""}.${freshnessLabel}`,
+    kind: "ready",
+    label: `${compactTokens} tokens · ${cost}${qualifier}`,
+    title: `${fullTokens} tokens · ${view.usage.estimatedCostUsd == null
+      ? "estimated cost unavailable"
+      : `unrounded estimate $${view.usage.estimatedCostUsd}`}${view.knownSoFar ? " · known so far" : ""}.${freshnessLabel}`,
+  };
+}
+
 export function statusColor(status: Task["status"] | "interrupted") {
   if (status === "completed") return "teal";
   if (status === "needs_input") return "yellow";

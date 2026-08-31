@@ -30,7 +30,12 @@ import {
   STATUS_FILTERS,
 } from "../state.js";
 import { connectDashboard, dashboardVersion, manualTransition, openInCodex, taskDetail } from "./api";
-import { clearNotificationHistory, notificationClicked } from "./overlay-state";
+import {
+  clearNotificationHistory,
+  listUsageSignature,
+  mergeListTaskIntoDetail,
+  notificationClicked,
+} from "./overlay-state";
 import { usageStillCalculating } from "./presentation";
 import type { DashboardSnapshot, NotificationSnapshot, Task } from "./types";
 import { NotificationCenter } from "./components/NotificationCenter";
@@ -105,6 +110,7 @@ export function DashboardApp({
   selectedIdRef.current = selectedId;
   const detailGeneration = useRef(0);
   const detailListUpdatedAt = useRef<string | null>(null);
+  const detailListUsageSignature = useRef(listUsageSignature(null));
 
   const applySnapshot = useCallback((snapshot: DashboardSnapshot) => {
     setTasks(snapshot.tasks);
@@ -124,7 +130,9 @@ export function DashboardApp({
     const currentSelectedId = selectedIdRef.current;
     if (currentSelectedId) {
       const updated = snapshot.tasks.find((task) => task.id === currentSelectedId);
-      if (updated) setSelectedTask((current) => current ? { ...current, ...updated } : updated);
+      if (updated) {
+        setSelectedTask((current) => current ? mergeListTaskIntoDetail(current, updated) : updated);
+      }
     }
   }, []);
 
@@ -147,7 +155,10 @@ export function DashboardApp({
   const loadDetail = useCallback(async (task: Task, focusTurnRef: string | null = null) => {
     const generation = ++detailGeneration.current;
     detailListUpdatedAt.current = task.updatedAt;
-    setSelectedTask((current) => current?.id === task.id ? { ...current, ...task } : task);
+    detailListUsageSignature.current = listUsageSignature(task);
+    setSelectedTask((current) => current?.id === task.id
+      ? mergeListTaskIntoDetail(current, task)
+      : task);
     setDetailOpened(true);
     setHighlightTurnRef(focusTurnRef);
     setDetailError(null);
@@ -157,6 +168,8 @@ export function DashboardApp({
         if (generation !== detailGeneration.current) return;
         const detail = await taskDetail(task.id);
         if (generation !== detailGeneration.current) return;
+        detailListUpdatedAt.current = detail.updatedAt;
+        detailListUsageSignature.current = listUsageSignature(detail);
         setSelectedTask(detail);
         if (!usageStillCalculating(detail) || attempt === 40) return;
         await new Promise((resolve) => window.setTimeout(resolve, 1_500));
@@ -168,14 +181,20 @@ export function DashboardApp({
     }
   }, []);
 
+  const selectedListTask = tasks.find((task) => task.id === selectedId) ?? null;
+  const selectedListUsageSignature = listUsageSignature(selectedListTask);
+
   useEffect(() => {
     if (!detailOpened || !selectedId || !connect) return;
-    const listTask = tasks.find((task) => task.id === selectedId);
-    if (!listTask || listTask.updatedAt === detailListUpdatedAt.current) return;
-    void loadDetail(listTask, highlightTurnRef);
-    // A task signature update while detail is open refreshes the full projection.
+    if (!selectedListTask) return;
+    if (
+      selectedListTask.updatedAt === detailListUpdatedAt.current
+      && selectedListUsageSignature === detailListUsageSignature.current
+    ) return;
+    void loadDetail(selectedListTask, highlightTurnRef);
+    // Task or cached usage changes while detail is open refresh the full projection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks.find((task) => task.id === selectedId)?.updatedAt]);
+  }, [selectedListTask?.updatedAt, selectedListUsageSignature]);
 
   const projects = useMemo(() => [
     { label: "All projects", value: "" },

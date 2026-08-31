@@ -33,7 +33,10 @@ body {
 .taskchef-task-row { background: light-dark(#fff, #202421); box-shadow: 0 1px 0 light-dark(rgb(22 31 25 / 3%), transparent); }
 .taskchef-task-row:hover { border-color: light-dark(var(--mantine-color-teal-4), var(--mantine-color-teal-8)); }
 .taskchef-task-main { min-width: 0; flex: 1; }
+.taskchef-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--mantine-spacing-sm); }
+.taskchef-card-metadata { width: max-content; min-width: 0; max-width: min(25rem, 45vw); }
 .taskchef-status-badge { flex: none; }
+.taskchef-task-usage { max-width: 100%; text-align: right; line-height: 1.25; overflow-wrap: anywhere; }
 .taskchef-title-button {
   all: unset;
   border-radius: 3px;
@@ -125,4 +128,8 @@ body {
 @media (max-width: 34em) {
   .taskchef-header { padding-top: 22px; padding-bottom: 18px; }
   .taskchef-brand-icon, .taskchef-brand-icon img { width: 36px; height: 36px; }
+  .taskchef-card-heading { grid-template-columns: minmax(0, 1fr); }
+  .taskchef-card-metadata { align-items: flex-start; width: 100%; max-width: 100%; }
+  .taskchef-task-usage { text-align: left; }
+  .taskchef-card-footer { align-items: flex-start; flex-direction: column; }
 }

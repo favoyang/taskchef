@@ -64,9 +64,11 @@ export {
   DASHBOARD_HEALTH_MAX_BYTES,
   DASHBOARD_HEALTH_PATH,
   DashboardMonitor,
+  UsageSummaryMonitor,
   createDashboardServer,
   dashboardAuthority,
   sortTasksByMeaningfulUpdate,
+  taskListUsageProjection,
 } from "./src/dashboard.js";
 
 export {

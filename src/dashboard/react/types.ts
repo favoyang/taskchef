@@ -41,6 +41,8 @@ export interface UsageNumbers {
   reasoningOutputTokens?: number;
   totalTokens: number;
   estimatedCostUsd?: number | null;
+  sampledAt?: string | null;
+  sourceUpdatedAt?: string | null;
   models?: Record<string, unknown>;
 }
 
@@ -54,6 +56,7 @@ export interface UsageProjection {
   }>;
   reason?: string;
   message?: string;
+  updatedAt?: string | null;
 }
 
 export interface Task {
