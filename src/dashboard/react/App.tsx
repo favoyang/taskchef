@@ -77,20 +77,36 @@ interface NotificationState {
   signatures: Map<string, string>;
 }
 
+export function TaskResultsSummary({
+  totalCount,
+  visibleCount,
+}: {
+  totalCount: number;
+  visibleCount: number;
+}) {
+  return (
+    <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">
+      Tasks: {visibleCount} of {totalCount}
+    </Text>
+  );
+}
+
 export function DashboardApp({
   connect = true,
+  initialFilters = {},
   initialTasks = [],
 }: {
   connect?: boolean;
+  initialFilters?: { date?: string; project?: string; status?: string };
   initialTasks?: Task[];
 }) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [connected, setConnected] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [version, setVersion] = useState<string | null>(null);
-  const [project, setProject] = useState("");
-  const [status, setStatus] = useState("");
-  const [date, setDate] = useState("all");
+  const [project, setProject] = useState(initialFilters.project ?? "");
+  const [status, setStatus] = useState(initialFilters.status ?? "");
+  const [date, setDate] = useState(initialFilters.date ?? "all");
   const [now, setNow] = useState(() => Date.now());
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detailOpened, setDetailOpened] = useState(false);
@@ -310,10 +326,6 @@ export function DashboardApp({
                     size="sm"
                     value={date}
                   />
-                  <Box className="taskchef-task-count-field">
-                    <Text className="taskchef-filter-label" mb={3}>Tasks</Text>
-                    <Text className="taskchef-count-value" size="sm">{visible.length} of {tasks.length}</Text>
-                  </Box>
                 </Group>
                 <Box>
                   <Text className="taskchef-filter-label" mb={5}>Status</Text>
@@ -321,6 +333,8 @@ export function DashboardApp({
                 </Box>
               </Stack>
             </Paper>
+
+            <TaskResultsSummary totalCount={tasks.length} visibleCount={visible.length} />
 
             {message && (
               <Alert color="yellow" icon={<IconAlertTriangle aria-hidden size={17} />} mt="md" role="status">
@@ -331,7 +345,7 @@ export function DashboardApp({
               </Alert>
             )}
 
-            <Stack aria-label="Tasks" component="section" gap="sm" mt="md">
+            <Stack aria-describedby="task-results-summary" aria-label="Tasks" component="section" gap="sm" mt="xs">
               {visible.map((task: Task) => (
                 <TaskCard key={task.id} onOpenCodex={handleOpenCodex} onOpenDetail={(value) => void loadDetail(value)} task={task} />
               ))}
