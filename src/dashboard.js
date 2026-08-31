@@ -26,6 +26,7 @@ import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
 import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
+import { readUsageStore, usageStorePath } from "./usage.js";
 import {
   MAX_DASHBOARD_SESSION_PIDS,
   MAX_TRANSFERRED_DASHBOARD_SESSION_PIDS,
@@ -52,6 +53,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_TASKS = 2_000;
 const DEFAULT_MAX_EVENT_CLIENTS = 16;
+const DEFAULT_CALCULATING_USAGE_STALE_MS = 120_000;
 const DASHBOARD_HANDOFF_PREPARE_TTL_MS = 5_000;
 const DASHBOARD_HANDOFF_COMMIT_GRACE_MS = 250;
 const DASHBOARD_HANDOFF_COMMIT_RETRY_MS = 1_000;
@@ -233,6 +235,204 @@ function taskListProjection(task) {
 
 function taskDetailProjection(task) {
   return { ...task, ...taskGitHubProjection(task) };
+}
+
+function cachedUsageSummary(record) {
+  if (!record) return null;
+  return Object.freeze({
+    generationTurnRef: record.generationTurnRef ?? null,
+    status: record.status,
+    updatedAt: record.updatedAt ?? null,
+    ...(record.reason ? { reason: record.reason } : {}),
+    ...(record.task ? {
+      task: Object.freeze({
+        totalTokens: record.task.totalTokens,
+        estimatedCostUsd: record.task.estimatedCostUsd ?? null,
+        sampledAt: record.task.sampledAt ?? null,
+        sourceUpdatedAt: record.task.sourceUpdatedAt ?? null,
+      }),
+    } : {}),
+  });
+}
+
+function cachedUsageRecord(record) {
+  return Object.freeze({
+    threadId: record.threadId,
+    ...cachedUsageSummary(record),
+  });
+}
+
+function calculatingUsageIsStale(cached, now, staleMs) {
+  if (cached?.status !== "calculating") return false;
+  const updatedAt = Date.parse(cached.updatedAt ?? "");
+  return !Number.isFinite(updatedAt) || updatedAt + staleMs <= now;
+}
+
+export function taskListUsageProjection(task, cached, {
+  now = Date.now(),
+  calculatingStaleMs = DEFAULT_CALCULATING_USAGE_STALE_MS,
+} = {}) {
+  if (!task.threadId) {
+    return { status: "unavailable", reason: "Token usage unavailable" };
+  }
+  if (!task.latestTurn) {
+    return { status: "unavailable", reason: "Token usage unavailable" };
+  }
+  if (!cached || cached.threadId !== task.threadId) {
+    return task.status === "working"
+      ? { generationTurnRef: task.latestTurn.turnRef ?? null, status: "pending" }
+      : { generationTurnRef: task.latestTurn.turnRef ?? null, status: "unavailable", reason: "Token usage unavailable" };
+  }
+  const latestTurnRef = task.latestTurn.turnRef ?? task.latestTurn.turnId ?? null;
+  if (task.status !== "working" && cached.generationTurnRef !== latestTurnRef) {
+    return {
+      generationTurnRef: latestTurnRef,
+      status: "unavailable",
+      reason: "No cached usage boundary is available for this task state.",
+    };
+  }
+  if (calculatingUsageIsStale(cached, now, calculatingStaleMs)) {
+    return {
+      generationTurnRef: cached.generationTurnRef ?? latestTurnRef,
+      status: "unavailable",
+      reason: "Token usage calculation was interrupted.",
+    };
+  }
+  return cachedUsageSummary(cached);
+}
+
+async function optionalFileFingerprint(filePath) {
+  return fileFingerprint(filePath).catch((error) => {
+    if (error?.code === "ENOENT") return "missing";
+    throw error;
+  });
+}
+
+export class UsageSummaryMonitor extends EventEmitter {
+  constructor(workspace, {
+    calculatingStaleMs = DEFAULT_CALCULATING_USAGE_STALE_MS,
+    fingerprint = optionalFileFingerprint,
+    now = Date.now,
+    pollIntervalMs = 5_000,
+    readStore = readUsageStore,
+    watchDirectory = watch,
+  } = {}) {
+    super();
+    this.workspace = workspace;
+    this.calculatingStaleMs = calculatingStaleMs;
+    this.fingerprint = fingerprint;
+    this.now = now;
+    this.pollIntervalMs = pollIntervalMs;
+    this.readStore = readStore;
+    this.watchDirectory = watchDirectory;
+    this.currentFingerprint = null;
+    this.records = new Map();
+    this.started = false;
+    this.refreshPromise = null;
+    this.refreshQueued = false;
+    this.watcher = null;
+    this.pollTimer = null;
+    this.debounceTimer = null;
+    this.lifecycleFingerprint = "";
+  }
+
+  async start() {
+    if (this.started) return;
+    this.workspace = await realpath(path.resolve(this.workspace));
+    this.file = usageStorePath(this.workspace);
+    await this.refresh({ force: true });
+    this.started = true;
+    try {
+      this.watcher = this.watchDirectory(this.workspace, { persistent: false }, (_event, fileName) => {
+        if (fileName !== null && String(fileName) !== path.basename(this.file)) return;
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(() => {
+          void this.refresh({ force: true }).catch(() => {});
+        }, 75);
+        this.debounceTimer.unref?.();
+      });
+      this.watcher.on("error", () => {
+        this.watcher?.close();
+        this.watcher = null;
+      });
+    } catch {
+      this.watcher = null;
+    }
+    this.pollTimer = setInterval(() => {
+      void this.refresh().catch(() => {});
+    }, this.pollIntervalMs);
+    this.pollTimer.unref?.();
+  }
+
+  project(task) {
+    return taskListUsageProjection(task, this.records.get(task.id) ?? null, {
+      calculatingStaleMs: this.calculatingStaleMs,
+      now: this.now(),
+    });
+  }
+
+  updateLifecycleFingerprint() {
+    const timestamp = this.now();
+    const next = JSON.stringify([...this.records].flatMap(([taskId, record]) => (
+      calculatingUsageIsStale(record, timestamp, this.calculatingStaleMs) ? [taskId] : []
+    )));
+    const changed = next !== this.lifecycleFingerprint;
+    this.lifecycleFingerprint = next;
+    return changed;
+  }
+
+  async refresh({ force = false } = {}) {
+    if (this.refreshPromise) {
+      this.refreshQueued ||= force;
+      return this.refreshPromise;
+    }
+    this.refreshPromise = this.refreshOnce({ force }).finally(async () => {
+      this.refreshPromise = null;
+      if (this.refreshQueued) {
+        this.refreshQueued = false;
+        await this.refresh({ force: true });
+      }
+    });
+    return this.refreshPromise;
+  }
+
+  async refreshOnce({ force }) {
+    const observed = await this.fingerprint(this.file);
+    if (!force && observed === this.currentFingerprint) {
+      const changed = this.updateLifecycleFingerprint();
+      if (changed) this.emit("change");
+      return changed;
+    }
+    let store;
+    try {
+      store = await this.readStore(this.workspace);
+    } catch {
+      store = { tasks: {} };
+    }
+    const after = await this.fingerprint(this.file);
+    if (observed !== after) {
+      this.refreshQueued = true;
+      return false;
+    }
+    const records = new Map(Object.entries(store.tasks ?? {}).map(
+      ([taskId, record]) => [taskId, cachedUsageRecord(record)],
+    ));
+    const recordsChanged = JSON.stringify([...records]) !== JSON.stringify([...this.records]);
+    this.records = records;
+    this.currentFingerprint = after;
+    const lifecycleChanged = this.updateLifecycleFingerprint();
+    const changed = recordsChanged || lifecycleChanged;
+    if (changed) this.emit("change");
+    return changed;
+  }
+
+  close() {
+    this.started = false;
+    this.watcher?.close();
+    clearTimeout(this.debounceTimer);
+    clearInterval(this.pollTimer);
+    this.watcher = null;
+  }
 }
 
 export class DashboardMonitor extends EventEmitter {
@@ -599,6 +799,7 @@ export async function createDashboardServer({
   taskchefVersion = TASKCHEF_VERSION,
   serverVersion = DASHBOARD_SERVER_VERSION,
   usageTracker = null,
+  usageSummaryMonitor = null,
   control = null,
   controlReplayCache = createDashboardControlReplayCache(),
 } = {}) {
@@ -622,19 +823,30 @@ export async function createDashboardServer({
     throw new Error("dashboard control requires a valid TaskChef ownership controller");
   }
   const monitor = new DashboardMonitor(workspace, monitorOptions);
-  await monitor.start();
-  const taskUsageTracker = usageTracker ?? createUsageTracker({ workspace: monitor.workspace });
-  const identity = Object.freeze({
-    schemaVersion: 1,
-    service: "taskchef-dashboard",
-    taskchefVersion,
-    serverVersion,
-    workspace: monitor.workspace,
-    launcher,
-  });
-  if (Buffer.byteLength(`${JSON.stringify(identity)}\n`) > DASHBOARD_HEALTH_MAX_BYTES) {
+  let taskUsageTracker;
+  let taskUsageSummaryMonitor;
+  let identity;
+  try {
+    await monitor.start();
+    taskUsageTracker = usageTracker ?? createUsageTracker({ workspace: monitor.workspace });
+    taskUsageSummaryMonitor = usageSummaryMonitor
+      ?? new UsageSummaryMonitor(monitor.workspace);
+    await taskUsageSummaryMonitor.start();
+    identity = Object.freeze({
+      schemaVersion: 1,
+      service: "taskchef-dashboard",
+      taskchefVersion,
+      serverVersion,
+      workspace: monitor.workspace,
+      launcher,
+    });
+    if (Buffer.byteLength(`${JSON.stringify(identity)}\n`) > DASHBOARD_HEALTH_MAX_BYTES) {
+      throw new Error("dashboard identity exceeds the health response limit");
+    }
+  } catch (error) {
+    taskUsageSummaryMonitor?.close();
     monitor.close();
-    throw new Error("dashboard identity exceeds the health response limit");
+    throw error;
   }
   const clients = new Set();
   const archiveRequests = new Set();
@@ -647,10 +859,22 @@ export async function createDashboardServer({
     const payload = ssePayload(event, value);
     for (const client of clients) client.write(payload);
   };
-  const snapshotListener = (snapshot) => broadcast("snapshot", snapshot);
+  const dashboardSnapshot = () => {
+    const snapshot = monitor.snapshot();
+    return {
+      ...snapshot,
+      tasks: snapshot.tasks.map((task) => ({
+        ...task,
+        usage: taskUsageSummaryMonitor.project(task),
+      })),
+    };
+  };
+  const snapshotListener = () => broadcast("snapshot", dashboardSnapshot());
+  const usageSummaryListener = () => broadcast("snapshot", dashboardSnapshot());
   const errorListener = () => broadcast("dashboard-error", publicMonitorError());
   monitor.on("snapshot", snapshotListener);
   monitor.on("monitorError", errorListener);
+  taskUsageSummaryMonitor.on("change", usageSummaryListener);
 
   const handleRequest = async (request, response) => {
     const method = request.method ?? "GET";
@@ -956,7 +1180,7 @@ export async function createDashboardServer({
         response.writeHead(200, securityHeaders("application/json; charset=utf-8"));
         response.end();
       } else {
-        sendJson(response, 200, monitor.snapshot());
+        sendJson(response, 200, dashboardSnapshot());
       }
       return;
     }
@@ -978,7 +1202,7 @@ export async function createDashboardServer({
         },
       });
       clients.add(client);
-      client.write(`retry: 2000\n\n${ssePayload("snapshot", monitor.snapshot())}`);
+      client.write(`retry: 2000\n\n${ssePayload("snapshot", dashboardSnapshot())}`);
       client.heartbeat = setInterval(() => {
         if (!client.blocked) client.write(": heartbeat\n\n");
       }, 15_000);
@@ -1203,6 +1427,7 @@ export async function createDashboardServer({
     server.listen(port, host, resolve);
   }).catch((error) => {
     monitor.close();
+    taskUsageSummaryMonitor.close();
     throw error;
   });
 
@@ -1217,11 +1442,14 @@ export async function createDashboardServer({
     url: `${allowedOrigin}/`,
     identity,
     monitor,
+    usageSummaryMonitor: taskUsageSummaryMonitor,
     get eventClientCount() { return clients.size; },
     async close() {
       monitor.off("snapshot", snapshotListener);
       monitor.off("monitorError", errorListener);
+      taskUsageSummaryMonitor.off("change", usageSummaryListener);
       monitor.close();
+      taskUsageSummaryMonitor.close();
       for (const client of clients) client.close();
       const closed = new Promise((resolve, reject) => server.close((error) =>
         error ? reject(error) : resolve()));

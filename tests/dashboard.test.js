@@ -10,6 +10,7 @@ import test from "node:test";
 
 import {
   DashboardMonitor,
+  UsageSummaryMonitor,
   addProject,
   createDashboardServer,
   dashboardAuthority,
@@ -19,7 +20,9 @@ import {
   reportTaskResult,
   reportTaskState,
   sortTasksByMeaningfulUpdate,
+  taskListUsageProjection,
 } from "../index.js";
+import { writeUsageStore } from "../src/usage.js";
 import {
   createSseClient,
   readBoundedTaskLog,
@@ -109,6 +112,49 @@ async function waitFor(predicate, timeoutMs = 2_000) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.fail("timed out waiting for dashboard update");
+}
+
+function cachedUsageRecord({
+  status = "available",
+  totalTokens = 1_324_567,
+  estimatedCostUsd = 12.3449,
+  reason,
+} = {}) {
+  const updatedAt = "2026-08-30T09:00:00.000Z";
+  return {
+    threadId: FIRST_THREAD_ID,
+    generationTurnRef: FIRST_TURN_ID,
+    generationTurnCount: 1,
+    generationTerminal: true,
+    zeroBaselineTurnRef: null,
+    status,
+    updatedAt,
+    retryAfter: null,
+    task: status === "available" ? {
+      inputTokens: totalTokens,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+      totalTokens,
+      estimatedCostUsd,
+      costStatus: estimatedCostUsd === null ? "unavailable" : "estimated",
+      models: {},
+      provenance: {
+        provider: "ccusage",
+        version: "20.0.20",
+        pricingMode: "offline",
+        costCoverage: "ccusage_reported",
+        sessionCount: 1,
+      },
+      sampledAt: updatedAt,
+      sourceUpdatedAt: updatedAt,
+    } : null,
+    turns: status === "calculating"
+      ? { [FIRST_TURN_ID]: { status: "calculating", updatedAt } }
+      : {},
+    boundaries: {},
+    ...(reason ? { reason } : {}),
+  };
 }
 
 async function rawHttpRequest({ host, port, request }) {
@@ -1685,6 +1731,163 @@ test("dashboard snapshot separates a working turn from its preserved semantic re
   monitor.close();
 });
 
+test("list usage projection distinguishes cached, pending, calculating, and unavailable states", () => {
+  const calculatingUpdatedAt = "2026-08-30T09:00:00.000Z";
+  const task = {
+    id: FIRST_ID,
+    status: "working",
+    threadId: FIRST_THREAD_ID,
+    latestTurn: { turnRef: FIRST_TURN_ID },
+  };
+  assert.deepEqual(taskListUsageProjection(task, null), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "pending",
+  });
+  assert.deepEqual(taskListUsageProjection({ ...task, status: "completed" }, null), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "unavailable",
+    reason: "Token usage unavailable",
+  });
+  assert.deepEqual(taskListUsageProjection({
+    ...task,
+    status: "completed",
+    latestTurn: { turnRef: SECOND_TURN_ID },
+  }, cachedUsageRecord()), {
+    generationTurnRef: SECOND_TURN_ID,
+    status: "unavailable",
+    reason: "No cached usage boundary is available for this task state.",
+  });
+  assert.deepEqual(taskListUsageProjection(task, cachedUsageRecord({ status: "calculating" }), {
+    now: Date.parse(calculatingUpdatedAt) + 119_999,
+  }), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "calculating",
+    updatedAt: calculatingUpdatedAt,
+  });
+  assert.deepEqual(taskListUsageProjection(task, cachedUsageRecord({ status: "calculating" }), {
+    now: Date.parse(calculatingUpdatedAt) + 120_000,
+  }), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "unavailable",
+    reason: "Token usage calculation was interrupted.",
+  });
+  assert.deepEqual(taskListUsageProjection(task, cachedUsageRecord()), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "available",
+    updatedAt: "2026-08-30T09:00:00.000Z",
+    task: {
+      totalTokens: 1_324_567,
+      estimatedCostUsd: 12.3449,
+      sampledAt: "2026-08-30T09:00:00.000Z",
+      sourceUpdatedAt: "2026-08-30T09:00:00.000Z",
+    },
+  });
+});
+
+test("usage summary monitor reads one cache revision for every projected card", async () => {
+  let reads = 0;
+  let now = Date.parse("2026-08-30T09:01:59.999Z");
+  const watcher = new EventEmitter();
+  watcher.close = () => {};
+  const monitor = new UsageSummaryMonitor(path.dirname(await realpath(process.cwd())), {
+    fingerprint: async () => "cache-revision-one",
+    now: () => now,
+    pollIntervalMs: 60_000,
+    readStore: async () => {
+      reads += 1;
+      return { tasks: { [FIRST_ID]: cachedUsageRecord() } };
+    },
+    watchDirectory: () => watcher,
+  });
+  await monitor.start();
+  const task = {
+    id: FIRST_ID,
+    status: "completed",
+    threadId: FIRST_THREAD_ID,
+    latestTurn: { turnRef: FIRST_TURN_ID },
+  };
+  for (let index = 0; index < 100; index += 1) monitor.project(task);
+  assert.equal(reads, 1, "card projection must reuse the revision cache rather than reread per card");
+  let lifecycleChanges = 0;
+  monitor.on("change", () => { lifecycleChanges += 1; });
+  monitor.records.set(FIRST_ID, cachedUsageRecord({ status: "calculating" }));
+  monitor.updateLifecycleFingerprint();
+  now += 1;
+  await monitor.refresh();
+  assert.equal(reads, 1, "an orphaned calculation must age out without rereading the cache");
+  assert.equal(lifecycleChanges, 1);
+  assert.deepEqual(monitor.project(task), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "unavailable",
+    reason: "Token usage calculation was interrupted.",
+  });
+  monitor.close();
+
+  const incompatibleCache = new UsageSummaryMonitor(path.dirname(await realpath(process.cwd())), {
+    fingerprint: async () => "old-cache-revision",
+    pollIntervalMs: 60_000,
+    readStore: async () => { throw new Error("unsupported old cache"); },
+    watchDirectory: () => watcher,
+  });
+  await incompatibleCache.start();
+  assert.deepEqual(incompatibleCache.project(task), {
+    generationTurnRef: FIRST_TURN_ID,
+    status: "unavailable",
+    reason: "Token usage unavailable",
+  });
+  incompatibleCache.close();
+});
+
+test("dashboard list publishes cached usage changes without detail requests or ccusage work", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, input(project, FIRST_ID, "Usage projection", FIRST_THREAD_ID));
+  await reportTaskResult(workspace, {
+    taskId: FIRST_ID,
+    threadId: FIRST_THREAD_ID,
+    turnId: FIRST_TURN_ID,
+    status: "completed",
+    summary: "Usage boundary is complete.",
+  });
+  let detailReads = 0;
+  const usageTracker = {
+    async get() {
+      detailReads += 1;
+      return cachedUsageRecord();
+    },
+  };
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    monitorOptions: { pollIntervalMs: 60_000 },
+    usageTracker,
+  });
+  try {
+    let snapshot = await (await fetch(`${server.origin}/api/snapshot`)).json();
+    assert.equal(snapshot.tasks[0].usage.status, "unavailable");
+    assert.equal(detailReads, 0);
+
+    await writeUsageStore(workspace, {
+      schemaVersion: 1,
+      tasks: { [FIRST_ID]: cachedUsageRecord() },
+    });
+    await server.usageSummaryMonitor.refresh({ force: true });
+    snapshot = await (await fetch(`${server.origin}/api/snapshot`)).json();
+    assert.deepEqual(snapshot.tasks[0].usage.task, {
+      totalTokens: 1_324_567,
+      estimatedCostUsd: 12.3449,
+      sampledAt: "2026-08-30T09:00:00.000Z",
+      sourceUpdatedAt: "2026-08-30T09:00:00.000Z",
+    });
+    assert.equal("models" in snapshot.tasks[0].usage.task, false);
+    assert.equal(detailReads, 0, "list snapshot must not invoke the detail usage tracker");
+
+    await fetch(`${server.origin}/api/tasks/${FIRST_ID}`);
+    assert.equal(detailReads, 1, "only an explicit detail request may enter the detail usage path");
+  } finally {
+    await server.close();
+  }
+});
+
 test("dashboard server serves independent clients without sessions and protects local actions", async () => {
   const { workspace, project } = await fixture();
   const staleProject = path.join(path.dirname(workspace), "stale-project");
@@ -2228,6 +2431,51 @@ test("dashboard server rejects non-loopback binding and malformed startup logs",
   );
 });
 
+test("dashboard startup closes every started monitor after a pre-listen failure", async () => {
+  const { workspace } = await fixture();
+  let taskWatcherCloses = 0;
+  let usageMonitorCloses = 0;
+  const usageMonitor = Object.assign(new EventEmitter(), {
+    async start() { throw new Error("usage cache unavailable"); },
+    close() { usageMonitorCloses += 1; },
+    project() { return { status: "pending" }; },
+  });
+
+  await assert.rejects(createDashboardServer({
+    workspace,
+    port: 0,
+    usageSummaryMonitor: usageMonitor,
+    monitorOptions: {
+      pollIntervalMs: 60_000,
+      watchDirectory() {
+        return { close() { taskWatcherCloses += 1; } };
+      },
+    },
+  }), /usage cache unavailable/);
+  assert.equal(taskWatcherCloses, 1);
+  assert.equal(usageMonitorCloses, 1);
+
+  const oversizedUsageMonitor = Object.assign(new EventEmitter(), {
+    async start() {},
+    close() { usageMonitorCloses += 1; },
+    project() { return { status: "pending" }; },
+  });
+  await assert.rejects(createDashboardServer({
+    workspace,
+    port: 0,
+    taskchefVersion: "x".repeat(8_192),
+    usageSummaryMonitor: oversizedUsageMonitor,
+    monitorOptions: {
+      pollIntervalMs: 60_000,
+      watchDirectory() {
+        return { close() { taskWatcherCloses += 1; } };
+      },
+    },
+  }), /identity exceeds/);
+  assert.equal(taskWatcherCloses, 2);
+  assert.equal(usageMonitorCloses, 2);
+});
+
 test("in-app and external-style clients use one dashboard concurrently without shared state", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, input(project, FIRST_ID, "Shared task", "thread-one"));
@@ -2271,6 +2519,9 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(bundledScript, /TaskChef/);
   assert.match(bundledStyles, /taskchef-text-shimmer/);
   assert.match(bundledStyles, /prefers-reduced-motion/);
+  assert.match(bundledStyles, /taskchef-card-metadata/);
+  assert.match(bundledStyles, /@media\(max-width:34em\)[\s\S]*\.taskchef-card-heading/);
+  assert.match(bundledStyles, /@media\(prefers-reduced-motion:reduce\)[\s\S]*\.taskchef-shimmer[^}]*animation:none/);
   assert.doesNotMatch(bundledHtml, /https?:\/\//);
   assert.match(html, /aria-live="polite"/);
   assert.match(script, /const USAGE_POLL_INTERVAL_MS = 1_500;/);

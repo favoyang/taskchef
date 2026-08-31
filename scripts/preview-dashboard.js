@@ -16,6 +16,7 @@ import {
   recordTask,
   reportTaskState,
 } from "../index.js";
+import { writeUsageStore } from "../src/usage.js";
 
 const port = Number.parseInt(process.env.TASKCHEF_PREVIEW_PORT ?? "4321", 10);
 if (!Number.isInteger(port) || port < 1 || port > 65_535 || port === 3210) {
@@ -83,6 +84,14 @@ const definitions = [
     request: "Choose whether the fixture should retain the compact mobile drawer.",
     terminal: "needs_input",
   },
+  {
+    id: "55555555-5555-4555-8555-555555555555",
+    threadId: "019ffb69-57a6-7801-8b7a-8ff4c32a3990",
+    turnRef: "01a03275-d534-7043-ab4a-513a1ad6ae1e",
+    title: "Review unpriced cached token usage",
+    request: "Confirm that known tokens remain visible when estimated cost is unavailable.",
+    terminal: "completed",
+  },
 ];
 
 for (const definition of definitions) {
@@ -118,6 +127,71 @@ for (const definition of definitions) {
     });
   }
 }
+
+function usageRecord(definition, {
+  status,
+  totalTokens = 0,
+  estimatedCostUsd = null,
+  reason,
+}) {
+  const updatedAt = new Date().toISOString();
+  return {
+    threadId: definition.threadId,
+    generationTurnRef: definition.turnRef,
+    generationTurnCount: 1,
+    generationTerminal: definition.terminal !== null,
+    zeroBaselineTurnRef: null,
+    status,
+    updatedAt,
+    retryAfter: null,
+    task: status === "available" ? {
+      inputTokens: totalTokens,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+      totalTokens,
+      estimatedCostUsd,
+      costStatus: estimatedCostUsd === null ? "unavailable" : "estimated",
+      models: {},
+      provenance: {
+        provider: "ccusage",
+        version: "20.0.20",
+        pricingMode: "offline",
+        costCoverage: "ccusage_reported",
+        sessionCount: 1,
+      },
+      sampledAt: updatedAt,
+      sourceUpdatedAt: updatedAt,
+    } : null,
+    turns: status === "calculating"
+      ? { [definition.turnRef]: { status: "calculating", updatedAt } }
+      : {},
+    boundaries: {},
+    ...(reason ? { reason } : {}),
+  };
+}
+
+const usageStore = {
+  schemaVersion: 1,
+  tasks: {
+    [definitions[1].id]: usageRecord(definitions[1], { status: "calculating" }),
+    [definitions[2].id]: usageRecord(definitions[2], {
+      status: "available",
+      totalTokens: 1_324_567,
+      estimatedCostUsd: 12.3449,
+    }),
+    [definitions[3].id]: usageRecord(definitions[3], {
+      status: "unavailable",
+      reason: "No matching synthetic usage boundary.",
+    }),
+    [definitions[4].id]: usageRecord(definitions[4], {
+      status: "available",
+      totalTokens: 84_210,
+      estimatedCostUsd: null,
+    }),
+  },
+};
+await writeUsageStore(workspace, usageStore);
 
 const usageTracker = {
   async get(task) {
@@ -161,6 +235,16 @@ const server = await createDashboardServer({
 console.log(`TaskChef Mantine preview: ${server.url}`);
 console.log(`Safe fixture workspace: ${workspace}`);
 console.log("A synthetic notification alternates between completed and failed every 20 seconds.");
+console.log("The calculating usage fixture becomes available after 20 seconds.");
+
+const usageTransitionTimer = setTimeout(async () => {
+  usageStore.tasks[definitions[1].id] = usageRecord(definitions[1], {
+    status: "available",
+    totalTokens: 48_320,
+    estimatedCostUsd: 0.987,
+  });
+  await writeUsageStore(workspace, usageStore);
+}, 20_000);
 
 let nextStatus = "failed";
 const notificationTimer = setInterval(async () => {
@@ -184,6 +268,7 @@ const notificationTimer = setInterval(async () => {
 
 async function close() {
   clearInterval(notificationTimer);
+  clearTimeout(usageTransitionTimer);
   await server.close();
 }
 

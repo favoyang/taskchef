@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
+import { fixtureTask } from "./fixtures";
 import type { NotificationSnapshot } from "./types";
 import {
   clearNotificationHistory,
+  listUsageSignature,
+  mergeListTaskIntoDetail,
   notificationAppeared,
   notificationClicked,
   type OverlayState,
@@ -75,5 +78,33 @@ describe("overlay coordination", () => {
   test("clearing notification history leaves detail state untouched", () => {
     const current = state({ detailTaskId: "task-one", detailOpened: true, notifications: [taskUpdate] });
     expect(clearNotificationHistory(current)).toEqual({ ...current, notifications: [] });
+  });
+
+  test("a cache-only list update preserves rich detail usage and requests a refresh", () => {
+    const detail = fixtureTask({
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "available",
+        task: { totalTokens: 1200, estimatedCostUsd: 0.24, models: { "gpt-5": {} } },
+        turns: { "turn-one": { status: "available", totalTokens: 1200 } },
+        updatedAt: "2026-08-30T08:00:00.000Z",
+      },
+    });
+    const list = fixtureTask({
+      turns: undefined,
+      results: undefined,
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "available",
+        task: { totalTokens: 1800, estimatedCostUsd: 0.36 },
+        updatedAt: "2026-08-30T08:01:00.000Z",
+      },
+    });
+
+    const merged = mergeListTaskIntoDetail(detail, list);
+    expect(merged.usage).toBe(detail.usage);
+    expect(merged.turns).toBe(detail.turns);
+    expect(merged.results).toBe(detail.results);
+    expect(listUsageSignature(list)).not.toBe(listUsageSignature(detail));
   });
 });

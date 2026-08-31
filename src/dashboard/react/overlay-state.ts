@@ -1,4 +1,4 @@
-import type { NotificationSnapshot } from "./types";
+import type { NotificationSnapshot, Task } from "./types";
 
 export interface OverlayState {
   detailTaskId: string | null;
@@ -35,4 +35,26 @@ export function notificationClicked(
 
 export function clearNotificationHistory(state: OverlayState): OverlayState {
   return { ...state, notifications: [] };
+}
+
+export function mergeListTaskIntoDetail(current: Task, updated: Task): Task {
+  const currentIsDetail = Array.isArray(current.turns) && Array.isArray(current.results);
+  const updatedIsList = !Array.isArray(updated.turns) && !Array.isArray(updated.results);
+  return {
+    ...current,
+    ...updated,
+    ...(currentIsDetail && updatedIsList
+      ? { results: current.results, turns: current.turns, usage: current.usage }
+      : {}),
+  };
+}
+
+export function listUsageSignature(task: Task | null | undefined): string {
+  return JSON.stringify([
+    task?.usage?.generationTurnRef ?? null,
+    task?.usage?.status ?? null,
+    task?.usage?.updatedAt ?? null,
+    task?.usage?.task?.totalTokens ?? null,
+    task?.usage?.task?.estimatedCostUsd ?? null,
+  ]);
 }

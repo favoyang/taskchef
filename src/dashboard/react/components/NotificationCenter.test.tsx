@@ -17,9 +17,14 @@ const notification: NotificationSnapshot = {
   summary: "Review completed.",
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 test("notification portal stays non-modal until the operator chooses an action", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-30T12:10:00.000Z"));
   const onOpen = vi.fn();
   const onDismiss = vi.fn();
   render(

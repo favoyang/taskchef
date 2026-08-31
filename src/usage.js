@@ -589,12 +589,12 @@ export async function readCcusageThreadUsage(threadId, {
   }
 }
 
-function usageFile(workspace) {
+export function usageStorePath(workspace) {
   return path.join(workspace, USAGE_FILE_NAME);
 }
 
 export async function readUsageStore(workspace) {
-  const filePath = usageFile(workspace);
+  const filePath = usageStorePath(workspace);
   const details = await lstat(filePath).catch((error) => {
     if (error.code === "ENOENT") return null;
     throw error;
@@ -649,7 +649,7 @@ export function compactUsageStore(store) {
 
 export async function writeUsageStore(workspace, store) {
   await mkdir(workspace, { recursive: true });
-  const filePath = usageFile(workspace);
+  const filePath = usageStorePath(workspace);
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   const serialized = `${JSON.stringify(compactUsageStore(store), null, 2)}\n`;
   if (Buffer.byteLength(serialized, "utf8") > MAX_USAGE_FILE_BYTES) {

@@ -7,6 +7,7 @@ import { LinkedText } from "./LinkedText";
 import { RelativeTime } from "./RelativeTime";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
+import { TaskUsageSummary } from "./TaskUsageSummary";
 
 export function TaskCard({
   onOpenCodex,
@@ -22,14 +23,17 @@ export function TaskCard({
     <Paper className="taskchef-task-row" component="article" p="md" radius="md" withBorder>
       <Stack className="taskchef-task-main" gap="sm">
           <Box>
-            <Group align="flex-start" gap="sm" justify="space-between" wrap="nowrap">
+            <Box className="taskchef-card-heading">
               <Title order={3} size="h5">
                 <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">
                   {task.title}
                 </button>
               </Title>
-              <StatusBadge status={task.status} />
-            </Group>
+              <Stack align="flex-end" className="taskchef-card-metadata" gap={4}>
+                <StatusBadge status={task.status} />
+                <TaskUsageSummary task={task} />
+              </Stack>
+            </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
           </Box>
 
@@ -47,7 +51,7 @@ export function TaskCard({
           </Box>
 
           <GitHubLinks task={task} />
-          <Group gap="md" justify="space-between">
+          <Group className="taskchef-card-footer" gap="md" justify="space-between">
             <RelativeTime label={`Updated time for ${task.title}`} value={task.meaningfulUpdatedAt ?? task.updatedAt} />
             <Button
               aria-label={`Open chat for ${task.title}`}
