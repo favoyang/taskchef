@@ -19,13 +19,13 @@ import {
   IconCheck,
   IconClipboard,
   IconDots,
-  IconExternalLink,
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Task } from "../types";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { GitHubLinks } from "./GitHubLinks";
+import { OpenChatButton } from "./OpenChatButton";
 import { RelativeTime } from "./RelativeTime";
 import { StatusBadge } from "./StatusBadge";
 import { UsagePanel } from "./UsagePanel";
@@ -93,14 +93,7 @@ export function TaskDetail({
           <StatusBadge status={task.status} />
         </Group>
         <Group gap="xs" mt="md">
-          <Button
-            leftSection={<IconExternalLink aria-hidden size={15} />}
-            loading={busy}
-            onClick={onOpenCodex}
-            size="compact-sm"
-          >
-            Open chat
-          </Button>
+          <OpenChatButton loading={busy} onClick={onOpenCodex} taskTitle={task.title} />
           <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
             <Menu.Target>
               <Tooltip label="More task actions">

@@ -1,9 +1,9 @@
-import { Box, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
-import { IconExternalLink } from "@tabler/icons-react";
+import { Box, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { latestTurnPresentation } from "../../state.js";
 import type { Task } from "../types";
 import { GitHubLinks } from "./GitHubLinks";
 import { LinkedText } from "./LinkedText";
+import { OpenChatButton } from "./OpenChatButton";
 import { RelativeTime } from "./RelativeTime";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
@@ -53,15 +53,7 @@ export function TaskCard({
           <GitHubLinks task={task} />
           <Group className="taskchef-card-footer" gap="md" justify="space-between">
             <RelativeTime label={`Updated time for ${task.title}`} value={task.meaningfulUpdatedAt ?? task.updatedAt} />
-            <Button
-              aria-label={`Open chat for ${task.title}`}
-              leftSection={<IconExternalLink aria-hidden size={15} />}
-              onClick={() => onOpenCodex(task)}
-              size="compact-sm"
-              variant="default"
-            >
-              Open chat
-            </Button>
+            <OpenChatButton onClick={() => onOpenCodex(task)} taskTitle={task.title} />
           </Group>
       </Stack>
     </Paper>

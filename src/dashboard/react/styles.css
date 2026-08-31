@@ -28,8 +28,7 @@ body {
 .taskchef-toolbar .mantine-InputWrapper-root { flex: 1 1 190px; max-width: 240px; }
 .taskchef-toolbar .mantine-InputWrapper-label, .taskchef-filter-label { font-size: var(--mantine-font-size-sm); font-weight: 600; line-height: var(--mantine-line-height-sm); }
 .taskchef-toolbar .mantine-SegmentedControl-root { max-width: 650px; }
-.taskchef-task-count-field { align-self: flex-end; min-width: 90px; }
-.taskchef-count-value { display: flex; align-items: center; height: 36px; white-space: nowrap; }
+.taskchef-results-summary { margin-top: 12px; color: var(--taskchef-muted); font-size: var(--mantine-font-size-xs); line-height: 1.35; white-space: nowrap; }
 .taskchef-task-row { background: light-dark(#fff, #202421); box-shadow: 0 1px 0 light-dark(rgb(22 31 25 / 3%), transparent); }
 .taskchef-task-row:hover { border-color: light-dark(var(--mantine-color-teal-4), var(--mantine-color-teal-8)); }
 .taskchef-task-main { min-width: 0; flex: 1; }
@@ -117,7 +116,6 @@ body {
 @media (max-width: 48em) {
   .taskchef-toolbar .mantine-InputWrapper-root { max-width: none; }
   .taskchef-toolbar .mantine-Group-root { align-items: stretch; }
-  .taskchef-task-count-field { min-width: 76px; }
   .taskchef-toolbar .mantine-SegmentedControl-root { overflow-x: auto; }
   .taskchef-notifications { right: 16px; bottom: 16px; width: min(330px, calc(100vw - 32px)); }
   .taskchef-metadata { grid-template-columns: 1fr; }
