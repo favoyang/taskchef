@@ -75,6 +75,7 @@ test("groups interleaved related links by first repository appearance and numeri
     type,
     url: `https://github.com/${owner}/${repository}/${type === "pull" ? "pull" : "issues"}/${number}`,
   }));
+  projected.push({ ...projected[0], label: "duplicate URL with a different source label" });
 
   const groups = groupRelatedGitHubLinks(projected);
   assert.deepEqual(groups.map((group) => group.map(({ label }) => label)), [

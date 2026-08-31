@@ -60,12 +60,20 @@ function compareReferenceNumbers(left, right) {
 
 export function groupRelatedGitHubLinks(links) {
   const groups = new Map();
-  const seen = new Set();
+  const seenLabels = new Set();
+  const seenNumbers = new Set();
+  const seenUrls = new Set();
   for (const link of links ?? []) {
-    if (link.type === "repository" || seen.has(link.label)) continue;
-    seen.add(link.label);
     const repository = repositoryIdentity(link);
-    if (!repository) continue;
+    const reference = link.number ? `${repository}#${link.number}` : null;
+    if (link.type === "repository"
+      || !repository
+      || seenLabels.has(link.label)
+      || seenUrls.has(link.url)
+      || (reference && seenNumbers.has(reference))) continue;
+    seenLabels.add(link.label);
+    seenUrls.add(link.url);
+    if (reference) seenNumbers.add(reference);
     const group = groups.get(repository) ?? [];
     group.push(link);
     groups.set(repository, group);

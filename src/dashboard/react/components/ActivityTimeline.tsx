@@ -3,6 +3,7 @@ import { mergeProjectedTurns, turnPresentation } from "../../state.js";
 import { turnUsageView } from "../presentation";
 import type { Task } from "../types";
 import { RelativeTime } from "./RelativeTime";
+import { LinkedText } from "./LinkedText";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
 
@@ -34,14 +35,16 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
               {presentation.sourceLabel && <Text c="dimmed" size="xs">{presentation.sourceLabel}</Text>}
               <Box>
                 <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
-                <Text className="taskchef-preserve-lines" size="sm">{turn.requestSummary ?? "Request not recorded."}</Text>
+                <Text className="taskchef-preserve-lines" size="sm">
+                  <LinkedText task={task} text={turn.requestSummary ?? "Request not recorded."} />
+                </Text>
               </Box>
               <Box>
                 <Text c="dimmed" className="taskchef-field-label" size="xs">Result</Text>
                 <Text className="taskchef-preserve-lines" size="sm">
                   {presentation.status === "working"
                     ? <ShimmerText>{presentation.summary}</ShimmerText>
-                    : presentation.summary}
+                    : <LinkedText task={task} text={presentation.summary} />}
                 </Text>
               </Box>
               <Text

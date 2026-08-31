@@ -31,7 +31,10 @@ await addProject(workspace, {
   name: "TaskChef Preview",
   path: projectPath,
   description: "Synthetic operator-review data. No live TaskChef content.",
-  githubRepos: ["https://github.com/example/taskchef-preview"],
+  githubRepos: [
+    "https://github.com/favoyang/taskchef",
+    "https://github.com/favoyang/guzuoshou-workspace",
+  ],
 });
 
 const definitions = [
@@ -56,7 +59,20 @@ const definitions = [
     threadId: "019ffb69-57a6-7801-8b7a-8ff4c32a398e",
     turnRef: "01a03275-d532-7043-ab4a-513a1ad6ae1e",
     title: "Confirm packaged preview assets",
-    request: "Confirm deterministic package contents and usage estimate display.",
+    request: "Confirm deterministic package contents and usage estimate display for https://github.com/favoyang/taskchef/pull/83.",
+    relatedReview: [
+      "https://github.com/favoyang/taskchef/pull/83",
+      "https://github.com/favoyang/guzuoshou-workspace/issues/124",
+      "https://github.com/favoyang/taskchef/issues/79",
+      "https://github.com/favoyang/guzuoshou-workspace/pull/109",
+      "https://github.com/favoyang/taskchef/issues/80",
+      "https://github.com/favoyang/guzuoshou-workspace/issues/108",
+      "https://github.com/favoyang/taskchef/pull/82",
+      "https://github.com/favoyang/guzuoshou-workspace/pull/112",
+      "https://github.com/favoyang/guzuoshou-workspace/issues/114",
+      "https://github.com/favoyang/guzuoshou-workspace/issues/115",
+      "https://github.com/favoyang/guzuoshou-workspace/pull/118",
+    ].join(", "),
     terminal: "completed",
   },
   {
@@ -75,7 +91,7 @@ for (const definition of definitions) {
     project: projectPath,
     title: definition.title,
     instruction: prepareDelegation(
-      `${definition.request}\n\nRelated review: https://github.com/example/taskchef-preview/pull/24`,
+      `${definition.request}\n\nRelated review: ${definition.relatedReview ?? "https://github.com/favoyang/taskchef/pull/24"}`,
       { taskId: definition.id },
     ).instruction,
     threadId: null,
@@ -117,8 +133,8 @@ const usageTracker = {
         cachedInputTokens: 7300,
         outputTokens: 2410,
         reasoningOutputTokens: 810,
-        totalTokens: 20830,
-        estimatedCostUsd: 0.1432,
+        totalTokens: 1_324_567,
+        estimatedCostUsd: 12.3449,
         models: { "gpt-5.6-sol": {}, "gpt-5.6-luna": {} },
       };
       return {
