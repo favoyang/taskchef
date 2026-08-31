@@ -293,6 +293,7 @@ export function taskListUsageProjection(task, cached, {
   }
   if (calculatingUsageIsStale(cached, now, calculatingStaleMs)) {
     return {
+      ...cachedUsageSummary(cached),
       generationTurnRef: cached.generationTurnRef ?? latestTurnRef,
       status: "unavailable",
       reason: "Token usage calculation was interrupted.",

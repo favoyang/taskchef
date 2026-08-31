@@ -41,6 +41,22 @@ describe("task list usage summary", () => {
     );
   });
 
+  test("keeps the known task total visible while an active turn updates usage", () => {
+    renderUsage(fixtureTask({
+      status: "working",
+      turnRef: "turn-two",
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "unavailable",
+        reason: "Token usage calculation was interrupted.",
+        task: { totalTokens: 1_324_567, estimatedCostUsd: 12.3449 },
+      },
+    }));
+    const summary = screen.getByText("1.32M tokens · est. $12.34 · Updating…");
+    expect(summary).toHaveAttribute("data-usage-state", "ready");
+    expect(summary).toHaveAccessibleName(/1,324,567 tokens; estimated cost \$12\.34; updating/i);
+  });
+
   test("keeps pending and calculating wording distinct and uses the restrained shimmer", () => {
     const { rerender } = renderUsage();
     expect(screen.getByText("Token usage pending")).toHaveClass("taskchef-shimmer");

@@ -29,8 +29,9 @@ those benefits without retaining the obsolete per-transport ownership.
 
 The detail view distinguishes an active turn whose final usage is pending from
 a terminal turn whose usage is being calculated. Available usage keeps both
-the token total and API-equivalent USD estimate; an available cumulative value
-shown during a newer active turn is labeled as known so far.
+the token total and API-equivalent USD estimate. Task cards keep the latest
+cumulative value visible during a newer active turn and label it as updating;
+pending is reserved for tasks that do not have a usage snapshot yet.
 
 ![Pending token usage in the task detail view](images/dashboard-token-pending.jpg)
 

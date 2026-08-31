@@ -174,6 +174,11 @@ function usageRecord(definition, {
 const usageStore = {
   schemaVersion: 1,
   tasks: {
+    [definitions[0].id]: usageRecord(definitions[0], {
+      status: "available",
+      totalTokens: 69_364_564,
+      estimatedCostUsd: 37.9421056,
+    }),
     [definitions[1].id]: usageRecord(definitions[1], { status: "calculating" }),
     [definitions[2].id]: usageRecord(definitions[2], {
       status: "available",
@@ -196,7 +201,20 @@ await writeUsageStore(workspace, usageStore);
 const usageTracker = {
   async get(task) {
     if (task.id === definitions[0].id) {
-      return { generationTurnRef: task.turnRef, status: "calculating", task: null, turns: {} };
+      return {
+        generationTurnRef: task.turnRef,
+        status: "available",
+        task: {
+          inputTokens: 1_484_653,
+          cachedInputTokens: 67_632_384,
+          outputTokens: 247_527,
+          reasoningOutputTokens: 58_711,
+          totalTokens: 69_364_564,
+          estimatedCostUsd: 37.9421056,
+          models: { "gpt-5.6-sol": {} },
+        },
+        turns: {},
+      };
     }
     if (task.id === definitions[1].id) {
       return { generationTurnRef: task.turnRef, status: "calculating", task: null, turns: {} };
