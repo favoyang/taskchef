@@ -48,9 +48,15 @@ Durations below one minute use whole seconds; durations below one hour use
 minutes and seconds; durations below one day use hours and minutes; longer
 durations use days and hours. Each displayed unit is floored, and positive
 sub-second durations display as `<1s`. Missing, malformed, reversed, or
-unsupported timestamp ranges display an explicit unavailable state. Timing is
-derived independently of `.taskchef-usage.json` and is reported wall-clock
+unsupported timestamp ranges display an explicit unavailable state. Zero-width
+terminal ranges are also unavailable because existing records cannot reliably
+distinguish synthesized boundaries from same-millisecond measured work. Timing
+is derived independently of `.taskchef-usage.json` and is reported wall-clock
 elapsed time, not model compute time.
+
+![Reported work across a multi-turn task](images/reported-work-duration-desktop.jpg)
+
+![Unavailable reported work on a narrow layout](images/reported-work-duration-mobile.jpg)
 
 ## Start and reuse
 

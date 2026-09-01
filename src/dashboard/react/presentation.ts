@@ -86,7 +86,7 @@ export function taskReportedWorkView(task: Task): ReportedWorkView {
       value: "Not yet reported",
     };
   }
-  const durations = terminalTurns.map((turn) => durationBetween(turn.startedAt, turn.result?.updatedAt));
+  const durations = terminalTurns.map(terminalTurnDuration);
   const validDurations = durations.filter((duration): duration is number => duration !== null);
   if (validDurations.length === 0) {
     return {
@@ -120,7 +120,9 @@ export function taskReportedWorkView(task: Task): ReportedWorkView {
 
 export function turnReportedWorkView(turn: TaskTurn, now = Date.now()) {
   const active = turn.result === null;
-  const duration = durationBetween(turn.startedAt, active ? new Date(now).toISOString() : turn.result?.updatedAt);
+  const duration = active
+    ? durationBetween(turn.startedAt, new Date(now).toISOString())
+    : terminalTurnDuration(turn);
   const label = active ? "Elapsed so far" : "Elapsed";
   const value = duration === null ? "Unavailable" : formatReportedDuration(duration) ?? "Unavailable";
   return {
@@ -132,6 +134,11 @@ export function turnReportedWorkView(turn: TaskTurn, now = Date.now()) {
       : `Reported wall-clock elapsed time from startedAt ${active ? "to the current time" : "to result.updatedAt"}.`,
     value,
   };
+}
+
+function terminalTurnDuration(turn: TaskTurn) {
+  const duration = durationBetween(turn.startedAt, turn.result?.updatedAt);
+  return duration === 0 ? null : duration;
 }
 
 export function formatCompactTokens(value: number, locales?: Intl.LocalesArgument) {

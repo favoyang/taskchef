@@ -33,6 +33,8 @@
     "docs/images/result-history-dashboard.jpg",
     "docs/images/interrupted-turn-recovery.jpg",
     "docs/images/dashboard-token-pending.jpg",
+    "docs/images/reported-work-duration-desktop.jpg",
+    "docs/images/reported-work-duration-mobile.jpg",
     "index.js",
     "mcp",
     "scripts/benchmark-dispatch-prepare.js",

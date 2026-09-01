@@ -343,6 +343,52 @@ describe("reported wall-clock work presentation", () => {
     });
   });
 
+  test("does not present synthesized legacy or terminal-only boundaries as measured zero work", () => {
+    const terminalResult = {
+      status: "completed" as const,
+      summary: "Done.",
+      updatedAt: "2026-08-30T08:00:00.000Z",
+    };
+    const legacyTurn = {
+      requestSummary: null,
+      startedAt: terminalResult.updatedAt,
+      turnRef: "legacy-turn",
+      turnId: null,
+      provenance: { kind: "legacy" },
+      result: terminalResult,
+    };
+    const terminalOnlyTurn = {
+      ...legacyTurn,
+      turnRef: "terminal-only-turn",
+      provenance: { kind: "mcp" },
+    };
+    for (const turn of [legacyTurn, terminalOnlyTurn]) {
+      expect(turnReportedWorkView(turn)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+      expect(taskReportedWorkView(fixtureTask({ status: "completed", turns: [turn] })))
+        .toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    }
+  });
+
+  test("treats all terminal zero-width ranges conservatively while retaining positive sub-seconds", () => {
+    const observed = {
+      requestSummary: "Perform the observed turn.",
+      startedAt: "2026-08-30T08:00:00.000Z",
+      turnRef: "observed-turn",
+      turnId: null,
+      provenance: { kind: "mcp" },
+      result: {
+        status: "completed" as const,
+        summary: "Done.",
+        updatedAt: "2026-08-30T08:00:00.000Z",
+      },
+    };
+    expect(turnReportedWorkView(observed)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    expect(turnReportedWorkView({
+      ...observed,
+      result: { ...observed.result, updatedAt: "2026-08-30T08:00:00.500Z" },
+    })).toMatchObject({ kind: "available", value: "<1s" });
+  });
+
   test("treats terminal compact projections without turn history as unavailable", () => {
     const compactTerminal = fixtureTask({
       status: "completed",
