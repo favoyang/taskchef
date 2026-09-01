@@ -73,7 +73,7 @@
     "preview:dashboard": "node scripts/preview-dashboard.js",
     "test": "npm run test:node && npm run test:dashboard",
     "test:node": "node --test tests/*.test.js",
-    "test:dashboard": "vitest run --config vitest.config.ts --exclude src/dashboard/react/App.test.tsx && vitest run --config vitest.config.ts src/dashboard/react/App.test.tsx"
+    "test:dashboard": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@mantine/core": "9.5.2",
