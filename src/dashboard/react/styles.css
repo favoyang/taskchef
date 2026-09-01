@@ -81,7 +81,9 @@ body {
 .taskchef-turn { background: var(--taskchef-surface-muted); }
 .taskchef-turn-highlighted { border-color: var(--mantine-color-teal-6); box-shadow: inset 3px 0 var(--mantine-color-teal-6); outline: 3px solid color-mix(in srgb, var(--mantine-color-teal-6) 22%, transparent); }
 .taskchef-turn-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.taskchef-turn-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--mantine-spacing-xs); }
+.taskchef-turn-timing { display: flex; align-items: center; justify-content: flex-end; gap: var(--mantine-spacing-sm); min-width: 0; }
+.taskchef-turn-duration { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.taskchef-turn-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--mantine-spacing-xs); }
 .taskchef-turn-metric { min-width: 0; overflow-wrap: anywhere; }
 .taskchef-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .taskchef-code-panel { max-height: 280px; margin: 0; padding: 12px; overflow: auto; border-radius: var(--mantine-radius-md); background: var(--taskchef-surface-muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -123,6 +125,8 @@ body {
   .taskchef-metadata { grid-template-columns: 1fr; }
   .taskchef-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .taskchef-turn-metrics { grid-template-columns: 1fr; }
+  .taskchef-turn-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .taskchef-turn-timing { flex-wrap: wrap; justify-content: flex-start; }
   .taskchef-metadata dt { padding-bottom: 0; border-bottom: 0; }
 }
 

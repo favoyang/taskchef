@@ -31,7 +31,10 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
             <Stack gap={7}>
               <Box className="taskchef-turn-heading">
                 <StatusBadge status={presentation.status} />
-                <RelativeTime label="Turn update time" value={presentation.updatedAt} />
+                <Box className="taskchef-turn-timing">
+                  <RelativeTime label="Turn update time" value={presentation.updatedAt} />
+                  <TurnReportedWork turn={turn} />
+                </Box>
               </Box>
               {presentation.sourceLabel && <Text c="dimmed" size="xs">{presentation.sourceLabel}</Text>}
               <Box>
@@ -63,7 +66,6 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                   title={usage.title}
                   value={usage.cost.value}
                 />
-                <TurnReportedWorkMetric turn={turn} />
               </Box>
               {usage.note && <Text c="dimmed" size="xs">{usage.note}</Text>}
               <Text c="dimmed" className="taskchef-mono" size="xs">Turn ref: {identity ?? "—"}</Text>
@@ -75,16 +77,20 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
   );
 }
 
-function TurnReportedWorkMetric({ turn }: { turn: TaskTurn }) {
+function TurnReportedWork({ turn }: { turn: TaskTurn }) {
   const now = useLiveNow(turn.result === null);
   const elapsed = turnReportedWorkView(turn, now);
   return (
-    <TurnMetric
-      accessibleLabel={elapsed.accessibleLabel}
-      label={elapsed.label}
+    <Text
+      aria-label={elapsed.accessibleLabel}
+      c="dimmed"
+      className="taskchef-turn-duration"
+      size="xs"
       title={elapsed.title}
-      value={elapsed.value}
-    />
+    >
+      <span className="taskchef-field-label">{elapsed.label}</span>
+      <span>{elapsed.value}</span>
+    </Text>
   );
 }
 
