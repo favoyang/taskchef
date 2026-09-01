@@ -49,7 +49,8 @@ test("reuses an action ID for retryable failures and rotates it after a stale ta
   expect(onTransition.mock.calls[2][1]).not.toBe(firstActionId);
 });
 
-test("renders tokens, estimated cost, and terminal elapsed time as one compact group", () => {
+test("covers terminal, active, and unavailable timeline metrics", () => {
+  {
   const task = fixtureTask({
     status: "completed",
     turns: [{
@@ -74,9 +75,10 @@ test("renders tokens, estimated cost, and terminal elapsed time as one compact g
   expect(within(metrics).getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
   expect(within(metrics).getByText("Elapsed").nextSibling).toHaveTextContent("18m 32s");
   expect(within(metrics).getByLabelText(/completed turn reported wall-clock elapsed time/i)).toBeVisible();
-});
+  cleanup();
+  }
 
-test("updates active elapsed so far without turning it into total reported work", () => {
+  {
   let now = Date.parse("2026-08-30T08:18:32.000Z");
   let tick: (() => void) | undefined;
   vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -97,9 +99,11 @@ test("updates active elapsed so far without turning it into total reported work"
   });
 
   expect(screen.getByText("Elapsed so far").nextSibling).toHaveTextContent("18m 34s");
-});
+  cleanup();
+  vi.restoreAllMocks();
+  }
 
-test("shows an explicit unavailable elapsed state for malformed and reversed timestamps", () => {
+  {
   const task = fixtureTask({
     status: "completed",
     turns: [{
@@ -126,6 +130,7 @@ test("shows an explicit unavailable elapsed state for malformed and reversed tim
   expect(screen.getByLabelText(/elapsed unavailable.*reported wall-clock/i)).toBeVisible();
   expect(screen.getByText("Manual dashboard turns do not have usage boundaries.")).toBeVisible();
   expect(screen.getByLabelText(/tokens unavailable: manual dashboard turns/i)).toBeVisible();
+  }
 });
 
 function ConfirmationHarness({ onTransition }: { onTransition: (status: TerminalStatus, actionId: string) => Promise<{ ok: boolean; rotateActionId?: boolean }> }) {

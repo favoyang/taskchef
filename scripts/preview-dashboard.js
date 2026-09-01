@@ -16,7 +16,10 @@ import {
   recordTask,
   reportTaskState,
 } from "../index.js";
+import { readBoundedTaskLog } from "../src/dashboard.js";
 import { writeUsageStore } from "../src/usage.js";
+import { parseTaskLogContent } from "../src/workspace.js";
+import { applyMalformedBoundaryPreview } from "./preview-dashboard-state.js";
 
 const port = Number.parseInt(process.env.TASKCHEF_PREVIEW_PORT ?? "4321", 10);
 if (!Number.isInteger(port) || port < 1 || port > 65_535 || port === 3210) {
@@ -291,31 +294,37 @@ const usageTracker = {
   },
 };
 
+const malformedBoundaryPreview = process.env.TASKCHEF_PREVIEW_MALFORMED_BOUNDARY === "1";
+const readPreviewSnapshot = async () => {
+  const snapshot = await readBoundedTaskLog(
+    path.join(workspace, "tasks.jsonl"),
+    16 * 1024 * 1024,
+  );
+  const tasks = await parseTaskLogContent(workspace, snapshot.content);
+  return {
+    fingerprint: snapshot.fingerprint,
+    tasks: applyMalformedBoundaryPreview(tasks, definitions[5].id),
+  };
+};
+
 const server = await createDashboardServer({
   workspace,
   port,
   launcher: "standalone",
-  monitorOptions: { pollIntervalMs: 500 },
+  monitorOptions: {
+    pollIntervalMs: 500,
+    ...(malformedBoundaryPreview ? { readSnapshot: readPreviewSnapshot } : {}),
+  },
   openProject: async () => {},
   openThread: async () => {},
   usageTracker,
 });
 
-if (process.env.TASKCHEF_PREVIEW_MALFORMED_BOUNDARY === "1") {
-  const malformed = server.monitor.tasks.find((task) => task.id === definitions[5].id);
-  const malformedTurn = malformed?.turns?.[0];
-  if (malformed && malformedTurn) {
-    malformedTurn.startedAt = "not-a-timestamp";
-    malformed.latestTurn = malformedTurn;
-    server.monitor.emit("snapshot");
-  }
-}
-
 console.log(`TaskChef Mantine preview: ${server.url}`);
 console.log(`Safe fixture workspace: ${workspace}`);
 console.log("A synthetic notification alternates between completed and failed every 20 seconds.");
 console.log("The calculating usage fixture becomes available after 20 seconds.");
-if (process.env.TASKCHEF_PREVIEW_MALFORMED_BOUNDARY === "1") {
+if (malformedBoundaryPreview) {
   console.log("The unavailable-timing fixture has a synthetic malformed historical boundary.");
 }
 

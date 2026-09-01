@@ -146,15 +146,27 @@ describe("token and working presentation", () => {
     expect(screen.queryByText(/API-equivalent/i)).not.toBeInTheDocument();
   });
 
-  test.each([
-    ["pending", fixtureTask(), "Pending"],
-    ["calculating", fixtureTask({ status: "completed", usage: { status: "calculating" } }), "Calculating"],
-    ["unavailable", fixtureTask({ status: "completed", usage: { status: "unavailable" } }), "Unavailable"],
-  ])("keeps reported work visible while token and cost usage is %s", (_state, task, expected) => {
-    render(<MantineProvider><UsagePanel task={task} /></MantineProvider>);
-    expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
-    expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
-    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Not yet reported");
+  test("keeps reported work visible across pending, calculating, and unavailable usage", () => {
+    for (const [task, expected, accessibleCost] of [
+      [fixtureTask(), "Pending", "Estimated cost pending"],
+      [
+        fixtureTask({ status: "completed", usage: { status: "calculating" } }),
+        "Calculating",
+        "Estimated cost calculating",
+      ],
+      [
+        fixtureTask({ status: "completed", usage: { status: "unavailable" } }),
+        "Unavailable",
+        "Estimated cost unavailable: Token usage unavailable",
+      ],
+    ] as const) {
+      render(<MantineProvider><UsagePanel task={task} /></MantineProvider>);
+      expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
+      expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
+      expect(screen.getByLabelText(accessibleCost)).toBeVisible();
+      expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Not yet reported");
+      cleanup();
+    }
   });
 
   test("uses the same borderless link treatment wherever links are rendered", () => {
@@ -270,7 +282,7 @@ describe("token and working presentation", () => {
 });
 
 describe("reported wall-clock work presentation", () => {
-  test("formats seconds, minutes, hours, and days with decreasing long-duration precision", () => {
+  test("covers formatting, derivation, unavailable boundaries, usage states, and accessibility", () => {
     expect(formatReportedDuration(500)).toBe("<1s");
     expect(formatReportedDuration(32_999)).toBe("32s");
     expect(formatReportedDuration((18 * 60 + 32) * 1_000 + 999)).toBe("18m 32s");
@@ -278,9 +290,8 @@ describe("reported wall-clock work presentation", () => {
     expect(formatReportedDuration((27 * 60 + 59) * 60 * 1_000)).toBe("1d 3h");
     expect(formatReportedDuration(-1)).toBeNull();
     expect(formatReportedDuration(Number.NaN)).toBeNull();
-  });
 
-  test("sums only valid terminal turns and excludes idle gaps and active time", () => {
+    {
     const task = fixtureTask({
       status: "working",
       turns: [
@@ -319,9 +330,9 @@ describe("reported wall-clock work presentation", () => {
     expect(view.kind).toBe("available");
     expect(view.value).toBe("2h 32m");
     expect(view.title).toMatch(/idle gaps are excluded/i);
-  });
+    }
 
-  test("excludes malformed terminal boundaries without producing a false zero", () => {
+    {
     const invalid = fixtureTask({
       status: "completed",
       turns: [{
@@ -341,9 +352,9 @@ describe("reported wall-clock work presentation", () => {
       label: "Elapsed",
       value: "Unavailable",
     });
-  });
+    }
 
-  test("does not present synthesized legacy or terminal-only boundaries as measured zero work", () => {
+    {
     const terminalResult = {
       status: "completed" as const,
       summary: "Done.",
@@ -367,9 +378,9 @@ describe("reported wall-clock work presentation", () => {
       expect(taskReportedWorkView(fixtureTask({ status: "completed", turns: [turn] })))
         .toMatchObject({ kind: "unavailable", value: "Unavailable" });
     }
-  });
+    }
 
-  test("treats all terminal zero-width ranges conservatively while retaining positive sub-seconds", () => {
+    {
     const observed = {
       requestSummary: "Perform the observed turn.",
       startedAt: "2026-08-30T08:00:00.000Z",
@@ -387,9 +398,9 @@ describe("reported wall-clock work presentation", () => {
       ...observed,
       result: { ...observed.result, updatedAt: "2026-08-30T08:00:00.500Z" },
     })).toMatchObject({ kind: "available", value: "<1s" });
-  });
+    }
 
-  test("treats terminal compact projections without turn history as unavailable", () => {
+    {
     const compactTerminal = fixtureTask({
       status: "completed",
       turns: undefined,
@@ -408,9 +419,10 @@ describe("reported wall-clock work presentation", () => {
     });
     render(<MantineProvider><UsagePanel task={compactTerminal} /></MantineProvider>);
     expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Unavailable");
-  });
+    cleanup();
+    }
 
-  test("treats a compact working follow-up with prior results as unavailable until history loads", () => {
+    {
     const priorResult = {
       status: "completed" as const,
       summary: "Prior turn done.",
@@ -425,9 +437,9 @@ describe("reported wall-clock work presentation", () => {
       lastResult: priorResult,
       results: undefined,
     }))).toMatchObject({ kind: "unavailable", value: "Unavailable" });
-  });
+    }
 
-  test("keeps a custom unavailable usage reason visible and accessible beside reported work", () => {
+    {
     render(
       <MantineProvider>
         <UsagePanel task={fixtureTask({
@@ -438,9 +450,10 @@ describe("reported wall-clock work presentation", () => {
     );
     expect(screen.getByText("No matching cached boundary.")).toBeVisible();
     expect(screen.getByLabelText("No matching cached boundary.")).toBeVisible();
-  });
+    cleanup();
+    }
 
-  test("keeps live elapsed timing independent from pending token and cost usage", () => {
+    {
     const task = fixtureTask();
     expect(turnReportedWorkView(task.turns![0], Date.parse("2026-08-30T08:18:32.000Z"))).toMatchObject({
       label: "Elapsed so far",
@@ -451,5 +464,6 @@ describe("reported wall-clock work presentation", () => {
       cost: { value: "Pending" },
       tokens: { value: "Pending" },
     });
+    }
   });
 });

@@ -23,6 +23,7 @@ import {
   taskListUsageProjection,
 } from "../index.js";
 import { writeUsageStore } from "../src/usage.js";
+import { applyMalformedBoundaryPreview } from "../scripts/preview-dashboard-state.js";
 import {
   createSseClient,
   readBoundedTaskLog,
@@ -1617,6 +1618,19 @@ test("dashboard monitor retries when an atomic replacement races its read", asyn
   assert.deepEqual(fingerprints, []);
   assert.deepEqual(snapshots, []);
   monitor.close();
+});
+
+test("malformed-boundary preview projection persists across fresh task snapshots", () => {
+  const freshTasks = () => [{
+    id: FIRST_ID,
+    turns: [{ startedAt: "2026-08-30T08:00:00.000Z" }],
+    latestTurn: null,
+  }];
+  for (const tasks of [freshTasks(), freshTasks()]) {
+    const projected = applyMalformedBoundaryPreview(tasks, FIRST_ID);
+    assert.equal(projected[0].turns[0].startedAt, "not-a-timestamp");
+    assert.equal(projected[0].latestTurn, projected[0].turns[0]);
+  }
 });
 
 test("watcher failures reconnect without marking a healthy snapshot stale", async () => {

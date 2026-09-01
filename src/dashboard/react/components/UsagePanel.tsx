@@ -40,9 +40,13 @@ export function UsagePanel({ task }: { task: Task }) {
       value: ready ? formatCompactTokens(ready.usage.totalTokens) : stateValue,
     },
     {
-      accessibleValue: ready?.usage.estimatedCostUsd == null
-        ? "Estimated cost unavailable"
-        : `Estimated cost ${formatEstimatedCost(ready.usage.estimatedCostUsd)}`,
+      accessibleValue: ready
+        ? ready.usage.estimatedCostUsd == null
+          ? "Estimated cost unavailable"
+          : `Estimated cost ${formatEstimatedCost(ready.usage.estimatedCostUsd)}`
+        : `Estimated cost ${stateValue.toLowerCase()}${
+          usage.kind === "unavailable" ? `: ${usage.label}` : ""
+        }`,
       animated: usage.kind === "pending" || usage.kind === "calculating",
       label: "Estimated cost",
       title: ready?.usage.estimatedCostUsd == null
