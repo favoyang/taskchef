@@ -339,6 +339,13 @@ cost unavailable rather than a misleading `$0.00`. Per-turn cost is also
 unavailable when its cumulative boundaries used different ccusage versions or
 pricing modes. ccusage 20.0.20 may omit GPT-5.6 cache-write charges, so TaskChef
 labels that analyzer limitation instead of presenting the estimate as complete.
+The same detail view reports lifecycle wall-clock elapsed time independently of
+ccusage. Each terminal turn shows **Elapsed** from `startedAt` to
+`result.updatedAt`; **Total reported work** sums only valid terminal-turn
+durations, excluding idle gaps and unfinished work. A working turn shows live
+**Elapsed so far** without contributing to the total. This is reported
+wall-clock elapsed time, not model compute time, and malformed or reversed
+timestamp ranges are shown as unavailable.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
 The canonical port is owned by a dashboard session process initialized by the

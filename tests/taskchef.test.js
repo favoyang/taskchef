@@ -3783,6 +3783,8 @@ test("published package includes the documented dashboard screenshots", async ()
     "docs/images/result-history-dashboard.jpg",
     "docs/images/interrupted-turn-recovery.jpg",
     "docs/images/dashboard-token-pending.jpg",
+    "docs/images/reported-work-duration-desktop.jpg",
+    "docs/images/reported-work-duration-mobile.jpg",
   ]) {
     assert.ok(manifest.files.includes(screenshot));
     assert.equal((await stat(path.resolve(screenshot))).isFile(), true);

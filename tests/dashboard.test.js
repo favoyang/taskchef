@@ -23,6 +23,7 @@ import {
   taskListUsageProjection,
 } from "../index.js";
 import { writeUsageStore } from "../src/usage.js";
+import { applyMalformedBoundaryPreview } from "../scripts/preview-dashboard-state.js";
 import {
   createSseClient,
   readBoundedTaskLog,
@@ -1619,6 +1620,19 @@ test("dashboard monitor retries when an atomic replacement races its read", asyn
   monitor.close();
 });
 
+test("malformed-boundary preview projection persists across fresh task snapshots", () => {
+  const freshTasks = () => [{
+    id: FIRST_ID,
+    turns: [{ startedAt: "2026-08-30T08:00:00.000Z" }],
+    latestTurn: null,
+  }];
+  for (const tasks of [freshTasks(), freshTasks()]) {
+    const projected = applyMalformedBoundaryPreview(tasks, FIRST_ID);
+    assert.equal(projected[0].turns[0].startedAt, "not-a-timestamp");
+    assert.equal(projected[0].latestTurn, projected[0].turns[0]);
+  }
+});
+
 test("watcher failures reconnect without marking a healthy snapshot stale", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, input(project, FIRST_ID, "Watched task", "thread-one"));
@@ -2007,6 +2021,12 @@ test("dashboard server serves independent clients without sessions and protects 
     const detail = await detailResponse.json();
     assert.equal(detail.task.turns.length, 1);
     assert.equal(detail.task.turns[0].requestSummary, null);
+    assert.equal(typeof detail.task.turns[0].startedAt, "string");
+    assert.equal(typeof detail.task.turns[0].result.updatedAt, "string");
+    assert.ok(
+      Date.parse(detail.task.turns[0].result.updatedAt) >= Date.parse(detail.task.turns[0].startedAt),
+      "detail projection retains ordered lifecycle timestamps for reported wall-clock work",
+    );
     assert.equal(
       detail.task.turns[0].result.summary,
       "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",

@@ -1,10 +1,15 @@
 import { MantineProvider } from "@mantine/core";
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "vitest";
 import { fixtureTask } from "./fixtures";
 import {
+  durationBetween,
   formatCompactTokens,
   formatEstimatedCost,
+  formatReportedDuration,
+  taskReportedWorkView,
+  turnReportedWorkView,
+  turnUsageMetricsView,
   turnUsageView,
   usageStillCalculating,
   usageView,
@@ -13,6 +18,8 @@ import { ShimmerText } from "./components/ShimmerText";
 import { GitHubLinks } from "./components/GitHubLinks";
 import { LinkedText } from "./components/LinkedText";
 import { UsagePanel } from "./components/UsagePanel";
+
+afterEach(cleanup);
 
 describe("token and working presentation", () => {
   test("keeps pending, calculating, ready cost, and unavailable wording distinct", () => {
@@ -99,11 +106,20 @@ describe("token and working presentation", () => {
     expect(screen.getByText("In progress")).toHaveAttribute("data-animation", "text-shimmer");
   });
 
-  test("summarizes ready usage as four operator-facing cards", () => {
+  test("summarizes ready usage and reported work as one operator-facing metric group", () => {
+    const completedTurn = {
+      ...fixtureTask().turns![0],
+      result: {
+        status: "completed" as const,
+        summary: "Done.",
+        updatedAt: "2026-08-30T08:18:32.000Z",
+      },
+    };
     render(
       <MantineProvider>
         <UsagePanel task={fixtureTask({
           status: "completed",
+          turns: [completedTurn],
           usage: {
             generationTurnRef: "turn-one",
             status: "available",
@@ -123,9 +139,34 @@ describe("token and working presentation", () => {
 
     expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("330");
     expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
+    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("18m 32s");
+    expect(screen.getByLabelText(/total reported work 18m 32s.*wall-clock/i)).toBeVisible();
     expect(screen.getByText("Model").nextSibling).toHaveTextContent("gpt-5.6-sol, gpt-5.6-luna");
     expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("67%");
     expect(screen.queryByText(/API-equivalent/i)).not.toBeInTheDocument();
+  });
+
+  test("keeps reported work visible across pending, calculating, and unavailable usage", () => {
+    for (const [task, expected, accessibleCost] of [
+      [fixtureTask(), "Pending", "Estimated cost pending"],
+      [
+        fixtureTask({ status: "completed", usage: { status: "calculating" } }),
+        "Calculating",
+        "Estimated cost calculating",
+      ],
+      [
+        fixtureTask({ status: "completed", usage: { status: "unavailable" } }),
+        "Unavailable",
+        "Estimated cost unavailable: Token usage unavailable",
+      ],
+    ] as const) {
+      render(<MantineProvider><UsagePanel task={task} /></MantineProvider>);
+      expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
+      expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
+      expect(screen.getByLabelText(accessibleCost)).toBeVisible();
+      expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Not yet reported");
+      cleanup();
+    }
   });
 
   test("uses the same borderless link treatment wherever links are rendered", () => {
@@ -237,5 +278,192 @@ describe("token and working presentation", () => {
     );
     expect(within(container).getByRole("link", { name: /favoyang\/taskchef PR #83/ }))
       .toHaveTextContent("taskchef PR #83");
+  });
+});
+
+describe("reported wall-clock work presentation", () => {
+  test("covers formatting, derivation, unavailable boundaries, usage states, and accessibility", () => {
+    expect(formatReportedDuration(500)).toBe("<1s");
+    expect(formatReportedDuration(32_999)).toBe("32s");
+    expect(formatReportedDuration((18 * 60 + 32) * 1_000 + 999)).toBe("18m 32s");
+    expect(formatReportedDuration((2 * 60 + 14) * 60 * 1_000 + 59_999)).toBe("2h 14m");
+    expect(formatReportedDuration((27 * 60 + 59) * 60 * 1_000)).toBe("1d 3h");
+    expect(formatReportedDuration(-1)).toBeNull();
+    expect(formatReportedDuration(Number.NaN)).toBeNull();
+
+    {
+    const task = fixtureTask({
+      status: "working",
+      turns: [
+        {
+          requestSummary: "First turn",
+          startedAt: "2026-08-30T08:00:00.000Z",
+          turnRef: "turn-one",
+          turnId: null,
+          result: {
+            status: "completed",
+            summary: "First done",
+            updatedAt: "2026-08-30T08:18:32.000Z",
+          },
+        },
+        {
+          requestSummary: "Second turn after a long idle gap",
+          startedAt: "2026-08-30T18:00:00.000Z",
+          turnRef: "turn-two",
+          turnId: null,
+          result: {
+            status: "failed",
+            summary: "Second done",
+            updatedAt: "2026-08-30T20:14:00.000Z",
+          },
+        },
+        {
+          requestSummary: "Active follow-up",
+          startedAt: "2026-08-31T08:00:00.000Z",
+          turnRef: "turn-three",
+          turnId: null,
+          result: null,
+        },
+      ],
+    });
+    const view = taskReportedWorkView(task);
+    expect(view.kind).toBe("available");
+    expect(view.value).toBe("2h 32m");
+    expect(view.title).toMatch(/idle gaps are excluded/i);
+    }
+
+    {
+    const invalid = fixtureTask({
+      status: "completed",
+      turns: [{
+        requestSummary: "Historical turn",
+        startedAt: "not-a-date",
+        turnRef: "turn-one",
+        turnId: null,
+        result: { status: "completed", summary: "Done", updatedAt: "2026-08-30T08:00:00.000Z" },
+      }],
+    });
+    expect(taskReportedWorkView(invalid)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    expect(durationBetween("2026-08-30T08:01:00.000Z", "2026-08-30T08:00:00.000Z")).toBeNull();
+    expect(durationBetween("2026-02-30T08:00:00.000Z", "2026-03-02T08:01:00.000Z")).toBeNull();
+    expect(durationBetween("March 2, 2026 08:00:00 UTC", "2026-03-02T08:01:00.000Z")).toBeNull();
+    expect(turnReportedWorkView(invalid.turns![0])).toMatchObject({
+      kind: "unavailable",
+      label: "Elapsed",
+      value: "Unavailable",
+    });
+    }
+
+    {
+    const terminalResult = {
+      status: "completed" as const,
+      summary: "Done.",
+      updatedAt: "2026-08-30T08:00:00.000Z",
+    };
+    const legacyTurn = {
+      requestSummary: null,
+      startedAt: terminalResult.updatedAt,
+      turnRef: "legacy-turn",
+      turnId: null,
+      provenance: { kind: "legacy" },
+      result: terminalResult,
+    };
+    const terminalOnlyTurn = {
+      ...legacyTurn,
+      turnRef: "terminal-only-turn",
+      provenance: { kind: "mcp" },
+    };
+    for (const turn of [legacyTurn, terminalOnlyTurn]) {
+      expect(turnReportedWorkView(turn)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+      expect(taskReportedWorkView(fixtureTask({ status: "completed", turns: [turn] })))
+        .toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    }
+    }
+
+    {
+    const observed = {
+      requestSummary: "Perform the observed turn.",
+      startedAt: "2026-08-30T08:00:00.000Z",
+      turnRef: "observed-turn",
+      turnId: null,
+      provenance: { kind: "mcp" },
+      result: {
+        status: "completed" as const,
+        summary: "Done.",
+        updatedAt: "2026-08-30T08:00:00.000Z",
+      },
+    };
+    expect(turnReportedWorkView(observed)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    expect(turnReportedWorkView({
+      ...observed,
+      result: { ...observed.result, updatedAt: "2026-08-30T08:00:00.500Z" },
+    })).toMatchObject({ kind: "available", value: "<1s" });
+    }
+
+    {
+    const compactTerminal = fixtureTask({
+      status: "completed",
+      turns: undefined,
+      latestTurn: {
+        ...fixtureTask().latestTurn!,
+        result: {
+          status: "completed",
+          summary: "Done.",
+          updatedAt: "2026-08-30T08:18:32.000Z",
+        },
+      },
+    });
+    expect(taskReportedWorkView(compactTerminal)).toMatchObject({
+      kind: "unavailable",
+      value: "Unavailable",
+    });
+    render(<MantineProvider><UsagePanel task={compactTerminal} /></MantineProvider>);
+    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Unavailable");
+    cleanup();
+    }
+
+    {
+    const priorResult = {
+      status: "completed" as const,
+      summary: "Prior turn done.",
+      updatedAt: "2026-08-30T08:18:32.000Z",
+      turnRef: "turn-one",
+      turnId: null,
+    };
+    expect(taskReportedWorkView(fixtureTask({
+      status: "working",
+      turnRef: "turn-two",
+      turns: undefined,
+      lastResult: priorResult,
+      results: undefined,
+    }))).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    }
+
+    {
+    render(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          status: "completed",
+          usage: { status: "unavailable", reason: "No matching cached boundary." },
+        })} />
+      </MantineProvider>,
+    );
+    expect(screen.getByText("No matching cached boundary.")).toBeVisible();
+    expect(screen.getByLabelText("No matching cached boundary.")).toBeVisible();
+    cleanup();
+    }
+
+    {
+    const task = fixtureTask();
+    expect(turnReportedWorkView(task.turns![0], Date.parse("2026-08-30T08:18:32.000Z"))).toMatchObject({
+      label: "Elapsed so far",
+      value: "18m 32s",
+    });
+    expect(turnUsageMetricsView(task, task.turns![0])).toMatchObject({
+      animated: true,
+      cost: { value: "Pending" },
+      tokens: { value: "Pending" },
+    });
+    }
   });
 });
