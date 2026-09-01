@@ -1,6 +1,6 @@
 {
   "name": "taskchef",
-  "version": "7.26.1",
+  "version": "7.27.0",
   "description": "Dispatch work from a data-only workspace to visible Codex project tasks.",
   "author": {
     "name": "Favo Yang",
