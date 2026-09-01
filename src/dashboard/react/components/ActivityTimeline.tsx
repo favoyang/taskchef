@@ -1,7 +1,7 @@
 import { Box, Paper, Stack, Text } from "@mantine/core";
 import { mergeProjectedTurns, turnPresentation } from "../../state.js";
 import { turnReportedWorkView, turnUsageMetricsView } from "../presentation";
-import type { Task } from "../types";
+import type { Task, TaskTurn } from "../types";
 import { useEffect, useState } from "react";
 import { RelativeTime } from "./RelativeTime";
 import { LinkedText } from "./LinkedText";
@@ -10,8 +10,6 @@ import { StatusBadge } from "./StatusBadge";
 
 export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef: string | null; task: Task }) {
   const turns = mergeProjectedTurns(task, []) as Task["turns"];
-  const hasActiveTurn = Boolean(turns?.some((turn) => turn.result === null));
-  const now = useLiveNow(hasActiveTurn);
   if (!turns?.length) return <Text c="dimmed" size="sm">No turn history has been recorded.</Text>;
   return (
     <Stack gap="sm">
@@ -20,7 +18,6 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
         const identity = turn.turnRef ?? turn.turnId ?? `turn-${index}`;
         const highlighted = identity === highlightTurnRef;
         const usage = turnUsageMetricsView(task, turn);
-        const elapsed = turnReportedWorkView(turn, now);
         return (
           <Paper
             className={`taskchef-turn${highlighted ? " taskchef-turn-highlighted" : ""}`}
@@ -66,12 +63,7 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                   title={usage.title}
                   value={usage.cost.value}
                 />
-                <TurnMetric
-                  accessibleLabel={elapsed.accessibleLabel}
-                  label={elapsed.label}
-                  title={elapsed.title}
-                  value={elapsed.value}
-                />
+                <TurnReportedWorkMetric turn={turn} />
               </Box>
               {usage.note && <Text c="dimmed" size="xs">{usage.note}</Text>}
               <Text c="dimmed" className="taskchef-mono" size="xs">Turn ref: {identity ?? "—"}</Text>
@@ -80,6 +72,19 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
         );
       })}
     </Stack>
+  );
+}
+
+function TurnReportedWorkMetric({ turn }: { turn: TaskTurn }) {
+  const now = useLiveNow(turn.result === null);
+  const elapsed = turnReportedWorkView(turn, now);
+  return (
+    <TurnMetric
+      accessibleLabel={elapsed.accessibleLabel}
+      label={elapsed.label}
+      title={elapsed.title}
+      value={elapsed.value}
+    />
   );
 }
 

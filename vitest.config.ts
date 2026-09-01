@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
+    fileParallelism: false,
     include: ["src/dashboard/react/**/*.test.{ts,tsx}"],
     setupFiles: ["src/dashboard/react/test-setup.ts"],
   },
