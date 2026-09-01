@@ -27,6 +27,7 @@ import { taskGitHubProjection } from "./dashboard/github-links.js";
 import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
 import { readUsageStore, usageStorePath } from "./usage.js";
+import { reportedWorkSummary } from "./reported-work.js";
 import {
   MAX_DASHBOARD_SESSION_PIDS,
   MAX_TRANSFERRED_DASHBOARD_SESSION_PIDS,
@@ -229,6 +230,7 @@ function taskListProjection(task) {
   const { turns: _turns, results: _results, ...projection } = {
     ...task,
     ...taskGitHubProjection(task),
+    reportedWork: reportedWorkSummary(task.turns ?? []),
   };
   return projection;
 }

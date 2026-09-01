@@ -55,10 +55,12 @@ body {
 .taskchef-github-group { min-width: 0; }
 .taskchef-github-reference-ambiguous { border-bottom: 2px dotted var(--mantine-color-yellow-7); cursor: help; }
 .taskchef-github-reference-ambiguous:focus-visible { outline: 2px solid var(--mantine-color-yellow-7); outline-offset: 2px; }
-.taskchef-time { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 2px 3px; border-radius: 4px; color: var(--taskchef-muted); font-size: 0.7rem; line-height: 1.2; }
+.taskchef-time, .taskchef-card-duration { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 2px 3px; border-radius: 4px; color: var(--taskchef-muted); font-size: 0.7rem; font-weight: 400; letter-spacing: normal; line-height: 1.2; text-transform: none; }
 .taskchef-time:hover { color: var(--taskchef-text); background: var(--taskchef-surface-muted); }
 .taskchef-time:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
 .taskchef-time-label { white-space: nowrap; }
+.taskchef-card-timing { min-width: 0; flex-wrap: wrap; }
+.taskchef-card-duration { min-width: 0; white-space: nowrap; }
 .taskchef-empty { border-style: dashed; background: transparent; }
 
 .taskchef-notifications {
@@ -123,7 +125,7 @@ body {
   .taskchef-toolbar .mantine-SegmentedControl-root { overflow-x: auto; }
   .taskchef-notifications { right: 16px; bottom: 16px; width: min(330px, calc(100vw - 32px)); }
   .taskchef-metadata { grid-template-columns: 1fr; }
-  .taskchef-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .taskchef-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .taskchef-turn-metrics { grid-template-columns: 1fr; }
   .taskchef-turn-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
   .taskchef-turn-timing { flex-wrap: wrap; justify-content: flex-start; }

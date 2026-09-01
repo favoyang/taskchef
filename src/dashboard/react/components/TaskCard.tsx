@@ -1,6 +1,7 @@
 import { Box, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { latestTurnPresentation } from "../../state.js";
 import type { Task } from "../types";
+import { taskReportedWorkView } from "../presentation";
 import { GitHubLinks } from "./GitHubLinks";
 import { LinkedText } from "./LinkedText";
 import { OpenChatButton } from "./OpenChatButton";
@@ -19,6 +20,7 @@ export function TaskCard({
   task: Task;
 }) {
   const latest = latestTurnPresentation(task);
+  const reportedWork = taskReportedWorkView(task);
   return (
     <Paper className="taskchef-task-row" component="article" p="md" radius="md" withBorder>
       <Stack className="taskchef-task-main" gap="sm">
@@ -52,7 +54,18 @@ export function TaskCard({
 
           <GitHubLinks task={task} />
           <Group className="taskchef-card-footer" gap="md" justify="space-between">
-            <RelativeTime label={`Updated time for ${task.title}`} value={task.meaningfulUpdatedAt ?? task.updatedAt} />
+            <Group className="taskchef-card-timing" gap="sm">
+              <RelativeTime label={`Updated time for ${task.title}`} value={task.meaningfulUpdatedAt ?? task.updatedAt} />
+              <Text
+                aria-label={reportedWork.accessibleLabel}
+                className="taskchef-card-duration"
+                size="xs"
+                title={reportedWork.title}
+              >
+                <span>Reported work</span>
+                <span>{reportedWork.value}</span>
+              </Text>
+            </Group>
             <OpenChatButton onClick={() => onOpenCodex(task)} taskTitle={task.title} />
           </Group>
       </Stack>

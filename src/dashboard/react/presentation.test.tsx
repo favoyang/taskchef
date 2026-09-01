@@ -139,8 +139,8 @@ describe("token and working presentation", () => {
 
     expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("330");
     expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
-    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("18m 32s");
-    expect(screen.getByLabelText(/total reported work 18m 32s.*wall-clock/i)).toBeVisible();
+    expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("18m 32s");
+    expect(screen.getByLabelText(/reported work 18m 32s.*wall-clock/i)).toBeVisible();
     expect(screen.getByText("Model").nextSibling).toHaveTextContent("gpt-5.6-sol, gpt-5.6-luna");
     expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("67%");
     expect(screen.queryByText(/API-equivalent/i)).not.toBeInTheDocument();
@@ -164,7 +164,7 @@ describe("token and working presentation", () => {
       expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
       expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
       expect(screen.getByLabelText(accessibleCost)).toBeVisible();
-      expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Not yet reported");
+      expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("Not yet reported");
       cleanup();
     }
   });
@@ -417,8 +417,12 @@ describe("reported wall-clock work presentation", () => {
       kind: "unavailable",
       value: "Unavailable",
     });
+    expect(taskReportedWorkView({
+      ...compactTerminal,
+      reportedWork: { terminalTurns: 1, validTurns: 1, totalMilliseconds: 1_112_000 },
+    })).toMatchObject({ kind: "available", value: "18m 32s" });
     render(<MantineProvider><UsagePanel task={compactTerminal} /></MantineProvider>);
-    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Unavailable");
+    expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("Unavailable");
     cleanup();
     }
 

@@ -56,7 +56,7 @@ export function UsagePanel({ task }: { task: Task }) {
     },
     {
       accessibleValue: reportedWork.accessibleLabel,
-      label: "Total reported work",
+      label: "Reported work",
       title: reportedWork.title,
       value: reportedWork.value,
     },

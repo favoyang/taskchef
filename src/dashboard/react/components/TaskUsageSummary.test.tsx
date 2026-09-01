@@ -98,4 +98,25 @@ describe("task list usage summary", () => {
     expect(screen.getByRole("button", { name: /^review checkout reconciliation$/i })).toBeVisible();
     expect(screen.getByRole("button", { name: /open chat/i })).toBeVisible();
   });
+
+  test("places reported work beside the updated time with matching typography", () => {
+    const { container } = render(
+      <MantineProvider>
+        <TaskCard
+          onOpenCodex={vi.fn()}
+          onOpenDetail={vi.fn()}
+          task={fixtureTask({
+            turns: undefined,
+            reportedWork: { terminalTurns: 1, validTurns: 1, totalMilliseconds: 1_112_000 },
+          })}
+        />
+      </MantineProvider>,
+    );
+    const timing = container.querySelector(".taskchef-card-timing");
+    expect(timing).not.toBeNull();
+    expect(timing?.children[0]).toHaveClass("taskchef-time");
+    expect(timing?.children[1]).toHaveClass("taskchef-card-duration");
+    expect(screen.getByText("Reported work")).not.toHaveClass("taskchef-field-label");
+    expect(timing?.children[1]?.lastChild).toHaveTextContent("18m 32s");
+  });
 });

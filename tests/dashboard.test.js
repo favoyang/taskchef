@@ -2003,6 +2003,11 @@ test("dashboard server serves independent clients without sessions and protects 
     assert.equal(snapshot.tasks[0].id, FIRST_ID);
     assert.equal("turns" in snapshot.tasks[0], false);
     assert.equal("results" in snapshot.tasks[0], false);
+    assert.deepEqual(snapshot.tasks[0].reportedWork, {
+      terminalTurns: 1,
+      totalMilliseconds: null,
+      validTurns: 0,
+    });
     assert.equal(
       snapshot.tasks[0].latestTurn.result.summary,
       "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",
