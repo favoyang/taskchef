@@ -6,7 +6,7 @@ import { ActivityTimeline } from "./ActivityTimeline";
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 test("renders tokens, estimated cost, and terminal elapsed time as one compact group", () => {
@@ -37,15 +37,24 @@ test("renders tokens, estimated cost, and terminal elapsed time as one compact g
 });
 
 test("updates active elapsed so far without turning it into total reported work", () => {
-  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
-  vi.setSystemTime("2026-08-30T08:18:32.000Z");
+  let now = Date.parse("2026-08-30T08:18:32.000Z");
+  let tick: (() => void) | undefined;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler) => {
+    tick = handler as () => void;
+    return 1;
+  }) as typeof window.setInterval);
+  vi.spyOn(window, "clearInterval").mockImplementation(() => undefined);
   const task = fixtureTask();
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
   expect(screen.getByText("Elapsed so far").nextSibling).toHaveTextContent("18m 32s");
   expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("Pending");
   expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("Pending");
 
-  act(() => vi.advanceTimersByTime(2_000));
+  act(() => {
+    now += 2_000;
+    tick?.();
+  });
 
   expect(screen.getByText("Elapsed so far").nextSibling).toHaveTextContent("18m 34s");
 });
