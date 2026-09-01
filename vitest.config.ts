@@ -7,6 +7,7 @@ export default defineConfig({
     environment: "jsdom",
     fileParallelism: false,
     include: ["src/dashboard/react/**/*.test.{ts,tsx}"],
+    pool: "forks",
     setupFiles: ["src/dashboard/react/test-setup.ts"],
   },
 });
