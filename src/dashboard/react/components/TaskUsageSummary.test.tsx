@@ -36,7 +36,7 @@ describe("task list usage summary", () => {
       status: "completed",
       usage: { status: "available", task: { totalTokens: 1_324_567, estimatedCostUsd: null } },
     }));
-    expect(screen.getByText("1.32M tokens · cost unavailable")).toHaveAccessibleName(
+    expect(screen.getByText("1.32M tokens · cost n/a")).toHaveAccessibleName(
       /1,324,567 tokens; estimated cost unavailable/i,
     );
   });
@@ -76,7 +76,7 @@ describe("task list usage summary", () => {
       status: "completed",
       usage: { status: "unavailable", reason: "No matching cached boundary." },
     }));
-    const summary = screen.getByText("Token usage unavailable");
+    const summary = screen.getByText("n/a tokens");
     expect(summary).toHaveAttribute("data-usage-state", "unavailable");
     expect(summary).toHaveAttribute("title", "No matching cached boundary.");
   });

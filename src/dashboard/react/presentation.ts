@@ -11,6 +11,7 @@ const SECOND_MS = 1_000;
 const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
+const NOT_AVAILABLE = "n/a";
 
 export function formatReportedDuration(milliseconds: number) {
   if (!Number.isFinite(milliseconds) || milliseconds < 0) return null;
@@ -44,7 +45,7 @@ export function taskReportedWorkView(task: Task): ReportedWorkView {
       accessibleLabel: "Reported work unavailable because terminal turn history is not available.",
       kind: "unavailable",
       title: "Reported wall-clock elapsed time requires the terminal turn history from the task detail projection.",
-      value: "Unavailable",
+      value: NOT_AVAILABLE,
     };
   }
   if (summary.terminalTurns === 0) {
@@ -52,7 +53,7 @@ export function taskReportedWorkView(task: Task): ReportedWorkView {
       accessibleLabel: "Reported work not yet reported. Unfinished turns are excluded.",
       kind: "not-reported",
       title: "Reported wall-clock elapsed time is added only after a turn reaches a terminal state.",
-      value: "Not yet reported",
+      value: NOT_AVAILABLE,
     };
   }
   if (summary.validTurns === 0) {
@@ -60,7 +61,7 @@ export function taskReportedWorkView(task: Task): ReportedWorkView {
       accessibleLabel: "Reported work unavailable because completed turn timestamps are missing or invalid.",
       kind: "unavailable",
       title: "Reported wall-clock elapsed time is unavailable because no terminal turn has a valid start and end timestamp.",
-      value: "Unavailable",
+      value: NOT_AVAILABLE,
     };
   }
   const value = summary.totalMilliseconds === null
@@ -71,7 +72,7 @@ export function taskReportedWorkView(task: Task): ReportedWorkView {
       accessibleLabel: "Reported work unavailable because the duration total is outside the supported range.",
       kind: "unavailable",
       title: "Reported wall-clock elapsed time is unavailable because the duration total is outside the supported range.",
-      value: "Unavailable",
+      value: NOT_AVAILABLE,
     };
   }
   const excluded = summary.terminalTurns - summary.validTurns;
@@ -92,9 +93,9 @@ export function turnReportedWorkView(turn: TaskTurn, now = Date.now()) {
     ? durationBetween(turn.startedAt, new Date(now).toISOString())
     : terminalTurnDuration(turn);
   const label = active ? "Elapsed so far" : "Elapsed";
-  const value = duration === null ? "Unavailable" : formatReportedDuration(duration) ?? "Unavailable";
+  const value = duration === null ? NOT_AVAILABLE : formatReportedDuration(duration) ?? NOT_AVAILABLE;
   return {
-    accessibleLabel: `${label} ${value}. ${active ? "Current" : "Completed"} turn reported wall-clock elapsed time.`,
+    accessibleLabel: `${label} ${duration === null ? "unavailable" : value}. ${active ? "Current" : "Completed"} turn reported wall-clock elapsed time.`,
     kind: duration === null ? "unavailable" as const : "available" as const,
     label,
     title: duration === null
@@ -157,7 +158,7 @@ export function usageView(task: Task): UsageView {
 function readyUsageView(usage: UsageNumbers, knownSoFar: boolean): UsageView {
   const tokens = formatCompactTokens(usage.totalTokens);
   const cost = usage.estimatedCostUsd == null
-    ? "Estimated cost unavailable"
+    ? "Estimated cost n/a"
     : `Estimated cost ${formatEstimatedCost(usage.estimatedCostUsd)}`;
   return {
     kind: "ready",
@@ -177,7 +178,7 @@ export function turnUsageView(task: Task, turn: NonNullable<Task["turns"]>[numbe
   if (usage?.status === "available" && typeof usage.totalTokens === "number") {
     const tokens = formatFullTokens(usage.totalTokens);
     const cost = usage.estimatedCostUsd == null
-      ? "Estimated cost unavailable"
+      ? "Estimated cost n/a"
       : `Estimated cost ${formatEstimatedCost(usage.estimatedCostUsd)}`;
     return { kind: "ready" as const, label: `${tokens} tokens · ${cost}` };
   }
@@ -192,13 +193,16 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
   if (view.kind === "ready") {
     const identity = turn.turnRef ?? turn.turnId;
     const usage = identity ? task.usage?.turns?.[identity] : null;
-    const tokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : "Unavailable";
+    const tokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : NOT_AVAILABLE;
     const cost = usage?.estimatedCostUsd == null
-      ? "Unavailable"
+      ? NOT_AVAILABLE
       : formatEstimatedCost(usage.estimatedCostUsd);
     return {
       animated: false,
-      cost: { accessibleLabel: `Estimated cost ${cost.toLowerCase()}`, value: cost },
+      cost: {
+        accessibleLabel: `Estimated cost ${usage?.estimatedCostUsd == null ? "unavailable" : cost.toLowerCase()}`,
+        value: cost,
+      },
       kind: view.kind,
       note: null,
       title: view.label,
@@ -209,18 +213,19 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
     ? "Pending"
     : view.kind === "calculating"
       ? "Calculating"
-      : "Unavailable";
+      : NOT_AVAILABLE;
+  const accessibleValue = view.kind === "unavailable" ? "unavailable" : value.toLowerCase();
   return {
     animated: view.kind === "pending" || view.kind === "calculating",
     cost: {
-      accessibleLabel: `Estimated cost ${value.toLowerCase()}${view.kind === "unavailable" ? `: ${view.label}` : ""}`,
+      accessibleLabel: `Estimated cost ${accessibleValue}${view.kind === "unavailable" ? `: ${view.label}` : ""}`,
       value,
     },
     kind: view.kind,
-    note: view.kind === "unavailable" ? view.label : null,
+    note: view.kind === "unavailable" && view.label !== "Turn usage unavailable" ? view.label : null,
     title: view.label,
     tokens: {
-      accessibleLabel: `Tokens ${value.toLowerCase()}${view.kind === "unavailable" ? `: ${view.label}` : ""}`,
+      accessibleLabel: `Tokens ${accessibleValue}${view.kind === "unavailable" ? `: ${view.label}` : ""}`,
       value,
     },
   };
@@ -253,14 +258,14 @@ export function listUsageView(task: Task): ListUsageView {
     return {
       accessibleLabel: `Token usage unavailable${view.label === "Token usage unavailable" ? "" : `: ${view.label}`}`,
       kind: "unavailable",
-      label: "Token usage unavailable",
+      label: `${NOT_AVAILABLE} tokens`,
       title: view.label,
     };
   }
   const compactTokens = formatCompactTokens(view.usage.totalTokens);
   const fullTokens = formatFullTokens(view.usage.totalTokens);
   const cost = view.usage.estimatedCostUsd == null
-    ? "cost unavailable"
+    ? "cost n/a"
     : `est. ${formatEstimatedCost(view.usage.estimatedCostUsd)}`;
   const qualifier = view.knownSoFar ? " · Updating…" : "";
   const accessibleQualifier = view.knownSoFar ? "; updating" : "";
