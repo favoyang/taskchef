@@ -36,7 +36,7 @@ describe("task list usage summary", () => {
       status: "completed",
       usage: { status: "available", task: { totalTokens: 1_324_567, estimatedCostUsd: null } },
     }));
-    expect(screen.getByText("1.32M tokens · cost unavailable")).toHaveAccessibleName(
+    expect(screen.getByText("1.32M tokens · cost n/a")).toHaveAccessibleName(
       /1,324,567 tokens; estimated cost unavailable/i,
     );
   });
@@ -76,7 +76,7 @@ describe("task list usage summary", () => {
       status: "completed",
       usage: { status: "unavailable", reason: "No matching cached boundary." },
     }));
-    const summary = screen.getByText("Token usage unavailable");
+    const summary = screen.getByText("n/a tokens");
     expect(summary).toHaveAttribute("data-usage-state", "unavailable");
     expect(summary).toHaveAttribute("title", "No matching cached boundary.");
   });
@@ -97,5 +97,26 @@ describe("task list usage summary", () => {
     expect(metadata?.children[1]).toHaveClass("taskchef-task-usage");
     expect(screen.getByRole("button", { name: /^review checkout reconciliation$/i })).toBeVisible();
     expect(screen.getByRole("button", { name: /open chat/i })).toBeVisible();
+  });
+
+  test("places reported work beside the updated time with matching typography", () => {
+    const { container } = render(
+      <MantineProvider>
+        <TaskCard
+          onOpenCodex={vi.fn()}
+          onOpenDetail={vi.fn()}
+          task={fixtureTask({
+            turns: undefined,
+            reportedWork: { terminalTurns: 1, validTurns: 1, totalMilliseconds: 1_112_000 },
+          })}
+        />
+      </MantineProvider>,
+    );
+    const timing = container.querySelector(".taskchef-card-timing");
+    expect(timing).not.toBeNull();
+    expect(timing?.children[0]).toHaveClass("taskchef-time");
+    expect(timing?.children[1]).toHaveClass("taskchef-card-duration");
+    expect(screen.getByText("Reported work")).not.toHaveClass("taskchef-field-label");
+    expect(timing?.children[1]?.lastChild).toHaveTextContent("18m 32s");
   });
 });

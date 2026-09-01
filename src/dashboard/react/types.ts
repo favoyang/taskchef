@@ -59,6 +59,12 @@ export interface UsageProjection {
   updatedAt?: string | null;
 }
 
+export interface ReportedWorkSummary {
+  terminalTurns: number;
+  validTurns: number;
+  totalMilliseconds: number | null;
+}
+
 export interface Task {
   schemaVersion?: number;
   id: string;
@@ -78,6 +84,7 @@ export interface Task {
   latestTurn: TaskTurn | null;
   turns?: TaskTurn[];
   results?: TaskResult[];
+  reportedWork?: ReportedWorkSummary;
   usage?: UsageProjection | null;
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;

@@ -17,12 +17,14 @@ export function UsagePanel({ task }: { task: Task }) {
   const input = ready?.usage.inputTokens ?? 0;
   const cacheRatio = ready && input + cached > 0
     ? `${Math.round((cached / (input + cached)) * 100)}%`
-    : "—";
+    : "n/a";
+  const models = Object.keys(ready?.usage.models ?? {}).join(", ");
   const stateValue = usage.kind === "pending"
     ? "Pending"
     : usage.kind === "calculating"
       ? "Calculating"
-      : "Unavailable";
+      : "n/a";
+  const accessibleState = usage.kind === "unavailable" ? "unavailable" : stateValue.toLowerCase();
   const values: Array<{
     accessibleValue?: string;
     animated?: boolean;
@@ -44,25 +46,37 @@ export function UsagePanel({ task }: { task: Task }) {
         ? ready.usage.estimatedCostUsd == null
           ? "Estimated cost unavailable"
           : `Estimated cost ${formatEstimatedCost(ready.usage.estimatedCostUsd)}`
-        : `Estimated cost ${stateValue.toLowerCase()}${
+        : `Estimated cost ${accessibleState}${
           usage.kind === "unavailable" ? `: ${usage.label}` : ""
         }`,
       animated: usage.kind === "pending" || usage.kind === "calculating",
       label: "Estimated cost",
       title: ready?.usage.estimatedCostUsd == null
-        ? usage.label
+        ? "Estimated cost unavailable"
         : `Unrounded estimate: $${ready.usage.estimatedCostUsd}`,
-      value: ready ? formatEstimatedCost(ready.usage.estimatedCostUsd) : stateValue,
+      value: ready
+        ? ready.usage.estimatedCostUsd == null ? "n/a" : formatEstimatedCost(ready.usage.estimatedCostUsd)
+        : stateValue,
     },
     {
       accessibleValue: reportedWork.accessibleLabel,
-      label: "Total reported work",
+      label: "Reported work",
       title: reportedWork.title,
       value: reportedWork.value,
     },
     ...(ready ? [
-      { label: "Model", value: Object.keys(ready.usage.models ?? {}).join(", ") || "—" },
-      { label: "Cache ratio", value: cacheRatio },
+      {
+        accessibleValue: models || "Model unavailable",
+        label: "Model",
+        title: models || "Model unavailable",
+        value: models || "n/a",
+      },
+      {
+        accessibleValue: cacheRatio === "n/a" ? "Cache ratio unavailable" : `Cache ratio ${cacheRatio}`,
+        label: "Cache ratio",
+        title: cacheRatio === "n/a" ? "Cache ratio unavailable because no input-token total is available." : undefined,
+        value: cacheRatio,
+      },
     ] : []),
   ];
   return (
@@ -83,7 +97,7 @@ export function UsagePanel({ task }: { task: Task }) {
           </Paper>
         ))}
       </Box>
-      {usage.kind === "unavailable" && (
+      {usage.kind === "unavailable" && usage.label !== "Token usage unavailable" && (
         <Text c="dimmed" mt="xs" size="xs">{usage.label}</Text>
       )}
     </Box>

@@ -133,7 +133,7 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   });
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
   expect(screen.getByLabelText(/elapsed unavailable.*reported wall-clock/i))
-    .toHaveTextContent("ElapsedUnavailable");
+    .toHaveTextContent("Elapsedn/a");
   expect(screen.getByText("Manual dashboard turns do not have usage boundaries.")).toBeVisible();
   expect(screen.getByLabelText(/tokens unavailable: manual dashboard turns/i)).toBeVisible();
   }

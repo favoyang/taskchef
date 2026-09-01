@@ -139,11 +139,32 @@ describe("token and working presentation", () => {
 
     expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("330");
     expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
-    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("18m 32s");
-    expect(screen.getByLabelText(/total reported work 18m 32s.*wall-clock/i)).toBeVisible();
+    expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("18m 32s");
+    expect(screen.getByLabelText(/reported work 18m 32s.*wall-clock/i)).toBeVisible();
     expect(screen.getByText("Model").nextSibling).toHaveTextContent("gpt-5.6-sol, gpt-5.6-luna");
     expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("67%");
     expect(screen.queryByText(/API-equivalent/i)).not.toBeInTheDocument();
+  });
+
+  test("uses n/a for missing ready usage metrics with explanatory accessibility", () => {
+    render(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          status: "completed",
+          usage: {
+            status: "available",
+            task: { totalTokens: 330, estimatedCostUsd: null },
+          },
+        })} />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("n/a");
+    expect(screen.getByLabelText("Estimated cost unavailable")).toBeVisible();
+    expect(screen.getByText("Model").nextSibling).toHaveTextContent("n/a");
+    expect(screen.getByLabelText("Model unavailable")).toBeVisible();
+    expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("n/a");
+    expect(screen.getByLabelText("Cache ratio unavailable")).toBeVisible();
   });
 
   test("keeps reported work visible across pending, calculating, and unavailable usage", () => {
@@ -156,7 +177,7 @@ describe("token and working presentation", () => {
       ],
       [
         fixtureTask({ status: "completed", usage: { status: "unavailable" } }),
-        "Unavailable",
+        "n/a",
         "Estimated cost unavailable: Token usage unavailable",
       ],
     ] as const) {
@@ -164,7 +185,7 @@ describe("token and working presentation", () => {
       expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
       expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
       expect(screen.getByLabelText(accessibleCost)).toBeVisible();
-      expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Not yet reported");
+      expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("n/a");
       cleanup();
     }
   });
@@ -343,14 +364,14 @@ describe("reported wall-clock work presentation", () => {
         result: { status: "completed", summary: "Done", updatedAt: "2026-08-30T08:00:00.000Z" },
       }],
     });
-    expect(taskReportedWorkView(invalid)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    expect(taskReportedWorkView(invalid)).toMatchObject({ kind: "unavailable", value: "n/a" });
     expect(durationBetween("2026-08-30T08:01:00.000Z", "2026-08-30T08:00:00.000Z")).toBeNull();
     expect(durationBetween("2026-02-30T08:00:00.000Z", "2026-03-02T08:01:00.000Z")).toBeNull();
     expect(durationBetween("March 2, 2026 08:00:00 UTC", "2026-03-02T08:01:00.000Z")).toBeNull();
     expect(turnReportedWorkView(invalid.turns![0])).toMatchObject({
       kind: "unavailable",
       label: "Elapsed",
-      value: "Unavailable",
+      value: "n/a",
     });
     }
 
@@ -374,9 +395,9 @@ describe("reported wall-clock work presentation", () => {
       provenance: { kind: "mcp" },
     };
     for (const turn of [legacyTurn, terminalOnlyTurn]) {
-      expect(turnReportedWorkView(turn)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+      expect(turnReportedWorkView(turn)).toMatchObject({ kind: "unavailable", value: "n/a" });
       expect(taskReportedWorkView(fixtureTask({ status: "completed", turns: [turn] })))
-        .toMatchObject({ kind: "unavailable", value: "Unavailable" });
+        .toMatchObject({ kind: "unavailable", value: "n/a" });
     }
     }
 
@@ -393,7 +414,7 @@ describe("reported wall-clock work presentation", () => {
         updatedAt: "2026-08-30T08:00:00.000Z",
       },
     };
-    expect(turnReportedWorkView(observed)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    expect(turnReportedWorkView(observed)).toMatchObject({ kind: "unavailable", value: "n/a" });
     expect(turnReportedWorkView({
       ...observed,
       result: { ...observed.result, updatedAt: "2026-08-30T08:00:00.500Z" },
@@ -415,10 +436,14 @@ describe("reported wall-clock work presentation", () => {
     });
     expect(taskReportedWorkView(compactTerminal)).toMatchObject({
       kind: "unavailable",
-      value: "Unavailable",
+      value: "n/a",
     });
+    expect(taskReportedWorkView({
+      ...compactTerminal,
+      reportedWork: { terminalTurns: 1, validTurns: 1, totalMilliseconds: 1_112_000 },
+    })).toMatchObject({ kind: "available", value: "18m 32s" });
     render(<MantineProvider><UsagePanel task={compactTerminal} /></MantineProvider>);
-    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Unavailable");
+    expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("n/a");
     cleanup();
     }
 
@@ -436,7 +461,7 @@ describe("reported wall-clock work presentation", () => {
       turns: undefined,
       lastResult: priorResult,
       results: undefined,
-    }))).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    }))).toMatchObject({ kind: "unavailable", value: "n/a" });
     }
 
     {
