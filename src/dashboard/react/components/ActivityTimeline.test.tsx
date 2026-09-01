@@ -1,13 +1,8 @@
 import { MantineProvider } from "@mantine/core";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "../fixtures";
 import { ActivityTimeline } from "./ActivityTimeline";
-
-beforeEach(() => {
-  vi.useFakeTimers();
-  vi.setSystemTime("2026-08-30T08:18:32.000Z");
-});
 
 afterEach(() => {
   cleanup();
@@ -42,6 +37,8 @@ test("renders tokens, estimated cost, and terminal elapsed time as one compact g
 });
 
 test("updates active elapsed so far without turning it into total reported work", () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  vi.setSystemTime("2026-08-30T08:18:32.000Z");
   const task = fixtureTask();
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
   expect(screen.getByText("Elapsed so far").nextSibling).toHaveTextContent("18m 32s");
