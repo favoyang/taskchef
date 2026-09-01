@@ -70,11 +70,15 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
     <MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>,
   );
   const metrics = container.querySelector(".taskchef-turn-metrics") as HTMLElement;
+  const timing = container.querySelector(".taskchef-turn-timing") as HTMLElement;
   expect(metrics).not.toBeNull();
+  expect(timing).not.toBeNull();
   expect(within(metrics).getByText("Tokens").nextSibling).toHaveTextContent("330");
   expect(within(metrics).getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
-  expect(within(metrics).getByText("Elapsed").nextSibling).toHaveTextContent("18m 32s");
-  expect(within(metrics).getByLabelText(/completed turn reported wall-clock elapsed time/i)).toBeVisible();
+  expect(within(metrics).queryByText("Elapsed")).not.toBeInTheDocument();
+  expect(within(timing).getByLabelText(/^Turn update time:/i)).toBeVisible();
+  expect(within(timing).getByLabelText(/completed turn reported wall-clock elapsed time/i))
+    .toHaveTextContent("Elapsed18m 32s");
   cleanup();
   }
 
@@ -89,7 +93,8 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   vi.spyOn(window, "clearInterval").mockImplementation(() => undefined);
   const task = fixtureTask();
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
-  expect(screen.getByText("Elapsed so far").nextSibling).toHaveTextContent("18m 32s");
+  expect(screen.getByLabelText(/current turn reported wall-clock elapsed time/i))
+    .toHaveTextContent("Elapsed so far18m 32s");
   expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("Pending");
   expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("Pending");
 
@@ -98,7 +103,8 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
     tick?.();
   });
 
-  expect(screen.getByText("Elapsed so far").nextSibling).toHaveTextContent("18m 34s");
+  expect(screen.getByLabelText(/current turn reported wall-clock elapsed time/i))
+    .toHaveTextContent("Elapsed so far18m 34s");
   cleanup();
   vi.restoreAllMocks();
   }
@@ -126,8 +132,8 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
     },
   });
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
-  expect(screen.getByText("Elapsed").nextSibling).toHaveTextContent("Unavailable");
-  expect(screen.getByLabelText(/elapsed unavailable.*reported wall-clock/i)).toBeVisible();
+  expect(screen.getByLabelText(/elapsed unavailable.*reported wall-clock/i))
+    .toHaveTextContent("ElapsedUnavailable");
   expect(screen.getByText("Manual dashboard turns do not have usage boundaries.")).toBeVisible();
   expect(screen.getByLabelText(/tokens unavailable: manual dashboard turns/i)).toBeVisible();
   }
