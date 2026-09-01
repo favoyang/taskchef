@@ -1,10 +1,15 @@
 import { MantineProvider } from "@mantine/core";
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "vitest";
 import { fixtureTask } from "./fixtures";
 import {
+  durationBetween,
   formatCompactTokens,
   formatEstimatedCost,
+  formatReportedDuration,
+  taskReportedWorkView,
+  turnReportedWorkView,
+  turnUsageMetricsView,
   turnUsageView,
   usageStillCalculating,
   usageView,
@@ -13,6 +18,8 @@ import { ShimmerText } from "./components/ShimmerText";
 import { GitHubLinks } from "./components/GitHubLinks";
 import { LinkedText } from "./components/LinkedText";
 import { UsagePanel } from "./components/UsagePanel";
+
+afterEach(cleanup);
 
 describe("token and working presentation", () => {
   test("keeps pending, calculating, ready cost, and unavailable wording distinct", () => {
@@ -99,11 +106,20 @@ describe("token and working presentation", () => {
     expect(screen.getByText("In progress")).toHaveAttribute("data-animation", "text-shimmer");
   });
 
-  test("summarizes ready usage as four operator-facing cards", () => {
+  test("summarizes ready usage and reported work as one operator-facing metric group", () => {
+    const completedTurn = {
+      ...fixtureTask().turns![0],
+      result: {
+        status: "completed" as const,
+        summary: "Done.",
+        updatedAt: "2026-08-30T08:18:32.000Z",
+      },
+    };
     render(
       <MantineProvider>
         <UsagePanel task={fixtureTask({
           status: "completed",
+          turns: [completedTurn],
           usage: {
             generationTurnRef: "turn-one",
             status: "available",
@@ -123,9 +139,22 @@ describe("token and working presentation", () => {
 
     expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("330");
     expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
+    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("18m 32s");
+    expect(screen.getByLabelText(/total reported work 18m 32s.*wall-clock/i)).toBeVisible();
     expect(screen.getByText("Model").nextSibling).toHaveTextContent("gpt-5.6-sol, gpt-5.6-luna");
     expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("67%");
     expect(screen.queryByText(/API-equivalent/i)).not.toBeInTheDocument();
+  });
+
+  test.each([
+    ["pending", fixtureTask(), "Pending"],
+    ["calculating", fixtureTask({ status: "completed", usage: { status: "calculating" } }), "Calculating"],
+    ["unavailable", fixtureTask({ status: "completed", usage: { status: "unavailable" } }), "Unavailable"],
+  ])("keeps reported work visible while token and cost usage is %s", (_state, task, expected) => {
+    render(<MantineProvider><UsagePanel task={task} /></MantineProvider>);
+    expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
+    expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
+    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Not yet reported");
   });
 
   test("uses the same borderless link treatment wherever links are rendered", () => {
@@ -237,5 +266,144 @@ describe("token and working presentation", () => {
     );
     expect(within(container).getByRole("link", { name: /favoyang\/taskchef PR #83/ }))
       .toHaveTextContent("taskchef PR #83");
+  });
+});
+
+describe("reported wall-clock work presentation", () => {
+  test("formats seconds, minutes, hours, and days with decreasing long-duration precision", () => {
+    expect(formatReportedDuration(500)).toBe("<1s");
+    expect(formatReportedDuration(32_999)).toBe("32s");
+    expect(formatReportedDuration((18 * 60 + 32) * 1_000 + 999)).toBe("18m 32s");
+    expect(formatReportedDuration((2 * 60 + 14) * 60 * 1_000 + 59_999)).toBe("2h 14m");
+    expect(formatReportedDuration((27 * 60 + 59) * 60 * 1_000)).toBe("1d 3h");
+    expect(formatReportedDuration(-1)).toBeNull();
+    expect(formatReportedDuration(Number.NaN)).toBeNull();
+  });
+
+  test("sums only valid terminal turns and excludes idle gaps and active time", () => {
+    const task = fixtureTask({
+      status: "working",
+      turns: [
+        {
+          requestSummary: "First turn",
+          startedAt: "2026-08-30T08:00:00.000Z",
+          turnRef: "turn-one",
+          turnId: null,
+          result: {
+            status: "completed",
+            summary: "First done",
+            updatedAt: "2026-08-30T08:18:32.000Z",
+          },
+        },
+        {
+          requestSummary: "Second turn after a long idle gap",
+          startedAt: "2026-08-30T18:00:00.000Z",
+          turnRef: "turn-two",
+          turnId: null,
+          result: {
+            status: "failed",
+            summary: "Second done",
+            updatedAt: "2026-08-30T20:14:00.000Z",
+          },
+        },
+        {
+          requestSummary: "Active follow-up",
+          startedAt: "2026-08-31T08:00:00.000Z",
+          turnRef: "turn-three",
+          turnId: null,
+          result: null,
+        },
+      ],
+    });
+    const view = taskReportedWorkView(task);
+    expect(view.kind).toBe("available");
+    expect(view.value).toBe("2h 32m");
+    expect(view.title).toMatch(/idle gaps are excluded/i);
+  });
+
+  test("excludes malformed terminal boundaries without producing a false zero", () => {
+    const invalid = fixtureTask({
+      status: "completed",
+      turns: [{
+        requestSummary: "Historical turn",
+        startedAt: "not-a-date",
+        turnRef: "turn-one",
+        turnId: null,
+        result: { status: "completed", summary: "Done", updatedAt: "2026-08-30T08:00:00.000Z" },
+      }],
+    });
+    expect(taskReportedWorkView(invalid)).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+    expect(durationBetween("2026-08-30T08:01:00.000Z", "2026-08-30T08:00:00.000Z")).toBeNull();
+    expect(durationBetween("2026-02-30T08:00:00.000Z", "2026-03-02T08:01:00.000Z")).toBeNull();
+    expect(durationBetween("March 2, 2026 08:00:00 UTC", "2026-03-02T08:01:00.000Z")).toBeNull();
+    expect(turnReportedWorkView(invalid.turns![0])).toMatchObject({
+      kind: "unavailable",
+      label: "Elapsed",
+      value: "Unavailable",
+    });
+  });
+
+  test("treats terminal compact projections without turn history as unavailable", () => {
+    const compactTerminal = fixtureTask({
+      status: "completed",
+      turns: undefined,
+      latestTurn: {
+        ...fixtureTask().latestTurn!,
+        result: {
+          status: "completed",
+          summary: "Done.",
+          updatedAt: "2026-08-30T08:18:32.000Z",
+        },
+      },
+    });
+    expect(taskReportedWorkView(compactTerminal)).toMatchObject({
+      kind: "unavailable",
+      value: "Unavailable",
+    });
+    render(<MantineProvider><UsagePanel task={compactTerminal} /></MantineProvider>);
+    expect(screen.getByText("Total reported work").nextSibling).toHaveTextContent("Unavailable");
+  });
+
+  test("treats a compact working follow-up with prior results as unavailable until history loads", () => {
+    const priorResult = {
+      status: "completed" as const,
+      summary: "Prior turn done.",
+      updatedAt: "2026-08-30T08:18:32.000Z",
+      turnRef: "turn-one",
+      turnId: null,
+    };
+    expect(taskReportedWorkView(fixtureTask({
+      status: "working",
+      turnRef: "turn-two",
+      turns: undefined,
+      lastResult: priorResult,
+      results: undefined,
+    }))).toMatchObject({ kind: "unavailable", value: "Unavailable" });
+  });
+
+  test("keeps a custom unavailable usage reason visible and accessible beside reported work", () => {
+    render(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          status: "completed",
+          usage: { status: "unavailable", reason: "No matching cached boundary." },
+        })} />
+      </MantineProvider>,
+    );
+    expect(screen.getByText("No matching cached boundary.")).toBeVisible();
+    expect(screen.getByLabelText("No matching cached boundary.")).toBeVisible();
+  });
+
+  test("keeps live elapsed timing independent from pending token and cost usage", () => {
+    const task = fixtureTask();
+    expect(turnReportedWorkView(task.turns![0], Date.parse("2026-08-30T08:18:32.000Z"))).toMatchObject({
+      label: "Elapsed so far",
+      value: "18m 32s",
+    });
+    expect(turnUsageMetricsView(task, task.turns![0])).toMatchObject({
+      animated: true,
+      cost: { value: "Pending" },
+      tokens: { value: "Pending" },
+    });
   });
 });

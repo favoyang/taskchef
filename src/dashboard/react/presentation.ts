@@ -1,4 +1,138 @@
-import type { Task, UsageNumbers, UsageProjection } from "./types";
+import type { Task, TaskTurn, UsageNumbers, UsageProjection } from "./types";
+
+const SECOND_MS = 1_000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+export function durationBetween(startedAt: unknown, endedAt: unknown) {
+  const start = parseLifecycleTimestamp(startedAt);
+  const end = parseLifecycleTimestamp(endedAt);
+  if (start === null || end === null) return null;
+  const duration = end - start;
+  return duration >= 0 ? duration : null;
+}
+
+function parseLifecycleTimestamp(value: unknown) {
+  if (typeof value !== "string") return null;
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/,
+  );
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , zone] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const zoneHour = zone === "Z" ? 0 : Number(zone.slice(1, 3));
+  const zoneMinute = zone === "Z" ? 0 : Number(zone.slice(4, 6));
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (
+    month < 1
+    || month > 12
+    || day < 1
+    || day > daysInMonth[month - 1]
+    || hour > 23
+    || minute > 59
+    || second > 59
+    || zoneHour > 23
+    || zoneMinute > 59
+  ) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatReportedDuration(milliseconds: number) {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return null;
+  if (milliseconds > 0 && milliseconds < SECOND_MS) return "<1s";
+  const seconds = Math.floor(milliseconds / SECOND_MS);
+  if (milliseconds < MINUTE_MS) return `${seconds}s`;
+  if (milliseconds < HOUR_MS) {
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  }
+  const minutes = Math.floor(milliseconds / MINUTE_MS);
+  if (milliseconds < DAY_MS) {
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  }
+  const hours = Math.floor(milliseconds / HOUR_MS);
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+export type ReportedWorkView = {
+  accessibleLabel: string;
+  kind: "available" | "not-reported" | "unavailable";
+  title: string;
+  value: string;
+};
+
+export function taskReportedWorkView(task: Task): ReportedWorkView {
+  if (task.turns === undefined) {
+    return {
+      accessibleLabel: "Total reported work unavailable because terminal turn history is not available.",
+      kind: "unavailable",
+      title: "Reported wall-clock elapsed time requires the terminal turn history from the task detail projection.",
+      value: "Unavailable",
+    };
+  }
+  const terminalTurns = (task.turns ?? []).filter((turn) => turn.result !== null);
+  if (terminalTurns.length === 0) {
+    return {
+      accessibleLabel: "Total reported work not yet reported. Unfinished turns are excluded.",
+      kind: "not-reported",
+      title: "Reported wall-clock elapsed time is added only after a turn reaches a terminal state.",
+      value: "Not yet reported",
+    };
+  }
+  const durations = terminalTurns.map((turn) => durationBetween(turn.startedAt, turn.result?.updatedAt));
+  const validDurations = durations.filter((duration): duration is number => duration !== null);
+  if (validDurations.length === 0) {
+    return {
+      accessibleLabel: "Total reported work unavailable because completed turn timestamps are missing or invalid.",
+      kind: "unavailable",
+      title: "Reported wall-clock elapsed time is unavailable because no terminal turn has a valid start and end timestamp.",
+      value: "Unavailable",
+    };
+  }
+  const total = validDurations.reduce((sum, duration) => sum + duration, 0);
+  const value = Number.isSafeInteger(total) ? formatReportedDuration(total) : null;
+  if (value === null) {
+    return {
+      accessibleLabel: "Total reported work unavailable because the duration total is outside the supported range.",
+      kind: "unavailable",
+      title: "Reported wall-clock elapsed time is unavailable because the duration total is outside the supported range.",
+      value: "Unavailable",
+    };
+  }
+  const excluded = terminalTurns.length - validDurations.length;
+  const exclusion = excluded > 0
+    ? ` ${excluded} terminal ${excluded === 1 ? "turn was" : "turns were"} unavailable and excluded.`
+    : "";
+  return {
+    accessibleLabel: `Total reported work ${value}. This is reported wall-clock elapsed time.${exclusion}`,
+    kind: "available",
+    title: `Sum of valid terminal-turn wall-clock elapsed times; unfinished turns and idle gaps are excluded.${exclusion}`,
+    value,
+  };
+}
+
+export function turnReportedWorkView(turn: TaskTurn, now = Date.now()) {
+  const active = turn.result === null;
+  const duration = durationBetween(turn.startedAt, active ? new Date(now).toISOString() : turn.result?.updatedAt);
+  const label = active ? "Elapsed so far" : "Elapsed";
+  const value = duration === null ? "Unavailable" : formatReportedDuration(duration) ?? "Unavailable";
+  return {
+    accessibleLabel: `${label} ${value}. ${active ? "Current" : "Completed"} turn reported wall-clock elapsed time.`,
+    kind: duration === null ? "unavailable" as const : "available" as const,
+    label,
+    title: duration === null
+      ? "Reported wall-clock elapsed time is unavailable because the turn timestamps are missing, invalid, or reversed."
+      : `Reported wall-clock elapsed time from startedAt ${active ? "to the current time" : "to result.updatedAt"}.`,
+    value,
+  };
+}
 
 export function formatCompactTokens(value: number, locales?: Intl.LocalesArgument) {
   return new Intl.NumberFormat(locales, {
@@ -80,6 +214,45 @@ export function turnUsageView(task: Task, turn: NonNullable<Task["turns"]>[numbe
   return {
     kind: "unavailable" as const,
     label: usage?.reason ?? "Turn usage unavailable",
+  };
+}
+
+export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]>[number]) {
+  const view = turnUsageView(task, turn);
+  if (view.kind === "ready") {
+    const identity = turn.turnRef ?? turn.turnId;
+    const usage = identity ? task.usage?.turns?.[identity] : null;
+    const tokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : "Unavailable";
+    const cost = usage?.estimatedCostUsd == null
+      ? "Unavailable"
+      : formatEstimatedCost(usage.estimatedCostUsd);
+    return {
+      animated: false,
+      cost: { accessibleLabel: `Estimated cost ${cost.toLowerCase()}`, value: cost },
+      kind: view.kind,
+      note: null,
+      title: view.label,
+      tokens: { accessibleLabel: `${tokens} tokens`, value: tokens },
+    };
+  }
+  const value = view.kind === "pending"
+    ? "Pending"
+    : view.kind === "calculating"
+      ? "Calculating"
+      : "Unavailable";
+  return {
+    animated: view.kind === "pending" || view.kind === "calculating",
+    cost: {
+      accessibleLabel: `Estimated cost ${value.toLowerCase()}${view.kind === "unavailable" ? `: ${view.label}` : ""}`,
+      value,
+    },
+    kind: view.kind,
+    note: view.kind === "unavailable" ? view.label : null,
+    title: view.label,
+    tokens: {
+      accessibleLabel: `Tokens ${value.toLowerCase()}${view.kind === "unavailable" ? `: ${view.label}` : ""}`,
+      value,
+    },
   };
 }
 

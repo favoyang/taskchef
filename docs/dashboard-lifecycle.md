@@ -35,6 +35,23 @@ pending is reserved for tasks that do not have a usage snapshot yet.
 
 ![Pending token usage in the task detail view](images/dashboard-token-pending.jpg)
 
+## Reported work presentation
+
+The task detail view reports wall-clock elapsed time from TaskChef lifecycle
+timestamps. Each terminal turn's **Elapsed** value is `result.updatedAt` minus
+`startedAt`. **Total reported work** is the sum of valid terminal-turn elapsed
+times, so idle gaps between follow-up turns and the unfinished portion of an
+active turn are excluded. A working turn shows a live **Elapsed so far** value
+from `startedAt` to the current time without adding it to the task total.
+
+Durations below one minute use whole seconds; durations below one hour use
+minutes and seconds; durations below one day use hours and minutes; longer
+durations use days and hours. Each displayed unit is floored, and positive
+sub-second durations display as `<1s`. Missing, malformed, reversed, or
+unsupported timestamp ranges display an explicit unavailable state. Timing is
+derived independently of `.taskchef-usage.json` and is reported wall-clock
+elapsed time, not model compute time.
+
 ## Start and reuse
 
 Unless `dashboard.autostart` is explicitly `false`, MCP activation runs the

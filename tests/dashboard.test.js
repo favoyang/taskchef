@@ -2007,6 +2007,12 @@ test("dashboard server serves independent clients without sessions and protects 
     const detail = await detailResponse.json();
     assert.equal(detail.task.turns.length, 1);
     assert.equal(detail.task.turns[0].requestSummary, null);
+    assert.equal(typeof detail.task.turns[0].startedAt, "string");
+    assert.equal(typeof detail.task.turns[0].result.updatedAt, "string");
+    assert.ok(
+      Date.parse(detail.task.turns[0].result.updatedAt) >= Date.parse(detail.task.turns[0].startedAt),
+      "detail projection retains ordered lifecycle timestamps for reported wall-clock work",
+    );
     assert.equal(
       detail.task.turns[0].result.summary,
       "Dashboard fixture completed for https://github.com/favoyang/taskchef/issues/123.",

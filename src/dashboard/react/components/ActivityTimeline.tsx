@@ -1,7 +1,8 @@
 import { Box, Paper, Stack, Text } from "@mantine/core";
 import { mergeProjectedTurns, turnPresentation } from "../../state.js";
-import { turnUsageView } from "../presentation";
+import { turnReportedWorkView, turnUsageMetricsView } from "../presentation";
 import type { Task } from "../types";
+import { useEffect, useState } from "react";
 import { RelativeTime } from "./RelativeTime";
 import { LinkedText } from "./LinkedText";
 import { ShimmerText } from "./ShimmerText";
@@ -9,6 +10,8 @@ import { StatusBadge } from "./StatusBadge";
 
 export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef: string | null; task: Task }) {
   const turns = mergeProjectedTurns(task, []) as Task["turns"];
+  const hasActiveTurn = Boolean(turns?.some((turn) => turn.result === null));
+  const now = useLiveNow(hasActiveTurn);
   if (!turns?.length) return <Text c="dimmed" size="sm">No turn history has been recorded.</Text>;
   return (
     <Stack gap="sm">
@@ -16,7 +19,8 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
         const presentation = turnPresentation(turn);
         const identity = turn.turnRef ?? turn.turnId ?? `turn-${index}`;
         const highlighted = identity === highlightTurnRef;
-        const usage = turnUsageView(task, turn);
+        const usage = turnUsageMetricsView(task, turn);
+        const elapsed = turnReportedWorkView(turn, now);
         return (
           <Paper
             className={`taskchef-turn${highlighted ? " taskchef-turn-highlighted" : ""}`}
@@ -47,15 +51,29 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                     : <LinkedText task={task} text={presentation.summary} />}
                 </Text>
               </Box>
-              <Text
-                c="dimmed"
-                className={usage.kind === "calculating" || usage.kind === "pending" ? "taskchef-turn-usage" : undefined}
-                size="xs"
-              >
-                {usage.kind === "calculating" || usage.kind === "pending"
-                  ? <ShimmerText>{usage.label}</ShimmerText>
-                  : usage.label}
-              </Text>
+              <Box className="taskchef-turn-metrics">
+                <TurnMetric
+                  accessibleLabel={usage.tokens.accessibleLabel}
+                  animated={usage.animated}
+                  label="Tokens"
+                  title={usage.title}
+                  value={usage.tokens.value}
+                />
+                <TurnMetric
+                  accessibleLabel={usage.cost.accessibleLabel}
+                  animated={usage.animated}
+                  label="Estimated cost"
+                  title={usage.title}
+                  value={usage.cost.value}
+                />
+                <TurnMetric
+                  accessibleLabel={elapsed.accessibleLabel}
+                  label={elapsed.label}
+                  title={elapsed.title}
+                  value={elapsed.value}
+                />
+              </Box>
+              {usage.note && <Text c="dimmed" size="xs">{usage.note}</Text>}
               <Text c="dimmed" className="taskchef-mono" size="xs">Turn ref: {identity ?? "—"}</Text>
             </Stack>
           </Paper>
@@ -63,4 +81,38 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
       })}
     </Stack>
   );
+}
+
+function TurnMetric({
+  accessibleLabel,
+  animated = false,
+  label,
+  title,
+  value,
+}: {
+  accessibleLabel?: string;
+  animated?: boolean;
+  label: string;
+  title?: string;
+  value: string;
+}) {
+  return (
+    <Box className="taskchef-turn-metric" title={title}>
+      <Text c="dimmed" className="taskchef-field-label" size="xs">{label}</Text>
+      <Text aria-label={accessibleLabel} c="dimmed" size="xs">
+        {animated ? <ShimmerText>{value}</ShimmerText> : value}
+      </Text>
+    </Box>
+  );
+}
+
+function useLiveNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [active]);
+  return now;
 }
