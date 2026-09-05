@@ -25,6 +25,8 @@ const SKILL_NAMES = [
   "taskchef-copilot",
 ];
 const REQUIRED_PLUGIN_FILES = [
+  "skills/taskchef-executor/references/compatibility.md",
+  "skills/taskchef-executor/references/ending-actions.md",
   ".codex-plugin/plugin.json",
   ".mcp.json",
   "assets/taskchef-dark.svg",
