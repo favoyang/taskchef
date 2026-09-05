@@ -1,6 +1,6 @@
 ---
 name: taskchef-delegate
-description: "Dispatch actionable requests through the per-user TaskChef workspace into independently openable Codex project tasks. Use automatically for actionable work received in the canonical TaskChef dispatcher workspace. From any other project, use only when the user explicitly asks to delegate or split separate work into Codex tasks; TaskChef-related subject matter alone is not delegation intent. Record before creation, require executor self-linking, and never wait for executor completion."
+description: "Dispatch work received in the canonical TaskChef workspace into Codex tasks. Elsewhere, use only for explicit delegation of separate work; an existing executor keeps its assignment."
 ---
 
 # TaskChef Delegate

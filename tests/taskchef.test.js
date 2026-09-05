@@ -3926,6 +3926,7 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: "src/workspace-path.js" },
       { path: "src/workspace.js" },
       { path: "skills/taskchef-bootstrap/SKILL.md" },
+      { path: "skills/taskchef-bootstrap/references/project-index.md" },
       { path: "skills/taskchef-bootstrap/agents/openai.yaml" },
       { path: "skills/taskchef-dashboard/SKILL.md" },
       { path: "skills/taskchef-dashboard/agents/openai.yaml" },
@@ -3940,8 +3941,11 @@ test("release automation pins the shared marketplace to the exact npm version", 
     ],
   }];
   assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
-  for (const reference of ["compatibility.md", "ending-actions.md"]) {
-    const referencePath = `skills/taskchef-executor/references/${reference}`;
+  for (const referencePath of [
+    "skills/taskchef-bootstrap/references/project-index.md",
+    "skills/taskchef-executor/references/compatibility.md",
+    "skills/taskchef-executor/references/ending-actions.md",
+  ]) {
     assert.throws(() => validatePublishedPluginPackage([{
       ...packedRelease[0], files: packedRelease[0].files.filter((file) => file.path !== referencePath),
     }], "2.3.4"), (error) => error.message.includes(`missing ${referencePath}`));
@@ -4105,7 +4109,7 @@ test("managed dispatcher guidance preserves user additions and defines a realist
 test("delegate skill isolates trigger metadata and requires structured workspace tools", async () => {
   const content = await readFile(path.resolve("skills/taskchef-delegate/SKILL.md"), "utf8");
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
-  assert.match(frontmatter, /require executor self-linking/);
+  assert.match(frontmatter, /canonical TaskChef workspace/);
   assert.doesNotMatch(frontmatter, /ordinary work requests in the TaskChef project/i);
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
 
@@ -4197,7 +4201,10 @@ test("executor skill never implies archive from ordinary completion language", a
 });
 
 test("bootstrap skill initializes and indexes Codex projects through verified canonical paths", async () => {
-  const content = await readFile(path.resolve("skills/taskchef-bootstrap/SKILL.md"), "utf8");
+  const entrypoint = await readFile(path.resolve("skills/taskchef-bootstrap/SKILL.md"), "utf8");
+  assert.match(entrypoint, /\]\(references\/project-index\.md\)/);
+  const indexGuide = await readFile(path.resolve("skills/taskchef-bootstrap/references/project-index.md"), "utf8");
+  const content = `${entrypoint}\n${indexGuide}`;
   assert.match(content, /taskchef\.js workspace path --json|workspace path --json/);
   assert.match(content, /workspace init --register-codex --json/);
   assert.match(content, /list native projects once more/);
