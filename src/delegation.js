@@ -8,6 +8,7 @@ export const EXECUTOR_LINK_PARAGRAPH = "Before any other work, read this executo
 export const EXECUTOR_WORKING_PARAGRAPH = "After a successful initial link, and at the start of every follow-up turn before substantive work, read this exact Codex thread natively to obtain the current turn ID and call TaskChef report_state with the marked task ID, the self-linked thread ID, that current turn ID, status working, summary omitted or null, and a concise requestSummary for this turn. link_task remains the first TaskChef action on the initial turn; do not report working before identity is linked. Never reuse a prior turn ID after a follow-up.";
 /** @deprecated Historical v7 inline-prompt snapshot. New delegations use taskchef-executor. */
 export const EXECUTOR_RESULT_PARAGRAPH = "Before ending, read this exact Codex thread again and call TaskChef report_state for the same current working turn with status completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
+export const EXECUTOR_REPORTING_AUTHORIZATION = "Report this task and its follow-ups to my local TaskChef dashboard. Relevant private-repository links and concise work, test, and deployment results are authorized; exclude secrets.";
 export const EXECUTOR_SKILL_INVOCATION = "Use $taskchef-executor to execute and report this delegated TaskChef assignment.";
 const HISTORICAL_RESULT_WITH_TURN_PARAGRAPH = "Before ending, call the TaskChef report_result MCP tool with the marked task ID, this executor's self-linked thread ID, the current turn ID from an exact native read of that same thread, completed, needs_input, or failed, and a concise summary. Never reuse a prior turn ID after a follow-up. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
 const HISTORICAL_RESULT_PARAGRAPH = "Before ending, call the TaskChef report_result MCP tool with completed, needs_input, or failed and a concise summary. Use needs_input only for a semantic decision or information the user must provide; a native approval prompt is live Codex state, not a TaskChef result. Do not include secrets, transcripts, or raw command output.";
@@ -28,7 +29,7 @@ const HISTORICAL_INLINE_PROTOCOLS = [
 
 function hasTaskSpecificContent(lines) {
   return lines.some((line) => (
-    line.trim().length > 0 && !HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line)
+    line.trim().length > 0 && line !== EXECUTOR_REPORTING_AUTHORIZATION && !HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line)
   ));
 }
 
@@ -134,7 +135,7 @@ export function parseTaskChefMarker(instruction) {
     }
 
     const containsInlineScaffold = rest.some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line));
-    if (!containsInlineScaffold) return rest.join("\n").trim().length > 0;
+    if (!containsInlineScaffold) return hasTaskSpecificContent(rest);
     return HISTORICAL_INLINE_PROTOCOLS.some((protocol) => {
       const prefix = ["", ...protocol.flatMap((line) => [line, ""])];
       if (!prefix.every((line, index) => rest[index] === line)) return false;
@@ -216,10 +217,13 @@ export function prepareDelegation(instruction, { taskId = randomUUID() } = {}) {
   if (bodyLines.some((line) => HISTORICAL_EXECUTOR_SCAFFOLD_LINES.has(line))) {
     throw new Error("instruction contains reserved historical TaskChef lifecycle scaffolding");
   }
+  if (bodyLines.includes(EXECUTOR_REPORTING_AUTHORIZATION)) {
+    throw new Error("instruction contains reserved TaskChef reporting authorization");
+  }
   const id = requireUuid(taskId);
   return {
     id,
-    instruction: `${body}\n\n${EXECUTOR_SKILL_INVOCATION}\n${taskChefMarker(id)}`,
+    instruction: `${body}\n\n${EXECUTOR_REPORTING_AUTHORIZATION}\n\n${EXECUTOR_SKILL_INVOCATION}\n${taskChefMarker(id)}`,
   };
 }
 

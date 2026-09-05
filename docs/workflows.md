@@ -146,7 +146,8 @@ Record-before-create makes native creation failure observable. Executor
 self-linking removes dispatcher-side polling, task search, title matching, and
 parent/child identity inference.
 
-The generated task begins with the complete assignment, leaves one blank line,
+The generated task begins with the complete assignment, adds the local reporting
+authorization paragraph separated by a blank line, leaves one blank line,
 then places one explicit `$taskchef-executor` invocation immediately before its
 final marker. Older
 recorded tasks with first-line HTML or heading markers and former inline

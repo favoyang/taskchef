@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
 import {
@@ -29,6 +30,7 @@ import { archiveThreadInCodex, discoverBundledCodexCli } from "../src/codex-app.
 
 import {
   EXECUTOR_SKILL_INVOCATION,
+  EXECUTOR_REPORTING_AUTHORIZATION,
   createAndRecordDelegation,
   createDashboardAutostart,
   createTaskChefMcpServer,
@@ -642,7 +644,12 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     assert.equal(listed.tools[2].annotations.readOnlyHint, false);
     assert.equal(listed.tools[2].annotations.destructiveHint, false);
     assert.equal(listed.tools[2].annotations.openWorldHint, false);
-    assert.equal(listed.tools[4].annotations.destructiveHint, true);
+    for (const tool of listed.tools.slice(4)) {
+      assert.equal(tool.annotations.destructiveHint, true);
+      assert.ok(tool.description.includes(JSON.stringify(path.resolve(workspace, "tasks.jsonl"))));
+      assert.ok(tool.description.includes(JSON.stringify(path.resolve(workspace, ".taskchef-usage.json"))));
+      assert.match(tool.description, /GitHub URLs are stored as references, not published to GitHub/);
+    }
     assert.match(listed.tools[5].title, /deprecated/i);
     assert.deepEqual(Object.keys(listed.tools[4].inputSchema.properties).sort(), [
       "requestSummary", "status", "summary", "taskId", "threadId", "turnId", "turnRef",
@@ -738,6 +745,31 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     assert.equal(completedResult.structuredContent.task.status, "completed");
     assert.equal((await readTask(workspace, prepared.taskId)).summary,
       "Implemented and verified the change.");
+    // A completed initial turn and a follow-up retain synthetic private references
+    // verbatim in local storage; no GitHub client participates in reporting.
+    const followupRef = randomUUID();
+    const requestSummary = "Verify https://github.com/example/private-service after deployment.";
+    const summary = "Tests and deployment verified; delivered https://github.com/example/private-service/pull/12 and https://github.com/example/workspace/pull/34.";
+    const followup = {
+      taskId: prepared.taskId, threadId: SELF_LINK_THREAD_ID,
+      turnRef: followupRef, turnId: null,
+    };
+    const started = await client.callTool({ name: "report_state", arguments: {
+      ...followup, status: "working", requestSummary,
+    } });
+    assert.equal(started.isError, undefined);
+    assert.equal(started.structuredContent.task.lastResult.status, "completed");
+    const terminalInput = { ...followup, status: "completed", summary };
+    const accepted = await client.callTool({ name: "report_state", arguments: terminalInput });
+    assert.equal(accepted.isError, undefined);
+    const retried = await client.callTool({ name: "report_state", arguments: terminalInput });
+    assert.deepEqual(retried.structuredContent.task, accepted.structuredContent.task);
+    const stored = (await readFile(path.join(workspace, "tasks.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line))
+      .find((task) => task.id === prepared.taskId);
+    assert.equal(stored.turns.at(-1).requestSummary, requestSummary);
+    assert.equal(stored.turns.at(-1).result.summary, summary);
+    assert.equal(stored.turns.at(-2).result.status, "completed");
     const missingTurnResult = await client.callTool({
       name: "report_state",
       arguments: {
@@ -1038,11 +1070,11 @@ test("delegation marker parsing accepts the exact final-marker scaffold and hist
   assert.equal(prepared.id, TASK_ID);
   assert.equal(
     prepared.instruction,
-    `Do the work.\n\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
+    `Do the work.\n\n${EXECUTOR_REPORTING_AUTHORIZATION}\n\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
   );
   assert.equal(
     prepared.instruction.slice("Do the work.".length),
-    `\n\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
+    `\n\n${EXECUTOR_REPORTING_AUTHORIZATION}\n\n${EXECUTOR_SKILL_INVOCATION}\n<!-- taskchef_id=${TASK_ID} -->`,
   );
   const lines = prepared.instruction.split("\n");
   const marker = lines.at(-1);
@@ -1274,12 +1306,33 @@ test("delegation marker parsing accepts the exact final-marker scaffold and hist
   );
 });
 
+test("reporting authorization is scaffolding, never an assignment by itself", () => {
+  const authorization = EXECUTOR_REPORTING_AUTHORIZATION;
+  const marker = `<!-- taskchef_id=${TASK_ID} -->`;
+  assert.throws(() => prepareDelegation(authorization), /task-specific content/);
+  assert.throws(() => prepareDelegation(`Do work.\n\n${authorization}`), /reserved TaskChef reporting authorization/);
+  for (const input of [
+    `${authorization}\n\n${EXECUTOR_SKILL_INVOCATION}\n${marker}`,
+    `${authorization}\n\n${marker}\n${EXECUTOR_SKILL_INVOCATION}`,
+    `${marker}\n${authorization}`,
+    `# taskchef_id=${TASK_ID}\n${authorization}`,
+  ]) assert.equal(parseTaskChefMarker(input), null);
+  const current = prepareDelegation("Do work.", { taskId: TASK_ID }).instruction;
+  for (const newline of ["\n", "\r\n", "\r"]) {
+    assert.equal(parseTaskChefMarker(current.replaceAll("\n", newline)), TASK_ID);
+  }
+  // Pre-authorization assignments remain valid.
+  assert.equal(parseTaskChefMarker(`Do work.\n\n${EXECUTOR_SKILL_INVOCATION}\n${marker}`), TASK_ID);
+});
+
 test("delegated instructions keep the useful body visible and invoke one executor skill", async () => {
   const readme = await readFile(path.resolve("README.md"), "utf8");
   const prepared = prepareDelegation("Implement it.\n\nValidate it.", { taskId: TASK_ID });
   const lines = prepared.instruction.split("\n");
   assert.equal(lines[0], "Implement it.");
-  assert.equal(lines.at(-4), "Validate it.");
+  assert.equal(lines.at(-6), "Validate it.");
+  assert.equal(lines.at(-5), "");
+  assert.equal(lines.at(-4), EXECUTOR_REPORTING_AUTHORIZATION);
   assert.equal(lines.at(-3), "");
   assert.equal(lines.at(-2), EXECUTOR_SKILL_INVOCATION);
   assert.equal(lines.at(-1), `<!-- taskchef_id=${TASK_ID} -->`);
@@ -3880,11 +3933,19 @@ test("release automation pins the shared marketplace to the exact npm version", 
       { path: "skills/taskchef-delegate/agents/openai.yaml" },
       { path: "skills/taskchef-executor/SKILL.md" },
       { path: "skills/taskchef-executor/agents/openai.yaml" },
+      { path: "skills/taskchef-executor/references/compatibility.md" },
+      { path: "skills/taskchef-executor/references/ending-actions.md" },
       { path: "skills/taskchef-copilot/SKILL.md" },
       { path: "skills/taskchef-copilot/agents/openai.yaml" },
     ],
   }];
   assert.equal(validatePublishedPluginPackage(packedRelease, "2.3.4").id, "taskchef@2.3.4");
+  for (const reference of ["compatibility.md", "ending-actions.md"]) {
+    const referencePath = `skills/taskchef-executor/references/${reference}`;
+    assert.throws(() => validatePublishedPluginPackage([{
+      ...packedRelease[0], files: packedRelease[0].files.filter((file) => file.path !== referencePath),
+    }], "2.3.4"), (error) => error.message.includes(`missing ${referencePath}`));
+  }
   assert.throws(
     () => validatePublishedPluginPackage([
       { ...packedRelease[0], files: packedRelease[0].files.slice(1) },
@@ -4078,10 +4139,10 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   const content = await readFile(path.resolve("skills/taskchef-executor/SKILL.md"), "utf8");
   assert.match(content, /^name: taskchef-executor$/m);
   const frontmatter = content.match(/^---\n([\s\S]+?)\n---/)?.[1] ?? "";
-  assert.match(frontmatter, /new exact TaskChef invocation-plus-final-marker scaffold/i);
-  assert.match(frontmatter, /historical first-line or marker-before-invocation protocol/i);
+  assert.match(frontmatter, /assignment or follow-up/);
+  assert.match(content, /historical first-line markers, marker-before-invocation/);
   assert.match(content, /complete assignment first[\s\S]+explicit skill invocation[\s\S]+taskchef_id=<full UUID>[\s\S]+final\s+line/i);
-  assert.match(content, /exactly two[\s\S]+newline characters \(one blank line\)/i);
+  assert.match(content, /exactly two[\s\S]+newline characters \(one blank\s+line\)/i);
   assert.match(content, /no blank line between the invocation and marker/i);
   assert.match(content, /Own and execute[\s\S]+Do not\s+re-dispatch/i);
   assert.match(content, /CODEX_THREAD_ID/);
@@ -4090,11 +4151,11 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /follow-up[\s\S]+current turn ID/i);
   assert.match(content, /`report_state`[\s\S]+`status: working`/i);
   assert.match(content, /concise `requestSummary`/i);
-  assert.match(content, /durable TaskChef timeline[\s\S]+does\s+not scan the full Codex transcript/i);
+  assert.match(content, /durable TaskChef timeline[\s\S]+does not scan the\s+full Codex transcript/i);
   assert.match(content, /known GitHub repository[\s\S]+https:\/\/github\.com\/<owner>\/<repository>/i);
-  assert.match(content, /both a child-repository pull request and a workspace\/root pull request/i);
-  assert.match(content, /full canonical issue or pull-request\s+URL/i);
-  assert.match(content, /Never invent an issue, pull request, or repository link/i);
+  assert.match(content, /both child and workspace PRs/i);
+  assert.match(content, /full canonical issue or pull-request URLs/i);
+  assert.match(content, /never invent links/i);
   assert.match(content, /completed[\s\S]+needs_input[\s\S]+failed/i);
   assert.match(content, /live native approval prompt[\s\S]+not semantic `needs_input`/i);
   assert.match(content, /secrets, transcripts, raw command output, hidden reasoning/i);
@@ -4102,15 +4163,21 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /atomically records that predecessor\s+as interrupted/i);
   assert.match(content, /Do not manufacture a semantic `failed` result/i);
   assert.match(content, /only the new turn may receive\s+a semantic result/i);
-  assert.match(content, /former inline[\s\S]+`report_result`[\s\S]+deprecated/i);
-  assert.match(content, /historical trailing instructions[\s\S]+first-line `# taskchef_id=<full UUID>`/i);
-  assert.match(content, /For either first-line form,[\s\S]+assignment follows the marker/i);
-  assert.match(content, /former inline ownership[\s\S]+remaining\s+task-specific body/i);
+  const compatibility = await readFile(path.resolve("skills/taskchef-executor/references/compatibility.md"), "utf8");
+  assert.match(content, /\[compatibility\]\(references\/compatibility.md\)/);
+  assert.match(content, /\[ending actions\]\(references\/ending-actions.md\)/);
+  assert.match(content, /only after verifying the terminal response accepted/);
+  assert.match(content, /platform rejection[\s\S]+rationale actually returned/);
+  assert.match(content, /retry around an explicit denial/);
+  assert.match(compatibility, /former inline[\s\S]+`report_result`[\s\S]+deprecated/i);
+  assert.match(compatibility, /historical trailing instructions[\s\S]+first-line `# taskchef_id=<full UUID>`/i);
+  assert.match(compatibility, /For either first-line form,[\s\S]+assignment follows the marker/i);
+  assert.match(compatibility, /former inline ownership[\s\S]+remaining\s+task-specific body/i);
 });
 
 test("executor skill reports terminal state before explicitly authorized ending actions", async () => {
   const content = await readFile(path.resolve("skills/taskchef-executor/SKILL.md"), "utf8");
-  const lifecycle = content.slice(content.indexOf("### Keep terminal reporting ahead"));
+  const lifecycle = await readFile(path.resolve("skills/taskchef-executor/references/ending-actions.md"), "utf8");
 
   assert.match(lifecycle, /explicitly requests archiving this exact Codex task/i);
   assert.match(lifecycle, /finish and verify[\s\S]+read the exact task identity[\s\S]+submit the terminal\s+`report_state`[\s\S]+verify that TaskChef\s+accepted[\s\S]+Only then call the native Codex archive/i);
@@ -4121,7 +4188,7 @@ test("executor skill reports terminal state before explicitly authorized ending 
 
 test("executor skill never implies archive from ordinary completion language", async () => {
   const content = await readFile(path.resolve("skills/taskchef-executor/SKILL.md"), "utf8");
-  const lifecycle = content.slice(content.indexOf("### Keep terminal reporting ahead"));
+  const lifecycle = await readFile(path.resolve("skills/taskchef-executor/references/ending-actions.md"), "utf8");
 
   assert.match(lifecycle, /Normal completion[\s\S]+semantic terminal `report_state`[\s\S]+returns normally/i);
   assert.match(lifecycle, /Never archive, hand off, close, navigate away from, or\s+otherwise terminate[\s\S]+merely because the work or turn completed/i);

@@ -38,6 +38,7 @@ export {
   EXECUTOR_RESULT_PARAGRAPH,
   EXECUTOR_WORKING_PARAGRAPH,
   EXECUTOR_SKILL_INVOCATION,
+  EXECUTOR_REPORTING_AUTHORIZATION,
   createAndRecordDelegation,
   isProvisionalThreadId,
   normalizeCodexThreadId,

@@ -1,6 +1,6 @@
 ---
 name: taskchef-executor
-description: "Execute an assignment carrying either the new exact TaskChef invocation-plus-final-marker scaffold or an accepted historical first-line or marker-before-invocation protocol. Includes executor ownership, self-linking, per-turn lifecycle reporting, identity safety, and final semantic state. Use when explicitly invoked by a new delegated instruction or when resuming the same new or historical executor task. Do not use to dispatch work or report on other TaskChef tasks."
+description: "Execute and report a TaskChef assignment or follow-up when explicitly invoked or carrying an accepted TaskChef marker. Owns executor identity and per-turn lifecycle; not dispatch or reporting on other tasks."
 ---
 
 # TaskChef Executor
@@ -9,14 +9,18 @@ Own and execute the delegated assignment in the current Codex task. Do not
 re-dispatch it merely because it concerns TaskChef or a configured project.
 Explicit requests to delegate separate work remain valid.
 
-New instructions present the complete assignment first, followed by exactly two
-newline characters (one blank line), the explicit skill invocation, one
-newline, and the exact `<!-- taskchef_id=<full UUID> -->` marker on the final
-line. There is no blank line between the invocation and marker. Treat that UUID
-as the TaskChef task ID.
-The assignment is everything before the invocation; the invocation and marker
-are lifecycle scaffolding, not part of the deliverable. Require exactly one
-marker and do not infer an ID from similar prose.
+New instructions present the complete assignment first, then the reporting
+authorization paragraph, followed by exactly two newline characters (one blank
+line), the explicit skill invocation, one newline, and the exact
+`<!-- taskchef_id=<full UUID> -->` marker on the final line.
+There is no blank line between the invocation and marker.
+Treat that UUID as the TaskChef task ID.
+The authorization, invocation, and marker are lifecycle scaffolding, not part
+of the deliverable. Require non-whitespace task-specific content beyond them.
+For historical first-line markers, marker-before-invocation forms, compact or
+pre-authorization prompts, former inline protocol, or an installation exposing only `report_result`, read
+[compatibility](references/compatibility.md) before interpreting the assignment.
+Require exactly one marker and do not infer an ID from similar prose.
 
 ## Start every execution turn
 
@@ -37,8 +41,8 @@ Complete this lifecycle setup before substantive assignment work:
    `turnId: null`. Do not infer a native ID, reuse an earlier prompt's
    `turnRef`, or let a retry generate a replacement UUID.
 4. Call TaskChef `report_state` with the marked task ID, self-linked thread ID,
-   this prompt's `turnRef` and optional Codex `turnId`, `status: working`, an omitted or null result summary, and a
-   concise `requestSummary` describing this turn's assignment or follow-up.
+   this prompt's `turnRef` and optional Codex `turnId`, `status: working`, an
+   omitted or null result summary, and a concise `requestSummary` describing this turn's assignment or follow-up.
    When the turn targets a known GitHub repository, include its canonical
    `https://github.com/<owner>/<repository>` URL so multi-repository projects
    retain the selected repository instead of leaving TaskChef to guess.
@@ -72,81 +76,35 @@ reuse a `turnRef` after a follow-up. If a final-report response is lost, an
 identical terminal retry is safe only while the same turn remains current. On
 a later prompt, run the start lifecycle with a new `turnRef`; TaskChef
 will preserve the predecessor as interrupted, and only the new turn may receive
-a semantic result. Say reporting failures visibly instead of claiming a tracked
-outcome.
+a semantic result.
+
+Claim TaskChef was updated only after verifying the terminal response accepted
+this task, turn, status, and summary. Report failures visibly. If the platform
+rejects an authorized report, describe it as a platform rejection of that
+report; quote only a rationale actually returned. Do not infer the reason,
+promise approval, retry around an explicit denial, or change approval settings.
+Ask the user once and wait for new authorization before retrying a denial.
 
 Request and result summaries must omit secrets, transcripts, raw command output, hidden reasoning,
 and unnecessary personal data. Identical lifecycle retries are safe; never
 replace a same-`turnRef` report with different content or let an older turn
 overwrite newer state.
 
-### Keep terminal reporting ahead of executor-ending actions
+## Preserve delivery context
 
-Normal completion ends with the semantic terminal `report_state` callback and
-then returns normally. Never archive, hand off, close, navigate away from, or
-otherwise terminate the Codex task merely because the work or turn completed.
-An archive is authorized only when the current assignment or follow-up
-explicitly requests archiving this exact Codex task. Words such as `finish`,
-`complete`, `done`, `ship`, and ordinary cleanup do not authorize archive.
+Summaries are the durable TaskChef timeline; the dashboard does not scan the
+full Codex transcript later. Include the known repository's canonical
+`https://github.com/<owner>/<repository>` URL in the working `requestSummary`.
+Use full canonical issue or pull-request URLs and include every delivered PR
+in the terminal summary, including both child and workspace PRs when relevant.
+Derive links from established project or remote evidence; never invent links
+or copy unrelated links from earlier turns.
 
-When archive is explicitly authorized, finish and verify the requested work,
-read the exact task identity required by this protocol, submit the terminal
-`report_state` callback for the current `turnRef`, and verify that TaskChef
-accepted the terminal state. Only then call the native Codex archive operation.
-Archive must be the final state-changing action, and native confirmation is
-required before claiming it succeeded.
+## Ending actions
 
-Apply the same terminal-callback-first rule when the user explicitly requests
-another action that can make this executor unavailable before it reports, such
-as handing off the task or terminating or restarting the process that owns the
-TaskChef MCP transport. This ordering rule does not authorize any such action.
-If terminal reporting fails, do not archive or perform the requested
-executor-ending action; leave the executor accessible and report the lifecycle
-failure visibly. If terminal reporting succeeds but the later action fails,
-preserve the accepted `completed`, `failed`, or `needs_input` state, report only
-the later action's failure, and do not reopen the lifecycle or report `working`
-again.
-
-### Preserve repository and delivery links
-
-Treat lifecycle summaries as the durable TaskChef timeline; the dashboard does
-not scan the full Codex transcript later. Preserve known GitHub context in that
-timeline with canonical links:
-
-- Use `https://github.com/<owner>/<repository>` when identifying the repository
-  selected for a turn. Derive it from established project or Git remote
-  evidence; never guess from a similarly named directory.
-- Use the full canonical issue or pull-request URL whenever one is known. Do
-  not shorten it to bare `#123` or `PR #123` in a multi-repository project.
-- Include every delivered pull request in the result summary. If work produces
-  both a child-repository pull request and a workspace/root pull request,
-  preserve both URLs and state which repository each belongs to.
-- Keep references specific to the text being reported. Do not copy unrelated
-  links from earlier turns merely to make them visible.
-- Never invent an issue, pull request, or repository link. If repository
-  identity is genuinely unresolved, describe that ambiguity without a link.
-
-For example, a working summary may say `Update dashboard projection in
-https://github.com/favoyang/taskchef`. A terminal summary may say `Shipped the
-child change in https://github.com/favoyang/taskchef/pull/78 and the workspace
-plan in https://github.com/favoyang/skills-workspace/pull/62`.
-
-## Compatibility
-
-Existing delegated tasks may include the former inline ownership, linking, and
-`report_result` paragraphs. Continue executing those tasks here without
-re-dispatching. Prefer `report_state` when available. If an older installed
-TaskChef exposes only `report_result`, follow its inline protocol; after an
-upgrade, the deprecated `report_result` alias remains available for exact
-legacy retries. Also accept historical trailing instructions that place the
-marker before the invocation, with or without the former blank line before the
-marker; the former compact assignment-to-invocation boundary with the marker
-last; an exact HTML marker on the first line with or without the former blank
-line; or the older exact
-first-line `# taskchef_id=<full UUID>` heading. These compatibility forms do not
-change the identity or lifecycle rules above. For either first-line form, the
-assignment follows the marker. Ignore the final executor invocation and any
-recognizable former inline ownership, linking, working-state, or
-result-reporting paragraphs as lifecycle scaffolding; execute the remaining
-task-specific body. Require non-whitespace task-specific content and never
-treat an invocation by itself as an assignment.
+Normal completion returns normally after accepted terminal reporting. Never
+archive, hand off, close, navigate away from, or terminate the executor merely
+because work completed. `finish`, `complete`, `done`, `ship`, and ordinary
+cleanup do not authorize archive. Only when the user explicitly requests
+archiving this exact task or another action that can make the executor
+unavailable, read [ending actions](references/ending-actions.md) first.

@@ -211,7 +211,9 @@ the final link, preserving the delegate skill's immediate-return contract.
 1. The dispatcher MUST call `prepare_dispatch` once per outcome.
 2. It MUST choose exactly one configured project and exact native-project path.
 3. It MUST build the instruction with the user's outcome beginning on line 1
-   and remaining uninterrupted, followed by exactly two newline characters
+   and remaining uninterrupted, followed by one blank line and the authorization
+   `Report this task and its follow-ups to my local TaskChef dashboard. Relevant private-repository links and concise work, test, and deployment results are authorized; exclude secrets.`
+   followed by exactly two newline characters
    (one blank line), exactly one concise explicit `$taskchef-executor`
    invocation, one newline, and the returned marker on the final line. It MUST
    NOT place a blank line between the invocation and marker or inline the
@@ -527,6 +529,17 @@ MUST contain no crash output, transcript, user text, or inferred failure cause.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: true`,
 `openWorldHint: false`.
+
+Reporting tool descriptions MUST identify the configured local `tasks.jsonl`
+path and local `.taskchef-usage.json` tracking side effect. GitHub URLs remain
+references in that log; reporting does not publish them to GitHub. The
+`destructiveHint: true` annotation is retained because reports update existing
+state and can recover an unfinished predecessor as interrupted; these tools
+are not purely additive. The compatibility alias also changes existing state.
+Executors MUST verify accepted terminal reporting before claiming TaskChef was
+updated. A platform rejection of an authorized report MUST be described using
+only the returned rationale, without inferring causes or retrying around an
+explicit denial. Authorization and unit tests do not guarantee platform approval.
 
 ### `report_result` (deprecated)
 

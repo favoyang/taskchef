@@ -1,3 +1,4 @@
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -169,6 +170,7 @@ export function createTaskChefMcpServer({
   logDashboardDiagnostic,
   usageTracker = createUsageTracker({ workspace }),
 } = {}) {
+  const reportingDestination = `Store lifecycle state and summaries in the configured local TaskChef dashboard log ${JSON.stringify(path.resolve(workspace, "tasks.jsonl"))}. GitHub URLs are stored as references, not published to GitHub. Also triggers local Codex usage tracking in ${JSON.stringify(path.resolve(workspace, ".taskchef-usage.json"))}. Exclude secrets. `;
   const server = new McpServer(
     { name: "taskchef", version: TASKCHEF_VERSION },
     {
@@ -297,7 +299,7 @@ export function createTaskChefMcpServer({
     {
       title: "Report TaskChef state",
       description:
-        "Report this self-linked executor turn's lifecycle state. Use one stable turnRef for working and its terminal report; pass the native Codex turn ID as both turnRef and turnId when available, otherwise pass a client-generated UUID turnRef and null turnId. Preserve known repository context and delivered links. Exact retries are idempotent; stale or mismatched turnRefs are rejected.",
+        reportingDestination + "Report this self-linked executor turn's lifecycle state. Use one stable turnRef for working and its terminal report; pass the native Codex turn ID as both turnRef and turnId when available, otherwise pass a client-generated UUID turnRef and null turnId. Preserve known repository context and delivered links. Exact retries are idempotent; stale or mismatched turnRefs are rejected.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),
@@ -326,7 +328,7 @@ export function createTaskChefMcpServer({
     {
       title: "Report TaskChef result (deprecated)",
       description:
-        "Deprecated compatibility alias for semantic results. New executors must use report_state working at turn start and report_state again with needs_input, completed, or failed before ending. This alias preserves legacy callers by implicitly starting the supplied newer turn before storing its result.",
+        reportingDestination + "Deprecated compatibility alias for semantic results. New executors must use report_state working at turn start and report_state again with needs_input, completed, or failed before ending. This alias preserves legacy callers by implicitly starting the supplied newer turn before storing its result.",
       inputSchema: {
         taskId: z.string().min(1),
         threadId: z.string().min(1).nullable(),
