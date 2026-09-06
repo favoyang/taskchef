@@ -1,8 +1,10 @@
+import { ModelSettings } from "./components/ModelSettings";
 import {
   Alert,
   ActionIcon,
   AppShell,
   Box,
+  Button,
   CloseButton,
   Container,
   Group,
@@ -100,6 +102,12 @@ export function DashboardApp({
   initialFilters?: { date?: string; project?: string; status?: string };
   initialTasks?: Task[];
 }) {
+  const [settings, setSettings] = useState(() => window.location.hash === '#settings');
+  useEffect(() => {
+    const update = () => setSettings(window.location.hash === '#settings');
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [connected, setConnected] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -307,13 +315,14 @@ export function DashboardApp({
                 <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
                 <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
               </Group>
-              <ThemeToggle />
+              <Group gap="xs"><Button component="a" href={settings ? '#' : '#settings'} variant="subtle" size="xs">{settings ? 'Tasks' : 'Settings'}</Button><ThemeToggle /></Group>
             </Stack>
           </Group>
         </Container>
 
         <AppShell.Main>
           <Container className="taskchef-main" pb={80} size={1080}>
+            {settings ? <ModelSettings /> : <>
             <Paper className="taskchef-toolbar" p="sm" radius="md" withBorder>
               <Stack gap="sm">
                 <Group align="end" gap="sm">
@@ -356,6 +365,7 @@ export function DashboardApp({
                 </Paper>
               )}
             </Stack>
+            </>}
           </Container>
         </AppShell.Main>
       </AppShell>

@@ -1,3 +1,4 @@
+import { resolveModelRoles } from "./model-roles.js";
 import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { constants, watch } from "node:fs";
@@ -1175,6 +1176,16 @@ export async function createDashboardServer({
         }, DASHBOARD_HANDOFF_COMMIT_RETRY_MS);
         shutdownTimer.unref?.();
       }
+      return;
+    }
+
+    if (url.pathname === "/api/settings" && method === "GET") {
+      const config = await readConfig(workspace);
+      const profiles = [{ id: "personal", project: "Personal", ...await resolveModelRoles() }];
+      for (const project of config.projects) {
+        profiles.push({ id: project.path, project: project.name, ...await resolveModelRoles(project.path) });
+      }
+      sendJson(response, 200, { profiles });
       return;
     }
 

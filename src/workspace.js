@@ -1,3 +1,4 @@
+import { resolveModelRoles } from "./model-roles.js";
 import { execFile as execFileCallback } from "node:child_process";
 import {
   access,
@@ -704,6 +705,10 @@ export async function prepareDispatch(workspaceRoot, {
     marker,
     projectCount: projects.length,
     projects,
+    modelRoles: await resolveModelRoles(),
+    projectModelRoles: await Promise.all(projects.map(async (project) => ({
+      project: project.name, path: project.path, ...await resolveModelRoles(project.path),
+    }))),
   };
 }
 

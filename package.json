@@ -37,6 +37,7 @@
     "docs/images/reported-work-duration-mobile.jpg",
     "index.js",
     "mcp",
+    "scripts/roles",
     "scripts/benchmark-dispatch-prepare.js",
     "scripts/e2e-benchmark.js",
     "src",

@@ -56,3 +56,29 @@ For adding, importing, removing, listing, or reindexing projects, read
 [project index](references/project-index.md). Preserve exact canonical local
 Codex project identity and existing curated entries; opening a folder is not
 proof of registration. Completion requires verifying the intended index entry.
+
+## Optional model roles
+
+Offer planner, implementer, and reviewer profiles during setup. Model and effort
+preferences belong in user configuration, never defaults hard-coded in skills.
+If the user provides values, configure them without asking again. Otherwise
+explain the optional profiles and retain native defaults until values are chosen.
+
+Run `python3 <plugin-root>/scripts/roles/resolve_roles.py` to preview personal
+roles. Python 3.11+ is required for this optional helper. Create each requested
+missing profile with:
+
+```sh
+python3 <plugin-root>/scripts/roles/resolve_roles.py --setup --role <role> --model <requested-model> --effort <requested-effort>
+```
+
+This authorized role setup may create `$CODEX_HOME/agents/<role>.toml` (default
+`~/.codex/agents/`) outside the dispatcher workspace. Existing definitions,
+including custom filenames, are preserved. Report conflicts and diagnostics;
+never overwrite a custom role. Re-run the preview and check model/effort against
+the available native interface. Missing roles are optional: TaskChef omits
+new-task overrides; reviewers inherit parent settings. Native new-task defaults
+are not guaranteed dispatcher inheritance. Read the delegate's
+[role resolution](../taskchef-delegate/references/model-roles.md) for precedence
+and adapter limits. Open the dashboard's `/#settings` preview to show the
+configured sources, requested effective settings, fallback, and problems.
