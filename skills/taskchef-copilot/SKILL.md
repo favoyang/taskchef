@@ -1,6 +1,6 @@
 ---
 name: taskchef-copilot
-description: "Explain and coordinate TaskChef executor outcomes from cached task briefs. Use when the user asks what finished, what needs attention, why a delegated task failed or needs input, what should happen next, asks to answer, follow up, resume, or continue the same recorded assignment in its existing task, or explicitly invokes the historical $taskchef-report name. The dashboard remains the primary monitoring UI. Use live Codex metadata only for an explicit fresh/live request or a meaningful focused contradiction, and never poll."
+description: "Explain TaskChef outcomes from cached briefs or continue an explicitly selected assignment in its existing task. Handles historical $taskchef-report requests; dashboard monitoring is separate."
 ---
 
 # TaskChef Copilot
