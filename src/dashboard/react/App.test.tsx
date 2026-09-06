@@ -112,6 +112,7 @@ vi.mock("@mantine/core", async () => {
     Alert: primitive("div"),
     AppShell,
     Box: primitive("div"),
+    Button: primitive("button"),
     CloseButton: primitive("button"),
     Container: primitive("div"),
     Group: primitive("div"),

@@ -49,6 +49,13 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 3. Route against configured project `name`, `description`, and canonical
    `githubRepos`; use `path` only as checkout identity. Require exactly one
    match and an exact native-project path. Ask instead of guessing.
+   Select `planner` for a requested planning assignment and `implementer` for
+   coding work. Use the matched project's `projectModelRoles` from preparation;
+   resolve explicit user choices and follow [model roles](references/model-roles.md).
+   Small coding changes need no separate planning task. For a planning/coding
+   split, the saved plan is the handoff to a separately requested implementation
+   assignment; do not switch models during a turn or coordinate phases automatically.
+   Resolve configuration problems before recording the task.
 4. Build each executor instruction in this exact shape:
 
    - Begin with the actual assignment on the first line and keep its complete
