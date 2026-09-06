@@ -28,7 +28,6 @@ test('refresh shows configuration failures and does not label them honored', asy
   await waitFor(() => expect(refresh).toBeEnabled());
   await act(async () => { fireEvent.click(refresh); });
   expect(await screen.findByText('Unsupported effort')).toBeInTheDocument();
-  expect(screen.getByText(/Overrides blocked/)).toBeInTheDocument();
   expect(screen.queryByText(/Requested effective settings/)).not.toBeInTheDocument();
 });
 

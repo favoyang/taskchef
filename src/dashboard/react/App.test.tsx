@@ -21,6 +21,8 @@ vi.mock("@tabler/icons-react", async () => {
   const { createElement } = await vi.importActual<typeof import("react")>("react");
   const Icon = (props: Record<string, unknown>) => createElement("svg", props);
   return {
+    IconArrowLeft: Icon,
+    IconSettings: Icon,
     IconAlertTriangle: Icon,
     IconCircleFilled: Icon,
     IconMoon: Icon,
