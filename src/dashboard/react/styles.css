@@ -21,6 +21,8 @@ body {
 .taskchef-header-copy { min-width: 0; }
 .taskchef-header-actions { align-self: stretch; flex: none; }
 .taskchef-connection { align-self: flex-end; }
+.taskchef-header-icon-row { justify-content: flex-end; }
+.taskchef-icon-button { flex: none; }
 .taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
 .taskchef-brand-icon, .taskchef-brand-icon img { display: block; width: 42px; height: 42px; }
 .taskchef-main { padding-top: var(--mantine-spacing-md); }
@@ -139,4 +141,17 @@ body {
   .taskchef-card-metadata { align-items: flex-start; width: 100%; max-width: 100%; }
   .taskchef-task-usage { text-align: left; }
   .taskchef-card-footer { align-items: flex-start; flex-direction: column; }
+}
+
+.taskchef-refresh-spinning {
+  animation: taskchef-refresh-spin 800ms linear infinite;
+  transform-origin: center;
+}
+
+@keyframes taskchef-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taskchef-refresh-spinning { animation: none; }
 }

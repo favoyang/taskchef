@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import type { ElementType, ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { DashboardApp } from "./App";
@@ -21,6 +21,8 @@ vi.mock("@tabler/icons-react", async () => {
   const { createElement } = await vi.importActual<typeof import("react")>("react");
   const Icon = (props: Record<string, unknown>) => createElement("svg", props);
   return {
+    IconArrowLeft: Icon,
+    IconSettings: Icon,
     IconAlertTriangle: Icon,
     IconCircleFilled: Icon,
     IconMoon: Icon,
@@ -169,6 +171,13 @@ test("places the filtered task count below the toolbar and updates it from live 
       initialTasks={tasks}
     />,
   );
+  const headerActions = document.querySelector<HTMLElement>(".taskchef-header-actions")!;
+  const headerIconRow = within(headerActions).getByRole("link", { name: "Settings" }).parentElement?.parentElement;
+  expect(headerActions.firstElementChild).toBe(within(headerActions).getByRole("status"));
+  expect(headerActions.lastElementChild).toHaveClass("taskchef-header-icon-row");
+  expect(headerIconRow).toBe(headerActions.lastElementChild);
+  expect(within(headerActions).getByRole("link", { name: "Settings" })).toHaveClass("taskchef-icon-button");
+  expect(within(headerActions).getByRole("button", { name: "Use dark theme" })).toHaveClass("taskchef-icon-button");
   const projectFilter = screen.getByRole("combobox", { name: "Project" });
   const dateFilter = screen.getByRole("combobox", { name: "Updated" });
   const toolbar = document.querySelector<HTMLElement>(".taskchef-toolbar");

@@ -1,9 +1,8 @@
 # Dispatch model roles
 
-Preparation includes personal and per-project model previews. Use the exact
-matched project's preview. Role preferences use native Codex agent TOML under
-`$CODEX_HOME/agents/` (default `~/.codex/agents/`) and that project's
-`.codex/agents/`; they are optional. The resolver requires Python 3.11+.
+Preparation includes personal model previews. Role preferences use native Codex
+agent TOML under `$CODEX_HOME/agents/` (default `~/.codex/agents/`); they are
+optional. The resolver requires Python 3.11+.
 
 Select `planner` for a planning assignment or `implementer` for coding. Pass
 its `taskOverrides` as native `model` and `thinking` arguments only after checking
@@ -11,16 +10,15 @@ those values against the current create-task tool's supported model/effort
 choices. A missing role means omit both arguments and use the native new-task
 default. This is not guaranteed to inherit the dispatcher's model.
 
-Explicit user model choices take precedence over the project role, personal
-role, and native defaults. An explicit model without explicit effort omits effort and uses the native
+Explicit user model choices take precedence over the personal role and native
+defaults. An explicit model without explicit effort omits effort and uses the native
 interface's omission behavior; do not mix in a different role's effort or claim
 a specific effective effort without evidence. Explicit effort
-alone replaces the resolved role effort. Project roles replace personal roles
-as a unit. To resolve explicit choices, or recheck a preview after configuration
+alone replaces the resolved role effort. To resolve explicit choices, or recheck a preview after configuration
 changes, run:
 
 ```sh
-python3 <plugin-root>/scripts/roles/resolve_roles.py --project <project-path> --role implementer --model <user-model> --effort <user-effort>
+python3 <plugin-root>/scripts/roles/resolve_roles.py --role implementer --model <user-model> --effort <user-effort>
 ```
 
 Omit flags the user did not specify. Resolve the plugin root from this skill's
@@ -47,3 +45,8 @@ implements the function, runs the example, and uses fresh reviewer subagents.
 The dispatcher returns after each creation; it does not wait for or launch
 subsequent phases automatically. A small addition change can instead go
 straight to the implementer.
+
+A single assignment that asks to plan and then execute is an implementation
+assignment. Use the implementer model for that whole task; do not switch models
+mid-turn. To apply both configured roles, dispatch a planner task first, wait
+for its saved plan, then dispatch a separate implementer task using that plan.

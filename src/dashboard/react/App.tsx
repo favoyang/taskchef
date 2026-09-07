@@ -20,7 +20,7 @@ import {
   useComputedColorScheme,
   useMantineColorScheme,
 } from "@mantine/core";
-import { IconAlertTriangle, IconCircleFilled, IconMoon, IconSun } from "@tabler/icons-react";
+import { IconArrowLeft, IconSettings, IconAlertTriangle, IconCircleFilled, IconMoon, IconSun } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   dismissNotification,
@@ -315,14 +315,17 @@ export function DashboardApp({
                 <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
                 <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
               </Group>
-              <Group gap="xs"><Button component="a" href={settings ? '#' : '#settings'} variant="subtle" size="xs">{settings ? 'Tasks' : 'Settings'}</Button><ThemeToggle /></Group>
+              <Group className="taskchef-header-icon-row" gap={2} justify="flex-end" wrap="nowrap">
+                <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
+                <ThemeToggle />
+              </Group>
             </Stack>
           </Group>
         </Container>
 
         <AppShell.Main>
           <Container className="taskchef-main" pb={80} size={1080}>
-            {settings ? <ModelSettings /> : <>
+            {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
             <Paper className="taskchef-toolbar" p="sm" radius="md" withBorder>
               <Stack gap="sm">
                 <Group align="end" gap="sm">
@@ -447,12 +450,13 @@ function ThemeToggle() {
     <Tooltip label={`Use ${next} theme`}>
       <ActionIcon
         aria-label={`Use ${next} theme`}
+        className="taskchef-icon-button"
         color="gray"
         onClick={() => setColorScheme(next)}
         size="lg"
         variant="subtle"
       >
-        {colorScheme === "dark" ? <IconSun aria-hidden size={18} /> : <IconMoon aria-hidden size={18} />}
+        {colorScheme === "dark" ? <IconSun aria-hidden size={18} stroke={1.8} /> : <IconMoon aria-hidden size={18} stroke={1.8} />}
       </ActionIcon>
     </Tooltip>
   );

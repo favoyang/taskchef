@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tomllib
 
@@ -57,11 +58,9 @@ def read_layer(directory):
     return found, problems
 
 
-def resolve(project=None, codex_home=None, explicit_model=None, explicit_effort=None):
+def resolve(codex_home=None, explicit_model=None, explicit_effort=None):
     home = Path(codex_home or os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()
     personal, problems = read_layer(home / 'agents')
-    local, local_problems = read_layer(Path(project).resolve() / '.codex' / 'agents') if project else ({}, [])
-    problems += local_problems
     catalog = None
     catalog_source = str(home / 'models_cache.json')
     try:
@@ -81,7 +80,7 @@ def resolve(project=None, codex_home=None, explicit_model=None, explicit_effort=
         problems.append('Local Codex model catalog is unreadable or malformed; validate availability with the current native tool.')
     results = []
     for role in ROLES:
-        entry = local.get(role, personal.get(role))
+        entry = personal.get(role)
         source = entry['source'] if entry else None
         model = entry['model'] if entry else None
         effort = entry['effort'] if entry else None
@@ -122,8 +121,14 @@ def resolve(project=None, codex_home=None, explicit_model=None, explicit_effort=
                         'taskOverrides': overrides,
                         'subagentOverrides': {('reasoning_effort' if k == 'thinking' else k): v for k, v in overrides.items()},
                         'fallback': 'inherit parent settings' if role == 'reviewer' else 'native new-task default (not guaranteed dispatcher inheritance)'})
+    model_options = [] if catalog is None else [
+        {'value': slug, 'label': entry.get('display_name') or slug,
+         'efforts': [level['effort'] for level in entry['supported_reasoning_levels']]}
+        for slug, entry in catalog.items() if entry.get('visibility') != 'hide'
+    ]
     return {'roles': results, 'problems': problems, 'catalogSource': catalog_source if catalog is not None else None,
-            'precedence': 'explicit user model (and its explicit effort) > project role > personal role > native defaults; explicit effort alone overrides role effort',
+            'modelOptions': model_options,
+            'precedence': 'explicit user model (and its explicit effort) > personal role > native defaults; explicit effort alone overrides role effort',
             'scope': 'Model and effort only; agent instructions, tools, permissions, and other TOML keys are not applied by this adapter.'}
 
 
@@ -148,21 +153,137 @@ def setup(role, model, effort, codex_home=None):
     return {'created': True, 'role': role, 'source': str(target), 'model': model, 'effort': effort}
 
 
+def multiline_state(line, state=None):
+    """Track TOML multiline strings without interpreting their contents as keys."""
+    index = 0
+    while index < len(line):
+        if state:
+            closing = line.find(state, index)
+            while closing >= 0 and state == '"""':
+                escapes = 0
+                cursor = closing - 1
+                while cursor >= 0 and line[cursor] == '\\':
+                    escapes += 1
+                    cursor -= 1
+                if escapes % 2 == 0:
+                    break
+                closing = line.find(state, closing + 3)
+            if closing < 0:
+                return state
+            state = None
+            index = closing + 3
+            continue
+        if line[index] == '#':
+            return None
+        if line.startswith('"""', index) or line.startswith("'''", index):
+            state = line[index:index + 3]
+            index += 3
+            continue
+        if line[index] in ('"', "'"):
+            quote = line[index]
+            index += 1
+            while index < len(line):
+                if line[index] == quote and (quote == "'" or index == 0 or line[index - 1] != '\\'):
+                    index += 1
+                    break
+                if quote == '"' and line[index] == '\\':
+                    index += 2
+                else:
+                    index += 1
+            continue
+        index += 1
+    return state
+
+
+def replace_top_level_preferences(content, model, effort):
+    replacements = {
+        'model': json.dumps(model),
+        'model_reasoning_effort': json.dumps(effort),
+    }
+    assignment = re.compile(
+        r'^(?P<prefix>\s*(?P<key>model|model_reasoning_effort|["\']model["\']|["\']model_reasoning_effort["\'])\s*=\s*).*$'
+    )
+    lines = content.splitlines(keepends=True)
+    state = None
+    boundary = len(lines)
+    found = set()
+    for index, line in enumerate(lines):
+        if state is None and re.match(r'^\s*\[', line):
+            boundary = index
+            break
+        if state is None:
+            body = line.rstrip('\r\n')
+            ending = line[len(body):]
+            match = assignment.match(body)
+            if match:
+                key = match.group('key').strip('"\'')
+                lines[index] = f"{match.group('prefix')}{replacements[key]}{ending}"
+                found.add(key)
+        state = multiline_state(line, state)
+    missing = [f'{key} = {value}\n' for key, value in replacements.items() if key not in found]
+    if missing:
+        prefix = '' if boundary == 0 or lines[boundary - 1].endswith(('\n', '\r')) else '\n'
+        lines[boundary:boundary] = [prefix + ''.join(missing)]
+    candidate = ''.join(lines)
+    expected = tomllib.loads(content)
+    expected['model'] = model
+    expected['model_reasoning_effort'] = effort
+    if tomllib.loads(candidate) != expected:
+        raise ValueError('agent TOML could not be updated without changing unrelated settings')
+    return candidate
+
+
+def update(role, model, effort, codex_home=None):
+    home = Path(codex_home or os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()
+    resolved = resolve(codex_home=str(home))
+    options = {entry['value']: entry for entry in resolved['modelOptions']}
+    if model not in options or effort not in options[model]['efforts']:
+        raise ValueError('model or reasoning effort is unavailable')
+    existing, layer_problems = read_layer(home / 'agents')
+    role_entry = existing.get(role)
+    if layer_problems or (role_entry and role_entry['problems']):
+        raise ValueError('existing role configuration must be fixed before editing')
+    if role_entry is None:
+        return setup(role, model, effort, str(home))
+    target = Path(role_entry['source'])
+    agents = (home / 'agents').resolve()
+    if target.is_symlink() or target.resolve().parent != agents:
+        raise ValueError('role source is outside the personal agent directory')
+    content = replace_top_level_preferences(target.read_text(), model, effort)
+    temporary = target.with_name(f'.{target.name}.{os.getpid()}.tmp')
+    try:
+        temporary.write_text(content)
+        os.chmod(temporary, target.stat().st_mode & 0o777)
+        os.replace(temporary, target)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return {'updated': True, 'role': role, 'source': str(target), 'model': model, 'effort': effort}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--project')
     parser.add_argument('--codex-home')
     parser.add_argument('--role', choices=ROLES)
     parser.add_argument('--model')
     parser.add_argument('--effort')
     parser.add_argument('--setup', action='store_true')
+    parser.add_argument('--update', action='store_true')
     args = parser.parse_args()
+    if args.setup and args.update:
+        parser.error('--setup and --update are mutually exclusive')
     if args.setup:
         if not (args.role and args.model and args.effort):
             parser.error('--setup requires --role, --model, and --effort')
         result = setup(args.role, args.model, args.effort, args.codex_home)
+    elif args.update:
+        if not (args.role and args.model and args.effort):
+            parser.error('--update requires --role, --model, and --effort')
+        result = update(args.role, args.model, args.effort, args.codex_home)
     else:
-        result = resolve(args.project, args.codex_home, args.model, args.effort)
+        result = resolve(args.codex_home, args.model, args.effort)
         if args.role:
             result['roles'] = [r for r in result['roles'] if r['role'] == args.role]
     print(json.dumps(result, indent=2))

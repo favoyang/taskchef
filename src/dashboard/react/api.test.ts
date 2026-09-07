@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "./fixtures";
-import { manualTransition } from "./api";
+import { manualTransition, updateModelRole } from "./api";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -20,5 +20,21 @@ test("times out a stalled manual transition and returns a retryable error", asyn
     ok: false,
     code: "request_timeout",
     message: "Task state change timed out. Try again.",
+  });
+});
+
+test("updates a personal model role with an exact JSON request", async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ profile: { id: "personal" } }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(updateModelRole("planner", "gpt-fixture", "high")).resolves.toEqual({
+    profile: { id: "personal" },
+  });
+  expect(fetchMock).toHaveBeenCalledWith("/api/settings/planner", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, model: "gpt-fixture", effort: "high" }),
   });
 });
