@@ -162,6 +162,16 @@ Use $taskchef-executor to execute and report this delegated TaskChef assignment.
 <!-- taskchef_id=c0f010ff-84f2-4838-a69d-0ff1f5d721d7 -->
 ```
 
+### Model roles
+
+TaskChef can apply personal Planner, Implementer, and Reviewer model preferences
+from `~/.codex/agents/`. Planning-only tasks use Planner, while coding tasks and
+single tasks that plan and then execute use Implementer throughout. To apply
+both models, finish a Planner task that saves its plan, then create a separate
+Implementer task using that plan. Reviewer preferences apply when a workflow
+explicitly starts a review subagent. Explicit per-task model choices take
+precedence, and changes affect only tasks created afterward.
+
 ## Work with and report executors
 
 Open an executor as an ordinary Codex task. Each executor reports `working`
