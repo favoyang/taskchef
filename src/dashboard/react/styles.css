@@ -140,3 +140,16 @@ body {
   .taskchef-task-usage { text-align: left; }
   .taskchef-card-footer { align-items: flex-start; flex-direction: column; }
 }
+
+.taskchef-refresh-spinning {
+  animation: taskchef-refresh-spin 800ms linear infinite;
+  transform-origin: center;
+}
+
+@keyframes taskchef-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taskchef-refresh-spinning { animation: none; }
+}

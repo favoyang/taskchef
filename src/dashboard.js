@@ -1,4 +1,4 @@
-import { resolveModelRoles } from "./model-roles.js";
+import { resolveModelRoles, updateModelRole } from "./model-roles.js";
 import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { constants, watch } from "node:fs";
@@ -804,6 +804,8 @@ export async function createDashboardServer({
   serverVersion = DASHBOARD_SERVER_VERSION,
   usageTracker = null,
   usageSummaryMonitor = null,
+  resolveRoles = resolveModelRoles,
+  updateRole = updateModelRole,
   control = null,
   controlReplayCache = createDashboardControlReplayCache(),
 } = {}) {
@@ -1180,12 +1182,39 @@ export async function createDashboardServer({
     }
 
     if (url.pathname === "/api/settings" && method === "GET") {
-      const config = await readConfig(workspace);
-      const profiles = [{ id: "personal", project: "Personal", ...await resolveModelRoles() }];
-      for (const project of config.projects) {
-        profiles.push({ id: project.path, project: project.name, ...await resolveModelRoles(project.path) });
-      }
+      const profiles = [{ id: "personal", project: "Personal", ...await resolveRoles(null, { includeCatalog: true }) }];
       sendJson(response, 200, { profiles });
+      return;
+    }
+
+    const settingsMatch = url.pathname.match(/^\/api\/settings\/(planner|implementer|reviewer)$/);
+    if (settingsMatch && method === "POST") {
+      if (request.headers.origin !== allowedOrigin) {
+        sendJson(response, 403, { code: "invalid_origin", message: "Dashboard origin validation failed." });
+        return;
+      }
+      try {
+        const body = await readBoundedJsonBody(request);
+        const fields = Object.keys(body);
+        if (fields.length !== 3 || body.schemaVersion !== 1
+            || typeof body.model !== "string" || typeof body.effort !== "string") {
+          const error = new Error("Model role update has an invalid shape.");
+          error.code = "invalid_request";
+          throw error;
+        }
+        const profile = await updateRole(settingsMatch[1], body.model, body.effort);
+        sendJson(response, 200, { profile: { id: "personal", project: "Personal", ...profile } });
+      } catch (error) {
+        const status = error?.code === "invalid_request" ? 400
+          : error?.code === "unsupported_media_type" ? 415
+            : error?.code === "body_too_large" ? 413 : 409;
+        sendJson(response, status, {
+          code: error?.code ?? "role_update_failed",
+          message: error?.code === "invalid_request"
+            ? "Model role update is invalid."
+            : "Model role could not be saved. Review the profile and try again.",
+        });
+      }
       return;
     }
 

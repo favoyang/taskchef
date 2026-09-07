@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tomllib
 
@@ -122,7 +123,13 @@ def resolve(project=None, codex_home=None, explicit_model=None, explicit_effort=
                         'taskOverrides': overrides,
                         'subagentOverrides': {('reasoning_effort' if k == 'thinking' else k): v for k, v in overrides.items()},
                         'fallback': 'inherit parent settings' if role == 'reviewer' else 'native new-task default (not guaranteed dispatcher inheritance)'})
+    model_options = [] if catalog is None else [
+        {'value': slug, 'label': entry.get('display_name') or slug,
+         'efforts': [level['effort'] for level in entry['supported_reasoning_levels']]}
+        for slug, entry in catalog.items() if entry.get('visibility') != 'hide'
+    ]
     return {'roles': results, 'problems': problems, 'catalogSource': catalog_source if catalog is not None else None,
+            'modelOptions': model_options,
             'precedence': 'explicit user model (and its explicit effort) > project role > personal role > native defaults; explicit effort alone overrides role effort',
             'scope': 'Model and effort only; agent instructions, tools, permissions, and other TOML keys are not applied by this adapter.'}
 
@@ -148,6 +155,51 @@ def setup(role, model, effort, codex_home=None):
     return {'created': True, 'role': role, 'source': str(target), 'model': model, 'effort': effort}
 
 
+def update(role, model, effort, codex_home=None):
+    home = Path(codex_home or os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()
+    resolved = resolve(codex_home=str(home))
+    options = {entry['value']: entry for entry in resolved['modelOptions']}
+    if model not in options or effort not in options[model]['efforts']:
+        raise ValueError('model or reasoning effort is unavailable')
+    existing, layer_problems = read_layer(home / 'agents')
+    role_entry = existing.get(role)
+    if layer_problems or (role_entry and role_entry['problems']):
+        raise ValueError('existing role configuration must be fixed before editing')
+    if role_entry is None:
+        return setup(role, model, effort, str(home))
+    target = Path(role_entry['source'])
+    agents = (home / 'agents').resolve()
+    if target.is_symlink() or target.resolve().parent != agents:
+        raise ValueError('role source is outside the personal agent directory')
+    content = target.read_text()
+    table = re.search(r'(?m)^\s*\[', content)
+    boundary = table.start() if table else len(content)
+    header, remainder = content[:boundary], content[boundary:]
+    replacements = {
+        'model': json.dumps(model),
+        'model_reasoning_effort': json.dumps(effort),
+    }
+    for key, value in replacements.items():
+        pattern = re.compile(rf'(?m)^(\s*{key}\s*=\s*).*$')
+        if pattern.search(header):
+            header = pattern.sub(rf'\g<1>{value}', header, count=1)
+        else:
+            prefix = '' if not header or header.endswith('\n') else '\n'
+            header += f'{prefix}{key} = {value}\n'
+    content = header + remainder
+    temporary = target.with_name(f'.{target.name}.{os.getpid()}.tmp')
+    try:
+        temporary.write_text(content)
+        os.chmod(temporary, target.stat().st_mode & 0o777)
+        os.replace(temporary, target)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return {'updated': True, 'role': role, 'source': str(target), 'model': model, 'effort': effort}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project')
@@ -156,11 +208,18 @@ def main():
     parser.add_argument('--model')
     parser.add_argument('--effort')
     parser.add_argument('--setup', action='store_true')
+    parser.add_argument('--update', action='store_true')
     args = parser.parse_args()
+    if args.setup and args.update:
+        parser.error('--setup and --update are mutually exclusive')
     if args.setup:
         if not (args.role and args.model and args.effort):
             parser.error('--setup requires --role, --model, and --effort')
         result = setup(args.role, args.model, args.effort, args.codex_home)
+    elif args.update:
+        if not (args.role and args.model and args.effort):
+            parser.error('--update requires --role, --model, and --effort')
+        result = update(args.role, args.model, args.effort, args.codex_home)
     else:
         result = resolve(args.project, args.codex_home, args.model, args.effort)
         if args.role:

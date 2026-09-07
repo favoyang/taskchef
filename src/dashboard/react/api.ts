@@ -39,6 +39,14 @@ export async function dashboardVersion(): Promise<string> {
   return health.taskchefVersion;
 }
 
+export async function updateModelRole(role: string, model: string, effort: string) {
+  return jsonRequest<{ profile: unknown }>(`/api/settings/${encodeURIComponent(role)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ schemaVersion: 1, model, effort }),
+  });
+}
+
 export async function taskDetail(taskId: string): Promise<Task> {
   return (await jsonRequest<{ task: Task }>(`/api/tasks/${encodeURIComponent(taskId)}`)).task;
 }

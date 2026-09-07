@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, cp } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, cp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile as callback } from 'node:child_process';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { resolveModelRoles } from '../src/model-roles.js';
+import { resolveModelRoles, updateModelRole } from '../src/model-roles.js';
 import { initializeWorkspace, prepareDispatch, addProject } from '../src/workspace.js';
 import { createDashboardServer } from '../src/dashboard.js';
 const execFile = promisify(callback);
@@ -31,7 +31,7 @@ test('packaged resolver runs outside a checkout with profile/fallback behavior',
   assert.deepEqual(result.roles[2].subagentOverrides, {});
   assert.equal(result.roles[2].status, 'missing');
   const preview = await resolveModelRoles(project, { env: { ...process.env, CODEX_HOME: home } });
-  assert.deepEqual(preview.roles, result.roles);
+  assert.deepEqual(preview.roles, result.roles.map((role) => ({ ...role, displaySource: role.source })));
 });
 
 test('resolver runtime failure is visible rather than reported honored', async () => {
@@ -51,7 +51,7 @@ test('absent agent configuration preserves defaults without Python', async () =>
   assert.deepEqual(result.roles[2].subagentOverrides, {});
 });
 
-test('dispatch and settings expose exact target project roles', async () => {
+test('dispatch exposes project roles while settings stays personal-only', async () => {
   const { root, project } = await fixture();
   const workspace = path.join(root, 'workspace');
   await mkdir(path.join(project, '.codex/agents'), { recursive: true });
@@ -65,7 +65,52 @@ test('dispatch and settings expose exact target project roles', async () => {
     const response = await fetch(`${server.url}api/settings`);
     assert.equal(response.status, 200);
     const settings = await response.json();
-    assert.equal(settings.profiles[1].project, 'Fixture');
-    assert.equal(settings.profiles[1].roles[0].model, 'deliberately-unavailable-fixture');
+    assert.equal(settings.profiles.length, 1);
+    assert.equal(settings.profiles[0].project, 'Personal');
+  } finally { await server.close(); }
+});
+
+test('updates only personal model preferences and preserves the rest of native TOML', async () => {
+  const { home } = await fixture();
+  await writeFile(path.join(home, 'models_cache.json'), JSON.stringify({ models: [{
+    slug: 'gpt-fixture', display_name: 'GPT Fixture',
+    supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }],
+  }] }));
+  const target = path.join(home, 'agents/implementer.toml');
+  await writeFile(target, 'name="implementer"\ndescription="Code"\ndeveloper_instructions="Keep this"\nmodel="old"\nmodel_reasoning_effort="medium"\n\n[tools]\nmodel="nested-preserved"\n');
+  const result = await updateModelRole('implementer', 'gpt-fixture', 'high', { env: { ...process.env, CODEX_HOME: home } });
+  const content = await readFile(target, 'utf8');
+  assert.match(content, /developer_instructions="Keep this"/);
+  assert.match(content, /model="gpt-fixture"/);
+  assert.match(content, /model_reasoning_effort="high"/);
+  assert.match(content, /\[tools\]\nmodel="nested-preserved"/);
+  assert.equal(result.roles[1].displaySource, '~/.codex/agents/implementer.toml');
+  assert.equal(result.roles[1].model, 'gpt-fixture');
+});
+
+test('settings update requires same origin and returns the refreshed personal profile', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'roles-api-'));
+  const workspace = path.join(root, 'workspace');
+  await initializeWorkspace(workspace);
+  const profile = { roles: [], problems: [], modelOptions: [] };
+  const calls = [];
+  const server = await createDashboardServer({
+    workspace, port: 0,
+    resolveRoles: async () => profile,
+    updateRole: async (...args) => { calls.push(args); return profile; },
+  });
+  try {
+    const blocked = await fetch(`${server.url}api/settings/planner`, {
+      method: 'POST', headers: { Origin: 'http://example.invalid', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, model: 'gpt-fixture', effort: 'low' }),
+    });
+    assert.equal(blocked.status, 403);
+    const saved = await fetch(`${server.url}api/settings/planner`, {
+      method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, model: 'gpt-fixture', effort: 'low' }),
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(calls, [['planner', 'gpt-fixture', 'low']]);
+    assert.equal((await saved.json()).profile.id, 'personal');
   } finally { await server.close(); }
 });
