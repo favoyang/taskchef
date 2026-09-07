@@ -172,7 +172,10 @@ test("places the filtered task count below the toolbar and updates it from live 
     />,
   );
   const headerActions = document.querySelector<HTMLElement>(".taskchef-header-actions")!;
-  expect(within(headerActions).getByRole("status")).toBeInTheDocument();
+  const headerIconRow = within(headerActions).getByRole("link", { name: "Settings" }).parentElement?.parentElement;
+  expect(headerActions.firstElementChild).toBe(within(headerActions).getByRole("status"));
+  expect(headerActions.lastElementChild).toHaveClass("taskchef-header-icon-row");
+  expect(headerIconRow).toBe(headerActions.lastElementChild);
   expect(within(headerActions).getByRole("link", { name: "Settings" })).toHaveClass("taskchef-icon-button");
   expect(within(headerActions).getByRole("button", { name: "Use dark theme" })).toHaveClass("taskchef-icon-button");
   const projectFilter = screen.getByRole("combobox", { name: "Project" });

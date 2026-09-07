@@ -19,8 +19,9 @@ body {
 .taskchef-shell header { border-bottom: 1px solid var(--taskchef-border); }
 .taskchef-header { padding-top: 28px; padding-bottom: 22px; }
 .taskchef-header-copy { min-width: 0; }
-.taskchef-header-actions { align-self: center; flex: none; }
-.taskchef-connection { min-height: 36px; }
+.taskchef-header-actions { align-self: stretch; flex: none; }
+.taskchef-connection { align-self: flex-end; }
+.taskchef-header-icon-row { justify-content: flex-end; }
 .taskchef-icon-button { flex: none; }
 .taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
 .taskchef-brand-icon, .taskchef-brand-icon img { display: block; width: 42px; height: 42px; }
