@@ -42,7 +42,7 @@ export function ModelSettings() {
   return <Stack gap="md" aria-label="Model settings">
     <Group justify="space-between">
       <Title order={2} size="h3">Model roles</Title>
-      <ActionIcon aria-label="Refresh" aria-busy={loading} aria-disabled={loading} variant="light" size="lg" onClick={() => {
+      <ActionIcon aria-label="Refresh" aria-busy={loading} aria-disabled={loading} className="taskchef-icon-button" color="gray" variant="subtle" size="lg" onClick={() => {
         if (loading) return;
         setLoading(true);
         setRevision((value) => value + 1);

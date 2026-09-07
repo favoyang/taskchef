@@ -310,16 +310,14 @@ export function DashboardApp({
                 <Title order={1} size="h2">Dashboard</Title>
               </Group>
             </Box>
-            <Stack align="flex-end" className="taskchef-header-actions" gap={0} justify="space-between">
+            <Group align="center" className="taskchef-header-actions" gap="xs" justify="flex-end" wrap="nowrap">
               <Group aria-live="polite" className="taskchef-connection" gap={7} role="status" wrap="nowrap">
                 <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
                 <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
               </Group>
-              <Group gap="xs">
-                <Tooltip label="Settings"><ActionIcon component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant={settings ? 'light' : 'subtle'} color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
-                <ThemeToggle />
-              </Group>
-            </Stack>
+              <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
+              <ThemeToggle />
+            </Group>
           </Group>
         </Container>
 
@@ -450,12 +448,13 @@ function ThemeToggle() {
     <Tooltip label={`Use ${next} theme`}>
       <ActionIcon
         aria-label={`Use ${next} theme`}
+        className="taskchef-icon-button"
         color="gray"
         onClick={() => setColorScheme(next)}
         size="lg"
         variant="subtle"
       >
-        {colorScheme === "dark" ? <IconSun aria-hidden size={18} /> : <IconMoon aria-hidden size={18} />}
+        {colorScheme === "dark" ? <IconSun aria-hidden size={18} stroke={1.8} /> : <IconMoon aria-hidden size={18} stroke={1.8} />}
       </ActionIcon>
     </Tooltip>
   );

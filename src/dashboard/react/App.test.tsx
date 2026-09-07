@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import type { ElementType, ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { DashboardApp } from "./App";
@@ -171,6 +171,10 @@ test("places the filtered task count below the toolbar and updates it from live 
       initialTasks={tasks}
     />,
   );
+  const headerActions = document.querySelector<HTMLElement>(".taskchef-header-actions")!;
+  expect(within(headerActions).getByRole("status")).toBeInTheDocument();
+  expect(within(headerActions).getByRole("link", { name: "Settings" })).toHaveClass("taskchef-icon-button");
+  expect(within(headerActions).getByRole("button", { name: "Use dark theme" })).toHaveClass("taskchef-icon-button");
   const projectFilter = screen.getByRole("combobox", { name: "Project" });
   const dateFilter = screen.getByRole("combobox", { name: "Updated" });
   const toolbar = document.querySelector<HTMLElement>(".taskchef-toolbar");

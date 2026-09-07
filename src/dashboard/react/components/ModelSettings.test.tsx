@@ -13,7 +13,7 @@ vi.mock('@mantine/core', async () => {
     MantineProvider: block, Tooltip: block, Badge: block, Group: block, Paper: block, SimpleGrid: block, Stack: block, Text: block, Title: block,
     Select: ({ 'aria-label': label, data = [], disabled, onChange, value }: { 'aria-label': string; data?: Array<string | { value: string; label: string }>; disabled?: boolean; onChange: (value: string | null) => void; value: string | null }) => createElement('select', { 'aria-label': label, disabled, value: value ?? '', onChange: (event: { currentTarget: { value: string } }) => onChange(event.currentTarget.value) }, [createElement('option', { key: '', value: '' }), ...data.map((item) => typeof item === 'string' ? createElement('option', { key: item, value: item }, item) : createElement('option', { key: item.value, value: item.value }, item.label))]),
     Alert: ({ children }: { children?: import('react').ReactNode }) => createElement('div', { role: 'alert' }, children),
-    ActionIcon: ({ children, loading, onClick, 'aria-label': label }: { children?: import('react').ReactNode; loading: boolean; onClick: () => void; 'aria-label': string }) => createElement('button', { disabled: loading, onClick, 'aria-label': label }, children),
+    ActionIcon: ({ children, loading, onClick, 'aria-label': label, ...props }: { children?: import('react').ReactNode; loading?: boolean; onClick: () => void; 'aria-label': string; className?: string }) => createElement('button', { ...props, disabled: loading, onClick, 'aria-label': label }, children),
   };
 });
 
@@ -28,6 +28,7 @@ test('refresh shows configuration failures and does not label them honored', asy
   render(<MantineProvider><ModelSettings /></MantineProvider>);
   expect(await screen.findByText('configured')).toBeInTheDocument();
   const refresh = screen.getByRole('button', { name: 'Refresh' });
+  expect(refresh).toHaveClass('taskchef-icon-button');
   await waitFor(() => expect(refresh).toBeEnabled());
   await act(async () => { fireEvent.click(refresh); });
   expect(await screen.findByText('Unsupported effort')).toBeInTheDocument();
