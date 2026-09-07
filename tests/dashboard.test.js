@@ -1872,7 +1872,7 @@ test("usage summary monitor reads one cache revision for every projected card", 
   incompatibleCache.close();
 });
 
-test("dashboard list publishes cached usage changes without detail requests or ccusage work", async () => {
+test("dashboard preloads usage independently of detail requests and publishes cache changes", async () => {
   const { workspace, project } = await fixture();
   await recordTask(workspace, input(project, FIRST_ID, "Usage projection", FIRST_THREAD_ID));
   await reportTaskResult(workspace, {
@@ -1883,7 +1883,12 @@ test("dashboard list publishes cached usage changes without detail requests or c
     summary: "Usage boundary is complete.",
   });
   let detailReads = 0;
+  let preloadCalls = 0;
   const usageTracker = {
+    async preload(tasks) {
+      preloadCalls += 1;
+      assert.equal(tasks.length, 1);
+    },
     async get() {
       detailReads += 1;
       return cachedUsageRecord();
@@ -1899,6 +1904,7 @@ test("dashboard list publishes cached usage changes without detail requests or c
     let snapshot = await (await fetch(`${server.origin}/api/snapshot`)).json();
     assert.equal(snapshot.tasks[0].usage.status, "unavailable");
     assert.equal(detailReads, 0);
+    assert.equal(preloadCalls, 1);
 
     await writeUsageStore(workspace, {
       schemaVersion: 1,
@@ -1917,6 +1923,30 @@ test("dashboard list publishes cached usage changes without detail requests or c
 
     await fetch(`${server.origin}/api/tasks/${FIRST_ID}`);
     assert.equal(detailReads, 1, "only an explicit detail request may enter the detail usage path");
+  } finally {
+    await server.close();
+  }
+});
+
+test("dashboard settings reports the ccusage version resolved at runtime", async () => {
+  const { workspace } = await fixture();
+  const server = await createDashboardServer({
+    workspace,
+    port: 0,
+    resolveRoles: async () => ({ roles: [], problems: [], modelOptions: [] }),
+    resolveUsageProvider: async () => ({
+      provider: "ccusage",
+      status: "available",
+      version: "20.0.21",
+    }),
+  });
+  try {
+    const settings = await (await fetch(`${server.origin}/api/settings`)).json();
+    assert.deepEqual(settings.usageProvider, {
+      provider: "ccusage",
+      status: "available",
+      version: "20.0.21",
+    });
   } finally {
     await server.close();
   }
