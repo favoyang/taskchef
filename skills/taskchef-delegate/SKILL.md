@@ -50,7 +50,7 @@ stop and report that the TaskChef plugin must be reloaded or installed.
    `githubRepos`; use `path` only as checkout identity. Require exactly one
    match and an exact native-project path. Ask instead of guessing.
    Select `planner` for a requested planning assignment and `implementer` for
-   coding work. Use the matched project's `projectModelRoles` from preparation;
+   coding work. Use the personal `modelRoles` from preparation;
    resolve explicit user choices and follow [model roles](references/model-roles.md).
    Small coding changes need no separate planning task. For a planning/coding
    split, the saved plan is the handoff to a separately requested implementation

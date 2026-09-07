@@ -17,7 +17,7 @@ vi.mock('@mantine/core', async () => {
   };
 });
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
 test('refresh shows configuration failures and does not label them honored', async () => {
   const role = { role: 'reviewer', source: '/fixture/reviewer.toml', effectiveSource: '/fixture/reviewer.toml', model: 'fixture', effort: 'low', status: 'configured', availability: 'not checked', fallback: 'inherit parent settings', problems: [] as string[] };
@@ -71,4 +71,30 @@ test('saves dropdown changes and displays a home-relative agent source', async (
   expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
   await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenCalledWith('planner', 'gpt-two', 'medium'));
   expect(await screen.findByText('Source: ~/.codex/agents/planner.toml')).toBeInTheDocument();
+});
+
+test('serializes role saves so an older response cannot replace a newer selection', async () => {
+  const planner = { role: 'planner', source: null, model: 'gpt-one', effort: 'low', status: 'configured', problems: [] as string[] };
+  const reviewer = { ...planner, role: 'reviewer' };
+  const profile = { id: 'personal', roles: [planner, reviewer], problems: [], modelOptions: [
+    { value: 'gpt-one', label: 'GPT One', efforts: ['low'] },
+    { value: 'gpt-two', label: 'GPT Two', efforts: ['medium'] },
+  ] };
+  let resolveFirst!: (value: { profile: typeof profile }) => void;
+  apiMocks.updateModelRole.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ profiles: [profile] }) }));
+  render(<MantineProvider><ModelSettings /></MantineProvider>);
+  const plannerModel = await screen.findByRole('combobox', { name: 'planner model' });
+  const reviewerModel = screen.getByRole('combobox', { name: 'reviewer model' });
+  fireEvent.change(plannerModel, { target: { value: 'gpt-two' } });
+  fireEvent.change(reviewerModel, { target: { value: 'gpt-two' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  expect(apiMocks.updateModelRole).toHaveBeenCalledTimes(1);
+  expect(apiMocks.updateModelRole).toHaveBeenCalledWith('planner', 'gpt-two', 'medium');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  await act(async () => resolveFirst({ profile: { ...profile, roles: [{ ...planner, model: 'gpt-two', effort: 'medium' }, reviewer] } }));
+  await waitFor(() => expect(reviewerModel).toHaveAttribute('aria-readonly', 'false'));
+  apiMocks.updateModelRole.mockResolvedValueOnce({ profile: { ...profile, roles: [{ ...planner, model: 'gpt-two', effort: 'medium' }, { ...reviewer, model: 'gpt-two', effort: 'medium' }] } });
+  fireEvent.change(reviewerModel, { target: { value: 'gpt-two' } });
+  await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenCalledTimes(2));
 });

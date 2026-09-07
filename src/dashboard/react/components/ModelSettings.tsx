@@ -57,8 +57,8 @@ export function ModelSettings() {
   return <Stack gap="md" aria-label="Model settings">
     <Group justify="space-between">
       <Title order={2} size="h3">Model roles</Title>
-      <ActionIcon aria-label="Refresh" aria-busy={loading} aria-disabled={loading} className="taskchef-icon-button" color="gray" variant="subtle" size="lg" onClick={() => {
-        if (loading) return;
+      <ActionIcon aria-label="Refresh" aria-busy={loading} aria-disabled={loading || saving !== null} className="taskchef-icon-button" color="gray" variant="subtle" size="lg" onClick={() => {
+        if (loading || saving) return;
         setLoading(true);
         setRevision((value) => value + 1);
       }}><IconRefresh className={loading ? 'taskchef-refresh-spinning' : undefined} size={18} stroke={1.8} /></ActionIcon>
@@ -71,14 +71,14 @@ export function ModelSettings() {
         <Stack gap="xs">
           <Group justify="space-between"><Title order={3} size="h4" tt="capitalize">{role.role}</Title><Badge color={['invalid', 'unavailable'].includes(role.status) ? 'red' : role.status === 'missing' ? 'gray' : 'teal'}>{role.status}</Badge></Group>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            <Select label="Model" aria-label={`${role.role} model`} aria-busy={saving === role.role} data={profile.modelOptions ?? []} value={typeof role.model === 'string' ? role.model : null} readOnly={saving === role.role} allowDeselect={false} searchable onChange={(model) => {
-              if (!model) return;
+            <Select label="Model" aria-label={`${role.role} model`} aria-busy={loading || saving !== null} data={profile.modelOptions ?? []} value={typeof role.model === 'string' ? role.model : null} readOnly={loading || saving !== null} allowDeselect={false} searchable onChange={(model) => {
+              if (loading || saving || !model) return;
               const option = profile.modelOptions?.find((candidate) => candidate.value === model);
               const effort = typeof role.effort === 'string' && option?.efforts.includes(role.effort) ? role.effort : option?.efforts[0];
               if (effort) void save(role, model, effort);
             }} />
-            <Select label="Reasoning effort" aria-label={`${role.role} reasoning effort`} aria-busy={saving === role.role} data={(profile.modelOptions?.find((option) => option.value === role.model)?.efforts ?? []).map((value) => ({ value, label: value }))} value={typeof role.effort === 'string' ? role.effort : null} disabled={typeof role.model !== 'string'} readOnly={saving === role.role} allowDeselect={false} onChange={(effort) => {
-              if (effort && typeof role.model === 'string') void save(role, role.model, effort);
+            <Select label="Reasoning effort" aria-label={`${role.role} reasoning effort`} aria-busy={loading || saving !== null} data={(profile.modelOptions?.find((option) => option.value === role.model)?.efforts ?? []).map((value) => ({ value, label: value }))} value={typeof role.effort === 'string' ? role.effort : null} disabled={typeof role.model !== 'string'} readOnly={loading || saving !== null} allowDeselect={false} onChange={(effort) => {
+              if (!loading && !saving && effort && typeof role.model === 'string') void save(role, role.model, effort);
             }} />
           </SimpleGrid>
           <Text size="sm" style={{ overflowWrap: 'anywhere' }}>Source: {role.displaySource ?? role.source ?? 'No role file'}</Text>

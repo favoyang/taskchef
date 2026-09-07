@@ -103,7 +103,6 @@ const preparationSchema = z.object({
   preparedAt: z.string(),
   marker: z.string(),
   modelRoles: z.record(z.string(), z.unknown()).optional(),
-  projectModelRoles: z.array(z.record(z.string(), z.unknown())).optional(),
   projectCount: z.number(),
   projects: z.array(projectSchema),
 });

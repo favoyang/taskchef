@@ -1182,7 +1182,7 @@ export async function createDashboardServer({
     }
 
     if (url.pathname === "/api/settings" && method === "GET") {
-      const profiles = [{ id: "personal", project: "Personal", ...await resolveRoles(null, { includeCatalog: true }) }];
+      const profiles = [{ id: "personal", project: "Personal", ...await resolveRoles({ includeCatalog: true }) }];
       sendJson(response, 200, { profiles });
       return;
     }

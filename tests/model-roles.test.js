@@ -25,25 +25,32 @@ test('packaged resolver runs outside a checkout with profile/fallback behavior',
   const { root, home, project } = await fixture();
   const copy = path.join(root, 'package');
   await cp(new URL('../scripts/roles', import.meta.url), copy, { recursive: true });
-  const { stdout } = await execFile('python3', [path.join(copy, 'resolve_roles.py'), '--codex-home', home, '--project', project], { cwd: root });
+  const { stdout } = await execFile('python3', [path.join(copy, 'resolve_roles.py'), '--codex-home', home], { cwd: root });
   const result = JSON.parse(stdout);
   assert.deepEqual(result.roles[1].taskOverrides, { model: 'fixture-model', thinking: 'medium' });
   assert.deepEqual(result.roles[2].subagentOverrides, {});
   assert.equal(result.roles[2].status, 'missing');
-  const preview = await resolveModelRoles(project, { env: { ...process.env, CODEX_HOME: home } });
-  assert.deepEqual(preview.roles, result.roles.map((role) => ({ ...role, displaySource: role.source })));
+  const preview = await resolveModelRoles({ env: { ...process.env, CODEX_HOME: home } });
+  assert.deepEqual(preview.roles, result.roles.map((role) => ({
+    ...role,
+    displaySource: role.source ? `~/.codex/agents/${path.basename(role.source)}` : role.source,
+  })));
+  await assert.rejects(
+    execFile('python3', [path.join(copy, 'resolve_roles.py'), '--codex-home', home, '--project', project], { cwd: root }),
+    /unrecognized arguments: --project/,
+  );
 });
 
 test('resolver runtime failure is visible rather than reported honored', async () => {
   const { home } = await fixture();
-  const result = await resolveModelRoles(null, { env: { ...process.env, CODEX_HOME: home }, run: async () => { throw new Error('missing runtime'); } });
+  const result = await resolveModelRoles({ env: { ...process.env, CODEX_HOME: home }, run: async () => { throw new Error('missing runtime'); } });
   assert.equal(result.roles.length, 0);
   assert.match(result.problems[0], /not been honored/);
 });
 
 test('absent agent configuration preserves defaults without Python', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'roles-no-python-'));
-  const result = await resolveModelRoles(root, { env: { ...process.env, CODEX_HOME: path.join(root, 'absent') }, run: async () => { throw new Error('must not run Python'); } });
+  const result = await resolveModelRoles({ env: { ...process.env, CODEX_HOME: path.join(root, 'absent') }, run: async () => { throw new Error('must not run Python'); } });
   assert.deepEqual(result.problems, []);
   assert.equal(result.roles.length, 3);
   assert.ok(result.roles.every((role) => role.status === 'missing'));
@@ -51,7 +58,7 @@ test('absent agent configuration preserves defaults without Python', async () =>
   assert.deepEqual(result.roles[2].subagentOverrides, {});
 });
 
-test('dispatch exposes project roles while settings stays personal-only', async () => {
+test('dispatch and settings expose personal roles only', async () => {
   const { root, project } = await fixture();
   const workspace = path.join(root, 'workspace');
   await mkdir(path.join(project, '.codex/agents'), { recursive: true });
@@ -59,7 +66,8 @@ test('dispatch exposes project roles while settings stays personal-only', async 
   await initializeWorkspace(workspace);
   await addProject(workspace, { name: 'Fixture', path: project });
   const preparation = await prepareDispatch(workspace);
-  assert.equal(preparation.projectModelRoles[0].roles[0].model, 'deliberately-unavailable-fixture');
+  assert.ok(preparation.modelRoles);
+  assert.equal('projectModelRoles' in preparation, false);
   const server = await createDashboardServer({ workspace, port: 0 });
   try {
     const response = await fetch(`${server.url}api/settings`);
@@ -86,6 +94,21 @@ test('updates only personal model preferences and preserves the rest of native T
   assert.match(content, /\[tools\]\nmodel="nested-preserved"/);
   assert.equal(result.roles[1].displaySource, '~/.codex/agents/implementer.toml');
   assert.equal(result.roles[1].model, 'gpt-fixture');
+});
+
+test('role updates preserve multiline instructions containing TOML-like examples', async () => {
+  const { home } = await fixture();
+  await writeFile(path.join(home, 'models_cache.json'), JSON.stringify({ models: [{
+    slug: 'gpt-fixture', display_name: 'GPT Fixture',
+    supported_reasoning_levels: [{ effort: 'high' }],
+  }] }));
+  const target = path.join(home, 'agents/implementer.toml');
+  await writeFile(target, `name = "implementer"\ndescription = "Code"\ndeveloper_instructions = """Keep this example:\nmodel = "example"\n[tools]\nenabled = true\n"""\nmodel = "old"\nmodel_reasoning_effort = "medium"\n\n[tools]\nmode = "preserved"\n`);
+  await updateModelRole('implementer', 'gpt-fixture', 'high', { env: { ...process.env, CODEX_HOME: home } });
+  const content = await readFile(target, 'utf8');
+  assert.match(content, /developer_instructions = """Keep this example:\nmodel = "example"\n\[tools\]\nenabled = true\n"""/);
+  assert.match(content, /\nmodel = "gpt-fixture"\nmodel_reasoning_effort = "high"\n/);
+  assert.match(content, /\[tools\]\nmode = "preserved"/);
 });
 
 test('settings update requires same origin and returns the refreshed personal profile', async () => {

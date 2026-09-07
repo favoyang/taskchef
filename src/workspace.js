@@ -706,9 +706,6 @@ export async function prepareDispatch(workspaceRoot, {
     projectCount: projects.length,
     projects,
     modelRoles: await resolveModelRoles(),
-    projectModelRoles: await Promise.all(projects.map(async (project) => ({
-      project: project.name, path: project.path, ...await resolveModelRoles(project.path),
-    }))),
   };
 }
 
