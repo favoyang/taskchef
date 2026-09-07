@@ -17,6 +17,10 @@ function isAdministrativeTurn(turn) {
   return turn?.provenance?.kind === "dashboard_manual";
 }
 
+function isInterruptedTurn(turn) {
+  return turn?.result?.status === "interrupted";
+}
+
 function hasTerminalLatestTurn(task) {
   return task.latestTurn !== null
     && task.latestTurn !== undefined
@@ -128,6 +132,19 @@ function administrativeTask(task, existing = null, now = new Date().toISOString(
   };
 }
 
+function interruptedTask(task, existing = null, now = new Date().toISOString()) {
+  const usage = calculatingTask(task, existing, now);
+  const hasTaskProjection = existing?.task !== null && existing?.task !== undefined;
+  return {
+    ...usage,
+    status: hasTaskProjection ? "available" : "unavailable",
+    ...(hasTaskProjection ? {} : { reason: "The turn ended without a terminal usage boundary." }),
+    updatedAt: now,
+    retryAfter: null,
+    task: existing?.task ?? null,
+  };
+}
+
 async function updateStore(workspace, taskId, transform) {
   const release = await acquireWorkspaceLock(workspace);
   try {
@@ -165,6 +182,47 @@ function snapshotSupersedes(current, incoming) {
     "reasoningOutputTokens",
     "totalTokens",
   ].every((field) => incoming[field] >= current[field]);
+}
+
+function snapshotCorrects(current, incoming) {
+  if (!current) return false;
+  const currentSampledAt = Date.parse(current.sampledAt ?? 0);
+  const incomingSampledAt = Date.parse(incoming.sampledAt ?? 0);
+  return Number.isFinite(incomingSampledAt)
+    && incomingSampledAt >= currentSampledAt
+    && [
+      "inputTokens",
+      "cachedInputTokens",
+      "outputTokens",
+      "reasoningOutputTokens",
+      "totalTokens",
+    ].some((field) => incoming[field] < current[field]);
+}
+
+function correctedRecord(task, snapshot) {
+  const now = snapshot.sampledAt;
+  const version = snapshot.provenance.version ? ` ${snapshot.provenance.version}` : "";
+  const reason = `ccusage${version} corrected an older cumulative total; reliable per-turn usage is unavailable.`;
+  const turns = Object.fromEntries(task.turns.slice(-MAX_TRACKED_TURNS).map((turn) => [
+    turn.turnRef,
+    isAdministrativeTurn(turn)
+      ? { status: "unavailable", reason: ADMINISTRATIVE_USAGE_REASON, updatedAt: now }
+      : { status: "unavailable", reason, updatedAt: now },
+  ]));
+  const generation = lifecycleGeneration(task);
+  return {
+    threadId: task.threadId,
+    generationTurnRef: task.latestTurn?.turnRef ?? null,
+    generationTurnCount: generation.turnCount,
+    generationTerminal: generation.terminal,
+    zeroBaselineTurnRef: null,
+    status: "available",
+    updatedAt: now,
+    retryAfter: null,
+    task: snapshot,
+    turns,
+    boundaries: { [task.latestTurn.turnRef]: snapshot },
+  };
 }
 
 function candidateHasAdvanced(task, existing, snapshot) {
@@ -269,14 +327,22 @@ function reconcileRecord(task, existing, snapshot, { boundaryReliable = true } =
 
 export function createUsageTracker({
   workspace,
+  maxConcurrentJobs = 2,
   readThreadUsage = readCcusageThreadUsage,
   retryDelaysMs = [2_000, 3_000, 4_000, 1_000],
   retryCooldownMs = 60_000,
   setTimer = setTimeout,
 } = {}) {
+  if (!Number.isSafeInteger(maxConcurrentJobs) || maxConcurrentJobs < 1 || maxConcurrentJobs > 8) {
+    throw new Error("usage tracker concurrency must be an integer from 1 to 8");
+  }
   const jobs = new Map();
   const observationChains = new Map();
+  const readyJobs = [];
+  let activeJobs = 0;
   let canonicalWorkspace = null;
+  let closed = false;
+  let preloadChain = Promise.resolve();
 
   const root = async () => {
     canonicalWorkspace ??= await realpath(path.resolve(workspace));
@@ -288,6 +354,9 @@ export function createUsageTracker({
   ));
   const markAdministrative = async (task) => updateStore(await root(), task.id, (existing) => (
     generationIsOlder(task, existing) ? existing : administrativeTask(task, existing)
+  ));
+  const markInterrupted = async (task) => updateStore(await root(), task.id, (existing) => (
+    generationIsOlder(task, existing) ? existing : interruptedTask(task, existing)
   ));
 
   const reconcile = async (task, {
@@ -332,6 +401,9 @@ export function createUsageTracker({
     return updateStore(await root(), task.id, (existing) => {
       const latestTurnRef = task.latestTurn?.turnRef;
       if (existing?.generationTurnRef !== latestTurnRef) return existing;
+      if (stable && snapshotCorrects(existing?.task, snapshot)) {
+        return correctedRecord(task, snapshot);
+      }
       const supersedes = snapshotSupersedes(existing?.task, snapshot);
       if (existing?.boundaries?.[latestTurnRef]
         || existing?.turns?.[latestTurnRef]?.status === "available") {
@@ -344,15 +416,49 @@ export function createUsageTracker({
     });
   };
 
+  const drainReadyJobs = () => {
+    while (!closed && activeJobs < maxConcurrentJobs && readyJobs.length > 0) {
+      const job = readyJobs.shift();
+      job.queued = false;
+      if (job.cancelled || jobs.get(job.task.id) !== job) {
+        for (const resolve of job.waiters.splice(0)) resolve();
+        continue;
+      }
+      const waiters = job.waiters.splice(0);
+      activeJobs += 1;
+      void job.run().finally(() => {
+        activeJobs -= 1;
+        for (const resolve of waiters) resolve();
+        drainReadyJobs();
+      });
+    }
+  };
+
+  const queueJob = (job) => {
+    if (closed || job.cancelled || jobs.get(job.task.id) !== job) return Promise.resolve();
+    return new Promise((resolve) => {
+      job.waiters.push(resolve);
+      if (!job.queued) {
+        job.queued = true;
+        readyJobs.push(job);
+        drainReadyJobs();
+      }
+    });
+  };
+
   const schedule = (task, { immediate = false } = {}) => {
-    if (!task.threadId || jobs.has(task.id)) return;
+    if (closed || !task.threadId || jobs.has(task.id)) return;
     const job = {
       cancelled: false,
       previousFingerprint: null,
+      queued: false,
+      run: null,
+      task,
       turnRef: task.latestTurn?.turnRef ?? null,
+      waiters: [],
     };
     let attempt = 0;
-    const run = async () => {
+    job.run = async () => {
       if (job.cancelled || jobs.get(task.id) !== job) return;
       let complete = false;
       try {
@@ -372,36 +478,89 @@ export function createUsageTracker({
       }
       const delay = retryDelaysMs[attempt] ?? 0;
       attempt += 1;
-      const timer = setTimer(run, delay);
+      const timer = setTimer(() => queueJob(job), delay);
       timer?.unref?.();
     };
     jobs.set(task.id, job);
-    const timer = setTimer(run, immediate ? 0 : retryDelaysMs[attempt++]);
+    const timer = setTimer(() => queueJob(job), immediate ? 0 : retryDelaysMs[attempt++]);
     timer?.unref?.();
   };
 
-  return {
-    observe(task) {
-      const previous = observationChains.get(task.id) ?? Promise.resolve();
-      const observation = previous.catch(() => {}).then(async () => {
-        if (!task.threadId) return null;
-        const active = jobs.get(task.id);
-        const latestTurnRef = task.latestTurn?.turnRef ?? null;
-        if (active && active.turnRef !== latestTurnRef) {
-          active.cancelled = true;
-          jobs.delete(task.id);
-        }
-        const usage = isAdministrativeTurn(task.latestTurn)
-          ? await markAdministrative(task)
+  const observe = (task) => {
+    if (closed) return Promise.resolve(null);
+    const previous = observationChains.get(task.id) ?? Promise.resolve();
+    const observation = previous.catch(() => {}).then(async () => {
+      if (closed || !task.threadId) return null;
+      const active = jobs.get(task.id);
+      const latestTurnRef = task.latestTurn?.turnRef ?? null;
+      if (active && active.turnRef !== latestTurnRef) {
+        active.cancelled = true;
+        jobs.delete(task.id);
+      }
+      const usage = isAdministrativeTurn(task.latestTurn)
+        ? await markAdministrative(task)
+        : isInterruptedTurn(task.latestTurn)
+          ? await markInterrupted(task)
           : await markCalculating(task);
-        if (hasTerminalLatestTurn(task)) schedule(task);
-        return usage;
+      if (hasTerminalLatestTurn(task)) schedule(task);
+      return usage;
+    });
+    observationChains.set(task.id, observation);
+    void observation.finally(() => {
+      if (observationChains.get(task.id) === observation) observationChains.delete(task.id);
+    }).catch(() => {});
+    return observation;
+  };
+
+  const needsPreload = (task, usage, now = Date.now()) => {
+    if (!task.threadId || !task.latestTurn) return false;
+    const latestTurnRef = task.latestTurn.turnRef ?? null;
+    if (isAdministrativeTurn(task.latestTurn)) {
+      return !usage
+        || usage.threadId !== task.threadId
+        || usage.generationTurnRef !== latestTurnRef;
+    }
+    if (isInterruptedTurn(task.latestTurn)) {
+      const latestUsage = usage?.turns?.[latestTurnRef];
+      const expectedStatus = usage?.task ? "available" : "unavailable";
+      return !usage
+        || usage.threadId !== task.threadId
+        || usage.generationTurnRef !== latestTurnRef
+        || usage.status !== expectedStatus
+        || latestUsage?.status !== "unavailable";
+    }
+    if (!usage || usage.threadId !== task.threadId || usage.generationTurnRef !== latestTurnRef) {
+      return true;
+    }
+    if (!hasTerminalLatestTurn(task)) return false;
+    if (usage.status === "available") return false;
+    if (usage.status === "calculating") return true;
+    if (usage.status === "unavailable") {
+      return !usage.retryAfter || Date.parse(usage.retryAfter) <= now;
+    }
+    return false;
+  };
+
+  return {
+    close() {
+      closed = true;
+      readyJobs.length = 0;
+      for (const job of jobs.values()) {
+        job.cancelled = true;
+        for (const resolve of job.waiters.splice(0)) resolve();
+      }
+      jobs.clear();
+    },
+    observe,
+    preload(tasks) {
+      preloadChain = preloadChain.catch(() => {}).then(async () => {
+        if (closed) return;
+        const store = await readUsageStore(await root());
+        for (const task of tasks) {
+          if (needsPreload(task, store.tasks[task.id] ?? null)) await observe(task);
+        }
       });
-      observationChains.set(task.id, observation);
-      void observation.finally(() => {
-        if (observationChains.get(task.id) === observation) observationChains.delete(task.id);
-      }).catch(() => {});
-      return observation;
+      return preloadChain;
     },
     async get(task) {
       const store = await readUsageStore(await root());
@@ -432,6 +591,16 @@ export function createUsageTracker({
         const administrative = administrativeTask(task, usage);
         void markAdministrative(task).catch(() => {});
         return administrative;
+      }
+      if (isInterruptedTurn(task.latestTurn)) {
+        const latestUsage = usage?.turns?.[task.latestTurn.turnRef];
+        const expectedStatus = usage?.task ? "available" : "unavailable";
+        if (usage?.generationTurnRef === task.latestTurn.turnRef
+          && usage.status === expectedStatus
+          && latestUsage?.status === "unavailable") return usage;
+        const interrupted = interruptedTask(task, usage);
+        void markInterrupted(task).catch(() => {});
+        return interrupted;
       }
       if (!usage || usage.threadId !== task.threadId) {
         const calculating = calculatingTask(task);

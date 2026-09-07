@@ -19,6 +19,20 @@ vi.mock('@mantine/core', async () => {
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
+test('shows the version reported by the active usage provider', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      profiles: [],
+      usageProvider: { provider: 'ccusage', status: 'available', version: '20.0.21' },
+    }),
+  }));
+  render(<MantineProvider><ModelSettings /></MantineProvider>);
+  expect(await screen.findByText('ccusage 20.0.21')).toBeInTheDocument();
+  expect(screen.getByText('Usage provider')).toBeInTheDocument();
+  expect(screen.getByText(/Version reported by the executable/)).toBeInTheDocument();
+});
+
 test('refresh shows configuration failures and does not label them honored', async () => {
   const role = { role: 'reviewer', source: '/fixture/reviewer.toml', effectiveSource: '/fixture/reviewer.toml', model: 'fixture', effort: 'low', status: 'configured', availability: 'not checked', fallback: 'inherit parent settings', problems: [] as string[] };
   const profile = { id: 'personal', project: 'Personal', roles: [role], problems: [], catalogSource: null };

@@ -33,6 +33,13 @@ the token total and API-equivalent USD estimate. Task cards keep the latest
 cumulative value visible during a newer active turn and label it as updating;
 pending is reserved for tasks that do not have a usage snapshot yet.
 
+The dashboard owns a small background recovery queue for derived usage. It
+deduplicates tasks, limits concurrent ccusage reads, preserves successful cache
+records, and revisits missing, interrupted, or cooldown-expired records without
+requiring a detail request. The queue starts with the dashboard, reacts to task
+log revisions, performs periodic recovery passes, and stops with the dashboard.
+Settings reports the version returned by the resolved ccusage executable.
+
 ![Pending token usage in the task detail view](images/dashboard-token-pending.jpg)
 
 ## Reported work presentation

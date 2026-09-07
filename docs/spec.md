@@ -162,6 +162,13 @@ into totals a second time.
 
 After a terminal report, TaskChef MUST mark the turn `calculating` and perform
 bounded deferred reconciliation without delaying the lifecycle response.
+The dashboard MUST also preload eligible derived usage in its existing service
+lifecycle without requiring a task-detail request. Startup, task-log changes,
+and periodic recovery passes MUST consider missing, interrupted, and
+cooldown-expired records; successful current-generation records MUST remain
+cached. Background work MUST be deduplicated, MUST enforce a small global
+concurrency limit, MUST use bounded delayed retries, and MUST stop when the
+dashboard closes.
 Per-turn usage MUST be a non-negative delta between adjacent reliable cumulative
 boundaries. A first recorded turn MAY use zero as its baseline. Historical
 turns without boundaries and decreasing or ambiguous snapshots MUST be labeled
@@ -183,6 +190,8 @@ cumulative boundaries use different analyzer versions, requested pricing modes,
 or declared cost coverage. For GPT-5.6 with ccusage 20.0.20, provenance MUST
 disclose unverified cache-write coverage and TaskChef MUST NOT claim that the
 estimate includes those charges.
+The dashboard Settings response MUST report the provider version returned by
+the executable resolved for runtime use, not merely copy the dependency pin.
 
 Task IDs and non-null thread identities MUST be unique. The immutable intent
 fields MUST NOT change after recording.

@@ -342,7 +342,10 @@ server path also rejects requests before discovering or invoking the CLI.
 Task details also show whole-task and per-turn token usage when `ccusage` can
 map the linked Codex thread. A completed turn briefly shows “Calculating token
 usage…” while TaskChef performs bounded deferred reconciliation, because
-the terminal lifecycle callback precedes Codex's final output write. Historical
+the terminal lifecycle callback precedes Codex's final output write. The
+dashboard also preloads missing, interrupted, and retry-eligible usage in a
+bounded background queue at startup, after task changes, and on a periodic
+recovery pass; opening task details is not required to start collection. Historical
 tasks may show a trustworthy task total while older turns remain “Token usage
 unavailable” when no cumulative turn boundaries were recorded. Input, cached
 input, output, reasoning, and total counts retain ccusage's categories. Dollar
@@ -361,6 +364,8 @@ wall-clock elapsed time, not model compute time, and malformed or reversed
 timestamp ranges are shown as unavailable.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
+The Settings page shows the ccusage version reported by the executable that
+TaskChef resolves at runtime.
 The canonical port is owned by a dashboard session process initialized by the
 TaskChef MCP before its tool transport connects. Health identity records a
 `session` launcher, and MCP recovery reuses only another exact-compatible,

@@ -11,6 +11,7 @@ import {
   managedCcusageInvocation,
   readUsageStore,
   readCcusageThreadUsage,
+  readCcusageRuntimeInfo,
   runBoundedProcess,
   usageDelta,
   writeUsageStore,
@@ -270,6 +271,20 @@ test("ccusage execution falls back to bundled offline pricing when online pricin
   const usage = await readCcusageThreadUsage(THREAD_ID, { command: "ccusage", run });
   assert.equal(usage.provenance.pricingMode, "offline");
   assert.deepEqual(calls.slice(1).map((args) => args.at(-1)), ["--no-offline", "--offline"]);
+});
+
+test("ccusage runtime metadata uses the executable's reported version", async () => {
+  const info = await readCcusageRuntimeInfo({
+    run: async (_command, args) => {
+      assert.deepEqual(args, ["--version"]);
+      return { stdout: "ccusage 20.0.21\n" };
+    },
+  });
+  assert.deepEqual(info, {
+    provider: "ccusage",
+    status: "available",
+    version: "20.0.21",
+  });
 });
 
 test("GPT-5.6 estimates disclose that ccusage cache-write coverage is unverified", () => {
@@ -696,6 +711,202 @@ test("a new tracker resumes a terminal calculation persisted by an exited proces
   const store = JSON.parse(await readFile(path.join(workspace, ".taskchef-usage.json"), "utf8"));
   assert.equal(store.tasks[task.id].status, "available");
   assert.equal(store.tasks[task.id].turns[FIRST_TURN].status, "available");
+});
+
+test("background preload deduplicates tasks and bounds concurrent ccusage reads", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-preload-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  const timers = [];
+  let active = 0;
+  let maximumActive = 0;
+  let reads = 0;
+  const tracker = createUsageTracker({
+    workspace,
+    maxConcurrentJobs: 1,
+    retryDelaysMs: [0],
+    setTimer(callback) { timers.push(callback); return { unref() {} }; },
+    readThreadUsage: async () => {
+      reads += 1;
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setImmediate(resolve));
+      active -= 1;
+      return aggregateCcusageSessions({ sessions: [session("")] }, THREAD_ID);
+    },
+  });
+  const tasks = ["one", "two", "three"].map((id) => ({
+    id: `preload-${id}`,
+    threadId: THREAD_ID,
+    turns: [{ turnRef: FIRST_TURN, result: { status: "completed" } }],
+    latestTurn: { turnRef: FIRST_TURN, result: { status: "completed" } },
+  }));
+
+  await Promise.all([tracker.preload(tasks), tracker.preload(tasks)]);
+  assert.equal(timers.length, 3, "duplicate preload passes must share each task job");
+  await Promise.all(timers.splice(0).map((callback) => callback()));
+  assert.equal(reads, 3);
+  assert.equal(maximumActive, 1);
+  tracker.close();
+});
+
+test("background preload records an administrative task without reading ccusage", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-preload-admin-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  let reads = 0;
+  let scheduled = 0;
+  const tracker = createUsageTracker({
+    workspace,
+    readThreadUsage: async () => {
+      reads += 1;
+      throw new Error("administrative turns must not reach ccusage");
+    },
+    setTimer() { scheduled += 1; return { unref() {} }; },
+  });
+  const manualTurn = {
+    turnRef: FIRST_TURN,
+    turnId: null,
+    provenance: { kind: "dashboard_manual" },
+    result: { status: "completed" },
+  };
+  const task = {
+    id: "preload-admin",
+    threadId: THREAD_ID,
+    turns: [manualTurn],
+    latestTurn: manualTurn,
+  };
+
+  await tracker.preload([task]);
+  const usage = await tracker.get(task);
+  assert.equal(reads, 0);
+  assert.equal(scheduled, 0);
+  assert.equal(usage.status, "unavailable");
+  assert.equal(usage.reason, "Administrative action; no Codex usage boundary.");
+  assert.deepEqual(usage.turns[FIRST_TURN], {
+    status: "unavailable",
+    reason: "Administrative action; no Codex usage boundary.",
+    updatedAt: usage.turns[FIRST_TURN].updatedAt,
+  });
+  tracker.close();
+});
+
+test("a stable ccusage correction replaces the task total and invalidates old turn boundaries", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-correction-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  const oldSnapshot = aggregateCcusageSessions({ sessions: [session("", {
+    inputTokens: 20,
+    cacheReadTokens: 20,
+    outputTokens: 5,
+  })] }, THREAD_ID, { sampledAt: "2026-08-28T13:00:00.000Z", version: "20.0.19" });
+  await writeUsageStore(workspace, {
+    schemaVersion: 1,
+    tasks: {
+      corrected: {
+        threadId: THREAD_ID,
+        generationTurnRef: FIRST_TURN,
+        generationTurnCount: 1,
+        generationTerminal: true,
+        zeroBaselineTurnRef: FIRST_TURN,
+        status: "unavailable",
+        reason: "Codex usage is unavailable from ccusage.",
+        updatedAt: oldSnapshot.sampledAt,
+        retryAfter: "2026-08-28T13:01:00.000Z",
+        task: oldSnapshot,
+        turns: { [FIRST_TURN]: { status: "available", ...oldSnapshot, updatedAt: oldSnapshot.sampledAt } },
+        boundaries: { [FIRST_TURN]: oldSnapshot },
+      },
+    },
+  });
+  let currentSnapshot = aggregateCcusageSessions(
+    { sessions: [session("")] },
+    THREAD_ID,
+    { sampledAt: "2026-08-28T14:00:00.000Z", version: "20.0.20" },
+  );
+  const timers = [];
+  const tracker = createUsageTracker({
+    workspace,
+    retryDelaysMs: [0, 0],
+    setTimer(callback) { timers.push(callback); return { unref() {} }; },
+    readThreadUsage: async () => currentSnapshot,
+  });
+  const task = {
+    id: "corrected",
+    threadId: THREAD_ID,
+    turns: [{ turnRef: FIRST_TURN, result: { status: "completed" } }],
+    latestTurn: { turnRef: FIRST_TURN, result: { status: "completed" } },
+  };
+
+  await tracker.preload([task]);
+  while (timers.length > 0) await timers.shift()();
+  const usage = await tracker.get(task);
+  assert.equal(usage.status, "available");
+  assert.equal(usage.task.totalTokens, 35);
+  assert.deepEqual(usage.boundaries[FIRST_TURN], usage.task);
+  assert.match(usage.turns[FIRST_TURN].reason, /corrected an older cumulative total/i);
+
+  currentSnapshot = aggregateCcusageSessions(
+    { sessions: [session("", { inputTokens: 15 })] },
+    THREAD_ID,
+    { sampledAt: "2026-08-28T15:00:00.000Z", version: "20.0.20" },
+  );
+  const secondTurn = { turnRef: SECOND_TURN, result: { status: "completed" } };
+  const continuedTask = {
+    ...task,
+    turns: [...task.turns, secondTurn],
+    latestTurn: secondTurn,
+  };
+  await tracker.observe(continuedTask);
+  while (timers.length > 0) await timers.shift()();
+  const continued = await tracker.get(continuedTask);
+  assert.equal(continued.turns[SECOND_TURN].status, "available");
+  assert.equal(continued.turns[SECOND_TURN].totalTokens, 5);
+});
+
+test("background preload preserves a current cached task total with historical turn gaps", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-preload-cached-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  const snapshot = aggregateCcusageSessions(
+    { sessions: [session("")] },
+    THREAD_ID,
+    { sampledAt: "2026-08-28T14:00:00.000Z", version: "20.0.20" },
+  );
+  await writeUsageStore(workspace, {
+    schemaVersion: 1,
+    tasks: {
+      cached: {
+        threadId: THREAD_ID,
+        generationTurnRef: FIRST_TURN,
+        generationTurnCount: 1,
+        generationTerminal: true,
+        zeroBaselineTurnRef: null,
+        status: "available",
+        updatedAt: snapshot.sampledAt,
+        retryAfter: null,
+        task: snapshot,
+        turns: {
+          [FIRST_TURN]: {
+            status: "unavailable",
+            reason: "No reliable cumulative boundary was recorded for this historical turn.",
+            updatedAt: snapshot.sampledAt,
+          },
+        },
+        boundaries: {},
+      },
+    },
+  });
+  let scheduled = 0;
+  const tracker = createUsageTracker({
+    workspace,
+    setTimer() { scheduled += 1; return { unref() {} }; },
+  });
+  const task = {
+    id: "cached",
+    threadId: THREAD_ID,
+    turns: [{ turnRef: FIRST_TURN, result: { status: "completed" } }],
+    latestTurn: { turnRef: FIRST_TURN, result: { status: "completed" } },
+  };
+  await tracker.preload([task]);
+  assert.equal(scheduled, 0);
+  assert.equal((await tracker.get(task)).task.totalTokens, 35);
 });
 
 test("a duplicate terminal report cannot degrade an available turn across trackers", async () => {
@@ -1224,6 +1435,56 @@ test("interrupted latest turns never produce a usage boundary", async () => {
   assert.equal(observed.turns[FIRST_TURN].status, "unavailable");
   assert.equal(scheduled, 0);
   assert.equal((await tracker.get(task)).turns[FIRST_TURN].status, "unavailable");
+});
+
+test("background preload settles a stale interrupted calculation without reading ccusage", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-interrupted-preload-"));
+  await writeFile(path.join(workspace, "tasks.jsonl"), "");
+  const snapshot = aggregateCcusageSessions({ sessions: [session("")] }, THREAD_ID);
+  await writeUsageStore(workspace, {
+    schemaVersion: 1,
+    tasks: {
+      interrupted: {
+        threadId: THREAD_ID,
+        generationTurnRef: SECOND_TURN,
+        generationTurnCount: 2,
+        generationTerminal: false,
+        zeroBaselineTurnRef: null,
+        status: "calculating",
+        updatedAt: snapshot.sampledAt,
+        retryAfter: null,
+        task: snapshot,
+        turns: {
+          [FIRST_TURN]: { status: "available", ...snapshot, updatedAt: snapshot.sampledAt },
+          [SECOND_TURN]: { status: "calculating", updatedAt: snapshot.sampledAt },
+        },
+        boundaries: { [FIRST_TURN]: snapshot },
+      },
+    },
+  });
+  let reads = 0;
+  const tracker = createUsageTracker({
+    workspace,
+    readThreadUsage: async () => { reads += 1; return snapshot; },
+  });
+  const interruptedTurn = { turnRef: SECOND_TURN, result: { status: "interrupted" } };
+  const task = {
+    id: "interrupted",
+    threadId: THREAD_ID,
+    turns: [
+      { turnRef: FIRST_TURN, result: { status: "completed" } },
+      interruptedTurn,
+    ],
+    latestTurn: interruptedTurn,
+  };
+
+  await tracker.preload([task]);
+  const usage = await tracker.get(task);
+  assert.equal(reads, 0);
+  assert.equal(usage.status, "available");
+  assert.equal(usage.task.totalTokens, snapshot.totalTokens);
+  assert.equal(usage.turns[SECOND_TURN].status, "unavailable");
+  tracker.close();
 });
 
 test("working and terminal observations serialize to preserve the first-turn baseline", async () => {

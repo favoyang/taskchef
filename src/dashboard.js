@@ -27,7 +27,7 @@ import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
 import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
-import { readUsageStore, usageStorePath } from "./usage.js";
+import { readCcusageRuntimeInfo, readUsageStore, usageStorePath } from "./usage.js";
 import { reportedWorkSummary } from "./reported-work.js";
 import {
   MAX_DASHBOARD_SESSION_PIDS,
@@ -804,7 +804,9 @@ export async function createDashboardServer({
   serverVersion = DASHBOARD_SERVER_VERSION,
   usageTracker = null,
   usageSummaryMonitor = null,
+  usagePreloadIntervalMs = 30_000,
   resolveRoles = resolveModelRoles,
+  resolveUsageProvider = readCcusageRuntimeInfo,
   updateRole = updateModelRole,
   control = null,
   controlReplayCache = createDashboardControlReplayCache(),
@@ -817,6 +819,9 @@ export async function createDashboardServer({
   }
   if (!Number.isInteger(maxEventClients) || maxEventClients < 0) {
     throw new Error("dashboard event-client limit must be a non-negative integer");
+  }
+  if (!Number.isFinite(usagePreloadIntervalMs) || usagePreloadIntervalMs < 1_000) {
+    throw new Error("dashboard usage preload interval must be at least one second");
   }
   if (!new Set(["mcp", "session", "standalone"]).has(launcher)) {
     throw new Error("dashboard launcher must be mcp, session, or standalone");
@@ -851,11 +856,13 @@ export async function createDashboardServer({
     }
   } catch (error) {
     taskUsageSummaryMonitor?.close();
+    taskUsageTracker?.close?.();
     monitor.close();
     throw error;
   }
   const clients = new Set();
   const archiveRequests = new Set();
+  let usageProviderPromise = null;
   let controlHandoff = null;
   let controlHandoffTimer = null;
   let allowedAuthority;
@@ -875,12 +882,21 @@ export async function createDashboardServer({
       })),
     };
   };
-  const snapshotListener = () => broadcast("snapshot", dashboardSnapshot());
+  const preloadUsage = () => {
+    void Promise.resolve(taskUsageTracker.preload?.(monitor.tasks)).catch(() => {});
+  };
+  const snapshotListener = () => {
+    preloadUsage();
+    broadcast("snapshot", dashboardSnapshot());
+  };
   const usageSummaryListener = () => broadcast("snapshot", dashboardSnapshot());
   const errorListener = () => broadcast("dashboard-error", publicMonitorError());
   monitor.on("snapshot", snapshotListener);
   monitor.on("monitorError", errorListener);
   taskUsageSummaryMonitor.on("change", usageSummaryListener);
+  preloadUsage();
+  const usagePreloadTimer = setInterval(preloadUsage, usagePreloadIntervalMs);
+  usagePreloadTimer.unref?.();
 
   const handleRequest = async (request, response) => {
     const method = request.method ?? "GET";
@@ -1183,7 +1199,12 @@ export async function createDashboardServer({
 
     if (url.pathname === "/api/settings" && method === "GET") {
       const profiles = [{ id: "personal", project: "Personal", ...await resolveRoles({ includeCatalog: true }) }];
-      sendJson(response, 200, { profiles });
+      usageProviderPromise ??= Promise.resolve(resolveUsageProvider()).catch(() => ({
+        provider: "ccusage",
+        status: "unavailable",
+        version: null,
+      }));
+      sendJson(response, 200, { profiles, usageProvider: await usageProviderPromise });
       return;
     }
 
@@ -1469,8 +1490,10 @@ export async function createDashboardServer({
     server.once("error", reject);
     server.listen(port, host, resolve);
   }).catch((error) => {
+    clearInterval(usagePreloadTimer);
     monitor.close();
     taskUsageSummaryMonitor.close();
+    taskUsageTracker.close?.();
     throw error;
   });
 
@@ -1493,6 +1516,8 @@ export async function createDashboardServer({
       taskUsageSummaryMonitor.off("change", usageSummaryListener);
       monitor.close();
       taskUsageSummaryMonitor.close();
+      taskUsageTracker.close?.();
+      clearInterval(usagePreloadTimer);
       for (const client of clients) client.close();
       const closed = new Promise((resolve, reject) => server.close((error) =>
         error ? reject(error) : resolve()));

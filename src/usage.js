@@ -538,18 +538,7 @@ export async function readCcusageThreadUsage(threadId, {
     [...resolvedInvocation.args, ...args],
     options,
   );
-  let version = resolvedInvocation.version;
-  if (version === null) {
-    try {
-      const result = await invoke(["--version"], {
-        timeout: Math.min(timeoutMs, 2_000),
-        maxBuffer: 64 * 1024,
-      });
-      version = String(result.stdout).trim().replace(/^ccusage\s+/i, "") || null;
-    } catch {
-      // Usage remains useful if a custom compatible ccusage cannot print its version.
-    }
-  }
+  const version = await readCcusageInvocationVersion(invoke, timeoutMs);
   const report = async (pricingMode) => {
     let result;
     try {
@@ -586,6 +575,45 @@ export async function readCcusageThreadUsage(threadId, {
     } catch {
       throw onlineError;
     }
+  }
+}
+
+async function readCcusageInvocationVersion(invoke, timeoutMs) {
+  try {
+    const result = await invoke(["--version"], {
+      timeout: Math.min(timeoutMs, 2_000),
+      maxBuffer: 64 * 1024,
+    });
+    const version = String(result.stdout).trim().replace(/^ccusage\s+/i, "");
+    return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(version) ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function readCcusageRuntimeInfo({
+  run = runBoundedProcess,
+  timeoutMs = 8_000,
+} = {}) {
+  try {
+    const resolved = await resolveManagedCcusageInvocation(
+      managedCcusageInvocation(),
+      run,
+      timeoutMs,
+    );
+    const invoke = (args, options) => run(
+      resolved.command,
+      [...resolved.args, ...args],
+      options,
+    );
+    const version = await readCcusageInvocationVersion(invoke, timeoutMs);
+    return {
+      provider: "ccusage",
+      status: version === null ? "unavailable" : "available",
+      version,
+    };
+  } catch {
+    return { provider: "ccusage", status: "unavailable", version: null };
   }
 }
 

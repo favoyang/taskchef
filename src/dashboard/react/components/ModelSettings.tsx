@@ -6,9 +6,11 @@ import { updateModelRole } from '../api';
 type ModelOption = { value: string; label: string; efforts: string[] };
 type Role = { role: string; source: string | null; displaySource?: string | null; model: unknown; effort: unknown; status: string; problems: string[] };
 type Profile = { id: string; roles: Role[]; problems: string[]; modelOptions?: ModelOption[] };
+type UsageProvider = { provider: string; status: 'available' | 'unavailable'; version: string | null };
 
 export function ModelSettings() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [usageProvider, setUsageProvider] = useState<UsageProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -20,8 +22,9 @@ export function ModelSettings() {
     setError(null);
     fetch('/api/settings', { signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw new Error('Settings preview could not be loaded.');
-      const data = await response.json() as { profiles: Profile[] };
+      const data = await response.json() as { profiles: Profile[]; usageProvider?: UsageProvider };
       setProfiles(data.profiles);
+      setUsageProvider(data.usageProvider ?? null);
     }).catch((failure: Error) => {
       if (!controller.signal.aborted) setError(failure.message);
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
@@ -87,5 +90,15 @@ export function ModelSettings() {
         </Stack>
       </Paper>)}
     </>}
+    {usageProvider && <Paper withBorder p="md">
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Title order={3} size="h4">Usage provider</Title>
+          <Badge color={usageProvider.status === 'available' ? 'teal' : 'red'}>{usageProvider.status}</Badge>
+        </Group>
+        <Text>{usageProvider.provider}{usageProvider.version ? ` ${usageProvider.version}` : ' version unavailable'}</Text>
+        <Text c="dimmed" size="sm">Version reported by the executable TaskChef uses for token and cost estimates.</Text>
+      </Stack>
+    </Paper>}
   </Stack>;
 }
