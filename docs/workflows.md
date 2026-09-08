@@ -19,6 +19,9 @@ start, upgrade, shutdown, and security rationale.
 | `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, MCP cleanup, and annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
+| `src/config-mutations.js` | Canonical hashes and exact field-level project diffs. |
+| `src/backups.js` | Private snapshot creation, verification, retention, and restore inputs. |
+| `src/config-audit.js` | Durable prepared/terminal configuration-mutation journal. |
 | `src/cli.js` | Administration, normalized cached briefs, inspection, diagnostics, and dashboard startup. |
 | `src/dashboard.js` | Versioned health identity, validated compact snapshots, SSE fan-out, on-demand details, and bounded open actions. |
 | `src/dashboard-manager.js` | Concurrent session ensure, authenticated reuse and upgrade handoff, and safe conflicts. |
@@ -428,7 +431,8 @@ after a later filesystem failure, the reported backup is the recovery source.
 Configuration and task mutations use the same `proper-lockfile` lock. ID and
 identity uniqueness checks, link eligibility, and result freshness occur
 inside the critical section. Writes use temporary files/hard links and atomic
-rename so readers see complete snapshots.
+rename so readers see complete snapshots. Configuration replacement syncs the
+new file and workspace directory before its audit transaction is committed.
 
 The dispatcher controls routing and immutable intent. The executor controls its
 cooperatively asserted identity and semantic result. Neither identity nor

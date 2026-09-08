@@ -33,6 +33,7 @@ import {
   EXECUTOR_REPORTING_AUTHORIZATION,
   createAndRecordDelegation,
   createDashboardAutostart,
+  createWorkspaceBackup,
   createTaskChefMcpServer,
   prepareDispatch,
   addProject,
@@ -50,9 +51,11 @@ import {
   initializeWorkspace,
   linkTask,
   listProjects,
+  listWorkspaceBackups,
   manuallyTransitionTask,
   migrateTaskLog,
   readConfig,
+  readWorkspaceMaintenance,
   listTasks,
   matchProjectForGithubUrl,
   openThreadInCodex,
@@ -61,12 +64,16 @@ import {
   reportTaskResult,
   reportTaskState,
   removeProject,
+  restoreWorkspaceBackup,
   requireSafeId,
   parseTaskChefMarker,
   prepareDelegation,
   resolveWorkspacePath,
   validateConfig,
+  updateProject,
+  verifyWorkspaceBackup,
 } from "../index.js";
+import { writeDurableAtomic } from "../src/state-store.js";
 import { assertTaskRecordStdin } from "../src/cli.js";
 import { acquireWorkspaceLock } from "../src/workspace.js";
 import {
@@ -4586,8 +4593,18 @@ test("project import merges by canonical path and preserves omitted curation", a
     "https://github.com/example/second-child",
   ]);
 
-  const replaced = await importProjects(workspace, [{ name: "second-only", path: second }], {
+  const replacementInput = [{ name: "second-only", path: second }];
+  const replacementPreview = await importProjects(workspace, replacementInput, {
+    replace: true, dryRun: true,
+  });
+  const replaced = await importProjects(workspace, replacementInput, {
     replace: true,
+    expectedConfigHash: replacementPreview.beforeConfigHash,
+    expectedProjectCount: replacementPreview.beforeCount,
+    expectedAfterCount: replacementPreview.afterCount,
+    confirmPlan: replacementPreview.planHash,
+    confirmRemoved: replacementPreview.diff.removed.map((project) => project.name),
+    confirmCountCollapse: `${replacementPreview.beforeCount}:${replacementPreview.afterCount}`,
   });
   assert.equal(replaced.mode, "replace");
   assert.deepEqual((await listProjects(workspace)).map((project) => project.name), ["second-only"]);
@@ -4610,6 +4627,580 @@ test("concurrent project configuration writes do not lose updates", async () => 
   assert.deepEqual((await listProjects(workspace)).map((project) => project.name), [
     "project-1", "project-2", "project-3",
   ]);
+});
+
+test("targeted project update prevents the 15-project replacement incident", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-incident-"));
+  const workspace = path.join(root, "workspace");
+  await initializeWorkspace(workspace);
+  for (let index = 0; index < 15; index += 1) {
+    const projectPath = path.join(root, `project-${index + 1}`);
+    await mkdir(projectPath);
+    await addProject(workspace, {
+      name: index === 0 ? "guzuoshou-workspace" : `project-${index + 1}`,
+      path: projectPath,
+      githubRepos: index === 0
+        ? ["https://github.com/example/EasyQuotation", "https://github.com/example/retained"]
+        : [],
+    });
+  }
+  const before = await listProjects(workspace);
+  const preview = await updateProject(
+    workspace,
+    { name: "guzuoshou-workspace" },
+    { githubRepos: ["https://github.com/example/retained"] },
+    { dryRun: true },
+  );
+  const result = await updateProject(
+    workspace,
+    { name: "guzuoshou-workspace" },
+    { githubRepos: ["https://github.com/example/retained"] },
+    { expectedConfigHash: preview.beforeConfigHash },
+  );
+  assert.equal(result.beforeCount, 15);
+  assert.equal(result.afterCount, 15);
+  const after = await listProjects(workspace);
+  assert.equal(after.length, 15);
+  assert.deepEqual(after.find((project) => project.name === "guzuoshou-workspace").githubRepos, [
+    "https://github.com/example/retained",
+  ]);
+  assert.deepEqual(after.filter((project) => project.name !== "guzuoshou-workspace"),
+    before.filter((project) => project.name !== "guzuoshou-workspace"));
+
+  await assert.rejects(
+    importProjects(workspace, [{
+      name: after[0].name,
+      path: after[0].path,
+      githubRepos: after[0].githubRepos,
+    }], { replace: true }),
+    (error) => error.code === "CONFIRMATION_REQUIRED" && error.details.preview.beforeCount === 15,
+  );
+  assert.equal((await listProjects(workspace)).length, 15);
+});
+
+test("concurrent targeted updates reject a stale preview instead of losing changes", async () => {
+  const { workspace } = await fixture(1);
+  const first = await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "First update." },
+    { dryRun: true },
+  );
+  const second = await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "Second update." },
+    { dryRun: true },
+  );
+  await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "First update." },
+    { expectedConfigHash: first.beforeConfigHash },
+  );
+  await assert.rejects(
+    updateProject(
+      workspace,
+      { name: "project-1" },
+      { description: "Second update." },
+      { expectedConfigHash: second.beforeConfigHash },
+    ),
+    (error) => error.code === "STALE_PREVIEW",
+  );
+  assert.equal((await listProjects(workspace))[0].description, "First update.");
+});
+
+test("configuration commit failures preserve or explicitly fence the durable result", async () => {
+  const { workspace } = await fixture(1);
+  const beforeBytes = await readFile(path.join(workspace, "taskchef.json"), "utf8");
+  const first = await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "pre-rename failure" },
+    { dryRun: true },
+  );
+  await assert.rejects(
+    updateProject(
+      workspace,
+      { name: "project-1" },
+      { description: "pre-rename failure" },
+      {
+        expectedConfigHash: first.beforeConfigHash,
+        writeConfigFile: async () => { throw new Error("simulated pre-rename failure"); },
+      },
+    ),
+    /simulated pre-rename failure/,
+  );
+  assert.equal(await readFile(path.join(workspace, "taskchef.json"), "utf8"), beforeBytes);
+  assert.match(await readFile(path.join(workspace, "config-audit.jsonl"), "utf8"), /"phase":"aborted"/);
+
+  const second = await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "post-rename uncertainty" },
+    { dryRun: true },
+  );
+  await assert.rejects(
+    updateProject(
+      workspace,
+      { name: "project-1" },
+      { description: "post-rename uncertainty" },
+      {
+        expectedConfigHash: second.beforeConfigHash,
+        writeConfigFile: async (filePath, content, options) => {
+          await writeDurableAtomic(filePath, content, options);
+          throw Object.assign(new Error("simulated lost durable response"), {
+            replacementCommitted: true,
+          });
+        },
+      },
+    ),
+    (error) => error.code === "STATE_RECOVERY_REQUIRED",
+  );
+  assert.equal((await listProjects(workspace))[0].description, "post-rename uncertainty");
+  assert.match(
+    await readFile(path.join(workspace, "config-audit.jsonl"), "utf8"),
+    /"phase":"recovery-required"/,
+  );
+});
+
+test("backup verification and guarded project restore preserve newer task state", async () => {
+  const { workspace, projects } = await fixture(1);
+  const snapshot = await createWorkspaceBackup(workspace, { reason: "test" });
+  assert.equal((await verifyWorkspaceBackup(workspace, snapshot.id)).usable, true);
+  const extraRoot = await mkdtemp(path.join(os.tmpdir(), "taskchef-backup-extra-"));
+  const extra = path.join(extraRoot, "extra");
+  await mkdir(extra);
+  await addProject(workspace, { name: "extra", path: extra });
+  await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
+  const preview = await restoreWorkspaceBackup(workspace, snapshot.id, { dryRun: true });
+  assert.equal(preview.beforeCount, 2);
+  assert.equal(preview.afterCount, 1);
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, snapshot.id, {
+      expectedConfigHash: preview.beforeConfigHash,
+    }),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  await restoreWorkspaceBackup(workspace, snapshot.id, {
+    approveRestore: true,
+    expectedConfigHash: preview.beforeConfigHash,
+    expectedProjectCount: 2,
+    expectedAfterCount: 1,
+    confirmPlan: preview.planHash,
+    confirmRemoved: ["extra"],
+    confirmCountCollapse: "2:1",
+  });
+  assert.equal((await listProjects(workspace)).length, 1);
+  assert.equal((await listTasks(workspace)).length, 1);
+  assert.ok((await listWorkspaceBackups(workspace)).usableCount >= 2);
+});
+
+test("backup verification surfaces corruption and retention bounds usable snapshots", async () => {
+  const { workspace } = await fixture(1);
+  const corrupt = await createWorkspaceBackup(workspace, { reason: "corruption-test" });
+  await writeFile(path.join(corrupt.path, "tasks.jsonl"), "tampered\n");
+  const verification = await verifyWorkspaceBackup(workspace, corrupt.id);
+  assert.equal(verification.usable, false);
+  assert.match(verification.error, /failed verification/);
+  assert.equal((await listWorkspaceBackups(workspace)).corruptCount, 1);
+
+  for (let index = 0; index < 35; index += 1) {
+    await writeFile(
+      path.join(workspace, "AGENTS.md"),
+      `retention generation ${index}\n`,
+    );
+    await createWorkspaceBackup(workspace, {
+      reason: "retention-test",
+      now: () => `2026-09-09T00:00:${String(index).padStart(2, "0")}.000Z`,
+    });
+  }
+  const retained = await listWorkspaceBackups(workspace);
+  assert.equal(retained.usableCount, 31);
+  assert.equal(retained.corruptCount, 1);
+});
+
+test("backup classification and state restore reject JSON-valid invalid task schemas", async () => {
+  const { workspace } = await fixture(1);
+  await writeFile(path.join(workspace, "tasks.jsonl"), "{}\n");
+  const snapshot = await createWorkspaceBackup(workspace, { reason: "invalid-task-schema" });
+  assert.equal(snapshot.usable, false);
+  assert.equal(snapshot.integrityValid, true);
+  assert.equal(snapshot.forensic, true);
+  assert.match(snapshot.error, /invalid source state/);
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, snapshot.id, { scope: "state", dryRun: true }),
+    (error) => error.code === "BACKUP_FAILED",
+  );
+});
+
+test("backup classification rejects JSON-valid invalid configuration schemas", async () => {
+  const { workspace } = await fixture(1);
+  const before = await listWorkspaceBackups(workspace);
+  await writeFile(
+    path.join(workspace, "taskchef.json"),
+    `${JSON.stringify({ schemaVersion: 2, projects: [{}] }, null, 2)}\n`,
+  );
+  const snapshot = await createWorkspaceBackup(workspace, { reason: "invalid-config-schema" });
+  assert.equal(snapshot.usable, false);
+  assert.equal(snapshot.integrityValid, true);
+  assert.equal(snapshot.forensic, true);
+  assert.match(snapshot.error, /invalid source state/);
+  const inventory = await listWorkspaceBackups(workspace);
+  assert.equal(inventory.usableCount, before.usableCount);
+  assert.equal(inventory.forensicCount, before.forensicCount + 1);
+});
+
+test("backup retention keeps the union of newest snapshots and recent daily recovery points", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-retention-union-"));
+  const workspace = path.join(root, "workspace");
+  await initializeWorkspace(workspace);
+  let generation = 0;
+  for (let ageDays = 29; ageDays >= 0; ageDays -= 1) {
+    const copies = ageDays <= 14 ? 2 : 1;
+    for (let copy = 0; copy < copies; copy += 1) {
+      generation += 1;
+      await writeFile(
+        path.join(workspace, "AGENTS.md"),
+        `daily retention generation ${generation}\n`,
+      );
+      const createdAt = new Date(Date.UTC(2026, 8, 9 - ageDays, 0, 0, copy)).toISOString();
+      await createWorkspaceBackup(workspace, {
+        reason: "daily-retention-test",
+        now: () => createdAt,
+      });
+    }
+  }
+  const retained = await listWorkspaceBackups(workspace);
+  assert.equal(retained.usableCount, 45);
+  assert.equal(retained.totalBytes, retained.usableBytes);
+});
+
+test("explicit offline state restore rewinds managed files but preserves the live audit", async () => {
+  const { workspace, projects } = await fixture(1);
+  const snapshot = await createWorkspaceBackup(workspace, { reason: "state-source" });
+  const extraRoot = await mkdtemp(path.join(os.tmpdir(), "taskchef-state-extra-"));
+  const extra = path.join(extraRoot, "extra");
+  await mkdir(extra);
+  await addProject(workspace, { name: "extra", path: extra });
+  await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
+  const preview = await restoreWorkspaceBackup(workspace, snapshot.id, {
+    scope: "state",
+    dryRun: true,
+  });
+  assert.equal(preview.stateFiles.find((file) => file.name === "tasks.jsonl").changed, true);
+  await restoreWorkspaceBackup(workspace, snapshot.id, {
+    scope: "state",
+    approveRestore: true,
+    confirmOffline: true,
+    expectedConfigHash: preview.beforeConfigHash,
+    expectedProjectCount: 2,
+    expectedAfterCount: 1,
+    confirmPlan: preview.planHash,
+    confirmRemoved: ["extra"],
+    confirmCountCollapse: "2:1",
+  });
+  assert.equal((await listProjects(workspace)).length, 1);
+  assert.equal((await listTasks(workspace)).length, 0);
+  assert.match(await readFile(path.join(workspace, "config-audit.jsonl"), "utf8"), /backup-restore-state/);
+  await assert.rejects(stat(path.join(workspace, ".taskchef-maintenance.json")), /ENOENT/);
+});
+
+test("state restore rejects a malformed audit before replacing files or creating a fence", async () => {
+  const { workspace } = await fixture(1);
+  const snapshot = await createWorkspaceBackup(workspace, { reason: "audit-validation-source" });
+  const agentsPath = path.join(workspace, "AGENTS.md");
+  await writeFile(agentsPath, "live instructions\n");
+  const preview = await restoreWorkspaceBackup(workspace, snapshot.id, {
+    scope: "state",
+    dryRun: true,
+  });
+  await writeFile(path.join(workspace, "config-audit.jsonl"), '{"transactionId":');
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, snapshot.id, {
+      scope: "state",
+      approveRestore: true,
+      confirmOffline: true,
+      expectedConfigHash: preview.beforeConfigHash,
+      expectedProjectCount: preview.beforeCount,
+      expectedAfterCount: preview.afterCount,
+      confirmPlan: preview.planHash,
+      confirmRemoved: [],
+    }),
+    (error) => error.code === "STATE_RECOVERY_REQUIRED"
+      && /configuration audit is malformed/.test(error.message),
+  );
+  assert.equal(await readFile(agentsPath, "utf8"), "live instructions\n");
+  await assert.rejects(stat(path.join(workspace, ".taskchef-maintenance.json")), /ENOENT/);
+});
+
+test("state restore authorization binds the selected backup and every live payload", async () => {
+  const { workspace, projects } = await fixture(1);
+  const first = await createWorkspaceBackup(workspace, { reason: "first-state" });
+  await writeFile(path.join(workspace, "AGENTS.md"), "different instructions\n");
+  const second = await createWorkspaceBackup(workspace, { reason: "second-state" });
+  const firstPreview = await restoreWorkspaceBackup(workspace, first.id, {
+    scope: "state",
+    dryRun: true,
+  });
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, second.id, {
+      scope: "state",
+      approveRestore: true,
+      confirmOffline: true,
+      expectedConfigHash: firstPreview.beforeConfigHash,
+      expectedProjectCount: firstPreview.beforeCount,
+      expectedAfterCount: firstPreview.afterCount,
+      confirmPlan: firstPreview.planHash,
+      confirmRemoved: [],
+    }),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+
+  await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, first.id, {
+      scope: "state",
+      approveRestore: true,
+      confirmOffline: true,
+      expectedConfigHash: firstPreview.beforeConfigHash,
+      expectedProjectCount: firstPreview.beforeCount,
+      expectedAfterCount: firstPreview.afterCount,
+      confirmPlan: firstPreview.planHash,
+      confirmRemoved: [],
+    }),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+});
+
+test("config restore can recover missing or malformed live configuration with raw-state approval", async () => {
+  for (const damaged of [null, "{malformed"]) {
+    const { workspace } = await fixture(1);
+    const snapshot = await createWorkspaceBackup(workspace, { reason: "recovery-source" });
+    const configPath = path.join(workspace, "taskchef.json");
+    if (damaged === null) await unlink(configPath);
+    else await writeFile(configPath, damaged);
+    const preview = await restoreWorkspaceBackup(workspace, snapshot.id, {
+      scope: "config",
+      dryRun: true,
+    });
+    assert.equal(preview.beforeCount, null);
+    assert.equal(preview.diff.unavailable, true);
+    await assert.rejects(
+      restoreWorkspaceBackup(workspace, snapshot.id, {
+        scope: "config",
+        approveRestore: true,
+        expectedConfigHash: preview.beforeConfigHash,
+        confirmPlan: preview.planHash,
+      }),
+      (error) => error.code === "CONFIRMATION_REQUIRED",
+    );
+    const restored = await restoreWorkspaceBackup(workspace, snapshot.id, {
+      scope: "config",
+      approveRestore: true,
+      confirmUnreadableCurrent: true,
+      expectedConfigHash: preview.beforeConfigHash,
+      confirmPlan: preview.planHash,
+    });
+    assert.equal(restored.afterCount, 1);
+    assert.equal((await listProjects(workspace)).length, 1);
+    const safety = await verifyWorkspaceBackup(workspace, restored.safetyBackupId);
+    assert.equal(safety.integrityValid, true);
+  }
+});
+
+test("config restore rejects a malformed audit before replacing unreadable configuration", async () => {
+  const { workspace } = await fixture(1);
+  const snapshot = await createWorkspaceBackup(workspace, { reason: "config-audit-validation-source" });
+  const configPath = path.join(workspace, "taskchef.json");
+  await writeFile(configPath, "{damaged");
+  const preview = await restoreWorkspaceBackup(workspace, snapshot.id, {
+    scope: "config",
+    dryRun: true,
+  });
+  await writeFile(path.join(workspace, "config-audit.jsonl"), '{"transactionId":');
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, snapshot.id, {
+      scope: "config",
+      approveRestore: true,
+      confirmUnreadableCurrent: true,
+      expectedConfigHash: preview.beforeConfigHash,
+      confirmPlan: preview.planHash,
+    }),
+    (error) => error.code === "STATE_RECOVERY_REQUIRED"
+      && /configuration audit is malformed/.test(error.message),
+  );
+  assert.equal(await readFile(configPath, "utf8"), "{damaged");
+});
+
+test("explicit config recovery supersedes unresolved transactions before normal writes resume", async () => {
+  const { workspace } = await fixture(1);
+  const source = await createWorkspaceBackup(workspace, { reason: "supersede-source" });
+  const mutation = await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "uncertain mutation" },
+    { dryRun: true },
+  );
+  await assert.rejects(
+    updateProject(
+      workspace,
+      { name: "project-1" },
+      { description: "uncertain mutation" },
+      {
+        expectedConfigHash: mutation.beforeConfigHash,
+        writeConfigFile: async (filePath, content, options) => {
+          await writeDurableAtomic(filePath, content, options);
+          throw Object.assign(new Error("simulated lost response"), {
+            replacementCommitted: true,
+          });
+        },
+      },
+    ),
+    (error) => error.code === "STATE_RECOVERY_REQUIRED",
+  );
+  await writeFile(path.join(workspace, "taskchef.json"), "{damaged");
+  const recovery = await restoreWorkspaceBackup(workspace, source.id, {
+    scope: "config",
+    dryRun: true,
+  });
+  await restoreWorkspaceBackup(workspace, source.id, {
+    scope: "config",
+    approveRestore: true,
+    confirmUnreadableCurrent: true,
+    expectedConfigHash: recovery.beforeConfigHash,
+    confirmPlan: recovery.planHash,
+  });
+  const next = await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "normal writes resumed" },
+    { dryRun: true },
+  );
+  await updateProject(
+    workspace,
+    { name: "project-1" },
+    { description: "normal writes resumed" },
+    { expectedConfigHash: next.beforeConfigHash },
+  );
+  assert.equal((await listProjects(workspace))[0].description, "normal writes resumed");
+  assert.match(await readFile(path.join(workspace, "config-audit.jsonl"), "utf8"), /"phase":"superseded"/);
+});
+
+test("forensic maintenance rollback restores malformed or absent original files exactly", async () => {
+  for (const damaged of [null, "{malformed"]) {
+    const { workspace } = await fixture(1);
+    const source = await createWorkspaceBackup(workspace, { reason: "rollback-source" });
+    const configPath = path.join(workspace, "taskchef.json");
+    if (damaged === null) await unlink(configPath);
+    else await writeFile(configPath, damaged);
+    const restore = await restoreWorkspaceBackup(workspace, source.id, {
+      scope: "state",
+      dryRun: true,
+    });
+    let transactionId;
+    let safetyBackupId;
+    await assert.rejects(
+      restoreWorkspaceBackup(workspace, source.id, {
+        scope: "state",
+        approveRestore: true,
+        confirmOffline: true,
+        confirmUnreadableCurrent: true,
+        expectedConfigHash: restore.beforeConfigHash,
+        confirmPlan: restore.planHash,
+        writeStateFile: async (filePath, content, options) => {
+          if (path.basename(filePath) === "AGENTS.md") throw new Error("simulated interruption");
+          return writeDurableAtomic(filePath, content, options);
+        },
+      }),
+      (error) => {
+        transactionId = error.details.transactionId;
+        safetyBackupId = error.details.safetyBackupId;
+        return error.code === "STATE_RECOVERY_REQUIRED";
+      },
+    );
+    const rollback = await restoreWorkspaceBackup(workspace, safetyBackupId, {
+      scope: "state",
+      dryRun: true,
+      maintenanceTransaction: transactionId,
+    });
+    await restoreWorkspaceBackup(workspace, safetyBackupId, {
+      scope: "state",
+      approveRestore: true,
+      confirmOffline: true,
+      confirmUnreadableCurrent: true,
+      maintenanceTransaction: transactionId,
+      expectedConfigHash: rollback.beforeConfigHash,
+      confirmPlan: rollback.planHash,
+    });
+    assert.equal((await readWorkspaceMaintenance(workspace)).active, false);
+    if (damaged === null) await assert.rejects(stat(configPath), /ENOENT/);
+    else assert.equal(await readFile(configPath, "utf8"), damaged);
+  }
+});
+
+test("interrupted state restore fences writers and resumes only the exact transaction", async () => {
+  const { workspace } = await fixture(1);
+  const source = await createWorkspaceBackup(workspace, { reason: "resume-source" });
+  const extraRoot = await mkdtemp(path.join(os.tmpdir(), "taskchef-resume-extra-"));
+  const extra = path.join(extraRoot, "extra");
+  await mkdir(extra);
+  await addProject(workspace, { name: "extra", path: extra });
+  const preview = await restoreWorkspaceBackup(workspace, source.id, {
+    scope: "state",
+    dryRun: true,
+  });
+  let transactionId;
+  await assert.rejects(
+    restoreWorkspaceBackup(workspace, source.id, {
+      scope: "state",
+      approveRestore: true,
+      confirmOffline: true,
+      expectedConfigHash: preview.beforeConfigHash,
+      expectedProjectCount: 2,
+      expectedAfterCount: 1,
+      confirmPlan: preview.planHash,
+      confirmRemoved: ["extra"],
+      confirmCountCollapse: "2:1",
+      writeStateFile: async (filePath, content, options) => {
+        if (path.basename(filePath) === "AGENTS.md") throw new Error("simulated interrupted write");
+        return writeDurableAtomic(filePath, content, options);
+      },
+    }),
+    (error) => {
+      transactionId = error.details.transactionId;
+      return error.code === "STATE_RECOVERY_REQUIRED";
+    },
+  );
+  assert.equal((await readWorkspaceMaintenance(workspace)).transactionId, transactionId);
+  await assert.rejects(
+    updateProject(
+      workspace,
+      { name: "project-1" },
+      { description: "blocked" },
+      { dryRun: true },
+    ),
+    (error) => error.code === "STATE_RECOVERY_REQUIRED",
+  );
+  const resume = await restoreWorkspaceBackup(workspace, source.id, {
+    scope: "state",
+    dryRun: true,
+    maintenanceTransaction: transactionId,
+  });
+  await restoreWorkspaceBackup(workspace, source.id, {
+    scope: "state",
+    approveRestore: true,
+    confirmOffline: true,
+    maintenanceTransaction: transactionId,
+    expectedConfigHash: resume.beforeConfigHash,
+    expectedProjectCount: resume.beforeCount,
+    expectedAfterCount: resume.afterCount,
+    confirmPlan: resume.planHash,
+    confirmRemoved: resume.diff.removed.map((project) => project.name),
+    confirmCountCollapse: "2:1",
+  });
+  assert.equal((await readWorkspaceMaintenance(workspace)).active, false);
+  assert.equal((await listProjects(workspace)).length, 1);
 });
 
 test("workspace cannot be configured inside a delegation project", async () => {
@@ -4647,15 +5238,35 @@ test("workspace cannot be configured inside a delegation project", async () => {
 test("project removal and replacement preserve historical dispatch snapshots", async () => {
   const { root, workspace, projects } = await fixture(1);
   await recordTask(workspace, dispatchInput(projects[0]), { now: FIXED_TIME });
-  await removeProject(workspace, "project-1");
+  const removalPreview = await removeProject(workspace, "project-1", { dryRun: true });
+  await removeProject(workspace, "project-1", {
+    expectedConfigHash: removalPreview.beforeConfigHash,
+    expectedProjectCount: removalPreview.beforeCount,
+    expectedAfterCount: removalPreview.afterCount,
+    confirmPlan: removalPreview.planHash,
+    confirmRemoved: ["project-1"],
+    confirmCountCollapse: "1:0",
+  });
   assert.deepEqual(await listProjects(workspace), []);
   assert.equal((await readTask(workspace, "dispatch-1")).project.name, "project-1");
 
   const replacement = await gitProject(root, "replacement");
+  const replacementPreview = await importProjects(
+    workspace,
+    [{ name: "replacement", path: replacement }],
+    { replace: true, dryRun: true },
+  );
   const result = await importProjects(
     workspace,
     [{ name: "replacement", path: replacement }],
-    { replace: true },
+    {
+      replace: true,
+      expectedConfigHash: replacementPreview.beforeConfigHash,
+      expectedProjectCount: 0,
+      expectedAfterCount: 1,
+      confirmPlan: replacementPreview.planHash,
+      confirmRemoved: [],
+    },
   );
   assert.deepEqual(result.projects.map((project) => project.path), [replacement]);
 });
@@ -4664,17 +5275,38 @@ test("moved projects can be removed or replaced through configuration repair", a
   const removable = await fixture(1);
   await rename(removable.projects[0], `${removable.projects[0]}-moved`);
   await initializeWorkspace(removable.workspace);
-  const removed = await removeProject(removable.workspace, "project-1");
+  const removalPreview = await removeProject(removable.workspace, "project-1", { dryRun: true });
+  const removed = await removeProject(removable.workspace, "project-1", {
+    expectedConfigHash: removalPreview.beforeConfigHash,
+    expectedProjectCount: 1,
+    expectedAfterCount: 0,
+    confirmPlan: removalPreview.planHash,
+    confirmRemoved: ["project-1"],
+    confirmCountCollapse: "1:0",
+  });
   assert.equal(removed.project.path, removable.projects[0]);
   assert.deepEqual(await listProjects(removable.workspace), []);
 
   const replaceable = await fixture(1);
   await rename(replaceable.projects[0], `${replaceable.projects[0]}-moved`);
   const replacement = await gitProject(replaceable.root, "replacement");
+  const replacementInput = [{ name: "replacement", path: replacement }];
+  const replacementPreview = await importProjects(
+    replaceable.workspace,
+    replacementInput,
+    { replace: true, dryRun: true },
+  );
   const replaced = await importProjects(
     replaceable.workspace,
-    [{ name: "replacement", path: replacement }],
-    { replace: true },
+    replacementInput,
+    {
+      replace: true,
+      expectedConfigHash: replacementPreview.beforeConfigHash,
+      expectedProjectCount: 1,
+      expectedAfterCount: 1,
+      confirmPlan: replacementPreview.planHash,
+      confirmRemoved: ["project-1"],
+    },
   );
   assert.deepEqual(replaced.projects.map((project) => project.path), [replacement]);
 });
@@ -5101,6 +5733,32 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
   assert.equal(JSON.parse(imported.stdout).projectCount, 2);
   const projects = await runCli(["project", "list", "--json", "--workspace", workspace]);
   assert.equal(JSON.parse(projects.stdout).projectCount, 2);
+  const updatePreview = JSON.parse((await runCli([
+    "project", "update", "first", "--description", "Updated curation.",
+    "--dry-run", "--json", "--workspace", workspace,
+  ])).stdout);
+  assert.equal(updatePreview.beforeCount, 2);
+  const updated = JSON.parse((await runCli([
+    "project", "update", "first", "--description", "Updated curation.",
+    "--expect-config-hash", updatePreview.beforeConfigHash,
+    "--json", "--workspace", workspace,
+  ])).stdout);
+  assert.equal(updated.project.description, "Updated curation.");
+  assert.equal(updated.afterCount, 2);
+  const backups = JSON.parse((await runCli([
+    "backup", "list", "--json", "--workspace", workspace,
+  ])).stdout);
+  assert.ok(backups.usableCount >= 1);
+  await assert.rejects(
+    runCli(["project", "remove", "second", "--json", "--workspace", workspace]),
+    (error) => {
+      assert.equal(error.stderr, "");
+      const envelope = JSON.parse(error.stdout);
+      assert.equal(envelope.error.code, "CONFIRMATION_REQUIRED");
+      assert.equal(envelope.error.details.preview.beforeCount, 2);
+      return true;
+    },
+  );
   const preparedDispatch = JSON.parse((await runCli([
     "dispatch", "prepare", "--json", "--workspace", workspace,
   ])).stdout);
@@ -5119,7 +5777,9 @@ test("CLI implements the bootstrap, project, doctor, and task surface", async ()
     runCli(["task", "record", "--json", "--workspace", workspace], {
       input: JSON.stringify(dispatchInput(first, "cli-provisional", "local:client-id")),
     }),
-    (error) => error.code === 1 && /provisional local ID/.test(error.stderr),
+    (error) => error.code === 1
+      && error.stderr === ""
+      && /provisional local ID/.test(JSON.parse(error.stdout).error.message),
   );
   await runCli(["task", "record", "--json", "--workspace", workspace], {
     input: JSON.stringify({
@@ -5195,10 +5855,12 @@ test("CLI project list groups repositories without repeating project details", a
   assert.equal(lines.some((line) => /\s+$/.test(line)), false);
 
   const json = await runCli(["project", "list", "--json", "--workspace", workspace]);
-  assert.deepEqual(JSON.parse(json.stdout), {
-    projectCount: 3,
-    projects: [multi, single, zero],
-  });
+  const index = JSON.parse(json.stdout);
+  assert.equal(index.schemaVersion, 1);
+  assert.equal(index.projectCount, 3);
+  assert.match(index.configHash, /^[0-9a-f]{64}$/);
+  assert.match(index.projectSetHash, /^[0-9a-f]{64}$/);
+  assert.deepEqual(index.projects, [multi, single, zero]);
 });
 
 test("CLI task list uses TITLE PROJECT STATUS UPDATED ID THREAD ID order, filters, sorts, and preserves JSON", async () => {
@@ -5454,7 +6116,13 @@ test("CLI task show rejects missing, ambiguous, malformed, short, and wrong-case
         runCli([
           "task", "show", taskId, ...outputArgs, "--workspace", workspace,
         ]),
-        (error) => error.code === 1 && error.stdout === "" && pattern.test(error.stderr),
+        (error) => {
+          if (error.code !== 1) return false;
+          if (outputArgs.includes("--json")) {
+            return error.stderr === "" && pattern.test(JSON.parse(error.stdout).error.message);
+          }
+          return error.stdout === "" && pattern.test(error.stderr);
+        },
       );
     }
   }

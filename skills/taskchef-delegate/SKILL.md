@@ -30,8 +30,9 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 
 ## Boundaries
 
-- Treat only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` as TaskChef-managed
-  dispatcher files. Preserve unrelated user-owned paths.
+- Treat only AGENTS.md, taskchef.json, tasks.jsonl, config-audit.jsonl, and
+  TaskChef's private backups and maintenance artifacts as managed dispatcher
+  state. Preserve unrelated user-owned paths.
 - Use real Codex tasks, never collaboration or subagent tools.
 - Never use hooks, schedules, daemons, background monitors, recent-task
   searches, transcripts, hidden reasoning, or polling for identity.

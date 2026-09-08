@@ -393,17 +393,16 @@ test("tracker backfills task totals but leaves historical turns without boundari
   const initial = await tracker.get(task);
   assert.equal(initial.status, "calculating");
   let store;
-  for (let spin = 0; spin < 100; spin += 1) {
-    if (timers.length > 0) await timers.shift()();
-    else await new Promise((resolve) => setImmediate(resolve));
+  const wroteCache = await drainTimersUntil(timers, async () => {
     try {
       store = JSON.parse(await readFile(path.join(workspace, ".taskchef-usage.json"), "utf8"));
-      if (store.tasks[task.id]?.status === "available") break;
+      return store.tasks[task.id]?.status === "available";
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      return false;
     }
-  }
-  assert.ok(store, "usage cache should be written by the background calculation");
+  });
+  assert.equal(wroteCache, true, "usage cache should be written by the background calculation");
   assert.equal(store.tasks[task.id].status, "available");
   assert.equal(store.tasks[task.id].task.totalTokens, 35);
   assert.equal(store.tasks[task.id].turns[FIRST_TURN].status, "unavailable");
@@ -428,17 +427,16 @@ test("tracker never assigns a historical one-turn task total to that turn", asyn
   };
   assert.equal((await tracker.get(task)).status, "calculating");
   let store;
-  for (let spin = 0; spin < 100; spin += 1) {
-    if (timers.length > 0) await timers.shift()();
-    else await new Promise((resolve) => setImmediate(resolve));
+  const wroteCache = await drainTimersUntil(timers, async () => {
     try {
       store = JSON.parse(await readFile(path.join(workspace, ".taskchef-usage.json"), "utf8"));
-      if (store.tasks[task.id]?.status === "available") break;
+      return store.tasks[task.id]?.status === "available";
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      return false;
     }
-  }
-  assert.ok(store, "historical usage cache should be written");
+  });
+  assert.equal(wroteCache, true, "historical usage cache should be written");
   assert.equal(store.tasks[task.id].task.totalTokens, 35);
   assert.equal(store.tasks[task.id].turns[FIRST_TURN].status, "unavailable");
   assert.equal(store.tasks[task.id].boundaries[FIRST_TURN].totalTokens, 35);

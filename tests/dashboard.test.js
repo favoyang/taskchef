@@ -16,6 +16,8 @@ import {
   dashboardAuthority,
   initializeWorkspace,
   linkTask,
+  listWorkspaceBackups,
+  readConfig,
   recordTask,
   reportTaskResult,
   reportTaskState,
@@ -1578,6 +1580,35 @@ test("dashboard monitor accepts atomic task changes and retains its last valid s
   monitor.close();
 });
 
+test("dashboard reports missing historical projects without mutating the index", async () => {
+  const { workspace, project } = await fixture();
+  await recordTask(workspace, input(project, FIRST_ID, "Historical project", "thread-one"));
+  const monitor = new DashboardMonitor(workspace, { pollIntervalMs: 60_000 });
+  await monitor.start();
+  try {
+    const current = await readConfig(workspace, { checkPaths: false });
+    await writeFile(path.join(workspace, "taskchef.json"), `${JSON.stringify({
+      ...current,
+      projects: [],
+    }, null, 2)}\n`);
+    await monitor.refresh({ force: true });
+    const warning = monitor.snapshot().projectIndex;
+    assert.equal(warning.status, "available");
+    assert.equal(warning.projectCount, 0);
+    assert.equal(warning.missingProjects.length, 1);
+    assert.equal(warning.missingProjects[0].taskCount, 1);
+    assert.deepEqual(warning.missingProjects[0].snapshotNames, ["example-project"]);
+
+    await writeFile(path.join(workspace, "taskchef.json"), "{broken");
+    await monitor.refresh({ force: true });
+    await waitFor(() => monitor.snapshot().projectIndex.status === "unavailable");
+    assert.equal(monitor.snapshot().projectIndex.status, "unavailable");
+    assert.equal(monitor.snapshot().healthy, true);
+  } finally {
+    monitor.close();
+  }
+});
+
 test("dashboard monitor retries when an atomic replacement races its read", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-dashboard-race-"));
   const oldTask = {
@@ -1947,6 +1978,19 @@ test("dashboard settings reports the ccusage version resolved at runtime", async
       status: "available",
       version: "20.0.21",
     });
+  } finally {
+    await server.close();
+  }
+});
+
+test("dashboard server startup creates one verified state snapshot", async () => {
+  const { workspace } = await fixture();
+  const before = await listWorkspaceBackups(workspace);
+  const server = await createDashboardServer({ workspace, port: 0 });
+  try {
+    const after = await listWorkspaceBackups(workspace);
+    assert.equal(after.usableCount, before.usableCount + 1);
+    assert.equal(after.backups[0].manifest.reason, "dashboard-standalone-startup");
   } finally {
     await server.close();
   }

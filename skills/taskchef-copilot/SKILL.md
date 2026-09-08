@@ -58,6 +58,8 @@ cached brief.
   preserve its durable identity.
 - Never automatically retry a failure, interrupt a working task, or redelegate
   an existing executor as a new task.
+- Explain project-index warnings and suggest read-only backup list, verify, or
+  restore-preview commands. Never restore state without explicit user approval.
 - A missing executor link calls for passive waiting or identity inspection,
   not a retry, continuation, or reason to create another executor.
 - Keep same-assignment follow-up in the existing executor task. Independent new

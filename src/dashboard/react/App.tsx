@@ -109,6 +109,7 @@ export function DashboardApp({
     return () => window.removeEventListener('hashchange', update);
   }, []);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [projectIndex, setProjectIndex] = useState<DashboardSnapshot["projectIndex"]>();
   const [connected, setConnected] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [version, setVersion] = useState<string | null>(null);
@@ -138,6 +139,7 @@ export function DashboardApp({
 
   const applySnapshot = useCallback((snapshot: DashboardSnapshot) => {
     setTasks(snapshot.tasks);
+    setProjectIndex(snapshot.projectIndex);
     setNotificationState((current) => {
       const reconciled = reconcileNotifications(current, snapshot.tasks);
       return {
@@ -325,6 +327,20 @@ export function DashboardApp({
 
         <AppShell.Main>
           <Container className="taskchef-main" pb={80} size={1080}>
+            {projectIndex?.status === "unavailable" && (
+              <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="md" title="Project index unavailable">
+                Task history is still visible. Verify the index and inspect backups before making project changes.
+              </Alert>
+            )}
+            {projectIndex?.status === "available" && projectIndex.missingProjects.length > 0 && (
+              <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="md" title="Historical projects are missing from the current index">
+                {projectIndex.missingProjects.map((item) => (
+                  <Text key={item.path} size="sm">
+                    {item.snapshotNames.join(", ")}: {item.taskCount} task(s). Run <code>taskchef backup list --json</code> and preview any restore; the dashboard never restores automatically.
+                  </Text>
+                ))}
+              </Alert>
+            )}
             {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
             <Paper className="taskchef-toolbar" p="sm" radius="md" withBorder>
               <Stack gap="sm">

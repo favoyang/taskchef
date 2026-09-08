@@ -85,6 +85,21 @@ requested, opens the canonical path with the validated Codex Desktop CLI's
 exact match before indexing it. An open request without a verified native
 project is reported as partial setup, not delegation-ready.
 
+Update one indexed project with taskchef project update; repeated
+--github-repo values replace that entry's complete repository list while
+leaving every other project untouched. project list --json returns stable
+configuration and project-set hashes for postcondition checks.
+
+Whole-index replacement, project removal, and restore are preview-bound. Run
+them with --dry-run, inspect the exact diff, then apply with the returned
+hashes, counts, plan hash, and exact removed-name confirmation after the user
+approves every removed project. TaskChef creates private snapshots under
+backups/ before mutations and actual dashboard startup. Use taskchef backup
+list, create, verify, restore, and prune; restore never runs automatically and
+creates a pre-restore safety snapshot. If the live configuration is missing or
+malformed, preview an explicit config or state restore, then bind the apply to
+the preview's raw-state hash and plan with --confirm-unreadable-current.
+
 Reindexing catches TaskChef up with newly saved Codex projects by comparing
 exact canonical paths and indexing missing requested projects. It preserves
 existing curated entries and does not silently remove projects or overwrite

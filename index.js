@@ -1,6 +1,7 @@
 export {
   buildCopilotBrief,
   addProject,
+  createWorkspaceBackup,
   buildTaskSummary,
   canonicalDirectory,
   canonicalGitRoot,
@@ -12,6 +13,10 @@ export {
   initializeWorkspace,
   linkTask,
   listProjects,
+  listWorkspaceBackups,
+  pruneWorkspaceBackups,
+  readProjectIndex,
+  readWorkspaceMaintenance,
   manuallyTransitionTask,
   migrateTaskLog,
   prepareDispatch,
@@ -23,8 +28,17 @@ export {
   reportTaskResult,
   requireSafeId,
   removeProject,
+  restoreWorkspaceBackup,
   validateConfig,
+  updateProject,
+  verifyWorkspaceBackup,
 } from "./src/workspace.js";
+
+export {
+  configHash,
+  projectDiff,
+  projectSetHash,
+} from "./src/config-mutations.js";
 
 export {
   canonicalGithubRepository,
