@@ -20,6 +20,7 @@ import {
   canonicalGitRoot,
   manuallyTransitionTask,
   parseTaskLogContent,
+  createWorkspaceBackup,
   readConfig,
   readTask,
 } from "./workspace.js";
@@ -463,7 +464,9 @@ export class DashboardMonitor extends EventEmitter {
       const snapshot = await readBoundedTaskLog(this.tasksFile, this.maxFileBytes);
       return {
         fingerprint: snapshot.fingerprint,
-        tasks: await parseTaskLogContent(this.workspace, snapshot.content),
+        tasks: await parseTaskLogContent(this.workspace, snapshot.content, {
+          validateWorkspace: false,
+        }),
       };
     });
     this.tasks = [];
@@ -472,6 +475,7 @@ export class DashboardMonitor extends EventEmitter {
     this.currentFingerprint = null;
     this.currentTaskFingerprint = null;
     this.unhealthy = false;
+    this.projectIndex = { status: "available", projectCount: 0, missingProjects: [] };
     this.observedUpdateTimes = new Map();
     this.refreshPromise = null;
     this.refreshQueued = false;
@@ -487,6 +491,7 @@ export class DashboardMonitor extends EventEmitter {
       revision: this.revision,
       generatedAt: new Date().toISOString(),
       healthy: !this.unhealthy,
+      projectIndex: this.projectIndex,
       tasks: this.tasks.map((task) => ({
         ...taskListProjection(task),
         meaningfulUpdatedAt: new Date(
@@ -513,7 +518,7 @@ export class DashboardMonitor extends EventEmitter {
     if (!this.started || this.watcher) return;
     try {
       this.watcher = this.watchDirectory(this.workspace, { persistent: false }, (_event, fileName) => {
-        if (fileName !== null && String(fileName) !== TASKS_FILE_NAME) return;
+        if (fileName !== null && !new Set([TASKS_FILE_NAME, "taskchef.json", "config-audit.jsonl"]).has(String(fileName))) return;
         clearTimeout(this.debounceTimer);
         this.debounceTimer = setTimeout(() => this.refresh({ force: true }), this.debounceMs);
         this.debounceTimer.unref?.();
@@ -579,8 +584,34 @@ export class DashboardMonitor extends EventEmitter {
         }
       }
       const tasks = sortTasksByMeaningfulUpdate(snapshot.tasks, this.observedUpdateTimes);
-      const nextTaskFingerprint = taskFingerprint(tasks);
+      let projectIndex;
+      try {
+        const config = await readConfig(this.workspace, { checkPaths: false });
+        const configured = new Set(config.projects.map((project) => project.path));
+        const missing = new Map();
+        for (const task of tasks) {
+          if (configured.has(task.project.path)) continue;
+          const item = missing.get(task.project.path) ?? {
+            path: task.project.path, snapshotNames: new Set(), taskCount: 0,
+          };
+          item.snapshotNames.add(task.project.name);
+          item.taskCount += 1;
+          missing.set(task.project.path, item);
+        }
+        projectIndex = {
+          status: "available",
+          projectCount: config.projects.length,
+          missingProjects: [...missing.values()].slice(0, 50).map((item) => ({
+            ...item, snapshotNames: [...item.snapshotNames].sort(),
+          })),
+          truncated: missing.size > 50,
+        };
+      } catch {
+        projectIndex = { status: "unavailable", projectCount: null, missingProjects: [] };
+      }
+      const nextTaskFingerprint = taskFingerprint({ tasks, projectIndex });
       this.currentFingerprint = after;
+      this.projectIndex = projectIndex;
       if (nextTaskFingerprint === this.currentTaskFingerprint) {
         if (this.unhealthy) {
           this.unhealthy = false;
@@ -833,11 +864,24 @@ export async function createDashboardServer({
         || typeof control?.onHandoff !== "function")))) {
     throw new Error("dashboard control requires a valid TaskChef ownership controller");
   }
+  let requestHandler = (_request, response) => {
+    sendJson(response, 503, { message: "TaskChef dashboard is initializing." });
+  };
+  const server = http.createServer((request, response) => requestHandler(request, response));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, resolve);
+  });
+  const address = server.address();
+  const boundPort = typeof address === "object" && address ? address.port : port;
+  const allowedAuthority = dashboardAuthority(host, boundPort);
+  const allowedOrigin = `http://${allowedAuthority}`;
   const monitor = new DashboardMonitor(workspace, monitorOptions);
   let taskUsageTracker;
   let taskUsageSummaryMonitor;
   let identity;
   try {
+    await createWorkspaceBackup(workspace, { reason: `dashboard-${launcher}-startup` });
     await monitor.start();
     taskUsageTracker = usageTracker ?? createUsageTracker({ workspace: monitor.workspace });
     taskUsageSummaryMonitor = usageSummaryMonitor
@@ -858,6 +902,7 @@ export async function createDashboardServer({
     taskUsageSummaryMonitor?.close();
     taskUsageTracker?.close?.();
     monitor.close();
+    await new Promise((resolve) => server.close(() => resolve()));
     throw error;
   }
   const clients = new Set();
@@ -865,8 +910,6 @@ export async function createDashboardServer({
   let usageProviderPromise = null;
   let controlHandoff = null;
   let controlHandoffTimer = null;
-  let allowedAuthority;
-  let allowedOrigin;
 
   const broadcast = (event, value) => {
     const payload = ssePayload(event, value);
@@ -1479,28 +1522,12 @@ export async function createDashboardServer({
     response.end(method === "HEAD" ? undefined : body);
   };
 
-  const server = http.createServer((request, response) => {
+  requestHandler = (request, response) => {
     handleRequest(request, response).catch(() => {
       if (response.headersSent) response.destroy();
       else sendJson(response, 500, { message: "Dashboard request failed." });
     });
-  });
-
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, resolve);
-  }).catch((error) => {
-    clearInterval(usagePreloadTimer);
-    monitor.close();
-    taskUsageSummaryMonitor.close();
-    taskUsageTracker.close?.();
-    throw error;
-  });
-
-  const address = server.address();
-  const boundPort = typeof address === "object" && address ? address.port : port;
-  allowedAuthority = dashboardAuthority(host, boundPort);
-  allowedOrigin = `http://${allowedAuthority}`;
+  };
   return {
     host,
     port: boundPort,

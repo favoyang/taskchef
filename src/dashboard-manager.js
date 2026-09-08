@@ -246,6 +246,7 @@ export function readDashboardIdentity({
   port = DEFAULT_PORT,
   maximumBytes = DASHBOARD_HEALTH_MAX_BYTES,
   timeoutMs = HEALTH_TIMEOUT_MS,
+  deadlineAt = Date.now() + timeoutMs,
 } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -278,6 +279,21 @@ export function readDashboardIdentity({
         chunks.push(chunk);
       });
       response.on("end", () => {
+        if (response.statusCode === 503 && deadlineAt - Date.now() > 10) {
+          settled = true;
+          clearTimeout(deadline);
+          const remaining = deadlineAt - Date.now();
+          setTimeout(() => {
+            readDashboardIdentity({
+              host,
+              port,
+              maximumBytes,
+              timeoutMs: Math.max(1, remaining),
+              deadlineAt,
+            }).then(resolve, reject);
+          }, 10);
+          return;
+        }
         if (response.statusCode !== 200) {
           finish(new Error(`dashboard health returned HTTP ${response.statusCode}`));
           return;

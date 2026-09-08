@@ -15,8 +15,9 @@ all deterministic workspace operations.
 ## Boundaries
 
 - Keep implementation, tests, and reports in the TaskChef source repository.
-- Create and manage only `AGENTS.md`, `taskchef.json`, and `tasks.jsonl` in a
-  dispatcher workspace. Preserve unrelated user-owned paths.
+- Create and manage only AGENTS.md, taskchef.json, tasks.jsonl,
+  config-audit.jsonl, and TaskChef's private backups and maintenance artifacts
+  in a dispatcher workspace. Preserve unrelated user-owned paths.
 - Do not dispatch tasks or report on executor threads during bootstrap unless
   the user separately requests those actions.
 - Never create hooks, schedules, polling, daemons, login items, or system
@@ -55,7 +56,10 @@ all deterministic workspace operations.
 For adding, importing, removing, listing, or reindexing projects, read
 [project index](references/project-index.md). Preserve exact canonical local
 Codex project identity and existing curated entries; opening a folder is not
-proof of registration. Completion requires verifying the intended index entry.
+proof of registration. Completion requires verifying the intended index entry
+and the complete project set. Any operation that removes a project entry
+requires the user's explicit permission for the exact removed names; removing a
+repository URL from an entry does not authorize removing the entry.
 
 ## Optional model roles
 

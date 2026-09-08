@@ -85,6 +85,18 @@ requires an explicit user request and the project-management workflows below.
 
 ## Manage the project index
 
+Before every mutation, run project list --json and retain the complete
+normalized project set, count, and configHash. Use project update for changes
+to one existing entry, including replacing its complete githubRepos list.
+Never use whole-index replacement to edit one entry.
+
+Run destructive replacement or removal first with --dry-run. Present the
+complete diff and exact removed project names to the user and obtain explicit
+permission for those removals. Apply only with the preview's config hash,
+before/after counts, plan hash, exact removed-name JSON file, and count-collapse
+confirmation when requested. A request to remove a repository URL is not
+permission to remove a project entry. Do not use a generic force or yes flag.
+
 1. Bulk import with `project import <file|-> --json`. Input is a JSON array of
    objects containing `path` plus optional `name`, `description`, and
    `githubRepos`, which is always a JSON array of GitHub repository URLs. Before
@@ -94,9 +106,15 @@ requires an explicit user request and the project-management workflows below.
    canonical path, preserves an existing name or description when omitted, and
    unions existing and imported repository lists without duplicates. Use
    `--replace` only when the user explicitly requests replacement. Run
-   `project list --json` afterward and verify every imported entry.
-2. Inspect indexed projects with `project list --json`. Remove by name with
-   `project remove`. Existing task entries keep their project snapshots.
+   `project list --json` afterward and compare the complete project set with the
+   expected post-state. Verify every imported entry and prove all unrelated
+   entries are unchanged; matching counts alone are insufficient.
+2. Inspect indexed projects with project list --json. Update one entry with
+   project update; explicit repository arguments are the complete replacement
+   list. Remove by name only through the preview-bound workflow. Existing task
+   entries keep their project snapshots.
+3. On any postcondition mismatch, stop, report the failure, and offer backup
+   list plus a restore dry-run. Never restore automatically.
 
 Example managed-workspace import entry:
 

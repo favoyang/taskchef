@@ -7,7 +7,6 @@ import {
   mkdir,
   readFile,
   realpath,
-  link,
   rename,
   stat,
   unlink,
@@ -27,6 +26,31 @@ import {
   canonicalGithubRepository,
   normalizeGithubRepositories,
 } from "./github.js";
+import {
+  configHash,
+  projectDiff,
+  projectSetHash,
+} from "./config-mutations.js";
+import {
+  createBackupUnlocked,
+  listBackups,
+  pruneBackupsUnlocked,
+  readBackupPayloads,
+  verifyBackup,
+} from "./backups.js";
+import {
+  appendAuditUnlocked,
+  reconcileAuditUnlocked,
+  supersedeAuditTransactionsUnlocked,
+  validateAuditUnlocked,
+} from "./config-audit.js";
+import {
+  removeDurable,
+  semanticHash,
+  sha256,
+  taskChefError,
+  writeDurableAtomic,
+} from "./state-store.js";
 
 const execFile = promisify(execFileCallback);
 const DISPATCHER_INSTRUCTIONS_URL = new URL(
@@ -289,9 +313,15 @@ export async function acquireWorkspaceLock(workspaceRoot, {
   throw new Error("workspace lock retry loop ended unexpectedly");
 }
 
-async function withWorkspaceLock(workspaceRoot, operation) {
+async function withWorkspaceLock(workspaceRoot, operation, { allowMaintenance = false } = {}) {
   const release = await acquireWorkspaceLock(workspaceRoot);
   try {
+    if (!allowMaintenance && await pathExists(path.join(workspaceRoot, ".taskchef-maintenance.json"))) {
+      throw taskChefError(
+        "STATE_RECOVERY_REQUIRED",
+        "workspace has an incomplete maintenance transaction; inspect and explicitly resume or roll it back",
+      );
+    }
     return await operation();
   } finally {
     await release();
@@ -315,30 +345,10 @@ async function writeDispatchLinesAtomic(workspaceRoot, lines) {
 }
 
 async function writeJsonAtomic(filePath, value, { exclusive = false } = {}) {
-  await mkdir(path.dirname(filePath), { recursive: true });
   if (exclusive && (await pathExists(filePath))) {
     throw new Error(`file already exists: ${filePath}`);
   }
-  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-    flag: "wx",
-  });
-  try {
-    if (exclusive) {
-      await link(temporaryPath, filePath).catch((error) => {
-        if (error.code === "EEXIST") throw new Error(`file already exists: ${filePath}`);
-        throw error;
-      });
-      await unlink(temporaryPath);
-      return;
-    }
-    await rename(temporaryPath, filePath);
-  } catch (error) {
-    await unlink(temporaryPath).catch(() => {});
-    throw error;
-  }
+  await writeDurableAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, { exclusive });
 }
 
 async function writeTextAtomic(filePath, value) {
@@ -625,6 +635,19 @@ async function ensureDispatchFile(workspaceRoot) {
   return { path: filePath, action: exists ? "unchanged" : "created" };
 }
 
+async function createStateBackupUnlocked(root, options = {}) {
+  return createBackupUnlocked(root, {
+    ...options,
+    validateFile: async (name, bytes) => {
+      if (name === "taskchef.json") {
+        await validateConfig(JSON.parse(bytes.toString("utf8")), { checkPaths: false });
+      } else if (name === DISPATCH_FILE_NAME) {
+        await parseTaskLogContent(root, bytes.toString("utf8"), { validateWorkspace: false });
+      }
+    },
+  });
+}
+
 export async function initializeWorkspace(workspaceRoot) {
   const requestedRoot = path.resolve(workspaceRoot);
   await mkdir(requestedRoot, { recursive: true, mode: 0o700 });
@@ -640,6 +663,9 @@ export async function initializeWorkspace(workspaceRoot) {
   return withWorkspaceLock(root, async () => {
     const configPath = path.join(root, "taskchef.json");
     const configExists = await managedRegularFileExists(configPath);
+    if (configExists) {
+      await createStateBackupUnlocked(root, { reason: "pre-workspace-init" });
+    }
     const config = configExists
       ? await readConfig(root, { checkPaths: false })
       : {
@@ -689,6 +715,174 @@ export async function listProjects(workspaceRoot) {
   return [...config.projects].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export async function readProjectIndex(workspaceRoot, { checkPaths = true } = {}) {
+  const config = await readConfig(workspaceRoot, { checkPaths });
+  const projects = [...config.projects].sort((left, right) => left.name.localeCompare(right.name));
+  return {
+    schemaVersion: 1,
+    projectCount: projects.length,
+    configHash: configHash(config),
+    projectSetHash: projectSetHash(config.projects),
+    projects,
+  };
+}
+
+function mutationPreview(root, operation, current, updated) {
+  const diff = projectDiff(current.projects, updated.projects);
+  const preview = {
+    schemaVersion: 1,
+    operation,
+    beforeCount: current.projects.length,
+    afterCount: updated.projects.length,
+    beforeConfigHash: configHash(current),
+    afterConfigHash: configHash(updated),
+    beforeProjectSetHash: projectSetHash(current.projects),
+    afterProjectSetHash: projectSetHash(updated.projects),
+    beforeProjects: current.projects,
+    afterProjects: updated.projects,
+    diff,
+  };
+  return {
+    ...preview,
+    planHash: semanticHash({ workspace: root, ...preview }, "taskchef-mutation-plan-v1"),
+  };
+}
+
+function exactStringSet(values, name) {
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || value.length === 0)) {
+    throw taskChefError("INVALID_INPUT", `${name} must be an array of exact project names`);
+  }
+  if (new Set(values).size !== values.length) {
+    throw taskChefError("INVALID_INPUT", `${name} contains duplicate names`);
+  }
+  return [...values].sort();
+}
+
+function requirePreviewAuthorization(preview, options, { replacement = false } = {}) {
+  if (options.expectedConfigHash !== preview.beforeConfigHash) {
+    throw taskChefError(
+      options.expectedConfigHash ? "STALE_PREVIEW" : "CONFIRMATION_REQUIRED",
+      "mutation requires the current --expect-config-hash from a dry-run",
+      { preview },
+    );
+  }
+  if (!replacement && preview.diff.removed.length === 0) return;
+  const required = [
+    ["expectedProjectCount", preview.beforeCount],
+    ["expectedAfterCount", preview.afterCount],
+    ["confirmPlan", preview.planHash],
+  ];
+  for (const [name, expected] of required) {
+    if (options[name] !== expected) {
+      throw taskChefError("CONFIRMATION_REQUIRED", "destructive mutation confirmation does not match its preview", { preview });
+    }
+  }
+  const removed = exactStringSet(preview.diff.removed.map((project) => project.name), "removed projects");
+  const confirmed = exactStringSet(options.confirmRemoved, "--confirm-removed");
+  if (JSON.stringify(removed) !== JSON.stringify(confirmed)) {
+    throw taskChefError("CONFIRMATION_REQUIRED", "confirm every exact removed project name", { preview });
+  }
+  const collapse = preview.beforeCount > 0
+    && (preview.afterCount === 0 || preview.afterCount / preview.beforeCount <= 0.5);
+  if (collapse && options.confirmCountCollapse !== `${preview.beforeCount}:${preview.afterCount}`) {
+    throw taskChefError("CONFIRMATION_REQUIRED", "large project-count collapse requires exact confirmation", { preview });
+  }
+}
+
+async function commitConfigMutation(root, operation, current, updated, preview, {
+  now = () => new Date().toISOString(),
+  attribution = null,
+  existingBackup = null,
+  allowForensicBackup = false,
+  skipReconcile = false,
+  supersedePending = false,
+  writeConfigFile = writeDurableAtomic,
+} = {}) {
+  if (!skipReconcile) await reconcileAuditUnlocked(root, preview.beforeConfigHash);
+  const transactionId = randomUUID();
+  const backup = existingBackup ?? await createStateBackupUnlocked(root, {
+    reason: `pre-${operation}`,
+    now,
+  });
+  if (!backup.usable && !(allowForensicBackup && backup.integrityValid)) {
+    throw taskChefError(
+      "BACKUP_FAILED",
+      "current state was captured forensically but is not valid enough to protect a mutation",
+      { backupId: backup.id },
+    );
+  }
+  if (backup.storagePressure) {
+    throw taskChefError(
+      "BACKUP_FAILED",
+      "backup storage exceeds the protected retention budget; prune or free space before mutating configuration",
+      { backupId: backup.id },
+    );
+  }
+  const audit = {
+    transactionId,
+    timestamp: now(),
+    operation,
+    beforeHash: preview.beforeConfigHash,
+    afterHash: preview.afterConfigHash,
+    beforeCount: preview.beforeCount,
+    afterCount: preview.afterCount,
+    added: preview.diff.added.map((project) => project.name),
+    changed: preview.diff.changed.map((project) => project.after.name),
+    removed: preview.diff.removed.map((project) => project.name),
+    backupId: backup.id,
+    ...(attribution ? { attribution } : {}),
+  };
+  await appendAuditUnlocked(root, { ...audit, phase: "prepared" });
+  let replaced = false;
+  try {
+    await writeConfigFile(
+      path.join(root, "taskchef.json"),
+      `${JSON.stringify(updated, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    replaced = true;
+    const persisted = await readConfig(root, { checkPaths: false });
+    if (configHash(persisted) !== preview.afterConfigHash) {
+      throw new Error("persisted configuration does not match the planned mutation");
+    }
+  } catch (error) {
+    replaced ||= error.replacementCommitted === true;
+    if (!replaced) {
+      await appendAuditUnlocked(root, { ...audit, phase: "aborted", error: "configuration write failed" })
+        .catch(() => {});
+      throw error;
+    }
+    await appendAuditUnlocked(root, {
+      ...audit,
+      phase: "recovery-required",
+      error: "post-write verification failed",
+    }).catch(() => {});
+    throw taskChefError(
+      "STATE_RECOVERY_REQUIRED",
+      `configuration changed but transaction ${transactionId} needs reconciliation`,
+      { transactionId, backupId: backup.id },
+    );
+  }
+  try {
+    if (supersedePending) {
+      await supersedeAuditTransactionsUnlocked(root, transactionId);
+    }
+    await appendAuditUnlocked(root, { ...audit, phase: "committed" });
+  } catch (error) {
+    await appendAuditUnlocked(root, {
+      ...audit,
+      phase: "recovery-required",
+      error: "audit completion failed",
+    }).catch(() => {});
+    throw taskChefError(
+      "STATE_RECOVERY_REQUIRED",
+      `configuration changed but audit completion failed for transaction ${transactionId}: ${error.message}`,
+      { transactionId },
+    );
+  }
+  return { transactionId, backupId: backup.id, backupDeduplicated: backup.deduplicated };
+}
+
 export async function prepareDispatch(workspaceRoot, {
   taskId = randomUUID(),
   now = () => new Date().toISOString(),
@@ -709,22 +903,27 @@ export async function prepareDispatch(workspaceRoot, {
   };
 }
 
-export async function addProject(workspaceRoot, input) {
+export async function addProject(workspaceRoot, input, options = {}) {
   const root = await realpath(path.resolve(workspaceRoot));
   return withWorkspaceLock(root, async () => {
-    const config = await readConfig(root);
+    const config = await readConfig(root, { checkPaths: false });
     const project = await inspectProject(input);
     assertWorkspaceOutsideProject(root, project.path);
     const updated = await validateConfig({
       ...config,
       projects: [...config.projects, project],
+    }, { checkPaths: false });
+    const preview = mutationPreview(root, "project-add", config, updated);
+    if (options.dryRun) return { changed: true, project, ...preview };
+    const committed = await commitConfigMutation(root, "project-add", config, updated, preview, options);
+    Object.defineProperties(project, {
+      mutation: { value: { ...preview, ...committed }, enumerable: false },
     });
-    await writeJsonAtomic(path.join(root, "taskchef.json"), updated);
     return project;
   });
 }
 
-export async function importProjects(workspaceRoot, inputs, { replace = false } = {}) {
+export async function importProjects(workspaceRoot, inputs, { replace = false, dryRun = false, ...options } = {}) {
   if (!Array.isArray(inputs)) throw new Error("project import must be a JSON array");
   const root = await realpath(path.resolve(workspaceRoot));
   return withWorkspaceLock(root, async () => {
@@ -756,18 +955,36 @@ export async function importProjects(workspaceRoot, inputs, { replace = false } 
     const config = await validateConfig({
       ...current,
       projects,
-    });
-    await writeJsonAtomic(path.join(root, "taskchef.json"), config);
+    }, { checkPaths: false });
+    const preview = mutationPreview(root, replace ? "project-replace" : "project-import", current, config);
+    if (dryRun) {
+      return {
+        mode: replace ? "replace" : "merge",
+        importedCount: imported.length,
+        projectCount: config.projects.length,
+        projects: imported,
+        changed: preview.beforeConfigHash !== preview.afterConfigHash,
+        ...preview,
+      };
+    }
+    if (replace) requirePreviewAuthorization(preview, options, { replacement: true });
+    const changed = preview.beforeConfigHash !== preview.afterConfigHash;
+    const committed = changed
+      ? await commitConfigMutation(root, replace ? "project-replace" : "project-import", current, config, preview, options)
+      : { transactionId: null, backupId: null, backupDeduplicated: false };
     return {
       mode: replace ? "replace" : "merge",
       importedCount: imported.length,
       projectCount: config.projects.length,
       projects: imported,
+      changed,
+      ...preview,
+      ...committed,
     };
   });
 }
 
-export async function removeProject(workspaceRoot, name) {
+export async function removeProject(workspaceRoot, name, { dryRun = false, ...options } = {}) {
   const root = await realpath(path.resolve(workspaceRoot));
   return withWorkspaceLock(root, async () => {
     const config = await readConfig(root, { checkPaths: false });
@@ -777,12 +994,389 @@ export async function removeProject(workspaceRoot, name) {
     if (index === -1) throw new Error(`configured project not found: ${name}`);
     const [project] = config.projects.slice(index, index + 1);
     const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
-    await writeJsonAtomic(path.join(root, "taskchef.json"), {
+    const updated = await validateConfig({
       ...config,
       projects,
-    });
-    return { project };
+    }, { checkPaths: false });
+    const preview = mutationPreview(root, "project-remove", config, updated);
+    if (dryRun) return { project, changed: true, ...preview };
+    requirePreviewAuthorization(preview, options);
+    const committed = await commitConfigMutation(root, "project-remove", config, updated, preview, options);
+    return { project, changed: true, ...preview, ...committed };
   });
+}
+
+export async function updateProject(workspaceRoot, selector, input, {
+  dryRun = false,
+  ...options
+} = {}) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const current = await readConfig(root, { checkPaths: false });
+    const index = current.projects.findIndex((project) => (
+      selector.path
+        ? project.path === path.resolve(selector.path)
+        : project.name.toLowerCase() === requireString(selector.name, "project name").toLowerCase()
+    ));
+    if (index === -1) throw taskChefError("INVALID_INPUT", "configured project not found");
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw taskChefError("INVALID_INPUT", "project update fields must be an object");
+    }
+    const allowed = new Set(["name", "description", "clearDescription", "githubRepos", "refreshGit"]);
+    const unexpected = Object.keys(input).find((key) => !allowed.has(key));
+    if (unexpected) throw taskChefError("INVALID_INPUT", `unsupported project update field: ${unexpected}`);
+    if (Object.keys(input).length === 0) throw taskChefError("INVALID_INPUT", "project update requires a field");
+    if ("description" in input && input.clearDescription) {
+      throw taskChefError("INVALID_INPUT", "description and clearDescription cannot be combined");
+    }
+    const before = current.projects[index];
+    let project = { ...before };
+    if ("name" in input) project.name = requireString(input.name, "project name").trim();
+    if ("description" in input) project.description = requireString(input.description, "description").trim();
+    if (input.clearDescription) delete project.description;
+    if ("githubRepos" in input) {
+      project.githubRepos = normalizeGithubRepositories(input.githubRepos, "githubRepos");
+    }
+    if (input.refreshGit) {
+      const inspected = await inspectProject({ path: before.path });
+      project.isGitRepository = inspected.isGitRepository;
+    }
+    const projects = [...current.projects];
+    projects[index] = project;
+    const updated = await validateConfig({ ...current, projects }, { checkPaths: false });
+    const preview = mutationPreview(root, "project-update", current, updated);
+    const changed = preview.beforeConfigHash !== preview.afterConfigHash;
+    if (dryRun || !changed) return { project: updated.projects[index], changed, ...preview };
+    requirePreviewAuthorization(preview, options);
+    const committed = await commitConfigMutation(root, "project-update", current, updated, preview, options);
+    return { project: updated.projects[index], changed, ...preview, ...committed };
+  });
+}
+
+export async function createWorkspaceBackup(workspaceRoot, options = {}) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, () => createStateBackupUnlocked(root, options));
+}
+
+export async function listWorkspaceBackups(workspaceRoot) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return listBackups(root);
+}
+
+export async function verifyWorkspaceBackup(workspaceRoot, id) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return verifyBackup(root, id);
+}
+
+export async function pruneWorkspaceBackups(workspaceRoot, options = {}) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, () => pruneBackupsUnlocked(root, options));
+}
+
+export async function restoreWorkspaceBackup(workspaceRoot, id, {
+  dryRun = false,
+  scope = "projects",
+  approveRestore = false,
+  confirmOffline = false,
+  confirmUnreadableCurrent = false,
+  maintenanceTransaction = null,
+  writeStateFile = writeDurableAtomic,
+  ...options
+} = {}) {
+  if (!new Set(["projects", "config", "state"]).has(scope)) {
+    throw taskChefError("INVALID_INPUT", "restore scope must be projects, config, or state");
+  }
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    let maintenance = null;
+    if (maintenanceTransaction !== null) {
+      maintenance = JSON.parse(await readFile(path.join(root, ".taskchef-maintenance.json"), "utf8"));
+      if (maintenance.transactionId !== maintenanceTransaction) {
+        throw taskChefError("STATE_RECOVERY_REQUIRED", "maintenance transaction ID does not match");
+      }
+      if (!new Set([maintenance.backupId, maintenance.safetyBackupId]).has(id)) {
+        throw taskChefError("STATE_RECOVERY_REQUIRED", "recovery backup does not belong to the maintenance transaction");
+      }
+    }
+    const sourceVerification = await verifyBackup(root, id);
+    const maintenanceRollback = maintenance !== null
+      && id === maintenance.safetyBackupId
+      && sourceVerification.integrityValid;
+    if (!sourceVerification.usable && !maintenanceRollback) {
+      throw taskChefError("BACKUP_FAILED", sourceVerification.error);
+    }
+    let sourcePayloads = null;
+    if (scope === "state" || maintenanceRollback) {
+      sourcePayloads = (await readBackupPayloads(
+        root,
+        id,
+        ["taskchef.json", "tasks.jsonl", "AGENTS.md"],
+        { allowForensic: maintenanceRollback, allowMissing: maintenanceRollback },
+      )).payloads;
+      if (!maintenanceRollback) {
+        await parseTaskLogContent(root, sourcePayloads[DISPATCH_FILE_NAME].toString("utf8"), {
+          validateWorkspace: false,
+        });
+      }
+    }
+    let stored = null;
+    let storedError = null;
+    const storedConfigBytes = sourcePayloads !== null ? sourcePayloads["taskchef.json"] : (
+      sourceVerification.usable && sourceVerification.manifest.files["taskchef.json"].present
+        ? await readFile(path.join(sourceVerification.path, "taskchef.json"))
+        : null
+    );
+    if (storedConfigBytes !== null) {
+      try {
+        stored = await validateConfig(JSON.parse(storedConfigBytes.toString("utf8")), {
+          checkPaths: false,
+        });
+      } catch (error) {
+        storedError = error.message;
+      }
+    } else {
+      storedError = "backup configuration is absent";
+    }
+    if (!stored && !maintenanceRollback) {
+      throw taskChefError(
+        "BACKUP_FAILED",
+        `backup configuration cannot be restored: ${storedError}`,
+      );
+    }
+    let current = null;
+    let currentBytes = null;
+    let currentPresent = true;
+    let currentError = null;
+    try {
+      currentBytes = await readFile(path.join(root, "taskchef.json"));
+      current = await readConfig(root, { checkPaths: false });
+    } catch (error) {
+      currentError = error.message;
+      if (error.code === "ENOENT" || /configuration does not exist/.test(error.message)) {
+        currentPresent = false;
+        currentBytes = null;
+      }
+    }
+    if ((!current || !stored) && scope === "projects") {
+      throw taskChefError(
+        "INVALID_INPUT",
+        "projects-only restore requires readable current configuration; preview --scope config or state instead",
+      );
+    }
+    const updated = scope === "projects" ? { ...current, projects: stored.projects } : stored;
+    const beforeStateHash = current
+      ? configHash(current)
+      : currentPresent ? `unreadable:${sha256(currentBytes)}` : "missing";
+    const afterStateHash = updated
+      ? configHash(updated)
+      : storedConfigBytes === null ? "missing" : `unreadable:${sha256(storedConfigBytes)}`;
+    const preview = current && updated
+      ? mutationPreview(root, `backup-restore-${scope}`, current, updated)
+      : {
+        schemaVersion: 1,
+        operation: `backup-restore-${scope}`,
+        beforeCount: null,
+        afterCount: updated?.projects.length ?? null,
+        beforeConfigHash: beforeStateHash,
+        afterConfigHash: afterStateHash,
+        beforeProjectSetHash: current ? projectSetHash(current.projects) : null,
+        afterProjectSetHash: updated ? projectSetHash(updated.projects) : null,
+        beforeProjects: current?.projects ?? null,
+        afterProjects: updated?.projects ?? null,
+        diff: { added: [], changed: [], removed: [], unavailable: true },
+        currentError,
+        storedError,
+      };
+    let stateFiles = [];
+    if (scope === "state") {
+      const verified = sourceVerification;
+      for (const name of ["taskchef.json", "tasks.jsonl", "AGENTS.md"]) {
+        const liveBytes = await readFile(path.join(root, name)).catch((error) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        stateFiles.push({
+          name,
+          beforePresent: liveBytes !== null,
+          beforeHash: liveBytes === null ? null : sha256(liveBytes),
+          afterPresent: sourcePayloads[name] !== null,
+          afterHash: verified.manifest.files[name].sha256,
+          changed: (liveBytes === null) !== (sourcePayloads[name] === null)
+            || (liveBytes !== null && sha256(liveBytes) !== verified.manifest.files[name].sha256),
+        });
+      }
+    }
+    const restorePlan = {
+      ...preview,
+      planHash: semanticHash({
+        schemaVersion: 1,
+        workspace: root,
+        backupId: id,
+        scope,
+        beforeConfigHash: preview.beforeConfigHash,
+        afterConfigHash: preview.afterConfigHash,
+        beforeProjectSetHash: preview.beforeProjectSetHash,
+        afterProjectSetHash: preview.afterProjectSetHash,
+        diff: preview.diff,
+        stateFiles,
+      }, "taskchef-restore-plan-v1"),
+    };
+    if (dryRun) return {
+      dryRun: true,
+      backupId: id,
+      scope,
+      changed: restorePlan.beforeConfigHash !== restorePlan.afterConfigHash
+        || stateFiles.some((file) => file.changed),
+      stateFiles,
+      ...restorePlan,
+    };
+    if (!approveRestore) {
+      throw taskChefError("CONFIRMATION_REQUIRED", "restore requires explicit --approve-restore", {
+        preview: restorePlan,
+      });
+    }
+    if (!current || !updated) {
+      if (!confirmUnreadableCurrent
+          || options.expectedConfigHash !== restorePlan.beforeConfigHash
+          || options.confirmPlan !== restorePlan.planHash) {
+        throw taskChefError(
+          "CONFIRMATION_REQUIRED",
+          "raw-state recovery requires its exact current hash, restore plan, and --confirm-unreadable-current",
+          { preview: restorePlan },
+        );
+      }
+    } else {
+      requirePreviewAuthorization(restorePlan, options, { replacement: true });
+    }
+    if (scope === "state" && !confirmOffline) {
+      throw taskChefError(
+        "CONFIRMATION_REQUIRED",
+        "full state restore requires --confirm-offline after stopping the dashboard and TaskChef writers",
+        { preview: restorePlan, stateFiles },
+      );
+    }
+    await validateAuditUnlocked(root);
+    const safety = maintenance
+      ? await verifyBackup(root, maintenance.safetyBackupId)
+      : await createStateBackupUnlocked(root, { reason: "pre-restore", now: options.now });
+    if (!safety.usable && !safety.integrityValid) {
+      throw taskChefError("BACKUP_FAILED", "restore safety backup is unavailable", {
+        backupId: maintenance?.safetyBackupId ?? safety.id,
+      });
+    }
+    if (scope === "state") {
+      const transactionId = maintenanceTransaction ?? randomUUID();
+      const payloads = sourcePayloads;
+      const fencePath = path.join(root, ".taskchef-maintenance.json");
+      await writeDurableAtomic(fencePath, `${JSON.stringify({
+        schemaVersion: 1,
+        transactionId,
+        operation: "state-restore",
+        backupId: maintenance?.backupId ?? id,
+        recoveryBackupId: id,
+        safetyBackupId: safety.id,
+        stateFiles,
+      }, null, 2)}\n`);
+      await appendAuditUnlocked(root, {
+        schemaVersion: 1,
+        transactionId,
+        timestamp: new Date().toISOString(),
+        operation: "backup-restore-state",
+        phase: "prepared",
+        beforeHash: restorePlan.beforeConfigHash,
+        afterHash: restorePlan.afterConfigHash,
+        beforeCount: restorePlan.beforeCount,
+        afterCount: restorePlan.afterCount,
+        added: restorePlan.diff.added.map((project) => project.name),
+        changed: restorePlan.diff.changed.map((project) => project.after.name),
+        removed: restorePlan.diff.removed.map((project) => project.name),
+        backupId: id,
+      });
+      try {
+        for (const name of ["tasks.jsonl", "AGENTS.md", "taskchef.json"]) {
+          const filePath = path.join(root, name);
+          if (payloads[name] === null) await removeDurable(filePath);
+          else await writeStateFile(filePath, payloads[name]);
+        }
+        for (const file of stateFiles) {
+          const restoredBytes = await readFile(path.join(root, file.name)).catch((error) => {
+            if (error.code === "ENOENT") return null;
+            throw error;
+          });
+          if ((restoredBytes !== null) !== file.afterPresent
+              || (restoredBytes !== null && sha256(restoredBytes) !== file.afterHash)) {
+            throw new Error(`restored payload failed verification: ${file.name}`);
+          }
+        }
+        await removeDurable(path.join(root, ".taskchef-usage.json"));
+        await supersedeAuditTransactionsUnlocked(root, transactionId);
+        await appendAuditUnlocked(root, {
+          transactionId,
+          timestamp: new Date().toISOString(),
+          operation: "backup-restore-state",
+          phase: "committed",
+          beforeHash: restorePlan.beforeConfigHash,
+          afterHash: restorePlan.afterConfigHash,
+          beforeCount: restorePlan.beforeCount,
+          afterCount: restorePlan.afterCount,
+          added: restorePlan.diff.added.map((project) => project.name),
+          changed: restorePlan.diff.changed.map((project) => project.after.name),
+          removed: restorePlan.diff.removed.map((project) => project.name),
+          backupId: id,
+        });
+        await removeDurable(fencePath);
+      } catch (error) {
+        throw taskChefError(
+          "STATE_RECOVERY_REQUIRED",
+          `state restore ${transactionId} is incomplete: ${error.message}`,
+          { transactionId, safetyBackupId: safety.id },
+        );
+      }
+      return {
+        backupId: id,
+        safetyBackupId: safety.id,
+        scope,
+        changed: true,
+        stateFiles,
+        transactionId,
+        ...restorePlan,
+      };
+    }
+    const committed = await commitConfigMutation(
+      root,
+      `backup-restore-${scope}`,
+      current,
+      updated,
+      restorePlan,
+      {
+        ...options,
+        existingBackup: safety,
+        allowForensicBackup: !current,
+        skipReconcile: true,
+        supersedePending: true,
+      },
+    );
+    return {
+      ...restorePlan,
+      ...committed,
+      backupId: id,
+      safetyBackupId: safety.id,
+      scope,
+      changed: true,
+    };
+  }, { allowMaintenance: maintenanceTransaction !== null });
+}
+
+export async function readWorkspaceMaintenance(workspaceRoot) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  const filePath = path.join(root, ".taskchef-maintenance.json");
+  try {
+    const value = JSON.parse(await readFile(filePath, "utf8"));
+    return { active: true, ...value };
+  } catch (error) {
+    if (error.code === "ENOENT") return { active: false };
+    throw taskChefError("STATE_RECOVERY_REQUIRED", `maintenance state is unreadable: ${error.message}`);
+  }
 }
 
 async function validateDispatchShape(dispatch, name = "task") {
@@ -1330,8 +1924,8 @@ async function validateDispatchShape(dispatch, name = "task") {
   return normalized;
 }
 
-async function parseDispatchRecordsUnlocked(root, content) {
-  await readConfig(root, { checkPaths: false });
+async function parseDispatchRecordsUnlocked(root, content, { validateWorkspace = true } = {}) {
+  if (validateWorkspace) await readConfig(root, { checkPaths: false });
   if (content.length > 0 && !content.endsWith("\n")) {
     throw new Error(`${DISPATCH_FILE_NAME} must end with a newline`);
   }
@@ -1400,10 +1994,13 @@ export async function listTasks(workspaceRoot) {
   return readDispatchesUnlocked(root);
 }
 
-export async function parseTaskLogContent(workspaceRoot, content) {
+export async function parseTaskLogContent(workspaceRoot, content, {
+  validateWorkspace = true,
+} = {}) {
   const root = await realpath(path.resolve(workspaceRoot));
   if (typeof content !== "string") throw new Error("task log content must be a string");
-  return (await parseDispatchRecordsUnlocked(root, content)).map((record) => record.normalized);
+  return (await parseDispatchRecordsUnlocked(root, content, { validateWorkspace }))
+    .map((record) => record.normalized);
 }
 
 function currentSchemaTask(dispatch, patch = {}) {
@@ -1463,6 +2060,10 @@ export async function migrateTaskLog(workspaceRoot, {
         backupPath: null,
       };
     }
+    const stateBackup = await createStateBackupUnlocked(root, {
+      reason: `pre-task-log-migration-v${CURRENT_TASK_SCHEMA_VERSION}`,
+      now,
+    });
     const beforeTurnCount = records.reduce((count, record) => count + record.normalized.turns.length, 0);
     const migratedTasks = records.map((record) => currentSchemaTask(record.normalized));
     const lines = migratedTasks.map((task) => JSON.stringify(task));
@@ -1504,6 +2105,7 @@ export async function migrateTaskLog(workspaceRoot, {
       nativeTurnRefCount,
       fallbackTurnRefCount,
       backupPath,
+      stateBackupId: stateBackup.id,
     };
   });
 }

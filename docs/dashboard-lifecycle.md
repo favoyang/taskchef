@@ -67,6 +67,16 @@ elapsed time, not model compute time.
 
 ## Start and reuse
 
+An actual new dashboard server creates or deduplicates a verified private state
+snapshot before monitors or derived-state writers start. Reusing an existing
+listener does not create another startup snapshot. Snapshot failure aborts the
+new server start and does not weaken MCP reporting isolation.
+
+The dashboard watches both task history and the project index. It warns when
+historical task snapshots reference paths absent from the current index, and
+offers recovery-oriented read-only commands. It never mutates or restores
+configuration.
+
 Unless `dashboard.autostart` is explicitly `false`, MCP activation runs the
 same serialized ensure operation exposed by `ensure_dashboard` before the MCP
 transport connects. An explicit ensure remains available when autostart is

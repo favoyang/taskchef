@@ -106,6 +106,16 @@ export interface NotificationSnapshot {
 export interface DashboardSnapshot {
   healthy?: boolean;
   tasks: Task[];
+  projectIndex?: {
+    status: "available" | "unavailable";
+    projectCount: number | null;
+    missingProjects: Array<{
+      path: string;
+      snapshotNames: string[];
+      taskCount: number;
+    }>;
+    truncated?: boolean;
+  };
 }
 
 export interface ManualTransitionResponse {

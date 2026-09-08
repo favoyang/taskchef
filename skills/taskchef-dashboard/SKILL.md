@@ -16,5 +16,9 @@ Maintain only the canonical TaskChef dashboard.
    navigate to it. Browser absence, refusal, or blocked localhost navigation is
    non-fatal: still return the clickable URL and the ensure result.
 
+“Recover the dashboard” means restore server availability. Data recovery uses
+the explicit taskchef backup restore --dry-run workflow, shows a diff, requires
+user approval, and never runs automatically.
+
 Do not dispatch project work, read task briefs, inspect executor outcomes, poll,
 start a separate foreground CLI server, or modify TaskChef workspace files.

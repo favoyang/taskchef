@@ -14,6 +14,8 @@ is dated research, not contract.
 | **Dispatcher workspace** | The per-user local data project selected by `--workspace`, then `TASKCHEF_WORKSPACE`, then `~/.agents/taskchef`. |
 | **Dispatcher** | The Codex task that accepts a request, routes it, records it, creates executors, and returns without supervising them. |
 | **Configured project** | One routing target in `taskchef.json`, identified by canonical local path and described by `name`, optional `description`, `isGitRepository`, and `githubRepos`. |
+| **Mutation preview** | A read-only, hash-bound exact before/after project-index diff required before destructive replacement, removal, or restore. |
+| **State backup** | A private, verified snapshot under the dispatcher workspace's `backups/` directory. It never restores automatically. |
 | **Routing** | Selecting exactly one configured project and exactly one matching native Codex project for an outcome. |
 | **Delegated task** | One independently useful outcome represented by one TaskChef task UUID and snapshot. |
 | **Executor** | The native Codex task created to own and perform one delegated task. |
@@ -123,6 +125,32 @@ semantic `needs_input`, `completed`, and `failed` turn results and `lastResult`
 from the final derived semantic result. Interrupted outcomes MUST be excluded.
 These projections MUST NOT be persisted in schema 10 and remain compatibility
 aliases for existing callers.
+
+## Project-index mutation and recovery
+
+TaskChef MUST provide a targeted update that preserves every unrelated project
+and replaces an explicitly supplied repository list in full. Project list JSON
+MUST expose stable semantic hashes. Whole-index replacement, project removal,
+and restore MUST first return an exact diff and MUST reject stale hashes,
+incomplete removed-name confirmation, mismatched counts, and unconfirmed large
+count collapse. Agents MUST obtain explicit user permission for every removed
+project entry and verify the complete post-state.
+
+Every actual configuration mutation and actual dashboard-server start MUST
+create or deduplicate a mode-private, manifest-and-hash-verified state snapshot
+before writing. Mutations MUST append bounded attribution-free prepared and
+terminal audit records. Backup list, create, and verify are read-only except for
+explicit creation. Restore MUST default to projects only, show a diff, require
+explicit approval, and create a pre-restore safety snapshot. TaskChef MUST NOT
+restore automatically. State restore authorization MUST bind the selected
+backup and every selected live/source payload hash. Missing or malformed live
+configuration requires config or state scope plus exact raw-state and explicit
+unreadable-current confirmation; a forensic safety snapshot remains eligible
+for rollback when its own integrity verifies.
+
+The dashboard MUST distinguish an unreadable index from missing historical
+project paths, warn without rewriting state, and expose recovery guidance
+without backup payload contents.
 
 ## Optional usage projection
 
