@@ -63,7 +63,7 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
     }],
     usage: {
       status: "available",
-      turns: { "turn-one": { status: "available", totalTokens: 330, estimatedCostUsd: 0.12 } },
+      turns: { "turn-one": { status: "available", totalTokens: 1_324_567, estimatedCostUsd: 0.12 } },
     },
   });
   const { container } = render(
@@ -78,7 +78,7 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   expect(within(cells[1]).getByLabelText(/completed turn reported wall-clock elapsed time/i))
     .toHaveTextContent("18m 32s");
   expect(cells[1].querySelector(".tabler-icon-hourglass")).not.toBeNull();
-  expect(within(cells[2]).getByLabelText("330 tokens")).toHaveTextContent("330");
+  expect(within(cells[2]).getByLabelText("1,324,567 tokens")).toHaveTextContent("1.32M");
   expect(cells[2].querySelector(".tabler-icon-stack-2")).not.toBeNull();
   expect(within(cells[3]).getByLabelText("Estimated cost $0.12")).toHaveTextContent("0.12");
   expect(within(cells[3]).getByLabelText("Estimated cost $0.12")).not.toHaveTextContent("$");

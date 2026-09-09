@@ -200,7 +200,8 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
   if (view.kind === "ready") {
     const identity = turn.turnRef ?? turn.turnId;
     const usage = identity ? task.usage?.turns?.[identity] : null;
-    const tokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : NOT_AVAILABLE;
+    const fullTokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : NOT_AVAILABLE;
+    const compactTokens = typeof usage?.totalTokens === "number" ? formatCompactTokens(usage.totalTokens) : NOT_AVAILABLE;
     const estimatedCost = usage?.estimatedCostUsd;
     const hasCost = typeof estimatedCost === "number" && Number.isFinite(estimatedCost);
     const cost = hasCost ? formatEstimatedCostAmount(estimatedCost) : NOT_AVAILABLE;
@@ -214,7 +215,7 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
       kind: view.kind,
       note: null,
       title: view.label,
-      tokens: { accessibleLabel: `${tokens} tokens`, value: tokens },
+      tokens: { accessibleLabel: `${fullTokens} tokens`, value: compactTokens },
     };
   }
   const value = view.kind === "pending"
