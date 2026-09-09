@@ -271,9 +271,9 @@ describe("token and working presentation", () => {
     const groups = container.querySelectorAll(".taskchef-github-group");
     expect(groups).toHaveLength(2);
     expect(within(groups[0] as HTMLElement).getAllByRole("link").map((link) => link.textContent))
-      .toEqual(["taskchef #79", "#80", "#83"]);
-    expect(within(groups[1] as HTMLElement).getAllByRole("link").map((link) => link.textContent))
       .toEqual(["guzuoshou-workspace #108", "#109", "#124"]);
+    expect(within(groups[1] as HTMLElement).getAllByRole("link").map((link) => link.textContent))
+      .toEqual(["taskchef #79", "#80", "#83"]);
     const first = screen.getByRole("link", { name: /favoyang\/taskchef Issue #79/ });
     expect(first).toHaveAttribute("href", "https://github.com/favoyang/taskchef/issues/79");
     expect(first).toHaveAttribute("target", "_blank");

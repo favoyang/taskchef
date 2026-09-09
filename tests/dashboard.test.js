@@ -2639,7 +2639,10 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(bundledStyles, /taskchef-text-shimmer/);
   assert.match(bundledStyles, /prefers-reduced-motion/);
   assert.match(bundledStyles, /taskchef-card-metadata/);
-  assert.match(bundledStyles, /@media\(max-width:34em\)[\s\S]*\.taskchef-card-heading/);
+  assert.match(
+    bundledStyles,
+    /@container\s*\(max-width:\s*27\.5rem\)[\s\S]*\.taskchef-card-stats/,
+  );
   assert.match(bundledStyles, /@media\(prefers-reduced-motion:reduce\)[\s\S]*\.taskchef-shimmer[^}]*animation:none/);
   assert.doesNotMatch(bundledHtml, /https?:\/\//);
   assert.match(html, /aria-live="polite"/);

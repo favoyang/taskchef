@@ -237,36 +237,60 @@ export function usageStillCalculating(task: Task) {
       || Object.values(task.usage?.turns ?? {}).some((turn) => turn.status === "calculating"));
 }
 
-export type ListUsageView = {
+export type ListUsageMetric = {
   accessibleLabel: string;
-  kind: "pending" | "calculating" | "ready" | "unavailable";
-  label: string;
   title: string;
+  value: string;
 };
 
-export function listUsageView(task: Task): ListUsageView {
+export type ListUsageMetricsView = {
+  animated: boolean;
+  cost: ListUsageMetric;
+  kind: "pending" | "calculating" | "ready" | "unavailable";
+  tokens: ListUsageMetric;
+};
+
+export function listUsageMetricsView(task: Task): ListUsageMetricsView {
   const view = usageView(task);
   if (view.kind === "pending" || view.kind === "calculating") {
+    const value = view.kind === "pending" ? "Pending" : "Calculating";
     return {
-      accessibleLabel: view.label,
+      animated: true,
+      cost: {
+        accessibleLabel: `Estimated cost ${value.toLowerCase()}`,
+        title: view.label,
+        value,
+      },
       kind: view.kind,
-      label: view.label,
-      title: view.label,
+      tokens: {
+        accessibleLabel: `Tokens ${value.toLowerCase()}`,
+        title: view.label,
+        value,
+      },
     };
   }
   if (view.kind === "unavailable") {
+    const reason = view.label === "Token usage unavailable" ? "" : `: ${view.label}`;
     return {
-      accessibleLabel: `Token usage unavailable${view.label === "Token usage unavailable" ? "" : `: ${view.label}`}`,
+      animated: false,
+      cost: {
+        accessibleLabel: `Estimated cost unavailable${reason}`,
+        title: view.label,
+        value: "est. n/a",
+      },
       kind: "unavailable",
-      label: `${NOT_AVAILABLE} tokens`,
-      title: view.label,
+      tokens: {
+        accessibleLabel: `Token usage unavailable${reason}`,
+        title: view.label,
+        value: `${NOT_AVAILABLE} tokens`,
+      },
     };
   }
   const compactTokens = formatCompactTokens(view.usage.totalTokens);
   const fullTokens = formatFullTokens(view.usage.totalTokens);
-  const cost = view.usage.estimatedCostUsd == null
-    ? "cost n/a"
-    : `est. ${formatEstimatedCost(view.usage.estimatedCostUsd)}`;
+  const hasCost = typeof view.usage.estimatedCostUsd === "number"
+    && Number.isFinite(view.usage.estimatedCostUsd);
+  const formattedCost = hasCost ? formatEstimatedCost(view.usage.estimatedCostUsd) : null;
   const qualifier = view.knownSoFar ? " · Updating…" : "";
   const accessibleQualifier = view.knownSoFar ? "; updating" : "";
   const freshness = view.usage.sourceUpdatedAt ?? view.usage.sampledAt ?? task.usage?.updatedAt ?? null;
@@ -274,14 +298,20 @@ export function listUsageView(task: Task): ListUsageView {
     ? ` Cached usage updated ${new Date(freshness).toLocaleString()}.`
     : "";
   return {
-    accessibleLabel: `${fullTokens} tokens; ${view.usage.estimatedCostUsd == null
-      ? "estimated cost unavailable"
-      : `estimated cost ${formatEstimatedCost(view.usage.estimatedCostUsd)}`}${accessibleQualifier}.${freshnessLabel}`,
+    animated: false,
+    cost: {
+      accessibleLabel: `Estimated cost ${formattedCost ?? "unavailable"}${accessibleQualifier}.${freshnessLabel}`,
+      title: `${formattedCost === null
+        ? "Estimated cost unavailable"
+        : `Unrounded estimate: $${view.usage.estimatedCostUsd}`}${qualifier}.${freshnessLabel}`,
+      value: `${formattedCost === null ? "est. n/a" : `est. ${formattedCost}`}${qualifier}`,
+    },
     kind: "ready",
-    label: `${compactTokens} tokens · ${cost}${qualifier}`,
-    title: `${fullTokens} tokens · ${view.usage.estimatedCostUsd == null
-      ? "estimated cost unavailable"
-      : `unrounded estimate $${view.usage.estimatedCostUsd}`}${qualifier}.${freshnessLabel}`,
+    tokens: {
+      accessibleLabel: `${fullTokens} tokens${accessibleQualifier}.${freshnessLabel}`,
+      title: `${fullTokens} tokens${qualifier}.${freshnessLabel}`,
+      value: `${compactTokens} tokens${qualifier}`,
+    },
   };
 }
 

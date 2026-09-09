@@ -498,23 +498,23 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(relatedLinks.children[0].className, "github-links-group");
     assert.equal(relatedLinks.children[1].className, "github-links-group");
     const [
-      relatedLink,
-      repeatedRepositoryLink,
-      thirdRepositoryLink,
-    ] = relatedLinks.children[0].children;
-    const [
       secondRepositoryLink,
       secondRepositoryIssue,
       untypedReference,
       ...remainingSecondRepositoryLinks
+    ] = relatedLinks.children[0].children;
+    const [
+      relatedLink,
+      repeatedRepositoryLink,
+      thirdRepositoryLink,
     ] = relatedLinks.children[1].children;
     assert.deepEqual(
       relatedLinks.children[0].children.map(({ textContent }) => textContent),
-      ["marketlake #25", "#32", "#34"],
+      ["guzuoshou-workspace #108", "#109", "#112", "#114", "#115", "#118", "#124"],
     );
     assert.deepEqual(
       relatedLinks.children[1].children.map(({ textContent }) => textContent),
-      ["guzuoshou-workspace #108", "#109", "#112", "#114", "#115", "#118", "#124"],
+      ["marketlake #25", "#32", "#34"],
     );
     assert.match(
       thirdRepositoryLink.getAttribute("aria-label"),
@@ -574,8 +574,8 @@ test("dashboard renders a live notification with time and shared accessible desc
         group.children.map(({ textContent }) => textContent)
       )),
       [
-        ["marketlake #25", "#32", "#34"],
         ["guzuoshou-workspace #108", "#109", "#112", "#114", "#115", "#118", "#124"],
+        ["marketlake #25", "#32", "#34"],
       ],
     );
     assert.equal(elements.get("#dialog-project").children[0].textContent, "MarketLake");
