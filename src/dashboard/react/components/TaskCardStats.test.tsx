@@ -34,7 +34,8 @@ describe("task card stats", () => {
     expect(within(cells[0]).getByLabelText(/updated time/i)).toBeVisible();
     expect(within(cells[1]).getByLabelText(/reported work 18m 32s/i)).toBeVisible();
     expect(within(cells[2]).getByLabelText(/1,324,567 tokens/i)).toHaveTextContent("1.32M tokens");
-    expect(within(cells[3]).getByLabelText(/estimated cost \$12\.34/i)).toHaveTextContent("est. $12.34");
+    expect(within(cells[3]).getByLabelText(/estimated cost \$12\.34/i)).toHaveTextContent("12.34");
+    expect(within(cells[3]).getByLabelText(/estimated cost \$12\.34/i)).not.toHaveTextContent("$");
     expect(within(cells[2]).getByRole("status")).toHaveTextContent(/1,324,567 tokens.*estimated cost \$12\.34/i);
   });
 
@@ -44,7 +45,7 @@ describe("task card stats", () => {
       usage: { status: "available", task: { totalTokens: 1_324_567, estimatedCostUsd: null } },
     }));
     expect(screen.getByLabelText(/1,324,567 tokens/i)).toHaveTextContent("1.32M tokens");
-    expect(screen.getByLabelText(/estimated cost unavailable/i)).toHaveTextContent("est. n/a");
+    expect(screen.getByLabelText(/estimated cost unavailable/i)).toHaveTextContent("n/a");
   });
 
   test("shows metric details to keyboard users on focus", () => {
@@ -78,7 +79,7 @@ describe("task card stats", () => {
       usage: { status: "unavailable", reason: "No matching cached boundary." },
     })} /></MantineProvider>);
     expect(screen.getByLabelText(/token usage unavailable: no matching/i)).toHaveTextContent("n/a tokens");
-    expect(screen.getByLabelText(/estimated cost unavailable: no matching/i)).toHaveTextContent("est. n/a");
+    expect(screen.getByLabelText(/estimated cost unavailable: no matching/i)).toHaveTextContent("n/a");
   });
 
   test("retains known totals and marks both usage values as updating", () => {
@@ -92,7 +93,7 @@ describe("task card stats", () => {
       },
     }));
     expect(screen.getByLabelText(/1,324,567 tokens; updating/i)).toHaveTextContent("1.32M tokens · Updating…");
-    expect(screen.getByLabelText(/estimated cost \$12\.34; updating/i)).toHaveTextContent("est. $12.34 · Updating…");
+    expect(screen.getByLabelText(/estimated cost \$12\.34; updating/i)).toHaveTextContent("12.34 · Updating…");
   });
 
   test("places Open chat beneath the status badge and keeps callbacks working", () => {
