@@ -19,6 +19,7 @@ export function TaskCardStats({ task }: { task: Task }) {
         <RelativeTime
           icon={<IconHistory aria-hidden size={14} />}
           label={`Updated time for ${task.title}`}
+          tooltipLabel="Updated at"
           value={task.meaningfulUpdatedAt ?? task.updatedAt}
         />
       </StatCell>
@@ -26,7 +27,7 @@ export function TaskCardStats({ task }: { task: Task }) {
         <StaticStat
           accessibleLabel={reportedWork.accessibleLabel}
           icon={<IconHourglass aria-hidden size={14} />}
-          title={reportedWork.title}
+          title="Duration"
           value={reportedWork.value}
         />
       </StatCell>
@@ -35,7 +36,7 @@ export function TaskCardStats({ task }: { task: Task }) {
           accessibleLabel={usage.tokens.accessibleLabel}
           animated={usage.tokens.animated}
           icon={<IconStack2 aria-hidden size={14} />}
-          title={usage.tokens.title}
+          title="Tokens"
           value={usage.tokens.value}
         />
         <Text className="taskchef-visually-hidden" component="span" role="status">
@@ -47,7 +48,7 @@ export function TaskCardStats({ task }: { task: Task }) {
           accessibleLabel={usage.cost.accessibleLabel}
           animated={usage.cost.animated}
           icon={<IconCurrencyDollar aria-hidden size={14} />}
-          title={usage.cost.title}
+          title="Estimated cost"
           value={usage.cost.value}
         />
       </StatCell>

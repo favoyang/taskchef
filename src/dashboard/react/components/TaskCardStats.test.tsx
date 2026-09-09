@@ -48,7 +48,7 @@ describe("task card stats", () => {
     expect(screen.getByLabelText(/estimated cost unavailable/i)).toHaveTextContent("n/a");
   });
 
-  test("shows metric details to keyboard users on focus", () => {
+  test("shows the requested estimated-cost label to keyboard users", () => {
     vi.useFakeTimers();
     renderStats(fixtureTask({
       status: "completed",
@@ -57,7 +57,7 @@ describe("task card stats", () => {
     const cost = screen.getByLabelText(/estimated cost \$12\.34/i);
     fireEvent.focus(cost);
     vi.advanceTimersByTime(150);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Unrounded estimate: $12.3449");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Estimated cost");
     vi.useRealTimers();
   });
 

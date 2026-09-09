@@ -13,11 +13,6 @@ export function UsagePanel({ task }: { task: Task }) {
   const usage = usageView(task);
   const reportedWork = taskReportedWorkView(task);
   const ready = usage.kind === "ready" ? usage : null;
-  const cached = ready?.usage.cachedInputTokens ?? 0;
-  const input = ready?.usage.inputTokens ?? 0;
-  const cacheRatio = ready && input + cached > 0
-    ? `${Math.round((cached / (input + cached)) * 100)}%`
-    : "n/a";
   const models = Object.keys(ready?.usage.models ?? {}).join(", ");
   const stateValue = usage.kind === "pending"
     ? "Pending"
@@ -60,24 +55,16 @@ export function UsagePanel({ task }: { task: Task }) {
     },
     {
       accessibleValue: reportedWork.accessibleLabel,
-      label: "Reported work",
+      label: "Duration",
       title: reportedWork.title,
       value: reportedWork.value,
     },
-    ...(ready ? [
-      {
-        accessibleValue: models || "Model unavailable",
-        label: "Model",
-        title: models || "Model unavailable",
-        value: models || "n/a",
-      },
-      {
-        accessibleValue: cacheRatio === "n/a" ? "Cache ratio unavailable" : `Cache ratio ${cacheRatio}`,
-        label: "Cache ratio",
-        title: cacheRatio === "n/a" ? "Cache ratio unavailable because no input-token total is available." : undefined,
-        value: cacheRatio,
-      },
-    ] : []),
+    {
+      accessibleValue: models || "Models unavailable",
+      label: "Models",
+      title: models || "Models unavailable",
+      value: models || "n/a",
+    },
   ];
   return (
     <Box aria-live="polite">
