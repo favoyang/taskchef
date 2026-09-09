@@ -33,7 +33,7 @@ export function TaskCardStats({ task }: { task: Task }) {
       <StatCell usageState={usage.kind}>
         <StaticStat
           accessibleLabel={usage.tokens.accessibleLabel}
-          animated={usage.animated}
+          animated={usage.tokens.animated}
           icon={<IconStack2 aria-hidden size={14} />}
           title={usage.tokens.title}
           value={usage.tokens.value}
@@ -45,7 +45,7 @@ export function TaskCardStats({ task }: { task: Task }) {
       <StatCell usageState={usage.kind}>
         <StaticStat
           accessibleLabel={usage.cost.accessibleLabel}
-          animated={usage.animated}
+          animated={usage.cost.animated}
           icon={<IconCurrencyDollar aria-hidden size={14} />}
           title={usage.cost.title}
           value={usage.cost.value}
