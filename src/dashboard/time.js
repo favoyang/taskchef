@@ -28,12 +28,10 @@ export function formatExactTime(value, { locale, timeZone } = {}) {
 
 function hourPhrase(milliseconds, direction) {
   const hours = Math.floor(milliseconds / HOUR_MS);
-  const minutes = Math.floor((milliseconds % HOUR_MS) / MINUTE_MS);
   const hourText = hours === 1 ? "1 hour" : `${hours} hours`;
-  const detail = hours < 6 && minutes > 0 ? ` ${minutes} minutes` : "";
   return direction === "future"
-    ? `in ${hourText}${detail}`
-    : `${hourText}${detail} ago`;
+    ? `in ${hourText}`
+    : `${hourText} ago`;
 }
 
 export function formatRelativeTime(value, {
@@ -63,10 +61,11 @@ export function formatRelativeTime(value, {
       : Math.floor(elapsed / DAY_MS);
     return future ? `in ${days} days` : `${days} days ago`;
   }
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeZone,
-  }).format(parsed.date);
+  const months = future
+    ? Math.ceil(elapsed / (RELATIVE_DATE_LIMIT_DAYS * DAY_MS))
+    : Math.floor(elapsed / (RELATIVE_DATE_LIMIT_DAYS * DAY_MS));
+  const monthText = months === 1 ? "1 month" : `${months} months`;
+  return future ? `in ${monthText}` : `${monthText} ago`;
 }
 
 export function timestampPresentation(value, {
