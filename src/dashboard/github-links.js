@@ -78,7 +78,15 @@ export function groupRelatedGitHubLinks(links) {
     group.push(link);
     groups.set(repository, group);
   }
-  return [...groups.values()].map((group) => [...group].sort(compareReferenceNumbers));
+  const collisions = collidingRepositoryBasenames(links ?? []);
+  return [...groups.values()]
+    .map((group) => [...group].sort(compareReferenceNumbers))
+    .sort((left, right) => {
+      const leftLabel = visibleRepositoryLabel(left[0], collisions);
+      const rightLabel = visibleRepositoryLabel(right[0], collisions);
+      return leftLabel.localeCompare(rightLabel, undefined, { sensitivity: "base" })
+        || repositoryIdentity(left[0]).localeCompare(repositoryIdentity(right[0]));
+    });
 }
 
 export function githubReferenceAccessibleLabel(link) {

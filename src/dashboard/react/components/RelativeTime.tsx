@@ -9,19 +9,37 @@ export function RelativeTimeProvider({ children, now }: { children: ReactNode; n
   return <RelativeTimeClock value={now}>{children}</RelativeTimeClock>;
 }
 
-export function RelativeTime({ label, value }: { label: string; value: string | null | undefined }) {
+export function RelativeTime({
+  icon,
+  label,
+  value,
+}: {
+  icon?: ReactNode;
+  label: string;
+  value: string | null | undefined;
+}) {
   const [exact, setExact] = useState(false);
   useContext(RelativeTimeClock);
   const text = exact ? formatExactTime(value) : formatRelativeTime(value);
+  const exactText = formatExactTime(value);
+  const unavailable = exactText === "—";
+  const tooltip = exactText === "—"
+    ? "Updated time unavailable"
+    : exact
+      ? "Show relative time"
+      : `Exact time: ${exactText}. Show exact time`;
   return (
-    <Tooltip label={exact ? "Show relative time" : "Show exact time"}>
+    <Tooltip label={tooltip}>
       <UnstyledButton
-        aria-label={`${label}: ${text}. ${exact ? "Show relative time" : "Show exact time"}`}
+        aria-label={unavailable
+          ? `${label}: unavailable.`
+          : `${label}: ${text}. ${exact ? "Show relative time" : "Show exact time"}`}
         className="taskchef-time"
+        disabled={unavailable}
         onClick={() => setExact((value) => !value)}
       >
-        <IconClock aria-hidden size={12} />
-        <span className="taskchef-time-label">{text}</span>
+        {icon ?? <IconClock aria-hidden size={12} />}
+        <bdi className="taskchef-time-label">{text}</bdi>
       </UnstyledButton>
     </Tooltip>
   );

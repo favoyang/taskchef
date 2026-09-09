@@ -58,7 +58,7 @@ test("formats related links by consecutive repository group without visible type
   ]);
 });
 
-test("groups interleaved related links by first repository appearance and numeric reference order", () => {
+test("groups interleaved related links by repository label and numeric reference order", () => {
   const projected = [
     ["acme", "marketlake", "34", "pull"],
     ["acme", "guzuoshou-workspace", "124", "issue"],
@@ -79,24 +79,45 @@ test("groups interleaved related links by first repository appearance and numeri
 
   const groups = groupRelatedGitHubLinks(projected);
   assert.deepEqual(groups.map((group) => group.map(({ label }) => label)), [
-    ["acme/marketlake#25", "acme/marketlake#32", "acme/marketlake#34"],
     [
       "acme/guzuoshou-workspace#108",
       "acme/guzuoshou-workspace#109",
       "acme/guzuoshou-workspace#124",
     ],
+    ["acme/marketlake#25", "acme/marketlake#32", "acme/marketlake#34"],
   ]);
   assert.deepEqual(githubReferenceDisplayLabels(groups.flat(), { related: true }), [
-    "marketlake #25", "#32", "#34",
     "guzuoshou-workspace #108", "#109", "#124",
+    "marketlake #25", "#32", "#34",
   ]);
   assert.deepEqual(groups.flat().map(({ type, url }) => ({ type, url })), [
-    { type: "issue", url: "https://github.com/acme/marketlake/issues/25" },
-    { type: "issue", url: "https://github.com/acme/marketlake/issues/32" },
-    { type: "pull", url: "https://github.com/acme/marketlake/pull/34" },
     { type: "issue", url: "https://github.com/acme/guzuoshou-workspace/issues/108" },
     { type: "pull", url: "https://github.com/acme/guzuoshou-workspace/pull/109" },
     { type: "issue", url: "https://github.com/acme/guzuoshou-workspace/issues/124" },
+    { type: "issue", url: "https://github.com/acme/marketlake/issues/25" },
+    { type: "issue", url: "https://github.com/acme/marketlake/issues/32" },
+    { type: "pull", url: "https://github.com/acme/marketlake/pull/34" },
+  ]);
+});
+
+test("sorts repository rows case-insensitively by their displayed labels", () => {
+  const projected = [
+    ["zeta", "Beta", "1"],
+    ["beta", "alpha", "2"],
+    ["Alpha", "ALPHA", "3"],
+  ].map(([owner, repository, number]) => ({
+    label: `${owner}/${repository}#${number}`,
+    number,
+    owner,
+    repository,
+    type: "issue",
+    url: `https://github.com/${owner}/${repository}/issues/${number}`,
+  }));
+  const groups = groupRelatedGitHubLinks(projected);
+  assert.deepEqual(groups.map((group) => group[0].label), [
+    "Alpha/ALPHA#3",
+    "zeta/Beta#1",
+    "beta/alpha#2",
   ]);
 });
 

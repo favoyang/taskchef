@@ -4805,6 +4805,7 @@ test("backup verification surfaces corruption and retention bounds usable snapsh
   assert.match(verification.error, /failed verification/);
   assert.equal((await listWorkspaceBackups(workspace)).corruptCount, 1);
 
+  const retentionStart = Date.parse(corrupt.manifest.createdAt) + 86_400_000;
   for (let index = 0; index < 35; index += 1) {
     await writeFile(
       path.join(workspace, "AGENTS.md"),
@@ -4812,7 +4813,7 @@ test("backup verification surfaces corruption and retention bounds usable snapsh
     );
     await createWorkspaceBackup(workspace, {
       reason: "retention-test",
-      now: () => `2026-09-09T00:00:${String(index).padStart(2, "0")}.000Z`,
+      now: () => new Date(retentionStart + index * 1_000).toISOString(),
     });
   }
   const retained = await listWorkspaceBackups(workspace);
