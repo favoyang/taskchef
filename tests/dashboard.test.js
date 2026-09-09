@@ -2640,7 +2640,7 @@ test("dashboard assets remain part of the shipped source tree", async () => {
   assert.match(bundledStyles, /taskchef-card-metadata/);
   assert.match(
     bundledStyles,
-    /@container\s*\(max-width:\s*27\.5rem\)[\s\S]*\.taskchef-card-stats/,
+    /@container\s*\(max-width:\s*27\.5rem\)[\s\S]*\.taskchef-stats/,
   );
   assert.match(bundledStyles, /@media\(prefers-reduced-motion:reduce\)[\s\S]*\.taskchef-shimmer[^}]*animation:none/);
   assert.doesNotMatch(bundledHtml, /https?:\/\//);

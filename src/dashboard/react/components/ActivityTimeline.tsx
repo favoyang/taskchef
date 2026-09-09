@@ -1,4 +1,10 @@
 import { Box, Paper, Stack, Text } from "@mantine/core";
+import {
+  IconCurrencyDollar,
+  IconHistory,
+  IconHourglass,
+  IconStack2,
+} from "@tabler/icons-react";
 import { mergeProjectedTurns, turnPresentation } from "../../state.js";
 import { turnReportedWorkView, turnUsageMetricsView } from "../presentation";
 import type { Task, TaskTurn } from "../types";
@@ -6,6 +12,7 @@ import { useEffect, useState } from "react";
 import { RelativeTime } from "./RelativeTime";
 import { LinkedText } from "./LinkedText";
 import { ShimmerText } from "./ShimmerText";
+import { StatCell, StaticStat, StatsGrid } from "./StatsGrid";
 import { StatusBadge } from "./StatusBadge";
 
 export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef: string | null; task: Task }) {
@@ -29,13 +36,7 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
             withBorder
           >
             <Stack gap={7}>
-              <Box className="taskchef-turn-heading">
-                <StatusBadge status={presentation.status} />
-                <Box className="taskchef-turn-timing">
-                  <RelativeTime label="Turn update time" value={presentation.updatedAt} />
-                  <TurnReportedWork turn={turn} />
-                </Box>
-              </Box>
+              <StatusBadge status={presentation.status} />
               {presentation.sourceLabel && <Text c="dimmed" size="xs">{presentation.sourceLabel}</Text>}
               <Box>
                 <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
@@ -51,22 +52,36 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                     : <LinkedText task={task} text={presentation.summary} />}
                 </Text>
               </Box>
-              <Box className="taskchef-turn-metrics">
-                <TurnMetric
-                  accessibleLabel={usage.tokens.accessibleLabel}
-                  animated={usage.animated}
-                  label="Tokens"
-                  title={usage.title}
-                  value={usage.tokens.value}
-                />
-                <TurnMetric
-                  accessibleLabel={usage.cost.accessibleLabel}
-                  animated={usage.animated}
-                  label="Estimated cost"
-                  title={usage.title}
-                  value={usage.cost.value}
-                />
-              </Box>
+              <StatsGrid variant="turn">
+                <StatCell>
+                  <RelativeTime
+                    icon={<IconHistory aria-hidden size={14} />}
+                    label="Turn update time"
+                    value={presentation.updatedAt}
+                  />
+                </StatCell>
+                <StatCell>
+                  <TurnReportedWork turn={turn} />
+                </StatCell>
+                <StatCell usageState={usage.kind}>
+                  <StaticStat
+                    accessibleLabel={usage.tokens.accessibleLabel}
+                    animated={usage.animated}
+                    icon={<IconStack2 aria-hidden size={14} />}
+                    title={usage.title}
+                    value={usage.tokens.value}
+                  />
+                </StatCell>
+                <StatCell usageState={usage.kind}>
+                  <StaticStat
+                    accessibleLabel={usage.cost.accessibleLabel}
+                    animated={usage.animated}
+                    icon={<IconCurrencyDollar aria-hidden size={14} />}
+                    title={usage.title}
+                    value={usage.cost.value}
+                  />
+                </StatCell>
+              </StatsGrid>
               {usage.note && <Text c="dimmed" size="xs">{usage.note}</Text>}
               <Text c="dimmed" className="taskchef-mono" size="xs">Turn ref: {identity ?? "—"}</Text>
             </Stack>
@@ -81,39 +96,12 @@ function TurnReportedWork({ turn }: { turn: TaskTurn }) {
   const now = useLiveNow(turn.result === null);
   const elapsed = turnReportedWorkView(turn, now);
   return (
-    <Text
-      aria-label={elapsed.accessibleLabel}
-      c="dimmed"
-      className="taskchef-turn-duration"
-      size="xs"
+    <StaticStat
+      accessibleLabel={elapsed.accessibleLabel}
+      icon={<IconHourglass aria-hidden size={14} />}
       title={elapsed.title}
-    >
-      <span className="taskchef-field-label">{elapsed.label}</span>
-      <span>{elapsed.value}</span>
-    </Text>
-  );
-}
-
-function TurnMetric({
-  accessibleLabel,
-  animated = false,
-  label,
-  title,
-  value,
-}: {
-  accessibleLabel?: string;
-  animated?: boolean;
-  label: string;
-  title?: string;
-  value: string;
-}) {
-  return (
-    <Box className="taskchef-turn-metric" title={title}>
-      <Text c="dimmed" className="taskchef-field-label" size="xs">{label}</Text>
-      <Text aria-label={accessibleLabel} c="dimmed" size="xs">
-        {animated ? <ShimmerText>{value}</ShimmerText> : value}
-      </Text>
-    </Box>
+      value={elapsed.value}
+    />
   );
 }
 

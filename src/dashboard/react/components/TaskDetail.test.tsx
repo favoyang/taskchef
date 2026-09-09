@@ -69,16 +69,20 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   const { container } = render(
     <MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>,
   );
-  const metrics = container.querySelector(".taskchef-turn-metrics") as HTMLElement;
-  const timing = container.querySelector(".taskchef-turn-timing") as HTMLElement;
-  expect(metrics).not.toBeNull();
-  expect(timing).not.toBeNull();
-  expect(within(metrics).getByText("Tokens").nextSibling).toHaveTextContent("330");
-  expect(within(metrics).getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
-  expect(within(metrics).queryByText("Elapsed")).not.toBeInTheDocument();
-  expect(within(timing).getByLabelText(/^Turn update time:/i)).toBeVisible();
-  expect(within(timing).getByLabelText(/completed turn reported wall-clock elapsed time/i))
-    .toHaveTextContent("Elapsed18m 32s");
+  const stats = container.querySelector(".taskchef-turn-stats") as HTMLElement;
+  expect(stats).not.toBeNull();
+  const cells = [...stats.children] as HTMLElement[];
+  expect(cells).toHaveLength(4);
+  expect(within(cells[0]).getByLabelText(/^Turn update time:/i)).toBeVisible();
+  expect(cells[0].querySelector(".tabler-icon-history")).not.toBeNull();
+  expect(within(cells[1]).getByLabelText(/completed turn reported wall-clock elapsed time/i))
+    .toHaveTextContent("18m 32s");
+  expect(cells[1].querySelector(".tabler-icon-hourglass")).not.toBeNull();
+  expect(within(cells[2]).getByLabelText("330 tokens")).toHaveTextContent("330");
+  expect(cells[2].querySelector(".tabler-icon-stack-2")).not.toBeNull();
+  expect(within(cells[3]).getByLabelText("Estimated cost $0.12")).toHaveTextContent("0.12");
+  expect(within(cells[3]).getByLabelText("Estimated cost $0.12")).not.toHaveTextContent("$");
+  expect(cells[3].querySelector(".tabler-icon-currency-dollar")).not.toBeNull();
   cleanup();
   }
 
@@ -94,9 +98,9 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   const task = fixtureTask();
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
   expect(screen.getByLabelText(/current turn reported wall-clock elapsed time/i))
-    .toHaveTextContent("Elapsed so far18m 32s");
-  expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("Pending");
-  expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("Pending");
+    .toHaveTextContent("18m 32s");
+  expect(screen.getByLabelText("Tokens pending")).toHaveTextContent("Pending");
+  expect(screen.getByLabelText("Estimated cost pending")).toHaveTextContent("Pending");
 
   act(() => {
     now += 2_000;
@@ -104,7 +108,7 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   });
 
   expect(screen.getByLabelText(/current turn reported wall-clock elapsed time/i))
-    .toHaveTextContent("Elapsed so far18m 34s");
+    .toHaveTextContent("18m 34s");
   cleanup();
   vi.restoreAllMocks();
   }
@@ -133,7 +137,7 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   });
   render(<MantineProvider><ActivityTimeline highlightTurnRef={null} task={task} /></MantineProvider>);
   expect(screen.getByLabelText(/elapsed unavailable.*reported wall-clock/i))
-    .toHaveTextContent("Elapsedn/a");
+    .toHaveTextContent("n/a");
   expect(screen.getByText("Manual dashboard turns do not have usage boundaries.")).toBeVisible();
   expect(screen.getByLabelText(/tokens unavailable: manual dashboard turns/i)).toBeVisible();
   }

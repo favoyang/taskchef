@@ -127,6 +127,13 @@ export function formatEstimatedCost(value: number | null | undefined, locales?: 
   }).format(value);
 }
 
+function formatEstimatedCostAmount(value: number, locales?: Intl.LocalesArgument) {
+  return new Intl.NumberFormat(locales, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
 export type UsageView =
   | { kind: "pending"; label: "Token usage pending" }
   | { kind: "calculating"; label: "Calculating token usage" }
@@ -194,13 +201,14 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
     const identity = turn.turnRef ?? turn.turnId;
     const usage = identity ? task.usage?.turns?.[identity] : null;
     const tokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : NOT_AVAILABLE;
-    const cost = usage?.estimatedCostUsd == null
-      ? NOT_AVAILABLE
-      : formatEstimatedCost(usage.estimatedCostUsd);
+    const estimatedCost = usage?.estimatedCostUsd;
+    const hasCost = typeof estimatedCost === "number" && Number.isFinite(estimatedCost);
+    const cost = hasCost ? formatEstimatedCostAmount(estimatedCost) : NOT_AVAILABLE;
+    const accessibleCost = hasCost ? formatEstimatedCost(estimatedCost).toLowerCase() : "unavailable";
     return {
       animated: false,
       cost: {
-        accessibleLabel: `Estimated cost ${usage?.estimatedCostUsd == null ? "unavailable" : cost.toLowerCase()}`,
+        accessibleLabel: `Estimated cost ${accessibleCost}`,
         value: cost,
       },
       kind: view.kind,
@@ -276,7 +284,7 @@ export function listUsageMetricsView(task: Task): ListUsageMetricsView {
       cost: {
         accessibleLabel: `Estimated cost unavailable${reason}`,
         title: view.label,
-        value: "est. n/a",
+        value: NOT_AVAILABLE,
       },
       kind: "unavailable",
       tokens: {
@@ -288,9 +296,10 @@ export function listUsageMetricsView(task: Task): ListUsageMetricsView {
   }
   const compactTokens = formatCompactTokens(view.usage.totalTokens);
   const fullTokens = formatFullTokens(view.usage.totalTokens);
-  const hasCost = typeof view.usage.estimatedCostUsd === "number"
-    && Number.isFinite(view.usage.estimatedCostUsd);
-  const formattedCost = hasCost ? formatEstimatedCost(view.usage.estimatedCostUsd) : null;
+  const estimatedCost = view.usage.estimatedCostUsd;
+  const hasCost = typeof estimatedCost === "number" && Number.isFinite(estimatedCost);
+  const formattedCost = hasCost ? formatEstimatedCost(estimatedCost) : null;
+  const formattedCostAmount = hasCost ? formatEstimatedCostAmount(estimatedCost) : null;
   const qualifier = view.knownSoFar ? " · Updating…" : "";
   const accessibleQualifier = view.knownSoFar ? "; updating" : "";
   const freshness = view.usage.sourceUpdatedAt ?? view.usage.sampledAt ?? task.usage?.updatedAt ?? null;
@@ -304,7 +313,7 @@ export function listUsageMetricsView(task: Task): ListUsageMetricsView {
       title: `${formattedCost === null
         ? "Estimated cost unavailable"
         : `Unrounded estimate: $${view.usage.estimatedCostUsd}`}${qualifier}.${freshnessLabel}`,
-      value: `${formattedCost === null ? "est. n/a" : `est. ${formattedCost}`}${qualifier}`,
+      value: `${formattedCostAmount ?? NOT_AVAILABLE}${qualifier}`,
     },
     kind: "ready",
     tokens: {
