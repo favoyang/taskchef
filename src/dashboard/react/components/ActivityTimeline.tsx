@@ -59,6 +59,7 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                   <RelativeTime
                     icon={<IconHistory aria-hidden size={14} />}
                     label="Turn update time"
+                    tooltipLabel="Updated at"
                     value={presentation.updatedAt}
                   />
                 </StatCell>
@@ -70,7 +71,7 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                     accessibleLabel={usage.tokens.accessibleLabel}
                     animated={usage.animated}
                     icon={<IconStack2 aria-hidden size={14} />}
-                    title={usage.title}
+                    title="Tokens"
                     value={usage.tokens.value}
                   />
                 </StatCell>
@@ -79,7 +80,7 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                     accessibleLabel={usage.cost.accessibleLabel}
                     animated={usage.animated}
                     icon={<IconCurrencyDollar aria-hidden size={14} />}
-                    title={usage.title}
+                    title="Estimated cost"
                     value={usage.cost.value}
                   />
                 </StatCell>
@@ -100,7 +101,7 @@ function TurnReportedWork({ turn }: { turn: TaskTurn }) {
     <StaticStat
       accessibleLabel={elapsed.accessibleLabel}
       icon={<IconHourglass aria-hidden size={14} />}
-      title={elapsed.title}
+      title="Duration"
       value={elapsed.value}
     />
   );

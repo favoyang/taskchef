@@ -154,10 +154,11 @@ describe("token and working presentation", () => {
 
     expect(screen.getByText("Tokens").nextSibling).toHaveTextContent("330");
     expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("$0.12");
-    expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("18m 32s");
+    expect(screen.getByText("Duration").nextSibling).toHaveTextContent("18m 32s");
     expect(screen.getByLabelText(/reported work 18m 32s.*wall-clock/i)).toBeVisible();
-    expect(screen.getByText("Model").nextSibling).toHaveTextContent("gpt-5.6-sol, gpt-5.6-luna");
-    expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("67%");
+    expect(screen.getByText("Models").nextSibling).toHaveTextContent("gpt-5.6-sol, gpt-5.6-luna");
+    expect(screen.queryByText("Cache ratio")).not.toBeInTheDocument();
+    expect(screen.getByText("Tokens").closest(".taskchef-metrics")?.children).toHaveLength(4);
     expect(screen.queryByText(/API-equivalent/i)).not.toBeInTheDocument();
   });
 
@@ -176,10 +177,38 @@ describe("token and working presentation", () => {
 
     expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent("n/a");
     expect(screen.getByLabelText("Estimated cost unavailable")).toBeVisible();
-    expect(screen.getByText("Model").nextSibling).toHaveTextContent("n/a");
-    expect(screen.getByLabelText("Model unavailable")).toBeVisible();
-    expect(screen.getByText("Cache ratio").nextSibling).toHaveTextContent("n/a");
-    expect(screen.getByLabelText("Cache ratio unavailable")).toBeVisible();
+    expect(screen.getByText("Models").nextSibling).toHaveTextContent("n/a");
+    expect(screen.getByLabelText("Models unavailable")).toBeVisible();
+    expect(screen.queryByText("Cache ratio")).not.toBeInTheDocument();
+  });
+
+  test("shimmers known usage values during a running turn without changing card titles", () => {
+    const { container, rerender } = render(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          usage: {
+            status: "available",
+            task: { totalTokens: 330, estimatedCostUsd: 0.12 },
+          },
+        })} />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText("Tokens")).toBeVisible();
+    expect(screen.queryByText(/known so far/i)).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(2);
+
+    rerender(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          usage: {
+            status: "available",
+            task: { totalTokens: 330, estimatedCostUsd: null },
+          },
+        })} />
+      </MantineProvider>,
+    );
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(1);
   });
 
   test("keeps reported work visible across pending, calculating, and unavailable usage", () => {
@@ -200,7 +229,9 @@ describe("token and working presentation", () => {
       expect(screen.getByText("Tokens").nextSibling).toHaveTextContent(expected);
       expect(screen.getByText("Estimated cost").nextSibling).toHaveTextContent(expected);
       expect(screen.getByLabelText(accessibleCost)).toBeVisible();
-      expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("n/a");
+      expect(screen.getByText("Duration").nextSibling).toHaveTextContent("n/a");
+      expect(screen.getByText("Models").nextSibling).toHaveTextContent("n/a");
+      expect(screen.getByText("Tokens").closest(".taskchef-metrics")?.children).toHaveLength(4);
       cleanup();
     }
   });
@@ -458,7 +489,7 @@ describe("reported wall-clock work presentation", () => {
       reportedWork: { terminalTurns: 1, validTurns: 1, totalMilliseconds: 1_112_000 },
     })).toMatchObject({ kind: "available", value: "18m 32s" });
     render(<MantineProvider><UsagePanel task={compactTerminal} /></MantineProvider>);
-    expect(screen.getByText("Reported work").nextSibling).toHaveTextContent("n/a");
+    expect(screen.getByText("Duration").nextSibling).toHaveTextContent("n/a");
     cleanup();
     }
 
