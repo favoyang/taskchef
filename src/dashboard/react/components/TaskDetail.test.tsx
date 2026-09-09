@@ -71,6 +71,9 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   );
   const stats = container.querySelector(".taskchef-turn-stats") as HTMLElement;
   expect(stats).not.toBeNull();
+  expect(container.querySelector(".taskchef-turn-heading .taskchef-status-badge"))
+    .toHaveTextContent("completed");
+  expect(screen.queryByText(/^Turn ref:/)).not.toBeInTheDocument();
   const cells = [...stats.children] as HTMLElement[];
   expect(cells).toHaveLength(4);
   expect(within(cells[0]).getByLabelText(/^Turn update time:/i)).toBeVisible();
