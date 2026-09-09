@@ -91,6 +91,14 @@ export function UsagePanel({ task }: { task: Task }) {
       {usage.kind === "unavailable" && usage.label !== "Token usage unavailable" && (
         <Text c="dimmed" mt="xs" size="xs">{usage.label}</Text>
       )}
+      {task.usage?.coverage && (
+        <Text c="dimmed" mt="xs" size="xs">
+          Coverage: parent only (partial). {task.usage.coverage.reason}
+          {task.usage.coverage.missingMembers > 0
+            ? ` ${task.usage.coverage.missingMembers} descendant phase${task.usage.coverage.missingMembers === 1 ? "" : "s"} not included.`
+            : ""}
+        </Text>
+      )}
     </Box>
   );
 }

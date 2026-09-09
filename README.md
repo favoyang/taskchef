@@ -60,7 +60,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 ```text
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 Codex project index, dashboard preference, and delegation metadata
-tasks.jsonl     one task snapshot per line (schema 10; schema 4-9 migration supported)
+tasks.jsonl     one task snapshot per line (schema 11; schema 4-10 migration supported)
 .taskchef-usage.json   optional mode-0600 ccusage snapshot and turn-boundary cache
 .taskchef-dashboard-owner.json   optional mode-0600 current dashboard identity and control credential; retained and atomically replaced
 .taskchef-dashboard-handoff.json   optional mode-0600 secret-free signed final lease snapshot; retained and atomically overwritten
@@ -179,13 +179,14 @@ Use $taskchef-executor to execute and report this delegated TaskChef assignment.
 
 ### Model roles
 
-TaskChef can apply personal Planner, Implementer, and Reviewer model preferences
-from `~/.codex/agents/`. Planning-only tasks use Planner, while coding tasks and
-single tasks that plan and then execute use Implementer throughout. To apply
-both models, finish a Planner task that saves its plan, then create a separate
-Implementer task using that plan. Reviewer preferences apply when a workflow
-explicitly starts a review subagent. Explicit per-task model choices take
-precedence, and changes affect only tasks created afterward.
+TaskChef can apply personal Orchestrator, Planner, Implementer, and Reviewer
+model preferences from `~/.codex/agents/`. Every new delegated task is a stable
+visible Orchestrator parent. The parent resolves child roles immediately before
+each fresh planning, implementation, or review phase, so later preference
+changes affect later phases without rewriting recorded history. Explicit
+role-scoped choices take precedence. An unqualified explicit model choice keeps
+its historical meaning for the visible parent unless the request clearly makes
+it task-wide.
 
 ## Work with and report executors
 
@@ -212,6 +213,18 @@ report, the next newer `working` report atomically marks the unfinished turn
 timeline evidence, not semantic `failed`, and it never enters `results` or
 `lastResult`. TaskChef stores only a fixed interruption summary; it does not
 store transcripts, hidden reasoning, crash output, or other non-semantic events.
+
+New delegations negotiate execution contract version 1 and run in
+`orchestrated` mode. The visible parent classifies each turn as investigate,
+plan-and-implement, implement, or continue-plan, records the accepted scope and
+an optional immutable plan reference, and coordinates fresh role subagents.
+Each plan, implementation, review, verification, or delivery attempt is a
+revision-fenced phase with a stable event ID, resolved role snapshot, optional
+child-thread binding, result, and artifact references. Only one phase may be
+active at a time; review is always read-only; writer generations are exclusive;
+and completion is rejected until the classified intent's required phases are
+complete. Existing tasks stay in `legacy` mode unless a user explicitly adopts
+the orchestration contract on a later, newly started turn.
 
 Delegated tasks created by earlier TaskChef versions remain compatible: their
 inline executor protocol still parses, self-links, and may use the deprecated
@@ -370,6 +383,9 @@ cost unavailable rather than a misleading `$0.00`. Per-turn cost is also
 unavailable when its cumulative boundaries used different ccusage versions or
 pricing modes. TaskChef displays the cumulative estimate supplied by ccusage
 without applying a separate model-family or cache-write coverage policy.
+For orchestrated tasks these values currently cover only the visible parent.
+TaskChef labels that coverage partial and counts every started descendant phase
+as missing rather than inferring or double-counting child usage.
 The same detail view reports lifecycle wall-clock elapsed time independently of
 ccusage. Each terminal turn shows **Elapsed** from `startedAt` to
 `result.updatedAt`; **Total reported work** sums only valid terminal-turn
@@ -433,9 +449,9 @@ taskchef doctor
 
 `doctor` is read-only. `workspace init` creates missing files and refreshes
 managed instructions. `workspace migrate` explicitly upgrades supported schema
-4-9 task lines to schema 10 under the workspace lock. It validates task and turn
+4-10 task lines to schema 11 under the workspace lock. It validates task and turn
 counts plus the complete source and converted log before writing, creates an
-exclusive `tasks.jsonl.pre-v10-*.bak`
+exclusive `tasks.jsonl.pre-v11-*.bak`
 backup, atomically replaces the log, validates the result, and becomes an
 idempotent no-op after migration. If replacement fails, the original remains
 or the reported backup can be restored; unsupported or invalid input is rejected
@@ -446,7 +462,7 @@ executor so its first action can retry `link_task`. Do not guess an identity
 or edit `tasks.jsonl`. If native task creation failed, the record is retained
 as `failed` with a retained fallback `turnRef` and null thread and Codex turn IDs.
 
-Schemas other than 4, 5, 6, 7, 8, 9, and 10 remain unsupported. Retain such a workspace
+Schemas other than 4, 5, 6, 7, 8, 9, 10, and 11 remain unsupported. Retain such a workspace
 unchanged and create a current workspace; the migration command deliberately
 does not guess how to convert unknown formats.
 

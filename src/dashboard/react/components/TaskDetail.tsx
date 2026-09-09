@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Alert,
+  Badge,
   Box,
   Button,
   Divider,
@@ -8,6 +9,7 @@ import {
   Group,
   Menu,
   Modal,
+  Paper,
   ScrollArea,
   Stack,
   Text,
@@ -77,7 +79,7 @@ export function TaskDetail({
     if (confirmStatus && (!task || !manualTransitionTargets(task).includes(confirmStatus))) {
       setConfirmStatus(null);
     }
-  }, [confirmStatus, task?.status]);
+  }, [confirmStatus, task]);
 
   if (!task) return null;
   const transitionTargets = manualTransitionTargets(task);
@@ -135,6 +137,8 @@ export function TaskDetail({
         <UsagePanel task={task} />
       </section>
       <Divider />
+      <ExecutionPanel task={task} />
+      <Divider />
       <section aria-labelledby="activity-heading">
         <Title id="activity-heading" mb="sm" order={3} size="h5">Activity timeline</Title>
         <ActivityTimeline highlightTurnRef={highlightTurnRef} task={task} />
@@ -153,6 +157,8 @@ export function TaskDetail({
           <dt>Created</dt><dd><RelativeTime label="Created time" value={task.createdAt} /></dd>
           <dt>Updated</dt><dd><RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /></dd>
           <dt>Updated by</dt><dd>{task.updatedBy ?? "—"}</dd>
+          <dt>Execution mode</dt><dd>{task.executionMode ?? "legacy"}</dd>
+          <dt>Execution revision</dt><dd>{task.executionRevision ?? 0}</dd>
         </dl>
       </section>
     </Stack>
@@ -196,7 +202,10 @@ export function TaskDetail({
   );
 }
 
-function manualTransitionTargets(task: Task): TerminalStatus[] {
+export function manualTransitionTargets(task: Task): TerminalStatus[] {
+  if (task.latestTurn?.phases?.some((phase) => ["reserved", "running"].includes(phase.state))) {
+    return [];
+  }
   return task.status === "completed"
     ? ["failed"]
     : task.status === "failed"
@@ -204,6 +213,67 @@ function manualTransitionTargets(task: Task): TerminalStatus[] {
       : task.status === "working" || task.status === "needs_input"
         ? ["completed", "failed"]
         : [];
+}
+
+function readable(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+export function ExecutionPanel({ task }: { task: Task }) {
+  const turn = task.latestTurn;
+  const phases = turn?.phases ?? [];
+  const current = phases.find((phase) => ["reserved", "running"].includes(phase.state)) ?? null;
+  return (
+    <section aria-labelledby="execution-heading">
+      <Group align="center" justify="space-between" mb="xs">
+        <Title id="execution-heading" order={3} size="h5">Execution</Title>
+        <Badge color={task.executionMode === "orchestrated" ? "teal" : "gray"}>
+          {task.executionMode ?? "legacy"}
+        </Badge>
+      </Group>
+      {task.executionMode !== "orchestrated" ? (
+        <Text c="dimmed" size="sm">Legacy single-executor task. No role phase telemetry is available.</Text>
+      ) : (
+        <Stack gap="sm">
+          <Box>
+            <Text size="sm"><strong>Intent:</strong> {turn?.intent ? readable(turn.intent) : "Not classified"}</Text>
+            <Text size="sm"><strong>Accepted scope:</strong> {turn?.acceptedScope ?? "Not recorded"}</Text>
+            {turn?.planRef && (
+              <Text size="sm" style={{ overflowWrap: "anywhere" }}>
+                <strong>Plan:</strong> {turn.planRef.repository} · {turn.planRef.path} @ {turn.planRef.revision}
+              </Text>
+            )}
+            <Text c="dimmed" size="xs">
+              {current ? `Current phase: ${current.kind} attempt ${current.attempt}` : "No active phase"}
+            </Text>
+          </Box>
+          {phases.length === 0 ? (
+            <Text c="dimmed" size="sm">No phases reported yet.</Text>
+          ) : phases.map((phase) => {
+            const preference = [phase.resolution.model, phase.resolution.effort].filter(Boolean).join(" · ") || "native fallback";
+            const effective = [phase.resolution.effectiveModel, phase.resolution.effectiveEffort].filter(Boolean).join(" · ") || "not reported";
+            return (
+              <Paper key={phase.phaseId} p="sm" radius="md" withBorder>
+                <Group align="flex-start" justify="space-between" wrap="nowrap">
+                  <Box>
+                    <Text fw={650} size="sm">{readable(phase.kind)} · attempt {phase.attempt}</Text>
+                    <Text c="dimmed" size="xs">{phase.role} · preference {preference} · runtime effective {effective}</Text>
+                  </Box>
+                  <Badge color={phase.state === "completed" ? "teal" : phase.state === "failed" ? "red" : phase.state === "awaiting_input" ? "yellow" : "blue"}>
+                    {readable(phase.state)}
+                  </Badge>
+                </Group>
+                {phase.result && <Text mt="xs" size="sm">{phase.result.summary}</Text>}
+                {phase.threadBinding && (
+                  <Text c="dimmed" mt="xs" size="xs">Child identity: {phase.threadBinding.threadId} ({readable(phase.threadBinding.provenance)})</Text>
+                )}
+              </Paper>
+            );
+          })}
+        </Stack>
+      )}
+    </section>
+  );
 }
 
 export function ManualTransitionConfirmation({

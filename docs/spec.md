@@ -19,6 +19,8 @@ is dated research, not contract.
 | **Routing** | Selecting exactly one configured project and exactly one matching native Codex project for an outcome. |
 | **Delegated task** | One independently useful outcome represented by one TaskChef task UUID and snapshot. |
 | **Executor** | The native Codex task created to own and perform one delegated task. |
+| **Orchestrator parent** | The stable visible executor that owns lifecycle, authority, phase sequencing, writer safety, handoff acceptance, review gates, and delivery verification while fresh role subagents perform substantive phases. |
+| **Execution phase** | One revision-fenced plan, implementation, review, verification, or delivery attempt recorded through reserve, start, optional identity bind, and finish events. |
 | **Task record** | One complete JSON object in `tasks.jsonl`; it contains immutable intent/project fields and mutable identity/result fields. |
 | **Marker** | The exact correlation line `<!-- taskchef_id=<lowercase full UUID> -->`; new instructions place it on the final line, immediately after the executor-skill invocation. |
 | **Record-before-create** | Persisting a link-pending task before asking Codex to create its executor. |
@@ -48,7 +50,7 @@ is dated research, not contract.
 - `taskchef-dashboard` MUST own manual dashboard ensure and recovery. It MUST
   NOT dispatch work or inspect task outcomes, and browser navigation failure
   MUST NOT suppress the returned dashboard URL.
-- The MCP server MUST expose `ensure_dashboard`, four primary lifecycle tools,
+- The MCP server MUST expose `ensure_dashboard`, six primary lifecycle tools,
   and the deprecated `report_result` compatibility alias specified below.
 - The CLI MAY administer and inspect the workspace, but MUST NOT provide a
   second agent lifecycle protocol.
@@ -91,8 +93,8 @@ is backward-compatible and means `true`; new workspaces SHOULD write
 disable the explicit `ensure_dashboard` tool.
 
 `tasks.jsonl` MUST contain zero or more newline-terminated schema-4 through
-schema-10 records, one per line. Schemas 4 through 9 are supported
-migration/read formats; every new record and state mutation MUST write schema 10. Other schemas
+schema-11 records, one per line. Schemas 4 through 10 are supported
+migration/read formats; every new record and state mutation MUST write schema 11. Other schemas
 or unsupported fields MUST be rejected without conversion.
 Reads and writes MUST reject symlinked managed files. Mutations
 MUST hold the shared workspace lock and replace state atomically; read-only
@@ -104,7 +106,7 @@ Every record MUST contain exactly these fields:
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Integer `10`; schema-4/5/6/7/8/9 records remain readable until explicit migration or their next mutation. |
+| `schemaVersion` | Integer `11`; schema-4/5/6/7/8/9/10 records remain readable until explicit migration or their next mutation. |
 | `id` | Unique safe TaskChef ID; delegation uses a lowercase full UUID. |
 | `project` | Immutable configured-project snapshot. |
 | `title` | Non-empty display title. |
@@ -117,14 +119,60 @@ Every record MUST contain exactly these fields:
 | `turnId` | Optional Codex metadata. When non-null it equals `turnRef`; null indicates fallback identity. |
 | `updatedAt` | ISO 8601 timestamp not earlier than `createdAt` or the prior `updatedAt`; clock rollback cannot backdate a transition. |
 | `updatedBy` | `dispatcher`, `mcp`, or `dashboard`. `dashboard` is valid only when the latest turn is a manual dashboard transition. |
-| `turns` | Ordered oldest-first array of `{turnRef, turnId, requestSummary, startedAt, result, provenance}`. Every `turnRef` is required. `requestSummary` is null only for migrated/compatibility turns. `result` is null only for the latest working turn, a semantic `{status, summary, updatedAt}` result, or the fixed TaskChef `interrupted` outcome. `provenance` is `{kind: legacy}` or `{kind: mcp}` for ordinary turns, or the audited manual-transition record defined below. New self-linking and manual turn refs are unique. A migrated low-level opaque record may retain one final reused native-derived ref for its legacy ambiguity. |
+| `turns` | Ordered oldest-first array of `{turnRef, turnId, requestSummary, startedAt, result, provenance, intent, acceptedScope, planRef, phases}`. Every `turnRef` is required. `requestSummary` is null only for migrated/compatibility turns. `result` is null only for the latest working turn, a semantic `{status, summary, updatedAt}` result, or the fixed TaskChef `interrupted` outcome. `provenance` is `{kind: legacy}` or `{kind: mcp}` for ordinary turns, or the audited manual-transition record defined below. Orchestrated turns pair a non-null classified `intent` with `acceptedScope`, may carry an immutable `planRef`, and own their ordered phase ledger; legacy turns use null orchestration metadata and no phases. New self-linking and manual turn refs are unique. A migrated low-level opaque record may retain one final reused native-derived ref for its legacy ambiguity. |
+| `executionMode` | `legacy` or `orchestrated`. New negotiated delegations use `orchestrated`; migrated and non-negotiated records remain `legacy`. |
+| `executionRevision` | Non-negative optimistic revision. Every non-idempotent phase event increments it exactly once. |
+| `parentResolution` | Null for legacy mode; required immutable resolution snapshot for orchestrated mode. |
 
 Returned Task objects MUST additionally expose `latestTurn` as null for an empty
 timeline or the final `turns` entry. They MUST derive `results` only from
 semantic `needs_input`, `completed`, and `failed` turn results and `lastResult`
 from the final derived semantic result. Interrupted outcomes MUST be excluded.
-These projections MUST NOT be persisted in schema 10 and remain compatibility
+These projections MUST NOT be persisted in schema 11 and remain compatibility
 aliases for existing callers.
+
+## Orchestrated execution contract
+
+New dispatch preparation MUST advertise execution contract version 1,
+orchestrated execution, phase reporting, and `parent_only` descendant-usage
+coverage. It MUST resolve only the visible `orchestrator` role. Recording an
+orchestrated task MUST echo that exact contract version and parent-resolution
+snapshot; otherwise the record MUST remain legacy. Existing records MUST NOT be
+bulk-adopted or silently relabelled. Explicit adoption is allowed only when a
+new working turn starts on a legacy task and MUST record fresh parent-resolution
+evidence without rewriting earlier turns.
+
+An orchestrated working report MUST classify the turn as `investigate`,
+`plan_and_implement`, `implement`, or `continue_plan`, include a bounded
+`acceptedScope`, and MAY include a repository-relative `planRef` containing the
+repository, path, revision, and content hash. The parent MUST resolve the
+planner, implementer, or reviewer role immediately before its corresponding
+fresh phase. Review phases MUST use a read-only reviewer. Only one phase may be
+active across the task, only one writer generation may own edits at a time,
+and every review pass and writer generation MUST be unique.
+
+Each phase event MUST target the current working parent and turn, include the
+expected `executionRevision`, and use one stable idempotency event UUID. The
+event sequence is reserve, start, optional bind, finish. Reserve captures phase
+kind, attempt, role, exact resolution snapshot, writer status, and optional
+review-pass identity before the native spawn. Start records the opaque native
+agent handle. Bind is optional and MUST use only explicit native or child-
+asserted durable identity evidence; handles and titles are not thread IDs.
+Finish records a terminal phase state, summary, and bounded artifact references
+only after native terminal state is established. An exact event retry is
+idempotent; revision mismatch, conflicting event reuse, concurrent active
+phases, duplicate identities, and invalid transitions MUST fail atomically.
+
+`completed` is valid only after all phases are terminal and the current intent
+has completed its minimum gates: investigate requires plan; plan-and-implement
+requires plan, implement, and review; implement and continue-plan require
+implement and review. The latest attempt of every required non-review phase
+MUST be completed. For implementation intents, the final review after the
+latest writer MUST be completed, so later edits or a superseding unsuccessful
+review invalidate an earlier clean pass. `needs_input` or `failed` MUST interrupt any active phase
+in the same state mutation. A newer lifecycle turn MUST likewise interrupt an
+unfinished phase and the previous unfinished turn. Manual dashboard transitions
+MUST reject a task while an orchestrated phase is active.
 
 ## Project-index mutation and recovery
 
@@ -172,11 +220,11 @@ store a cumulative usage boundary, and MUST NOT receive a token or cost delta.
 A later executor turn MUST use the nearest preceding reliable executor
 boundary, skipping any intervening dashboard-manual turns.
 
-The mode-0600 `.taskchef-usage.json` schema 2 cache stores only normalized cumulative
+The mode-0600 `.taskchef-usage.json` schema 3 cache stores only normalized cumulative
 token boundaries, per-turn deltas, model names, estimated cost, source version,
-and freshness. It is independent of task-log schema versions so legacy logs remain
-readable. Schema 1 usage caches MUST migrate in memory by discarding their
-TaskChef-specific cost-coverage classification while preserving valid ccusage
+freshness, and explicit execution coverage. It is independent of task-log schema
+versions so legacy logs remain readable. Schema 1 and 2 usage caches MUST migrate
+in memory as historical parent-only projections while preserving valid ccusage
 cumulative estimates. Writes MUST use the workspace lock and atomic replacement. Symlinked
 or unsupported cache files MUST be rejected. Writes MUST compact the derived
 cache to recent task projections, recent per-turn results, and the latest
@@ -221,6 +269,11 @@ modes. When ccusage supplies a valid cumulative estimate, TaskChef MUST display
 it without applying its own model-family or cache-write coverage policy. A model
 family change between otherwise compatible boundaries MUST NOT prevent TaskChef
 from deriving the per-turn estimate.
+Legacy execution coverage is complete parent-only coverage. Orchestrated
+coverage MUST be labeled partial and parent-only, with every started descendant
+phase counted as missing. TaskChef MUST NOT infer descendant membership from
+native hierarchy or add child totals until the platform exposes trustworthy,
+exclusive descendant accounting.
 The dashboard Settings response MUST report the provider version returned by
 the executable resolved for runtime use, not merely copy the dependency pin.
 
@@ -466,19 +519,28 @@ The complete operational rationale and limits are documented in
 
 ```text
 { preparation: {
-  schemaVersion: 1,
+  schemaVersion: 2,
   workspace: string,
   taskId: string,
   preparedAt: string,
   marker: string,
   projectCount: number,
+  capabilities: {
+    executionContractVersion: 1,
+    orchestratedExecution: true,
+    phaseReporting: true,
+    descendantUsage: "parent_only"
+  },
+  parentRole: object,
+  parentResolution: ExecutionResolution,
   projects: Project[]
 } }
 ```
 
-The tool generates a fresh task UUID and exact marker and returns current
-routing targets. An invocation is not idempotent: each successful call creates
-new preparation values, though it writes no state.
+The tool generates a fresh task UUID and exact marker, resolves only the current
+orchestrator role, and returns current routing targets plus execution
+capabilities. An invocation is not idempotent: each successful call creates new
+preparation values, though it writes no state.
 
 **Annotations:** `readOnlyHint: true`, `destructiveHint: false`,
 `openWorldHint: false`.
@@ -496,16 +558,45 @@ new preparation values, though it writes no state.
 | `title` | Non-empty string. |
 | `instruction` | Non-empty string containing exactly one accepted marker and a non-empty assignment. New instructions use the required trailing marker and executor-invocation scaffold; historical first-line forms remain accepted. |
 | `threadId` | Literal null. |
+| `executionMode` | Optional `legacy` or `orchestrated`; new negotiated delegation uses `orchestrated`. |
+| `executionContractVersion` | Required integer `1` exactly when orchestration is selected. |
+| `parentResolution` | Required preparation-time resolution snapshot exactly when orchestration is selected. |
 
 **Structured output:** `{ task: Task }`.
 
-The returned task has schema 10, `working`, null summary/turn/thread/latestTurn/lastResult,
+The returned task has schema 11, `working`, null summary/turn/thread/latestTurn/lastResult,
 empty `turns` and derived `results` arrays,
 `updatedBy: dispatcher`, and equal creation/update timestamps. Duplicate IDs,
 unknown projects, malformed markers, and invalid input fail. Repeating a
 successful call is not idempotent; it fails as a duplicate.
 
 **Annotations:** `readOnlyHint: false`, `destructiveHint: false`,
+`openWorldHint: false`.
+
+### `resolve_execution_role`
+
+**Caller:** dispatcher for the visible parent, or orchestrator immediately
+before a fresh child phase. **Mutation:** none.
+
+**Input:** one `role` from `orchestrator`, `planner`, `implementer`, or
+`reviewer`, plus optional explicit model and effort choices. A caller MAY set
+`nativeAvailabilityConfirmed` only after the current create/spawn interface
+itself proves that a cache-flagged model and effort are supported.
+
+**Structured output:** `{ role: RoleResolution & {resolution} }`. `resolution`
+is the immutable execution snapshot for persistence, including the explicit
+requested values and resolution timestamp. It is null when resolution is not
+usable.
+
+Resolution applies the selected role's current personal configuration and the
+explicit overrides. Missing configuration is an explicit result, not permission
+to claim a configured role. Cached availability is advisory; the native create
+or spawn API remains authoritative. Confirmation upgrades only cached
+`unavailable` status, never malformed, duplicate, or structurally invalid role
+configuration. Every orchestrated phase MUST persist the exact resolution
+snapshot used for that spawn.
+
+**Annotations:** `readOnlyHint: true`, `destructiveHint: false`,
 `openWorldHint: false`.
 
 ### `link_task`
@@ -542,6 +633,10 @@ marker, or ineligible state fails.
 | `status` | `working`, `needs_input`, `completed`, or `failed`. |
 | `summary` | Omitted or null for `working`; required non-empty string of at most 2,000 characters otherwise. Known GitHub issues and pull requests use canonical URLs. |
 | `requestSummary` | Concise current request of at most 1,000 characters for `working`; optional for backward compatibility and omitted for semantic states. A known selected GitHub repository uses its canonical URL. |
+| `intent` | Required classified intent for an orchestrated `working` report; absent for legacy and semantic reports. |
+| `acceptedScope` | Required bounded authority/scope summary with orchestrated `intent`. |
+| `planRef` | Optional immutable repository-relative plan reference for an orchestrated working turn. |
+| `executionContractVersion`, `parentResolution` | Accepted only together to explicitly adopt contract version 1 when starting a new turn on a legacy task. |
 
 **Structured output:** `{ task: Task }`.
 
@@ -581,14 +676,39 @@ updated. A platform rejection of an authorized report MUST be described using
 only the returned rationale, without inferring causes or retrying around an
 explicit denial. Authorization and unit tests do not guarantee platform approval.
 
+### `report_phase`
+
+**Caller:** self-linked orchestrator parent. **Mutation:** atomically appends or
+updates one current-turn phase event.
+
+Every input contains `taskId`, `parentThreadId`, `turnRef`, unique `eventId`,
+`expectedRevision`, `operation`, and `phaseId`. `reserve` additionally contains
+kind, attempt, role, resolution, writer status, and optional `reviewPassId`;
+`start` contains the opaque `agentHandle`; `bind` contains the durable child
+`threadId` and `native` or `child_asserted` provenance; `finish` contains a
+terminal state, bounded summary, and artifact references.
+
+**Structured output:** `{ event: { task, phase, eventId, executionRevision,
+idempotent } }`.
+
+The tool enforces the orchestrated execution contract, optimistic revision,
+event idempotency, phase ordering, identity uniqueness, and writer/reviewer
+invariants described above. It MUST NOT infer a child identity. Reporting a
+phase also triggers the same best-effort local usage observation as state
+reporting.
+
+**Annotations:** `readOnlyHint: false`, `destructiveHint: true`,
+`openWorldHint: false`.
+
 ### `report_result` (deprecated)
 
 `report_result` retains the prior semantic-only input shape and statuses as a
 temporary compatibility alias. It implicitly accepts a fresh supplied turn and
 stores its semantic result in a request-unknown turn, including for supported schema-4/5/6 records and
 low-level opaque direct records. It does not accept `working`. New executor
-instructions MUST use `report_state`. Successful mutation upgrades schema 4-9
-to schema 10; unsupported schemas remain rejected. Legacy callers that omit
+instructions MUST use `report_state`. Successful mutation upgrades schema 4-10
+to schema 11; unsupported schemas remain rejected. It MUST reject a linked
+orchestrated record so the alias cannot bypass phase completion gates. Legacy callers that omit
 `turnRef` remain compatible when `turnId` is non-null.
 
 ## Copilot and dashboard
@@ -721,15 +841,15 @@ its displayed summary when present, event time, and missing-task state.
 
 ## Task-log migration
 
-`workspace migrate` MUST explicitly convert every supported schema-4/5/6/7/8/9 record
+`workspace migrate` MUST explicitly convert every supported schema-4/5/6/7/8/9/10 record
 under the shared lock. Each legacy semantic result becomes a request-unknown
 completed turn; a newer working state becomes a final unfinished turn, and a
 schema-7/8 timeline is preserved. Each non-null legacy `turnId` becomes the
 same `turnRef`; each null legacy `turnId` receives one durably persisted UUID.
 Migration MUST validate the complete source, record/turn counts, turn-ref
-invariants, and complete schema-10 candidate before changing the task log,
+invariants, and complete schema-11 candidate before changing the task log,
 create and read back an exclusive recovery backup, atomically replace the log,
-and validate the installed result. A fully schema-10 log MUST be an idempotent
+and validate the installed result. A fully schema-11 log MUST be an idempotent
 no-op without another backup. Invalid/unsupported input MUST remain untouched;
 failures after backup creation MUST report the backup path and MUST never
 partially rewrite individual lines.

@@ -4,7 +4,13 @@ import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "../fixtures";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { ManualTransitionConfirmation, type TerminalStatus } from "./TaskDetail";
+import {
+  ExecutionPanel,
+  ManualTransitionConfirmation,
+  TaskDetail,
+  manualTransitionTargets,
+  type TerminalStatus,
+} from "./TaskDetail";
 
 afterEach(() => {
   cleanup();
@@ -145,6 +151,107 @@ test("covers terminal, active, and unavailable timeline metrics", () => {
   expect(screen.getByLabelText(/tokens unavailable: manual dashboard turns/i)).toBeVisible();
   }
 });
+
+test("renders orchestrated scope, plan, phase identity, and partial usage coverage", () => {
+  const task = orchestratedFixture();
+  render(
+    <MantineProvider>
+      <ExecutionPanel task={task} />
+    </MantineProvider>,
+  );
+  const execution = screen.getByRole("region", { name: "Execution" });
+  expect(screen.getByRole("heading", { name: "Execution" })).toBeVisible();
+  expect(screen.getByText("orchestrated")).toBeVisible();
+  expect(execution).toHaveTextContent("Intent: implement");
+  expect(execution).toHaveTextContent("Accepted scope: Update the focused dashboard surface only.");
+  expect(execution).toHaveTextContent("plans/stable-orchestrator.md @ abc123");
+  expect(execution).toHaveTextContent("Current phase: implement attempt 1");
+  expect(execution).toHaveTextContent("child asserted");
+});
+
+test("hides manual outcomes while an orchestrated phase is active", () => {
+  const task = orchestratedFixture();
+  expect(manualTransitionTargets(task)).toEqual([]);
+  render(
+    <MantineProvider>
+      <TaskDetail
+        busy={false}
+        error={null}
+        highlightTurnRef={null}
+        notice={null}
+        onClose={vi.fn()}
+        onCopy={vi.fn()}
+        onOpenCodex={vi.fn()}
+        onTransition={vi.fn()}
+        opened
+        task={task}
+      />
+    </MantineProvider>,
+  );
+  expect(screen.getByRole("button", { name: "More task actions" })).toBeVisible();
+  expect(screen.queryByText("Mark completed")).not.toBeInTheDocument();
+  expect(screen.queryByText("Mark failed")).not.toBeInTheDocument();
+});
+
+function orchestratedFixture() {
+  const task = fixtureTask({
+    executionMode: "orchestrated",
+    executionRevision: 3,
+    usage: {
+      status: "available",
+      task: { totalTokens: 1200, estimatedCostUsd: 0.03 },
+      coverage: {
+        status: "partial",
+        scope: "parent_only",
+        includedMembers: 1,
+        missingMembers: 1,
+        reason: "Exclusive child totals are unavailable.",
+      },
+    },
+  });
+  task.latestTurn = {
+    ...task.latestTurn!,
+    intent: "implement",
+    acceptedScope: "Update the focused dashboard surface only.",
+    planRef: {
+      repository: "https://github.com/example/taskchef",
+      path: "plans/stable-orchestrator.md",
+      revision: "abc123",
+      contentHash: "deadbeef",
+    },
+    phases: [{
+      phaseId: "implement-1",
+      kind: "implement",
+      attempt: 1,
+      role: "implementer",
+      resolution: {
+        requestedModel: null,
+        requestedEffort: null,
+        source: "~/.codex/agents/implementer.toml",
+        status: "configured",
+        resolvedAt: task.updatedAt,
+        model: "gpt-5.6-sol",
+        effort: "high",
+        effectiveModel: null,
+        effectiveEffort: null,
+      },
+      agentHandle: "opaque-handle",
+      threadBinding: {
+        threadId: "018f2a01-0000-7000-8000-000000000004",
+        provenance: "child_asserted",
+      },
+      writer: true,
+      writerGeneration: 1,
+      state: "running",
+      startedAt: task.updatedAt,
+      endedAt: null,
+      result: null,
+      reviewPassId: null,
+    }],
+  };
+  task.turns = [task.latestTurn];
+  return task;
+}
 
 function ConfirmationHarness({ onTransition }: { onTransition: (status: TerminalStatus, actionId: string) => Promise<{ ok: boolean; rotateActionId?: boolean }> }) {
   const [opened, setOpened] = useState(true);

@@ -13,6 +13,21 @@ const TERMINAL_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const MAX_TRACKED_TURNS = 250;
 const ADMINISTRATIVE_USAGE_REASON = "Administrative action; no Codex usage boundary.";
 
+function usageCoverage(task) {
+  const phases = (task.turns ?? []).flatMap((turn) => turn.phases ?? []);
+  return {
+    status: "partial",
+    scope: "parent_only",
+    includedMembers: 1,
+    missingMembers: task.executionMode === "orchestrated"
+      ? phases.filter((phase) => phase.agentHandle !== null).length
+      : 0,
+    reason: task.executionMode === "orchestrated"
+      ? "Only the parent Codex task is included; native descendant usage coverage is not available."
+      : "This legacy task exposes parent-only usage.",
+  };
+}
+
 function isAdministrativeTurn(turn) {
   return turn?.provenance?.kind === "dashboard_manual";
 }
@@ -116,6 +131,7 @@ function calculatingTask(task, existing = null, now = new Date().toISOString()) 
     task: existing?.task ?? null,
     turns,
     boundaries: existing?.boundaries ?? {},
+    coverage: usageCoverage(task),
   };
 }
 
@@ -222,6 +238,7 @@ function correctedRecord(task, snapshot) {
     task: snapshot,
     turns,
     boundaries: { [task.latestTurn.turnRef]: snapshot },
+    coverage: usageCoverage(task),
   };
 }
 
@@ -322,6 +339,7 @@ function reconcileRecord(task, existing, snapshot, { boundaryReliable = true } =
     task: snapshot,
     turns,
     boundaries,
+    coverage: usageCoverage(task),
   };
 }
 

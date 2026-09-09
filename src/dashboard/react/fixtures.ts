@@ -5,7 +5,7 @@ export function fixtureTask(overrides: Partial<Task> = {}): Task {
   const id = overrides.id ?? "11111111-1111-4111-8111-111111111111";
   return {
     id,
-    schemaVersion: 10,
+    schemaVersion: 11,
     title: "Review checkout reconciliation",
     instruction: "Verify the isolated dashboard fixture without using live TaskChef data.",
     project: {
@@ -38,6 +38,9 @@ export function fixtureTask(overrides: Partial<Task> = {}): Task {
       turnId: null,
     }],
     results: [],
+    executionMode: "legacy",
+    executionRevision: 0,
+    parentResolution: null,
     usage: { generationTurnRef: "turn-one", status: "pending" },
     relatedGitHubLinks: [{
       label: "example/taskchef-preview#24",

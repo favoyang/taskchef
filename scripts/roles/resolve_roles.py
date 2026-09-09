@@ -12,7 +12,7 @@ import re
 import sys
 import tomllib
 
-ROLES = ('planner', 'implementer', 'reviewer')
+ROLES = ('orchestrator', 'planner', 'implementer', 'reviewer')
 EFFORTS = ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
 
 
@@ -58,9 +58,10 @@ def read_layer(directory):
     return found, problems
 
 
-def resolve(codex_home=None, explicit_model=None, explicit_effort=None):
+def resolve(codex_home=None, explicit_model=None, explicit_effort=None, role=None):
     home = Path(codex_home or os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()
-    personal, problems = read_layer(home / 'agents')
+    personal, structural_problems = read_layer(home / 'agents')
+    problems = list(structural_problems)
     catalog = None
     catalog_source = str(home / 'models_cache.json')
     try:
@@ -79,8 +80,8 @@ def resolve(codex_home=None, explicit_model=None, explicit_effort=None):
     except (OSError, ValueError, KeyError, TypeError):
         problems.append('Local Codex model catalog is unreadable or malformed; validate availability with the current native tool.')
     results = []
-    for role in ROLES:
-        entry = personal.get(role)
+    for candidate_role in ROLES if role is None else (role,):
+        entry = personal.get(candidate_role)
         source = entry['source'] if entry else None
         model = entry['model'] if entry else None
         effort = entry['effort'] if entry else None
@@ -115,18 +116,19 @@ def resolve(codex_home=None, explicit_model=None, explicit_effort=None):
                 overrides['model'] = model
             if effort is not None:
                 overrides['thinking'] = effort
-        results.append({'role': role, 'source': source, 'effectiveSource': effective_source,
+        results.append({'role': candidate_role, 'source': source, 'effectiveSource': effective_source,
                         'model': model, 'effort': effort, 'status': status,
                         'availability': availability, 'problems': errors,
                         'taskOverrides': overrides,
                         'subagentOverrides': {('reasoning_effort' if k == 'thinking' else k): v for k, v in overrides.items()},
-                        'fallback': 'inherit parent settings' if role == 'reviewer' else 'native new-task default (not guaranteed dispatcher inheritance)'})
+                        'fallback': 'native new-task default' if candidate_role == 'orchestrator' else 'inherit parent settings'})
     model_options = [] if catalog is None else [
         {'value': slug, 'label': entry.get('display_name') or slug,
          'efforts': [level['effort'] for level in entry['supported_reasoning_levels']]}
         for slug, entry in catalog.items() if entry.get('visibility') != 'hide'
     ]
-    return {'roles': results, 'problems': problems, 'catalogSource': catalog_source if catalog is not None else None,
+    return {'roles': results, 'problems': problems, 'structuralProblems': structural_problems,
+            'catalogSource': catalog_source if catalog is not None else None,
             'modelOptions': model_options,
             'precedence': 'explicit user model (and its explicit effort) > personal role > native defaults; explicit effort alone overrides role effort',
             'scope': 'Model and effort only; agent instructions, tools, permissions, and other TOML keys are not applied by this adapter.'}
@@ -283,9 +285,7 @@ def main():
             parser.error('--update requires --role, --model, and --effort')
         result = update(args.role, args.model, args.effort, args.codex_home)
     else:
-        result = resolve(args.codex_home, args.model, args.effort)
-        if args.role:
-            result['roles'] = [r for r in result['roles'] if r['role'] == args.role]
+        result = resolve(args.codex_home, args.model, args.effort, args.role)
     print(json.dumps(result, indent=2))
 
 

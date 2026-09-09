@@ -196,6 +196,19 @@ function assertDashboardTaskBounds(tasks, maximumTasks) {
       boundedText(turn.turnRef, 512, `${name} turn ${turnIndex + 1} turn ref`);
       boundedText(turn.turnId, 512, `${name} turn ${turnIndex + 1} turn ID`);
       boundedText(turn.result?.summary, 2_000, `${name} turn ${turnIndex + 1} result summary`);
+      boundedText(turn.acceptedScope, 2_000, `${name} turn ${turnIndex + 1} accepted scope`);
+      boundedText(turn.planRef?.repository, 512, `${name} turn ${turnIndex + 1} plan repository`);
+      boundedText(turn.planRef?.path, 512, `${name} turn ${turnIndex + 1} plan path`);
+      const phases = turn.phases ?? [];
+      if (phases.length > 64) throw new Error(`${name} turn ${turnIndex + 1} has too many phases`);
+      for (const [phaseIndex, phase] of phases.entries()) {
+        boundedText(phase.phaseId, 256, `${name} phase ${phaseIndex + 1} ID`);
+        boundedText(phase.agentHandle, 512, `${name} phase ${phaseIndex + 1} agent handle`);
+        boundedText(phase.result?.summary, 2_000, `${name} phase ${phaseIndex + 1} result`);
+        if ((phase.result?.artifacts?.length ?? 0) > 32) {
+          throw new Error(`${name} phase ${phaseIndex + 1} has too many artifacts`);
+        }
+      }
       boundedText(
         turn.provenance?.actionId,
         512,
@@ -248,6 +261,7 @@ function cachedUsageSummary(record) {
     status: record.status,
     updatedAt: record.updatedAt ?? null,
     ...(record.reason ? { reason: record.reason } : {}),
+    ...(record.coverage ? { coverage: Object.freeze({ ...record.coverage }) } : {}),
     ...(record.task ? {
       task: Object.freeze({
         totalTokens: record.task.totalTokens,

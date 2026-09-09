@@ -15,11 +15,11 @@ async function hasAgentFiles(directory) {
 
 function missingRoles() {
   return {
-    roles: ['planner', 'implementer', 'reviewer'].map((role) => ({
+    roles: ['orchestrator', 'planner', 'implementer', 'reviewer'].map((role) => ({
       role, source: null, effectiveSource: null, model: null, effort: null,
       status: 'missing', availability: 'No role files', problems: [],
       taskOverrides: {}, subagentOverrides: {},
-      fallback: role === 'reviewer' ? 'inherit parent settings' : 'native new-task default (not guaranteed dispatcher inheritance)',
+      fallback: role === 'orchestrator' ? 'native new-task default' : 'inherit parent settings',
     })),
     problems: [], catalogSource: null, modelOptions: [],
     precedence: 'explicit user model (and its explicit effort) > personal role > native defaults; explicit effort alone overrides role effort',
@@ -49,8 +49,92 @@ export async function resolveModelRoles({ run = execFile, env = process.env, inc
   }
 }
 
+export async function resolveExecutionRole(role, {
+  explicitModel = null,
+  explicitEffort = null,
+  nativeAvailabilityConfirmed = false,
+  run = execFile,
+  env = process.env,
+} = {}) {
+  const allowedRoles = new Set(['orchestrator', 'planner', 'implementer', 'reviewer']);
+  if (!allowedRoles.has(role)) {
+    const error = new Error('Invalid execution role.');
+    error.code = 'invalid_request';
+    throw error;
+  }
+  try {
+    const args = [resolver, '--role', role];
+    if (explicitModel !== null) args.push('--model', explicitModel);
+    if (explicitEffort !== null) args.push('--effort', explicitEffort);
+    const { stdout } = await run('python3', args, {
+      env, timeout: 5000, maxBuffer: 128 * 1024,
+    });
+    const result = JSON.parse(stdout);
+    let resolved = result.roles?.[0];
+    if (!resolved || resolved.role !== role) throw new Error('resolver returned the wrong role');
+    if (nativeAvailabilityConfirmed && resolved.status === 'unavailable') {
+      resolved = {
+        ...resolved,
+        status: 'configured',
+        availability: 'confirmed by the current native interface',
+        advisories: resolved.problems ?? [],
+        problems: [],
+        taskOverrides: {
+          ...(resolved.model !== null ? { model: resolved.model } : {}),
+          ...(resolved.effort !== null ? { thinking: resolved.effort } : {}),
+        },
+        subagentOverrides: {
+          ...(resolved.model !== null ? { model: resolved.model } : {}),
+          ...(resolved.effort !== null ? { reasoning_effort: resolved.effort } : {}),
+        },
+      };
+    }
+    const structuralProblems = Array.isArray(result.structuralProblems)
+      ? result.structuralProblems
+      : Array.isArray(result.problems)
+        ? result.problems
+        : [];
+    if (structuralProblems.length > 0) {
+      return {
+        ...resolved,
+        status: 'invalid',
+        problems: [...new Set([...(resolved.problems ?? []), ...structuralProblems])],
+        taskOverrides: {},
+        subagentOverrides: {},
+      };
+    }
+    return {
+      ...resolved,
+      advisories: [...new Set([
+        ...(resolved.advisories ?? []),
+        ...(Array.isArray(result.problems)
+          ? result.problems.filter((problem) => !structuralProblems.includes(problem))
+          : []),
+      ])],
+      displaySource: typeof resolved.source === 'string'
+        ? `~/.codex/agents/${path.basename(resolved.source)}`
+        : resolved.source,
+    };
+  } catch (error) {
+    if (error.code === 'invalid_request') throw error;
+    return {
+      role,
+      source: null,
+      effectiveSource: null,
+      model: null,
+      effort: null,
+      status: 'invalid',
+      availability: 'Role resolution unavailable',
+      problems: ['Execution role resolution unavailable. Python 3.11+ and readable global agent configuration are required.'],
+      taskOverrides: {},
+      subagentOverrides: {},
+      fallback: role === 'orchestrator' ? 'native new-task default' : 'inherit parent settings',
+    };
+  }
+}
+
 export async function updateModelRole(role, model, effort, { run = execFile, env = process.env } = {}) {
-  const allowedRoles = new Set(['planner', 'implementer', 'reviewer']);
+  const allowedRoles = new Set(['orchestrator', 'planner', 'implementer', 'reviewer']);
   if (!allowedRoles.has(role) || typeof model !== 'string' || typeof effort !== 'string') {
     const error = new Error('Invalid model role update.');
     error.code = 'invalid_request';

@@ -16,9 +16,10 @@ start, upgrade, shutdown, and security rationale.
 | `skills/taskchef-bootstrap/SKILL.md` | Initialize the workspace and maintain the Codex project index. |
 | `skills/taskchef-dashboard/SKILL.md` | Ensure or recover the canonical dashboard and return its URL. |
 | `skills/taskchef-copilot/SKILL.md` | Explain normalized cached briefs and coordinate safe next actions. |
-| `src/mcp.js` | Dashboard ensure, four primary lifecycle tools, one deprecated alias, MCP cleanup, and annotations. |
+| `src/mcp.js` | Dashboard ensure, six primary lifecycle tools, one deprecated alias, MCP cleanup, and annotations. |
 | `src/delegation.js` | UUID marker, concise executor-skill invocation shape, and creation-failure handling. |
 | `src/workspace.js` | Current schemas, validation, locking, atomic JSONL writes, linking, and result freshness. |
+| `src/execution.js` | Orchestration intent, resolution, plan, phase, idempotency, revision, and completion invariants. |
 | `src/config-mutations.js` | Canonical hashes and exact field-level project diffs. |
 | `src/backups.js` | Private snapshot creation, verification, retention, and restore inputs. |
 | `src/config-audit.js` | Durable prepared/terminal configuration-mutation journal. |
@@ -129,9 +130,9 @@ sequenceDiagram
     M-->>D: preparation
   end
   D->>D: Choose one configured and native project
-  D->>M: record_task(id, project, title, instruction, null)
+  D->>M: record_task(..., orchestrated, contract v1, parent resolution)
   M->>W: recordTask()
-  W->>W: Lock, validate, append schema-10 snapshot
+  W->>W: Lock, validate, append schema-11 snapshot
   W-->>M: working link-pending task
   M-->>D: task
   D->>C: Create executor with marked instruction
@@ -156,6 +157,46 @@ final marker. Older
 recorded tasks with first-line HTML or heading markers and former inline
 protocol remain readable; the deprecated `report_result` alias preserves their
 semantic callbacks.
+
+## Stable-parent orchestration
+
+Preparation resolves the visible Orchestrator once. Child roles are resolved
+just in time so each persisted phase records the exact current preference and
+explicit override used for that spawn. The parent stays visible and owns all
+TaskChef mutations; descendants never report parent state directly.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Orchestrator parent
+  participant M as TaskChef MCP
+  participant W as workspace.js
+  participant C as Native subagent API
+  P->>M: report_state(working, intent, scope, optional planRef)
+  P->>M: resolve_execution_role(planner/implementer/reviewer)
+  M-->>P: Current role resolution
+  P->>M: report_phase(reserve, expected revision, event ID)
+  M->>W: Persist reserved phase and increment revision
+  P->>C: Spawn fresh no-history role child
+  C-->>P: Opaque agent handle
+  P->>M: report_phase(start, handle, next revision)
+  opt Durable child identity is explicitly available
+    P->>M: report_phase(bind, native or child_asserted evidence)
+  end
+  C-->>P: Terminal handoff
+  P->>P: Verify scope, artifacts, and native terminal state
+  P->>M: report_phase(finish, state, summary, artifacts)
+  M->>W: Persist terminal phase and increment revision
+  Note over P,M: Repeat sequentially and keep review read only
+  P->>M: report_state(completed only after intent gates pass)
+```
+
+Reserve precedes spawning so a crash cannot create an untracked writer. Only
+one phase may be reserved or running, review passes have unique IDs, and writer
+generations cannot overlap. A lost phase response is retried with the same event
+ID and payload; a new event uses the returned revision. Newer lifecycle turns,
+`needs_input`, and `failed` reports interrupt unfinished phases. Manual dashboard
+outcomes remain unavailable until the active phase is reconciled.
 
 ## State reporting
 
@@ -276,7 +317,7 @@ sequenceDiagram
   W->>W: Acquire workspace lock and validate turnRefB is new
   W->>W: Close unfinished turnA as interrupted
   W->>W: Append turnB with requestB and null result
-  W->>F: One atomic schema-10 replacement
+  W->>F: One atomic schema-11 replacement
   W-->>M: working task projected from turnB
   M-->>E: Idempotent recovery success
   E->>M: late semantic result for turnA
@@ -412,17 +453,18 @@ all, and ordinary rerendering do not re-announce retained history. Toast action
 labels remain concise while `aria-describedby` connects the visible summary,
 event time, and missing-task explanation for assistive technology.
 
-## Schema 4-9 migration
+## Schema 4-10 migration
 
 `taskchef workspace migrate` acquires the same workspace lock as lifecycle
 writers, validates the complete legacy log, converts schema-4/5/6 results into
 request-unknown completed turns and preserves a newer working turn, then validates the
 complete candidate. Before replacement it writes and reads back an exclusive
-`tasks.jsonl.pre-v10-*.bak` file. Schema-7/8 timelines gain a durable `turnRef`:
+`tasks.jsonl.pre-v11-*.bak` file. Schema-7/8 timelines gain a durable `turnRef`:
 non-null `turnId` values are copied exactly and null IDs receive persisted UUIDs.
 Task and turn counts plus all refs are validated before and after the atomic
-replacement. Schema-9 turns gain explicit legacy or MCP provenance. A second
-run sees only schema 10 and returns unchanged without
+replacement. Schema-9 turns gain explicit legacy or MCP provenance. Schema-10
+records gain legacy execution metadata and empty phase ledgers. A second run
+sees only schema 11 and returns unchanged without
 another backup. Unsupported or malformed input fails before backup/rewrite;
 after a later filesystem failure, the reported backup is the recovery source.
 
@@ -440,10 +482,11 @@ summary is cryptographically authenticated; this is a local single-user trust
 model. Managed files, instructions, project snapshots, MCP inputs, and dashboard
 requests are validated at every action boundary.
 
-Configuration schema 2 and task schemas 4 through 10 are accepted. Schemas
-4-9 are read/migration compatibility until an explicit migration or lifecycle
-mutation upgrades each record to schema 10. Schema 10 persists `turns`, including
+Configuration schema 2 and task schemas 4 through 11 are accepted. Schemas
+4-10 are read/migration compatibility until an explicit migration or lifecycle
+mutation upgrades each record to schema 11. Schema 11 persists `turns`, including
 timeline-only interrupted outcomes, and derives semantic-only `results` and
 `lastResult` plus `latestTurn` for compact compatibility. It also records turn
-provenance and the optimistic preconditions for manual dashboard outcomes. Other schemas
+provenance, execution mode/revision, parent resolution, orchestrated phase
+ledgers, and the optimistic preconditions for manual dashboard outcomes. Other schemas
 are rejected without rewrite.

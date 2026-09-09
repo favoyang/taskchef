@@ -5,9 +5,11 @@ description: "Execute and report a TaskChef assignment or follow-up when explici
 
 # TaskChef Executor
 
-Own and execute the delegated assignment in the current Codex task. Do not
+Own the delegated assignment in this stable visible Codex task. Do not
 re-dispatch it merely because it concerns TaskChef or a configured project.
-Explicit requests to delegate separate work remain valid.
+When the linked record is orchestrated, this parent coordinates fresh internal
+role subagents under [the orchestration contract](references/orchestration.md).
+Explicit requests to delegate separate independent work remain valid.
 
 New instructions present the complete assignment first, then the reporting
 authorization paragraph, followed by exactly two newline characters (one blank
@@ -40,12 +42,34 @@ Complete this lifecycle setup before substantive assignment work:
    UUID locally, retain it for this entire prompt, use it as `turnRef`, and use
    `turnId: null`. Do not infer a native ID, reuse an earlier prompt's
    `turnRef`, or let a retry generate a replacement UUID.
-4. Call TaskChef `report_state` with the marked task ID, self-linked thread ID,
+4. Inspect the linked task's `executionMode`. For `orchestrated`, read the
+   orchestration reference, classify this prompt, and include its `intent`,
+   bounded `acceptedScope`, and optional repository-relative `planRef`. For
+   `legacy`, preserve the historical single-executor behavior unless the user
+   explicitly opts into contract version 1 on a new follow-up and current MCP
+   capabilities support it. Never adopt an active task mid-phase.
+5. Call TaskChef `report_state` with the marked task ID, self-linked thread ID,
    this prompt's `turnRef` and optional Codex `turnId`, `status: working`, an
    omitted or null result summary, and a concise `requestSummary` describing this turn's assignment or follow-up.
    When the turn targets a known GitHub repository, include its canonical
    `https://github.com/<owner>/<repository>` URL so multi-repository projects
    retain the selected repository instead of leaving TaskChef to guess.
+
+## Execute the assignment
+
+For `orchestrated` records, follow the complete
+[orchestration contract](references/orchestration.md). The parent owns
+authority, lifecycle, worktree and writer safety, Planrock, handoff acceptance,
+review-gate control, communication, and delivery verification. Fresh planner,
+implementer, and reviewer subagents perform substantive phases. If spawning or
+role resolution is unavailable, fail visibly; do not pretend orchestration or
+silently implement in the parent.
+
+For `legacy` records, execute directly under the historical contract in this
+task. Existing records are never bulk-migrated or silently relabelled. A later
+explicit adoption keeps the same parent/thread, starts a new lifecycle turn,
+records current parent resolution evidence, and does not rewrite historical
+model or phase claims.
 
 If the preceding TaskChef turn is still unfinished because its terminal report
 was lost, this newer valid working report atomically records that predecessor
@@ -65,7 +89,9 @@ link-pending state.
 Before ending, call `report_state` with the same `turnRef` and `turnId` values
 used by this prompt's working report, one semantic status, and a concise summary:
 
-- `completed` only when the assignment is genuinely complete.
+- `completed` only when the assignment is genuinely complete. Orchestrated
+  mode additionally requires all intent-mandated phases accepted and no active
+  phase or writer.
 - `needs_input` only when a semantic decision or missing information must come
   from the user.
 - `failed` when the requested outcome cannot be completed or safely resumed.

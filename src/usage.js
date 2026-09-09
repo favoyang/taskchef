@@ -19,7 +19,7 @@ const PINNED_CCUSAGE_VERSION = taskchefPackage.optionalDependencies?.ccusage;
 const CCUSAGE_RESOLVER = fileURLToPath(new URL("./resolve-ccusage.js", import.meta.url));
 let npxResolvedCcusageInvocation = null;
 const USAGE_FILE_NAME = ".taskchef-usage.json";
-const USAGE_SCHEMA_VERSION = 2;
+const USAGE_SCHEMA_VERSION = 3;
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
 const TOKEN_FIELDS = [
   "inputTokens",
@@ -165,7 +165,31 @@ function normalizeStoredTurn(value, name) {
   };
 }
 
-function normalizeStoredRecord(value, name) {
+function normalizeCoverage(value, name, { legacy = false } = {}) {
+  if (legacy || value === undefined) {
+    return {
+      status: "partial",
+      scope: "parent_only",
+      includedMembers: 1,
+      missingMembers: 0,
+      reason: "Historical TaskChef usage contains parent-only totals.",
+    };
+  }
+  if (!value || value.status !== "partial" || value.scope !== "parent_only") {
+    throw new Error(`${name}.coverage is invalid`);
+  }
+  return {
+    status: "partial",
+    scope: "parent_only",
+    includedMembers: nonNegativeNumber(value.includedMembers, `${name}.coverage.includedMembers`),
+    missingMembers: nonNegativeNumber(value.missingMembers, `${name}.coverage.missingMembers`),
+    reason: typeof value.reason === "string" && value.reason.length > 0
+      ? value.reason.slice(0, 512)
+      : "Only the parent Codex task is included.",
+  };
+}
+
+function normalizeStoredRecord(value, name, { legacy = false } = {}) {
   if (!value || typeof value !== "object" || !USAGE_STATUSES.has(value.status)) {
     throw new Error(`${name} is invalid`);
   }
@@ -208,6 +232,7 @@ function normalizeStoredRecord(value, name) {
     task: value.task === null ? null : normalizeStoredSnapshot(value.task, `${name}.task`),
     turns: normalizeMap(value.turns, normalizeStoredTurn, `${name}.turns`),
     boundaries: normalizeMap(value.boundaries, normalizeStoredSnapshot, `${name}.boundaries`),
+    coverage: normalizeCoverage(value.coverage, name, { legacy }),
     ...(value.status === "unavailable" ? {
       reason: typeof value.reason === "string" ? value.reason.slice(0, 256) : "Usage is unavailable.",
     } : {}),
@@ -625,7 +650,7 @@ export async function readUsageStore(workspace) {
     return { schemaVersion: USAGE_SCHEMA_VERSION, tasks: {} };
   }
   const value = JSON.parse(await readFile(filePath, "utf8"));
-  if (![1, USAGE_SCHEMA_VERSION].includes(value?.schemaVersion)
+  if (![1, 2, USAGE_SCHEMA_VERSION].includes(value?.schemaVersion)
     || !value.tasks
     || typeof value.tasks !== "object") {
     throw new Error("TaskChef usage cache has an unsupported schema");
@@ -636,7 +661,7 @@ export async function readUsageStore(workspace) {
     schemaVersion: USAGE_SCHEMA_VERSION,
     tasks: Object.fromEntries(tasks.map(([taskId, record]) => [
       taskId,
-      normalizeStoredRecord(record, `usage task ${taskId}`),
+      normalizeStoredRecord(record, `usage task ${taskId}`, { legacy: value.schemaVersion < 3 }),
     ])),
   };
 }

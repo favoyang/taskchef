@@ -530,7 +530,14 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
   store.tasks[second.id].turns[SECOND_TURN].provenance.costCoverage = "ccusage_reported";
   await writeFile(path.join(workspace, ".taskchef-usage.json"), JSON.stringify(store));
   const legacy = await readUsageStore(workspace);
-  assert.equal(legacy.schemaVersion, 2);
+  assert.equal(legacy.schemaVersion, 3);
+  assert.deepEqual(legacy.tasks[second.id].coverage, {
+    status: "partial",
+    scope: "parent_only",
+    includedMembers: 1,
+    missingMembers: 0,
+    reason: "Historical TaskChef usage contains parent-only totals.",
+  });
   assert.equal(legacy.tasks[second.id].task.estimatedCostUsd, 0.03);
   assert.equal(legacy.tasks[second.id].turns[SECOND_TURN].estimatedCostUsd, null);
   assert.equal(Object.hasOwn(legacy.tasks[second.id].task.provenance, "costCoverage"), false);
@@ -1555,7 +1562,7 @@ test("usage cache compaction retains recent tasks and only useful boundary histo
     },
   ]));
   const compacted = compactUsageStore({ schemaVersion: 1, tasks });
-  assert.equal(compacted.schemaVersion, 2);
+  assert.equal(compacted.schemaVersion, 3);
   assert.equal(Object.keys(compacted.tasks).length, 1_000);
   assert.ok(compacted.tasks["task-2000"]);
   assert.equal(Object.keys(compacted.tasks["task-2000"].turns).length, 250);
@@ -1598,13 +1605,13 @@ test("an oversized derived cache is recoverable and replaced by a bounded write"
   const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-oversized-"));
   const cachePath = path.join(workspace, ".taskchef-usage.json");
   await writeFile(cachePath, Buffer.alloc((16 * 1024 * 1024) + 1));
-  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 2, tasks: {} });
+  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 3, tasks: {} });
   await writeUsageStore(workspace, { schemaVersion: 1, tasks: {} });
   assert.ok((await stat(cachePath)).size < 16 * 1024 * 1024);
-  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 2, tasks: {} });
+  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 3, tasks: {} });
   await writeFile(cachePath, JSON.stringify({
     schemaVersion: 1,
     tasks: Object.fromEntries(Array.from({ length: 2_001 }, (_, index) => [`task-${index}`, {}])),
   }));
-  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 2, tasks: {} });
+  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 3, tasks: {} });
 });

@@ -1,52 +1,48 @@
 # Dispatch model roles
 
-Preparation includes personal model previews. Role preferences use native Codex
-agent TOML under `$CODEX_HOME/agents/` (default `~/.codex/agents/`); they are
-optional. The resolver requires Python 3.11+.
+Preparation resolves only the personal `orchestrator` preference for a new
+visible TaskChef parent. Role preferences come from native Codex agent TOML in
+the global `$CODEX_HOME/agents/` directory (default `~/.codex/agents/`) and are
+optional. The packaged resolver requires Python 3.11+.
 
-Select `planner` for a planning assignment or `implementer` for coding. Pass
-its `taskOverrides` as native `model` and `thinking` arguments only after checking
-those values against the current create-task tool's supported model/effort
-choices. A missing role means omit both arguments and use the native new-task
-default. This is not guaranteed to inherit the dispatcher's model.
+Pass the orchestrator's `taskOverrides` as native `model` and `thinking`
+arguments only after checking those values against the current create-task
+tool's supported model/effort choices. A missing orchestrator means omitting
+both arguments and using the native new-task default. An invalid profile,
+duplicate name, unavailable model/effort, structurally ambiguous TOML, or
+resolver failure must be visible and stops creation until resolved.
 
 Explicit user model choices take precedence over the personal role and native
-defaults. An explicit model without explicit effort omits effort and uses the native
-interface's omission behavior; do not mix in a different role's effort or claim
-a specific effective effort without evidence. Explicit effort
-alone replaces the resolved role effort. To resolve explicit choices, or recheck a preview after configuration
-changes, run:
+defaults. An unqualified explicit model retains its historical scope: the
+visible parent only. An explicit model without explicit effort omits effort;
+never combine it with a different model's role effort. Explicit effort alone
+replaces the role effort. A clearly task-wide or role-specific instruction may
+also govern descendants. Resolve explicit parent choices or recheck after a
+configuration change with `resolve_execution_role` and its explicit fields.
+Use the returned `resolution` as the immutable `parentResolution` passed to
+`record_task`; do not reuse preparation's earlier snapshot after an override.
+The packaged CLI equivalent for diagnostics is:
 
 ```sh
-python3 <plugin-root>/scripts/roles/resolve_roles.py --role implementer --model <user-model> --effort <user-effort>
+python3 <plugin-root>/scripts/roles/resolve_roles.py --role orchestrator --model <user-model> --effort <user-effort>
 ```
 
 Omit flags the user did not specify. Resolve the plugin root from this skill's
-real path, two parents above the skill directory. Do not substitute dispatcher
-paths for the target project or infer model names from skill prose.
+real path, two parents above the skill directory. The local model catalog is
+advisory; current native creation support is authoritative. Explain evidence
+that disproves a stale warning before using the value. When the current
+create-task interface itself lists the cache-flagged model and effort, re-run
+`resolve_execution_role` with `nativeAvailabilityConfirmed: true`; never use
+that flag for malformed, duplicate, or otherwise invalid role configuration.
 
-Report malformed profiles, duplicate names, unavailable models/efforts, and
-resolver failures. Do not quietly fall back and claim preferences were honored.
-The local model catalog is advisory: explain if a current native tool disproves
-its stale warning. Otherwise resolve the problem or obtain a valid explicit
-choice before task creation. Native creation failures retain normal TaskChef
-failure reporting. A preparation without role fields supports historical
-installations: check role files before deciding that no preferences exist.
+Planner, implementer, and reviewer preferences are intentionally not resolved
+during preparation. The stable parent re-resolves exactly the needed child
+role immediately before every fresh phase spawn. A planning-only request, a
+combined plan-and-implement request, direct implementation, and a later
+“implement it” follow-up remain in one visible parent; their intent and phase
+history distinguish the fulfilled work.
 
-Only model and effort are adapted. The native agent file's instructions, tools,
-permissions, and other settings are not applied by create-task arguments. A
-role name in a title is not a native role selector. If the native interface adds
-a role selector, use it only with verified effective settings.
-
-For a plan-to-implementation handoff, a planner assignment can save
-`plans/addition.md` describing a pure addition function and the acceptance
-example `2 + 3 = 5`. A later implementer assignment reads that exact plan,
-implements the function, runs the example, and uses fresh reviewer subagents.
-The dispatcher returns after each creation; it does not wait for or launch
-subsequent phases automatically. A small addition change can instead go
-straight to the implementer.
-
-A single assignment that asks to plan and then execute is an implementation
-assignment. Use the implementer model for that whole task; do not switch models
-mid-turn. To apply both configured roles, dispatch a planner task first, wait
-for its saved plan, then dispatch a separate implementer task using that plan.
+Only model and reasoning effort are adapted. Global TOML developer
+instructions, tools, permissions, other settings, repository-local profiles,
+and named-agent selectors are outside this narrow adapter. A role label in a
+title is not evidence that native role settings were applied.
