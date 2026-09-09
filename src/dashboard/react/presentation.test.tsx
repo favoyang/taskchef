@@ -61,6 +61,21 @@ describe("token and working presentation", () => {
     if (view.kind === "ready") expect(view.knownSoFar).toBe(true);
   });
 
+  test("keeps cumulative usage visible while a newer terminal generation is calculating", () => {
+    const view = usageView(fixtureTask({
+      status: "completed",
+      turnRef: "turn-two",
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "calculating",
+        task: { totalTokens: 12345, estimatedCostUsd: 0.1234 },
+      },
+    }));
+    expect(view.kind).toBe("ready");
+    expect(view.label).toBe("12.35K tokens · Estimated cost $0.12 · known so far");
+    if (view.kind === "ready") expect(view.knownSoFar).toBe(true);
+  });
+
   test("distinguishes available, pending, calculating, and unavailable per-turn usage", () => {
     const task = fixtureTask({
       usage: {

@@ -83,7 +83,7 @@ describe("task card stats", () => {
   });
 
   test("retains known totals and marks both usage values as updating", () => {
-    renderStats(fixtureTask({
+    const { container } = renderStats(fixtureTask({
       status: "working",
       turnRef: "turn-two",
       usage: {
@@ -92,8 +92,40 @@ describe("task card stats", () => {
         task: { totalTokens: 1_324_567, estimatedCostUsd: 12.3449 },
       },
     }));
-    expect(screen.getByLabelText(/1,324,567 tokens; updating/i)).toHaveTextContent("1.32M tokens · Updating…");
-    expect(screen.getByLabelText(/estimated cost \$12\.34; updating/i)).toHaveTextContent("12.34 · Updating…");
+    expect(screen.getByLabelText(/1,324,567 tokens; updating/i)).toHaveTextContent("1.32M tokens");
+    expect(screen.getByLabelText(/estimated cost \$12\.34; updating/i)).toHaveTextContent("12.34");
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(2);
+  });
+
+  test("retains terminal totals while a newer usage generation is calculating", () => {
+    const { container } = renderStats(fixtureTask({
+      status: "completed",
+      turnRef: "turn-two",
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "calculating",
+        task: { totalTokens: 1_324_567, estimatedCostUsd: 12.3449 },
+      },
+    }));
+    expect(screen.getByLabelText(/1,324,567 tokens; updating/i)).toHaveTextContent("1.32M tokens");
+    expect(screen.getByLabelText(/estimated cost \$12\.34; updating/i)).toHaveTextContent("12.34");
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(2);
+  });
+
+  test("keeps unavailable cost static while retained tokens update", () => {
+    const { container } = renderStats(fixtureTask({
+      status: "working",
+      turnRef: "turn-two",
+      usage: {
+        generationTurnRef: "turn-one",
+        status: "calculating",
+        task: { totalTokens: 1_324_567, estimatedCostUsd: null },
+      },
+    }));
+    expect(screen.getByLabelText(/1,324,567 tokens; updating/i)).toHaveTextContent("1.32M tokens");
+    expect(screen.getByLabelText(/estimated cost unavailable/i)).toHaveTextContent("n/a");
+    expect(screen.getByLabelText(/estimated cost unavailable/i)).not.toHaveAccessibleName(/updating/i);
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(1);
   });
 
   test("places Open chat beneath the status badge and keeps callbacks working", () => {

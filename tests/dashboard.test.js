@@ -242,17 +242,16 @@ test("relative task times use deterministic readable thresholds", () => {
   assert.equal(formatRelativeTime(ago(2 * 60_000), { now }), "2 minutes ago");
   assert.equal(formatRelativeTime(ago(60 * 60_000), { now }), "1 hour ago");
   assert.equal(formatRelativeTime(ago(2 * 60 * 60_000 + 17 * 60_000), { now }),
-    "2 hours 17 minutes ago");
+    "2 hours ago");
   assert.equal(formatRelativeTime(ago(7 * 60 * 60_000 + 17 * 60_000), { now }),
     "7 hours ago");
   assert.equal(formatRelativeTime(ago(24 * 60 * 60_000), { now }), "1 day ago");
-  assert.equal(formatRelativeTime(ago(12 * 24 * 60 * 60_000), { now }), "12 days ago");
+  assert.equal(formatRelativeTime(ago(12 * 24 * 60 * 60_000 + 17 * 60 * 60_000), { now }),
+    "12 days ago");
   assert.equal(RELATIVE_DATE_LIMIT_DAYS, 30);
-  assert.equal(formatRelativeTime(ago(30 * 24 * 60 * 60_000), {
-    now,
-    locale: "en-US",
-    timeZone: "UTC",
-  }), "Jul 26, 2026");
+  assert.equal(formatRelativeTime(ago(30 * 24 * 60 * 60_000), { now }), "1 month ago");
+  assert.equal(formatRelativeTime(ago(75 * 24 * 60 * 60_000 + 17 * 60 * 60_000), { now }),
+    "2 months ago");
 });
 
 test("task time formatting is locale aware and handles future, missing, and invalid values", () => {

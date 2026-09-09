@@ -151,6 +151,7 @@ export function usageView(task: Task): UsageView {
     return { kind: "pending", label: "Token usage pending" };
   }
   if (usage?.status === "calculating" || priorGeneration) {
+    if (usage.task) return readyUsageView(usage.task, true);
     return { kind: "calculating", label: "Calculating token usage" };
   }
   if (usage?.status === "available" && usage.task) {
@@ -200,7 +201,8 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
   if (view.kind === "ready") {
     const identity = turn.turnRef ?? turn.turnId;
     const usage = identity ? task.usage?.turns?.[identity] : null;
-    const tokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : NOT_AVAILABLE;
+    const fullTokens = typeof usage?.totalTokens === "number" ? formatFullTokens(usage.totalTokens) : NOT_AVAILABLE;
+    const compactTokens = typeof usage?.totalTokens === "number" ? formatCompactTokens(usage.totalTokens) : NOT_AVAILABLE;
     const estimatedCost = usage?.estimatedCostUsd;
     const hasCost = typeof estimatedCost === "number" && Number.isFinite(estimatedCost);
     const cost = hasCost ? formatEstimatedCostAmount(estimatedCost) : NOT_AVAILABLE;
@@ -214,7 +216,7 @@ export function turnUsageMetricsView(task: Task, turn: NonNullable<Task["turns"]
       kind: view.kind,
       note: null,
       title: view.label,
-      tokens: { accessibleLabel: `${tokens} tokens`, value: tokens },
+      tokens: { accessibleLabel: `${fullTokens} tokens`, value: compactTokens },
     };
   }
   const value = view.kind === "pending"
@@ -247,12 +249,12 @@ export function usageStillCalculating(task: Task) {
 
 export type ListUsageMetric = {
   accessibleLabel: string;
+  animated: boolean;
   title: string;
   value: string;
 };
 
 export type ListUsageMetricsView = {
-  animated: boolean;
   cost: ListUsageMetric;
   kind: "pending" | "calculating" | "ready" | "unavailable";
   tokens: ListUsageMetric;
@@ -263,15 +265,16 @@ export function listUsageMetricsView(task: Task): ListUsageMetricsView {
   if (view.kind === "pending" || view.kind === "calculating") {
     const value = view.kind === "pending" ? "Pending" : "Calculating";
     return {
-      animated: true,
       cost: {
         accessibleLabel: `Estimated cost ${value.toLowerCase()}`,
+        animated: true,
         title: view.label,
         value,
       },
       kind: view.kind,
       tokens: {
         accessibleLabel: `Tokens ${value.toLowerCase()}`,
+        animated: true,
         title: view.label,
         value,
       },
@@ -280,15 +283,16 @@ export function listUsageMetricsView(task: Task): ListUsageMetricsView {
   if (view.kind === "unavailable") {
     const reason = view.label === "Token usage unavailable" ? "" : `: ${view.label}`;
     return {
-      animated: false,
       cost: {
         accessibleLabel: `Estimated cost unavailable${reason}`,
+        animated: false,
         title: view.label,
         value: NOT_AVAILABLE,
       },
       kind: "unavailable",
       tokens: {
         accessibleLabel: `Token usage unavailable${reason}`,
+        animated: false,
         title: view.label,
         value: `${NOT_AVAILABLE} tokens`,
       },
@@ -300,26 +304,29 @@ export function listUsageMetricsView(task: Task): ListUsageMetricsView {
   const hasCost = typeof estimatedCost === "number" && Number.isFinite(estimatedCost);
   const formattedCost = hasCost ? formatEstimatedCost(estimatedCost) : null;
   const formattedCostAmount = hasCost ? formatEstimatedCostAmount(estimatedCost) : null;
-  const qualifier = view.knownSoFar ? " · Updating…" : "";
+  const tooltipQualifier = view.knownSoFar ? " · Updating…" : "";
   const accessibleQualifier = view.knownSoFar ? "; updating" : "";
+  const costTooltipQualifier = hasCost ? tooltipQualifier : "";
+  const costAccessibleQualifier = hasCost ? accessibleQualifier : "";
   const freshness = view.usage.sourceUpdatedAt ?? view.usage.sampledAt ?? task.usage?.updatedAt ?? null;
   const freshnessLabel = freshness && !Number.isNaN(Date.parse(freshness))
     ? ` Cached usage updated ${new Date(freshness).toLocaleString()}.`
     : "";
   return {
-    animated: false,
     cost: {
-      accessibleLabel: `Estimated cost ${formattedCost ?? "unavailable"}${accessibleQualifier}.${freshnessLabel}`,
+      accessibleLabel: `Estimated cost ${formattedCost ?? "unavailable"}${costAccessibleQualifier}.${freshnessLabel}`,
+      animated: view.knownSoFar && hasCost,
       title: `${formattedCost === null
         ? "Estimated cost unavailable"
-        : `Unrounded estimate: $${view.usage.estimatedCostUsd}`}${qualifier}.${freshnessLabel}`,
-      value: `${formattedCostAmount ?? NOT_AVAILABLE}${qualifier}`,
+        : `Unrounded estimate: $${view.usage.estimatedCostUsd}`}${costTooltipQualifier}.${freshnessLabel}`,
+      value: formattedCostAmount ?? NOT_AVAILABLE,
     },
     kind: "ready",
     tokens: {
       accessibleLabel: `${fullTokens} tokens${accessibleQualifier}.${freshnessLabel}`,
-      title: `${fullTokens} tokens${qualifier}.${freshnessLabel}`,
-      value: `${compactTokens} tokens${qualifier}`,
+      animated: view.knownSoFar,
+      title: `${fullTokens} tokens${tooltipQualifier}.${freshnessLabel}`,
+      value: `${compactTokens} tokens`,
     },
   };
 }

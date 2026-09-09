@@ -34,7 +34,8 @@ body {
 .taskchef-task-row { container-type: inline-size; background: light-dark(#fff, #202421); box-shadow: 0 1px 0 light-dark(rgb(22 31 25 / 3%), transparent); }
 .taskchef-task-row:hover { border-color: light-dark(var(--mantine-color-teal-4), var(--mantine-color-teal-8)); }
 .taskchef-task-main { min-width: 0; flex: 1; }
-.taskchef-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--mantine-spacing-sm); }
+.taskchef-card-heading,
+.taskchef-turn-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--mantine-spacing-sm); }
 .taskchef-card-metadata { width: max-content; min-width: 0; max-width: min(25rem, 45cqw); }
 .taskchef-status-badge { flex: none; font-size: var(--mantine-font-size-xs); }
 .taskchef-title-button {

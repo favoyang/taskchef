@@ -36,8 +36,10 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
             withBorder
           >
             <Stack gap={7}>
-              <StatusBadge status={presentation.status} />
-              {presentation.sourceLabel && <Text c="dimmed" size="xs">{presentation.sourceLabel}</Text>}
+              <Box className="taskchef-turn-heading">
+                <Text c="dimmed" size="xs">{presentation.sourceLabel}</Text>
+                <StatusBadge status={presentation.status} />
+              </Box>
               <Box>
                 <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
                 <Text className="taskchef-preserve-lines" size="sm">
@@ -83,7 +85,6 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                 </StatCell>
               </StatsGrid>
               {usage.note && <Text c="dimmed" size="xs">{usage.note}</Text>}
-              <Text c="dimmed" className="taskchef-mono" size="xs">Turn ref: {identity ?? "—"}</Text>
             </Stack>
           </Paper>
         );
