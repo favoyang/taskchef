@@ -182,6 +182,35 @@ describe("token and working presentation", () => {
     expect(screen.queryByText("Cache ratio")).not.toBeInTheDocument();
   });
 
+  test("shimmers known usage values during a running turn without changing card titles", () => {
+    const { container, rerender } = render(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          usage: {
+            status: "available",
+            task: { totalTokens: 330, estimatedCostUsd: 0.12 },
+          },
+        })} />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText("Tokens")).toBeVisible();
+    expect(screen.queryByText(/known so far/i)).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(2);
+
+    rerender(
+      <MantineProvider>
+        <UsagePanel task={fixtureTask({
+          usage: {
+            status: "available",
+            task: { totalTokens: 330, estimatedCostUsd: null },
+          },
+        })} />
+      </MantineProvider>,
+    );
+    expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(1);
+  });
+
   test("keeps reported work visible across pending, calculating, and unavailable usage", () => {
     for (const [task, expected, accessibleCost] of [
       [fixtureTask(), "Pending", "Estimated cost pending"],

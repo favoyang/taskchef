@@ -14,6 +14,8 @@ export function UsagePanel({ task }: { task: Task }) {
   const reportedWork = taskReportedWorkView(task);
   const ready = usage.kind === "ready" ? usage : null;
   const models = Object.keys(ready?.usage.models ?? {}).join(", ");
+  const estimatedCost = ready?.usage.estimatedCostUsd;
+  const hasEstimatedCost = typeof estimatedCost === "number" && Number.isFinite(estimatedCost);
   const stateValue = usage.kind === "pending"
     ? "Pending"
     : usage.kind === "calculating"
@@ -31,8 +33,8 @@ export function UsagePanel({ task }: { task: Task }) {
       accessibleValue: ready
         ? `${formatFullTokens(ready.usage.totalTokens)} tokens`
         : usage.label,
-      animated: usage.kind === "pending" || usage.kind === "calculating",
-      label: ready?.knownSoFar ? "Tokens · known so far" : "Tokens",
+      animated: usage.kind === "pending" || usage.kind === "calculating" || ready?.knownSoFar,
+      label: "Tokens",
       title: ready ? `${formatFullTokens(ready.usage.totalTokens)} tokens` : usage.label,
       value: ready ? formatCompactTokens(ready.usage.totalTokens) : stateValue,
     },
@@ -44,7 +46,9 @@ export function UsagePanel({ task }: { task: Task }) {
         : `Estimated cost ${accessibleState}${
           usage.kind === "unavailable" ? `: ${usage.label}` : ""
         }`,
-      animated: usage.kind === "pending" || usage.kind === "calculating",
+      animated: usage.kind === "pending"
+        || usage.kind === "calculating"
+        || (ready?.knownSoFar && hasEstimatedCost),
       label: "Estimated cost",
       title: ready?.usage.estimatedCostUsd == null
         ? "Estimated cost unavailable"
