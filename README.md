@@ -368,8 +368,8 @@ figures are labeled API-equivalent estimates; provenance identifies the online
 pricing request or offline fallback mode, and zero-priced unknown models show
 cost unavailable rather than a misleading `$0.00`. Per-turn cost is also
 unavailable when its cumulative boundaries used different ccusage versions or
-pricing modes. ccusage 20.0.20 may omit GPT-5.6 cache-write charges, so TaskChef
-labels that analyzer limitation instead of presenting the estimate as complete.
+pricing modes. TaskChef displays the cumulative estimate supplied by ccusage
+without applying a separate model-family or cache-write coverage policy.
 The same detail view reports lifecycle wall-clock elapsed time independently of
 ccusage. Each terminal turn shows **Elapsed** from `startedAt` to
 `result.updatedAt`; **Total reported work** sums only valid terminal-turn

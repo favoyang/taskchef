@@ -482,9 +482,6 @@ export function usagePresentation(usage, { wholeTask = false } = {}) {
     : "";
   const freshness = usage.sourceUpdatedAt ?? usage.sampledAt;
   provenance.textContent = `Source: ccusage${version}${pricingMode}${freshness ? ` · updated ${formatRelativeTime(freshness)}` : ""}. Dollar cost is an API-equivalent estimate${wholeTask ? " for the task" : " for this turn"}.`;
-  if (usage.provenance?.costCoverage === "cache_writes_unverified") {
-    provenance.textContent += " ccusage may omit GPT-5.6 cache-write charges.";
-  }
   container.append(provenance);
   return container;
 }

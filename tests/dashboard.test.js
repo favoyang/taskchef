@@ -147,7 +147,6 @@ function cachedUsageRecord({
         provider: "ccusage",
         version: "20.0.20",
         pricingMode: "offline",
-        costCoverage: "ccusage_reported",
         sessionCount: 1,
       },
       sampledAt: updatedAt,
