@@ -19,6 +19,7 @@ const PINNED_CCUSAGE_VERSION = taskchefPackage.optionalDependencies?.ccusage;
 const CCUSAGE_RESOLVER = fileURLToPath(new URL("./resolve-ccusage.js", import.meta.url));
 let npxResolvedCcusageInvocation = null;
 const USAGE_FILE_NAME = ".taskchef-usage.json";
+const USAGE_SCHEMA_VERSION = 2;
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
 const TOKEN_FIELDS = [
   "inputTokens",
@@ -92,10 +93,6 @@ function normalizeProvenance(value, name, { includeSessionCount = false } = {}) 
     pricingMode: value.pricingMode === "online" || value.pricingMode === "offline"
       ? value.pricingMode
       : null,
-    costCoverage: value.costCoverage === "cache_writes_unverified"
-      || value.costCoverage === "ccusage_reported"
-      ? value.costCoverage
-      : null,
     ...(includeSessionCount ? {
       sessionCount: nonNegativeNumber(value.sessionCount, `${name}.provenance.sessionCount`),
     } : {}),
@@ -127,10 +124,6 @@ function normalizeStoredSnapshot(value, name) {
   }
   snapshot.models = models;
   snapshot.provenance = normalizeProvenance(value.provenance, name, { includeSessionCount: true });
-  if (snapshot.provenance.pricingMode === null || snapshot.provenance.costCoverage === null) {
-    snapshot.estimatedCostUsd = null;
-    snapshot.costStatus = "unavailable";
-  }
   snapshot.sampledAt = timestampOrNull(value.sampledAt, `${name}.sampledAt`);
   snapshot.sourceUpdatedAt = timestampOrNull(value.sourceUpdatedAt, `${name}.sourceUpdatedAt`);
   return snapshot;
@@ -150,7 +143,7 @@ function normalizeStoredTurn(value, name) {
       ? null
       : nonNegativeNumber(value.estimatedCostUsd, `${name}.estimatedCostUsd`);
     const provenance = normalizeProvenance(value.provenance, name);
-    if (provenance.pricingMode === null || provenance.costCoverage === null) {
+    if (provenance.pricingMode === null) {
       normalized.estimatedCostUsd = null;
     }
     return {
@@ -271,9 +264,6 @@ export function aggregateCcusageSessions(payload, threadId, {
       provider: "ccusage",
       version,
       pricingMode,
-      costCoverage: Object.keys(models).some((model) => /^gpt-5\.6(?:-|$)/i.test(model))
-        ? "cache_writes_unverified"
-        : "ccusage_reported",
       sessionCount: sessions.length,
     },
     sampledAt,
@@ -627,21 +617,23 @@ export async function readUsageStore(workspace) {
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (details === null) return { schemaVersion: 1, tasks: {} };
+  if (details === null) return { schemaVersion: USAGE_SCHEMA_VERSION, tasks: {} };
   if (details.isSymbolicLink() || !details.isFile()) {
     throw new Error("TaskChef usage cache must be a regular file");
   }
   if (details.size > MAX_USAGE_FILE_BYTES) {
-    return { schemaVersion: 1, tasks: {} };
+    return { schemaVersion: USAGE_SCHEMA_VERSION, tasks: {} };
   }
   const value = JSON.parse(await readFile(filePath, "utf8"));
-  if (value?.schemaVersion !== 1 || !value.tasks || typeof value.tasks !== "object") {
+  if (![1, USAGE_SCHEMA_VERSION].includes(value?.schemaVersion)
+    || !value.tasks
+    || typeof value.tasks !== "object") {
     throw new Error("TaskChef usage cache has an unsupported schema");
   }
   const tasks = Object.entries(value.tasks);
-  if (tasks.length > 2_000) return { schemaVersion: 1, tasks: {} };
+  if (tasks.length > 2_000) return { schemaVersion: USAGE_SCHEMA_VERSION, tasks: {} };
   return {
-    schemaVersion: 1,
+    schemaVersion: USAGE_SCHEMA_VERSION,
     tasks: Object.fromEntries(tasks.map(([taskId, record]) => [
       taskId,
       normalizeStoredRecord(record, `usage task ${taskId}`),
@@ -672,7 +664,7 @@ export function compactUsageStore(store) {
     tasks[taskId] = compacted;
     approximateBytes += entryBytes;
   }
-  return { schemaVersion: 1, tasks };
+  return { schemaVersion: USAGE_SCHEMA_VERSION, tasks };
 }
 
 export async function writeUsageStore(workspace, store) {
@@ -704,7 +696,7 @@ export function usageDelta(current, previous = null) {
     if (!Number.isFinite(value) || value < 0) return null;
     delta[field] = value;
   }
-  const samePricingSource = previous === null || ["version", "pricingMode", "costCoverage"]
+  const samePricingSource = previous === null || ["version", "pricingMode"]
     .every((field) => current.provenance?.[field] === previous.provenance?.[field]);
   let estimatedCostUsd = !samePricingSource
     || current.estimatedCostUsd === null

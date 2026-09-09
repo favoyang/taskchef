@@ -263,7 +263,6 @@ test("dashboard renders a live notification with time and shared accessible desc
                     provider: "ccusage",
                     version: "20.0.20",
                     pricingMode: "online",
-                    costCoverage: "cache_writes_unverified",
                   },
                   sampledAt: timestamp,
                   sourceUpdatedAt: timestamp,
@@ -598,7 +597,7 @@ test("dashboard renders a live notification with time and shared accessible desc
       /Source: ccusage 20\.0\.20 · online pricing requested/,
     );
     assert.match(taskUsage.children[2].textContent, /API-equivalent estimate/);
-    assert.match(taskUsage.children[2].textContent, /may omit GPT-5\.6 cache-write charges/);
+    assert.doesNotMatch(taskUsage.children[2].textContent, /cache-write charges/);
     const workingTaskWithRetainedUsage = {
       ...snapshotTasks[0],
       status: "working",

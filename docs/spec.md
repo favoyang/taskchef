@@ -172,10 +172,12 @@ store a cumulative usage boundary, and MUST NOT receive a token or cost delta.
 A later executor turn MUST use the nearest preceding reliable executor
 boundary, skipping any intervening dashboard-manual turns.
 
-The mode-0600 `.taskchef-usage.json` cache stores only normalized cumulative
+The mode-0600 `.taskchef-usage.json` schema 2 cache stores only normalized cumulative
 token boundaries, per-turn deltas, model names, estimated cost, source version,
 and freshness. It is independent of task-log schema versions so legacy logs remain
-readable. Writes MUST use the workspace lock and atomic replacement. Symlinked
+readable. Schema 1 usage caches MUST migrate in memory by discarding their
+TaskChef-specific cost-coverage classification while preserving valid ccusage
+cumulative estimates. Writes MUST use the workspace lock and atomic replacement. Symlinked
 or unsupported cache files MUST be rejected. Writes MUST compact the derived
 cache to recent task projections, recent per-turn results, and the latest
 cumulative boundary. An oversized legacy cache MUST be treated as rebuildable
@@ -214,10 +216,11 @@ The online mode records TaskChef's request, not a claim about ccusage's internal
 cache. Dollar values MUST be labeled API-equivalent estimates. Positive token
 usage with a zero or missing analyzer cost MUST display cost unavailable, not
 `$0.00`. A per-turn dollar delta MUST be unavailable when its adjacent
-cumulative boundaries use different analyzer versions, requested pricing modes,
-or declared cost coverage. For GPT-5.6 with ccusage 20.0.20, provenance MUST
-disclose unverified cache-write coverage and TaskChef MUST NOT claim that the
-estimate includes those charges.
+cumulative boundaries use different analyzer versions or requested pricing
+modes. When ccusage supplies a valid cumulative estimate, TaskChef MUST display
+it without applying its own model-family or cache-write coverage policy. A model
+family change between otherwise compatible boundaries MUST NOT prevent TaskChef
+from deriving the per-turn estimate.
 The dashboard Settings response MUST report the provider version returned by
 the executable resolved for runtime use, not merely copy the dependency pin.
 

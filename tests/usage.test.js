@@ -112,7 +112,7 @@ test("ccusage adapter aggregates every session segment for one exact Codex threa
   assert.equal(usage.estimatedCostUsd, 0.03);
   assert.equal(usage.provenance.sessionCount, 2);
   assert.equal(usage.provenance.pricingMode, "online");
-  assert.equal(usage.provenance.costCoverage, "ccusage_reported");
+  assert.equal(Object.hasOwn(usage.provenance, "costCoverage"), false);
   assert.deepEqual(Object.keys(usage.models).sort(), ["gpt-test", "gpt-test-next"]);
   assert.equal(usage.sourceUpdatedAt, "2026-08-28T13:41:00.000Z");
 });
@@ -287,13 +287,42 @@ test("ccusage runtime metadata uses the executable's reported version", async ()
   });
 });
 
-test("GPT-5.6 estimates disclose that ccusage cache-write coverage is unverified", () => {
+test("GPT-5.6 cumulative estimates use the cost supplied by ccusage", () => {
   const usage = aggregateCcusageSessions({ sessions: [session("", {
     model: "gpt-5.6-sol",
     costUSD: 0.2884664,
   })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
   assert.equal(usage.estimatedCostUsd, 0.2884664);
-  assert.equal(usage.provenance.costCoverage, "cache_writes_unverified");
+  assert.equal(usage.costStatus, "estimated");
+  assert.equal(Object.hasOwn(usage.provenance, "costCoverage"), false);
+});
+
+test("an Astra-to-GPT-5.6 transition keeps compatible whole-task and turn estimates", () => {
+  const previous = aggregateCcusageSessions({ sessions: [session("", {
+    model: "gpt-6-astra",
+    costUSD: 0.02,
+  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  const current = aggregateCcusageSessions({ sessions: [
+    session("", { model: "gpt-6-astra", costUSD: 0.02 }),
+    session("_01a04878-e7d8-7d12-a393-c91eea3483fb", {
+      inputTokens: 4,
+      cacheReadTokens: 6,
+      outputTokens: 3,
+      reasoningOutputTokens: 1,
+      model: "gpt-5.6-sol",
+      costUSD: 0.03,
+    }),
+  ] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+
+  assert.equal(current.estimatedCostUsd, 0.05);
+  assert.deepEqual(Object.keys(current.models).sort(), ["gpt-5.6-sol", "gpt-6-astra"]);
+  const delta = usageDelta(
+    { ...current, provenance: { ...current.provenance, costCoverage: "cache_writes_unverified" } },
+    { ...previous, provenance: { ...previous.provenance, costCoverage: "ccusage_reported" } },
+  );
+  assert.equal(delta.totalTokens, 13);
+  assert.equal(delta.estimatedCostUsd, 0.030000000000000002);
+  assert.equal(delta.costStatus, "estimated");
 });
 
 test("turn deltas preserve cached and reasoning subsets and reject decreasing snapshots", () => {
@@ -494,15 +523,18 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
   assert.equal(store.tasks[second.id].turns[SECOND_TURN].provenance.provider, "ccusage");
   assert.ok(store.tasks[second.id].turns[SECOND_TURN].sampledAt);
 
+  store.schemaVersion = 1;
   delete store.tasks[second.id].task.provenance.pricingMode;
-  delete store.tasks[second.id].task.provenance.costCoverage;
+  store.tasks[second.id].task.provenance.costCoverage = "cache_writes_unverified";
   delete store.tasks[second.id].turns[SECOND_TURN].provenance.pricingMode;
-  delete store.tasks[second.id].turns[SECOND_TURN].provenance.costCoverage;
+  store.tasks[second.id].turns[SECOND_TURN].provenance.costCoverage = "ccusage_reported";
   await writeFile(path.join(workspace, ".taskchef-usage.json"), JSON.stringify(store));
   const legacy = await readUsageStore(workspace);
-  assert.equal(legacy.tasks[second.id].task.estimatedCostUsd, null);
+  assert.equal(legacy.schemaVersion, 2);
+  assert.equal(legacy.tasks[second.id].task.estimatedCostUsd, 0.03);
   assert.equal(legacy.tasks[second.id].turns[SECOND_TURN].estimatedCostUsd, null);
-  assert.equal(legacy.tasks[second.id].turns[SECOND_TURN].provenance.costCoverage, null);
+  assert.equal(Object.hasOwn(legacy.tasks[second.id].task.provenance, "costCoverage"), false);
+  assert.equal(Object.hasOwn(legacy.tasks[second.id].turns[SECOND_TURN].provenance, "costCoverage"), false);
 });
 
 test("a stable pre-turn snapshot waits for advancement before recording a boundary", async () => {
@@ -1523,6 +1555,7 @@ test("usage cache compaction retains recent tasks and only useful boundary histo
     },
   ]));
   const compacted = compactUsageStore({ schemaVersion: 1, tasks });
+  assert.equal(compacted.schemaVersion, 2);
   assert.equal(Object.keys(compacted.tasks).length, 1_000);
   assert.ok(compacted.tasks["task-2000"]);
   assert.equal(Object.keys(compacted.tasks["task-2000"].turns).length, 250);
@@ -1565,13 +1598,13 @@ test("an oversized derived cache is recoverable and replaced by a bounded write"
   const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-oversized-"));
   const cachePath = path.join(workspace, ".taskchef-usage.json");
   await writeFile(cachePath, Buffer.alloc((16 * 1024 * 1024) + 1));
-  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 1, tasks: {} });
+  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 2, tasks: {} });
   await writeUsageStore(workspace, { schemaVersion: 1, tasks: {} });
   assert.ok((await stat(cachePath)).size < 16 * 1024 * 1024);
-  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 1, tasks: {} });
+  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 2, tasks: {} });
   await writeFile(cachePath, JSON.stringify({
     schemaVersion: 1,
     tasks: Object.fromEntries(Array.from({ length: 2_001 }, (_, index) => [`task-${index}`, {}])),
   }));
-  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 1, tasks: {} });
+  assert.deepEqual(await readUsageStore(workspace), { schemaVersion: 2, tasks: {} });
 });
