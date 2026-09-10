@@ -857,7 +857,7 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
   });
   assert.deepEqual(await stale(), { action: "failed" });
   assert.deepEqual(staleDiagnostics, [
-    "TaskChef dashboard autostart skipped: verified older TaskChef 7.22.0 listener could not complete authenticated handoff; it was left untouched.",
+    "TaskChef dashboard autostart skipped: recognized older TaskChef 7.22.0 listener refused graceful shutdown; it was left running.",
   ]);
   assert.doesNotMatch(staleDiagnostics[0], /owner record|sensitive/);
 
@@ -3873,7 +3873,7 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
   assert.doesNotMatch(workflows, /task resolve|schema 1-3|updatedBy: hook/);
 });
 
-test("workspace contract inventories both private dashboard lifecycle records", async () => {
+test("workspace contract excludes removed dashboard ownership and handoff records", async () => {
   const readme = await readFile(path.resolve("README.md"), "utf8");
   const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
   const lifecycle = await readFile(path.resolve("docs/dashboard-lifecycle.md"), "utf8");
@@ -3881,13 +3881,13 @@ test("workspace contract inventories both private dashboard lifecycle records", 
     ".taskchef-dashboard-owner.json",
     ".taskchef-dashboard-handoff.json",
   ]) {
-    assert.ok(readme.includes(fileName));
-    assert.ok(spec.includes(fileName));
-    assert.ok(lifecycle.includes(fileName));
+    assert.equal(readme.includes(fileName), false);
+    assert.equal(spec.includes(fileName), false);
+    assert.equal(lifecycle.includes(fileName), false);
   }
-  assert.match(readme, /mode-0600[\s\S]*retained[\s\S]*atomically/);
-  assert.match(spec, /mode-`0600`[\s\S]*retained[\s\S]*atomically/);
-  assert.match(lifecycle, /contains no control secret/);
+  assert.match(readme, /Lease state is not transferred across versions/);
+  assert.match(spec, /MUST NOT create owner, secret, or handoff files/);
+  assert.match(lifecycle, /request-shape checks, not authentication/);
 });
 
 test("release automation pins the shared marketplace to the exact npm version", async () => {

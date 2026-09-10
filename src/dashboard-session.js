@@ -1,7 +1,6 @@
 const DEFAULT_CHECK_INTERVAL_MS = 1_000;
 const DEFAULT_EXIT_GRACE_MS = 15_000;
 export const MAX_DASHBOARD_SESSION_PIDS = 64;
-export const MAX_TRANSFERRED_DASHBOARD_SESSION_PIDS = MAX_DASHBOARD_SESSION_PIDS - 1;
 
 export function processIsAlive(pid, processObject = process) {
   try {
@@ -76,10 +75,6 @@ export function createDashboardSessionLease({
       }
       pids.add(pid);
       absentSince = null;
-    },
-    snapshot() {
-      activePids();
-      return [...pids];
     },
     tick,
     close() {
