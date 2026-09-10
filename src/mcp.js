@@ -109,7 +109,7 @@ const preparationSchema = z.object({
 
 const dashboardSchema = z.object({
   action: z.enum(["started", "reused"]),
-  launcher: z.literal("session"),
+  launcher: z.enum(["session", "standalone", "mcp"]),
   url: z.string().url(),
   workspace: z.string(),
   taskchefVersion: z.string(),
@@ -126,7 +126,7 @@ function toolResult(key, value, message) {
 function dashboardAutostartDiagnostic(error) {
   const message = typeof error?.message === "string" ? error.message : "";
   if (typeof error?.staleTaskchefVersion === "string") {
-    return `TaskChef dashboard autostart skipped: verified older TaskChef ${error.staleTaskchefVersion} listener could not complete authenticated handoff; it was left untouched.`;
+    return `TaskChef dashboard autostart skipped: recognized older TaskChef ${error.staleTaskchefVersion} listener refused graceful shutdown; it was left running.`;
   }
   if (error?.code === "EADDRINUSE" || /port conflict|already in use/i.test(message)) {
     return "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.";
@@ -204,7 +204,7 @@ export function createTaskChefMcpServer({
     {
       title: "Ensure TaskChef dashboard",
       description:
-        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts or reuses the authenticated TaskChef dashboard for this Codex session and canonical workspace; verified older TaskChef session listeners are handed off to the installed version, while standalone and unknown listeners are never terminated or replaced.",
+        "Best-effort ensure the canonical TaskChef dashboard is available on 127.0.0.1:3210. Starts or reuses the exact recognized TaskChef dashboard for this Codex session and canonical workspace; recognized older same-workspace listeners are gracefully restarted to the installed version, while newer and unknown listeners remain running.",
       inputSchema: {},
       outputSchema: { dashboard: dashboardSchema },
       annotations: {

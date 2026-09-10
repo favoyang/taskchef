@@ -59,15 +59,10 @@ is dated research, not contract.
 
 ## Workspace contract
 
-TaskChef MUST manage only `AGENTS.md`, `taskchef.json`, `tasks.jsonl`, the
-optional `.taskchef-usage.json` cache, and the optional dashboard lifecycle
-records `.taskchef-dashboard-owner.json` and
-`.taskchef-dashboard-handoff.json` inside the dispatcher workspace. It MUST
-preserve unrelated paths. The owner record MUST be a retained mode-`0600`
-current-listener identity and control credential that is atomically replaced by
-a new owner. The handoff record MUST be a retained mode-`0600`, secret-free,
-credential-signed final lease snapshot that is atomically overwritten by the
-next finalized handoff.
+TaskChef MUST manage only `AGENTS.md`, `taskchef.json`, `tasks.jsonl`, and the
+optional `.taskchef-usage.json` cache inside the dispatcher workspace. It MUST
+preserve unrelated paths. Dashboard process identity and Codex-session leases
+MUST remain in memory and MUST NOT create owner, secret, or handoff files.
 
 `taskchef.json` MUST have schema version 2, the following required fields, and
 an optional exact `dashboard` object:
@@ -343,11 +338,8 @@ object. Validation, marker, identity, uniqueness, freshness, or filesystem
 failures are surfaced as tool errors and MUST NOT partially mutate the log.
 
 ### `ensure_dashboard`
-**Caller:** dispatcher. **Mutation:** starts or reuses the authenticated
-Codex-session-scoped loopback dashboard. The first start writes a private
-dashboard ownership record in the canonical workspace. The record remains
-after shutdown and the next owner atomically replaces it before reporting
-startup success.
+**Caller:** dispatcher. **Mutation:** starts or reuses the
+Codex-session-scoped loopback dashboard.
 
 **Input:** empty object.
 
@@ -356,7 +348,7 @@ startup success.
 ```text
 { dashboard: {
   action: "started" | "reused",
-  launcher: "session",
+  launcher: "session" | "standalone" | "mcp",
   url: "http://127.0.0.1:3210/",
   workspace: string,
   taskchefVersion: string,
@@ -372,84 +364,65 @@ and concurrent calls are idempotent. The stable default MUST bind only to
 session PID, or credential.
 
 Exact reuse MUST require the fixed service/schema, TaskChef version,
-dashboard-server version, canonical workspace, and `session` launcher identity.
-It MUST additionally prove the private owner credential and use a fresh,
-single-use, action-bound HMAC to register the MCP's original Codex parent PID.
-The registration acknowledgement and every transferred lease set MUST carry a
-separate response HMAC bound to the request nonce and complete accepted result.
+dashboard-server version, canonical workspace, and recognized launcher identity.
+A `session` listener MUST register the MCP's original Codex parent PID in its
+in-memory lease. Every launcher MUST complete another exact health probe before
+ensure reports `reused`, and the response MUST report the observed launcher.
 The independent dashboard MUST survive closure of an individual MCP transport.
 The session manager MUST require an explicit nonzero port because a detached
 child cannot safely return an ephemeral bound port without an additional IPC
-ownership channel. Direct foreground server callers MAY continue to bind port
+readiness channel. Direct foreground server callers MAY continue to bind port
 zero when they retain the returned listener.
 
-The dashboard MUST track only explicitly registered PIDs using non-signalling
+The dashboard MUST track only same-version explicitly registered PIDs using non-signalling
 existence probes. Once every registered PID is absent for the grace period, it
-MUST gracefully close its HTTP listener and exit. A new authenticated live
+MUST gracefully close its HTTP listener and exit. A new live
 registration during the grace period MUST cancel expiry. This is a local
 best-effort session guard, not a Codex restart guarantee.
 
-An older TaskChef version MAY be retired only when its exact health identity
-reports the same canonical workspace and an `mcp` or `session` launcher; a
-private regular mode-0600 owner record exactly matches that listener; and a
-fresh nonce-bound HMAC challenge proves control of the record's secret. Only
-then MAY the new MCP send an action- and nonce-bound authenticated loopback
-handoff. Before retiring a prior `session` listener, an idempotent prepare
-action MUST fence new registrations, register the activating Codex PID,
-validate and return the bounded live PID lease set while the old listener
-remains running. Only a separate authenticated commit after the caller verifies
-that result MAY schedule shutdown. A lost prepare response MUST be retryable,
-and an abandoned preparation MUST expire without shutting down the listener. A
-full, failed, or malformed transfer MUST leave the
-listener running and MUST NOT acknowledge a concurrent registration that will
-be absent from the returned set. A prior `mcp` listener MAY instead receive a
-separately authenticated graceful shutdown request.
-A commit MUST begin a short bounded finalization grace that allows concurrent
-authenticated activators to join. Its response MUST contain a credential-bound
-proof of the final immutable complete lease snapshot. The listener MUST remain
-available for a bounded commit-response retry window before shutdown, so a
-surviving activator can recover if the elected one exits before launch. An
-activator observing the authenticated old-owner listener gap MUST wait for the
-elected replacement and MUST NOT bind an older version into that gap.
-The finalized transferable snapshot MUST reserve one bounded lease slot for a
-distinct recovery activator. If that complete union cannot fit, commit MUST fail
-without stopping the old listener. When different compatible newer versions
-race, a higher version that loses the bind MUST authenticate and replace the
-lower winner rather than accepting it as final.
-Before acknowledging commit, the retiring session MUST atomically persist the
-credential-bound final snapshot in a private mode-`0600` same-workspace record
-that contains no secret. A replacement MAY use that record only after verifying
-its exact workspace, listener identity, handoff identifier when known, bounded
-PID set, and HMAC with the private owner credential. It MUST ignore the record
-once replacement ownership is published, but MUST NOT unlink it after that
-transition because a newer handoff may already have atomically replaced it. The
-single retained record MUST be overwritten only by a newer finalized handoff
-and MUST remain unusable against a different owner identity or credential.
-Owner and handoff publication MUST sync the completed private file, atomically
-rename it, and sync the containing canonical workspace directory before
-reporting success. Finalization MUST fence further handoff joins before taking
-and persisting the immutable snapshot.
-The new MCP MAY then start its current `session` version and MUST NOT downgrade
-a newer listener. Concurrent startup and handoff MUST converge on one
-authenticated listener. Single-use control nonces MUST be retained in a fixed,
-time-bounded replay cache that refuses overflow while entries remain valid.
+When exact structured health identifies an older TaskChef dashboard for the
+same canonical workspace, the new MCP MUST request simple graceful shutdown,
+wait a bounded time for port release, and start its installed `session` version
+within the same ensure operation. It MUST NOT transfer in-memory PID leases
+across versions. The replacement initially knows only the activating session;
+a later ensure MAY register another live session or restart the dashboard after
+the activating lease expires.
 
-The credential MUST NOT appear in health responses, requests, diagnostics, or
-logs. A standalone, unknown, malformed, different-workspace, newer, unproven,
-spoofed, or legacy listener without valid ownership metadata MUST produce a
-concise actionable conflict and MUST NOT receive a shutdown request, signal,
-or process-level termination attempt. TaskChef MUST NOT discover or kill port
-owners. An invalid workspace, initial task log, or ownership write MUST leave
-no newly owned listener.
+A recognized newer TaskChef listener MUST NOT be downgraded. Concurrent
+activation and replacement MUST converge through health probing and exclusive
+port binding. Unknown, malformed, different-workspace, or unrelated occupants
+MUST receive no control request or process signal and MUST remain untouched.
+TaskChef MUST NOT discover or kill port owners.
+
+TaskChef's dashboard uses a trusted, single-user localhost threat model. Exact
+bounded health identity is sufficient service recognition and MUST NOT be
+described as cryptographic authentication. The dashboard MUST NOT create or use
+an owner secret, HMAC challenge, durable ownership record, handoff record,
+prepare/commit protocol, recovery lease, or cross-version lease transfer.
+
+The session-registration and shutdown controls MUST remain loopback-only and
+MUST require the exact listener Host and Origin, JSON content type, a non-simple
+TaskChef control header, and an exact bounded request body containing the exact
+structured health identity observed by the caller. The receiver MUST compare
+that expected identity with its own identity before registering a session or
+accepting shutdown. It MUST refuse a mismatch, and the manager MUST probe again
+before applying lifecycle rules to the current occupant. These request-shape
+checks protect against ordinary cross-site browser requests; they MUST NOT be
+described as authentication. Future LAN access is outside this contract and
+requires a separate opt-in design with password-backed user authentication and
+suitable transport protection.
+
+A listener using the former HMAC control protocol will refuse the new simple
+shutdown request. It MUST be reported as a recognized older TaskChef conflict
+and left running. Crossing that one-time compatibility boundary requires the
+verified legacy listener to stop through its existing lifecycle before ensure
+is retried; TaskChef MUST NOT add a process-kill fallback.
 
 Detached session startup MUST use a private child readiness acknowledgement
-sent only after listener bind and atomic ownership publication. Startup errors
-MUST propagate through that channel. A bounded readiness timeout MUST
-cooperatively cancel the exact child so late initialization cannot strand an
-unreported listener. Ownership publication MUST check cancellation before its
-atomic replacement, and the listener MUST retain the port until that write
-commits or aborts on every shutdown path so an older writer cannot overwrite a
-successor's credential.
+sent only after listener bind, initialization, and initial in-memory lease
+creation. Startup errors MUST propagate through that channel. A bounded
+readiness timeout MUST cooperatively cancel the exact child so late
+initialization cannot strand an unreported listener.
 
 MCP EOF, explicit close, protocol close, SIGINT, SIGTERM, transport-start
 failure, and MCP-parent loss MUST still bound MCP shutdown. They MUST close the
@@ -768,15 +741,16 @@ permissions for dashboard availability. Availability is best-effort while a
 registered Codex session process is alive and is not guaranteed while Codex is
 closed.
 
-Releases predating authenticated dashboard handoff are legacy listeners. A
-verified legacy listener MUST be reported distinctly from an unknown port
-conflict but MUST remain untouched; one final manual cleanup MAY be required
-when upgrading from such a release. Once both sides implement the same control
-protocol, compatible prior-version handoff is automatic.
+Releases using the former HMAC dashboard control protocol are legacy listeners.
+A verified legacy listener MUST be reported distinctly from an unknown port
+conflict and MUST remain running when it refuses simple graceful shutdown. One
+final stop through that listener's existing lifecycle is required when crossing
+this boundary. Releases implementing simple localhost control replace older
+recognized versions automatically.
 
 Installing or replacing plugin files MUST NOT be described as activating the
 new MCP code. Release verification MUST install the plugin, activate or reload
 the new MCP process, ensure the dashboard, and verify the expected TaskChef
-version, dashboard protocol `serverVersion`, `session` launcher, canonical workspace,
+version, dashboard protocol `serverVersion`, reported launcher, canonical workspace,
 and canonical URL. Exact-compatible session-listener reuse remains valid; installation MUST NOT be
 claimed to reload Codex automatically.

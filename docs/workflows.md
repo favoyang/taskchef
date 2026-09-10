@@ -24,8 +24,8 @@ start, upgrade, shutdown, and security rationale.
 | `src/config-audit.js` | Durable prepared/terminal configuration-mutation journal. |
 | `src/cli.js` | Administration, normalized cached briefs, inspection, diagnostics, and dashboard startup. |
 | `src/dashboard.js` | Versioned health identity, validated compact snapshots, SSE fan-out, on-demand details, and bounded open actions. |
-| `src/dashboard-manager.js` | Concurrent session ensure, authenticated reuse and upgrade handoff, and safe conflicts. |
-| `src/dashboard-session-process.js` | Independent loopback server, private ownership publication, signals, and Codex-session lease. |
+| `src/dashboard-manager.js` | Concurrent session ensure, exact health reuse, bounded version replacement, and safe conflicts. |
+| `src/dashboard-session-process.js` | Independent loopback server, signals, and in-memory Codex-session lease. |
 | `src/dashboard-session.js` | Exact registered-PID liveness checks and grace-period expiry. |
 | `src/usage.js` | Optional bounded ccusage execution, exact primary-thread mapping, normalized aggregation, and the private usage cache. |
 | `src/usage-tracker.js` | Deferred sampling, cumulative boundaries, historical availability, and per-turn deltas. |
@@ -46,31 +46,31 @@ sequenceDiagram
   participant D as Dispatcher
   participant M as TaskChef MCP
   participant H as Loopback health
-  participant S as Dashboard session process
+  participant S as Dashboard process
   M->>M: Read dashboard.autostart (absent means true)
   M->>M: Best-effort ensure before MCP transport connects
   D->>M: ensure_dashboard()
   M->>M: Serialize concurrent ensure calls
   M->>H: GET 127.0.0.1:3210/api/health
-  alt Exact service, versions, canonical workspace, and session launcher
+  alt Exact service, versions, canonical workspace, and recognized launcher
     H-->>M: Bounded compatible identity
-    M->>S: Authenticate owner and register Codex parent PID
-    M-->>D: reused, URL, workspace, versions
+    M->>S: Register Codex parent PID when launcher is session
+    M->>H: Verify exact health again
+    M-->>D: reused, URL, workspace, versions, actual launcher
   else No listener
     H--xM: Connection refused
     M->>S: Launch session process on 127.0.0.1:3210
-    S-->>M: Private owner metadata and bounded identity
+    S-->>M: Ready after bind, initialization, and initial lease
     M-->>D: started, URL, workspace, versions
-  else Verified older TaskChef listener for this workspace
-    M->>S: Authenticated prepare, lease join, and commit
-    S-->>M: Signed final leases and bounded retry before shutdown
+  else Recognized older TaskChef listener for this workspace
+    M->>S: Simple guarded graceful shutdown request
+    S-->>M: Port released within bounded wait
     M->>S: Launch installed session version
     M-->>D: started, URL, workspace, versions
-  else Standalone, unknown, stale, or different workspace
+  else Newer, unknown, malformed, or different workspace
     H-->>M: Missing or incompatible identity
     M-->>D: Actionable conflict, listener untouched
   end
-  Note over D: Continue even when ensure failed
   D-->>D: Answer, report, or dispatch
   Note over D: Created-thread directive, when any, precedes final dashboard link
 ```
@@ -78,32 +78,39 @@ sequenceDiagram
 When one MCP transport or plugin process closes, the dashboard remains while a
 registered Codex session PID is alive. After every registered PID disappears
 for the grace period, the dashboard closes and exits. A foreground
-`taskchef dashboard` listener identifies itself as standalone and is never
-reused as the canonical session dashboard. No TaskChef path terminates an
-incompatible listener or installs OS persistence.
+`taskchef dashboard` listener identifies itself as `standalone`. An
+exact-current, healthy same-workspace listener with a recognized `standalone`,
+`mcp`, or `session` launcher may be reused; ensure reports its actual launcher,
+and only `session` listeners register Codex PID leases. No TaskChef path
+terminates an incompatible listener or installs OS persistence.
 
 Autostart and explicit ensures share the same manager promise, while
-cross-process port races converge through authenticated reuse. An
+cross-process port races converge through exact health recognition and port binding. An
 explicit `dashboard.autostart: false` skips only activation-time ensure. Any
 failure is reduced to a fixed stderr diagnostic; tool registration and MCP
 availability continue. Activation never opens a browser.
 
 ## Release-install verification
 
-The practical release handoff ends in this order:
+The practical release-install sequence ends in this order:
 
 1. Install the released plugin.
 2. Activate or reload its new TaskChef MCP process.
 3. Run `$taskchef-dashboard` or call `ensure_dashboard`.
-4. Verify the expected TaskChef version, protocol `serverVersion`, `session`
+4. Verify the expected TaskChef version, protocol `serverVersion`, reported
    launcher, canonical workspace, and canonical URL returned by the dashboard identity.
 
 Replacing plugin files alone cannot execute autostart because old code remains
 in an already-running MCP process. Installation does not necessarily reload
-Codex. Activation of the installed MCP authenticates and retires a verified
-older TaskChef listener before starting the installed session version. An
-exact-compatible session dashboard may be reused; a newer, standalone, or
-unknown listener is never terminated or replaced.
+Codex. Activation of the installed MCP asks a recognized older same-workspace
+TaskChef listener to shut down gracefully. If the listener accepts, TaskChef
+waits boundedly for its port and starts the installed session version. If the
+listener lacks the compatible callback or refuses the request, it remains
+running and ensure reports a conflict. An exact-compatible same-workspace
+dashboard with any recognized launcher may be reused; a newer or unknown
+listener is never terminated or replaced. A release using the former HMAC
+control protocol needs one verified stop through its existing lifecycle before
+the simple control protocol can take over.
 
 ## Normal delegation and self-linking
 

@@ -201,7 +201,7 @@ test("dashboard authority omits the normalized HTTP default port", () => {
   assert.equal(dashboardAuthority("::1", 80), "[::1]");
 });
 
-test("dashboard handoff uses complete SemVer precedence", () => {
+test("dashboard version replacement uses complete SemVer precedence", () => {
   assert.equal(priorCompatibleVersion("7.23.0-beta.1", "7.23.0-beta.2"), true);
   assert.equal(priorCompatibleVersion("7.23.0-alpha", "7.23.0-beta"), true);
   assert.equal(priorCompatibleVersion("7.23.0-beta.2", "7.23.0"), true);

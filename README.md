@@ -62,8 +62,6 @@ AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 Codex project index, dashboard preference, and delegation metadata
 tasks.jsonl     one task snapshot per line (schema 10; schema 4-9 migration supported)
 .taskchef-usage.json   optional mode-0600 ccusage snapshot and turn-boundary cache
-.taskchef-dashboard-owner.json   optional mode-0600 current dashboard identity and control credential; retained and atomically replaced
-.taskchef-dashboard-handoff.json   optional mode-0600 secret-free signed final lease snapshot; retained and atomically overwritten
 ```
 
 Index or inspect Codex projects conversationally:
@@ -272,40 +270,36 @@ $taskchef-dashboard Ensure and open the TaskChef dashboard.
 MCP activation and `$taskchef-dashboard` call the input-free `ensure_dashboard`
 MCP tool. It starts at most one loopback dashboard scoped to the running Codex
 session on `127.0.0.1:3210`, or reuses a listener only when its bounded
-`/api/health` identity proves the exact TaskChef/dashboard-server version,
-canonical workspace, and `session` launcher. The response says `started` or
-`reused` and includes the stable URL, canonical workspace, and versions.
+`/api/health` identity reports the exact TaskChef/dashboard-server version,
+canonical workspace, and recognized launcher. The response says `started` or
+`reused` and includes the stable URL, canonical workspace, versions, and actual
+launcher.
 
 The dashboard is launched by MCP but is not hosted by one MCP transport. It
 therefore survives an individual MCP close, stdin EOF, signal, or plugin reload.
-Each MCP securely registers its original Codex parent PID; after every
-registered Codex session PID disappears for a grace period, the dashboard
-closes and exits. Activating an installed newer TaskChef MCP authenticates and
-retires a compatible older `mcp`- or `session`-owned dashboard for the same
-canonical workspace, then starts the installed version. These are best-effort
+Only a listener launched as `session` registers each same-version MCP's original
+Codex parent PID in its in-memory lease. After every registered Codex session
+PID disappears for a grace period, the dashboard closes and exits. Activating
+an installed newer TaskChef MCP recognizes and
+gracefully stops an older TaskChef dashboard for the same canonical workspace,
+waits boundedly for the port, then starts the installed version in that ensure.
+Lease state is not transferred across versions; the replacement initially knows
+only the activating session. These are best-effort
 local guards, not a claim that Codex supplies a restart guarantee. TaskChef adds
 no daemon or OS-persistent component. See the complete
 [dashboard lifecycle](docs/dashboard-lifecycle.md).
 
-Authenticated handoff requires the older listener to have written TaskChef's
-private mode-0600 ownership record in that canonical workspace. A nonce-bound
-HMAC challenge proves the listener has the matching secret before TaskChef
-sends an authenticated two-phase handoff. A session listener prepares by
-fencing ordinary joins, adding the activating Codex PID, and returning a signed
-bounded lease snapshot while remaining live. A separate authenticated commit
-allows a short concurrent-activator grace, returns the signed final immutable
-lease set, and then schedules graceful shutdown after a bounded response-retry
-window. A mode-`0600`, secret-free, signed final-snapshot record permits exact
-lease recovery if every commit response is lost; a prior MCP-owned listener
-receives a separately authenticated graceful shutdown request. The secret is never
-returned by `/api/health`, sent in a request, or logged. Standalone,
-different-workspace, newer, malformed,
-unverified, and spoofed listeners are left untouched. Versions predating this
-protocol cannot be taken over safely and may require one final manual cleanup.
-The ownership record is durable metadata: shutdown retains it, and the next
-MCP owner atomically replaces it after binding. This avoids both a live
-credentialless retirement window and an old process deleting its replacement's
-proof.
+TaskChef uses a trusted, single-user localhost model. Exact structured health is
+sufficient service recognition; it is not cryptographic authentication. Simple
+session and shutdown controls require exact Host and Origin, JSON content, a
+non-simple request header, and an exact bounded body to block ordinary
+cross-site browser requests. Each control names the exact health identity the
+caller observed; the listener refuses a stale identity and the caller probes the
+port again before deciding what to do. Unknown, malformed, different-workspace,
+unrelated, and newer listeners remain untouched. A release using the former HMAC control
+protocol refuses the new simple shutdown request, so the first upgrade across
+that boundary may require stopping that verified legacy TaskChef listener once
+before ensuring again.
 
 Autostart is enabled when `dashboard` is absent and in new workspaces. To opt
 out, add this optional exact object to `taskchef.json` while retaining its other
@@ -382,10 +376,9 @@ The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
 The Settings page shows the ccusage version reported by the executable that
 TaskChef resolves at runtime.
-The canonical port is owned by a dashboard session process initialized by the
-TaskChef MCP before its tool transport connects. Health identity records a
-`session` launcher, and MCP recovery reuses only another exact-compatible,
-authenticated session dashboard;
+The canonical port is normally owned by a dashboard session process initialized
+by the TaskChef MCP before its tool transport connects. MCP recovery reuses an
+exact-compatible same-workspace dashboard and reports its actual launcher;
 a foreground `taskchef dashboard` process is intentionally standalone so its
 child commands cannot silently inherit an agent-shell sandbox.
 Task and result times are relative through 29 days (with minute detail for the
@@ -400,11 +393,16 @@ its task disappears; selecting it then explains that current details are no
 longer available.
 Apart from an explicit manual state selection from the task-detail menu, it does not mutate
 TaskChef data and prints its local URL. A foreground dashboard identifies
-itself as standalone and is never reused on the canonical MCP port. If a
-standalone, unknown, different-workspace, or stale-version process owns port
-3210, TaskChef reports a concise conflict and never kills or replaces that
-process. The foreground CLI similarly asks you to stop the listener or choose
-another `--port`.
+itself as `standalone`. An exact-current, healthy same-workspace listener with a
+recognized `standalone`, `mcp`, or `session` launcher may be reused on the
+canonical MCP port; ensure reports its actual launcher, and only `session`
+listeners register Codex PID leases. If an unknown, malformed, or
+different-workspace process owns port 3210, TaskChef reports a concise conflict
+and never kills that process. A recognized older same-workspace TaskChef
+listener receives a simple guarded graceful shutdown request. If it lacks the
+compatible callback or refuses the request, it remains running and ensure
+reports a conflict. The foreground CLI similarly asks you to stop a conflicting
+listener or choose another `--port`.
 
 The health endpoint contains only a fixed service marker, health schema,
 TaskChef version, dashboard-server version, canonical workspace, and launcher.
@@ -472,24 +470,22 @@ does not necessarily reload Codex. Then run `$taskchef-dashboard` (or call
 
 - the expected released TaskChef version;
 - the expected dashboard protocol `serverVersion`;
-- the `session` dashboard launcher;
+- the reported dashboard launcher (`session` for a newly started canonical dashboard);
 - the canonical TaskChef workspace path;
 - the canonical `http://127.0.0.1:3210/` URL.
 
 The release-install sequence is therefore: install plugin, activate or reload
 the new MCP process, ensure the dashboard, then verify TaskChef version,
-protocol `serverVersion`, `session` launcher, canonical workspace, and URL.
-Exact-compatible session servers may be reused; standalone and unknown listeners
-remain untouched.
+protocol `serverVersion`, reported launcher, canonical workspace, and URL.
+Exact-compatible same-workspace servers with a recognized launcher may be
+reused; unknown listeners remain untouched.
 
 If autostart reports a **verified older TaskChef** listener, the port occupant
-passed the bounded TaskChef identity check but could not complete authenticated
-handoff. For a release older than the ownership protocol, stop that one known
-legacy MCP process once through the application/session that launched it, then
-activate the installed plugin again. Do not kill an arbitrary port owner. A
-listener from a handoff-capable prior release should retire automatically; if
-it does not, retain it for diagnosis because TaskChef deliberately refuses to
-weaken the ownership proof.
+passed the bounded TaskChef identity check but refused the simple graceful
+shutdown request. Releases using the former HMAC control protocol form a
+one-time compatibility boundary: stop that verified legacy TaskChef listener
+through the application/session that launched it, then activate the installed
+plugin and ensure again. Do not kill an arbitrary port owner.
 
 ## Development
 
