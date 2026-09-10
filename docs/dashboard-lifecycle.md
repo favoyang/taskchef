@@ -42,26 +42,6 @@ Settings reports the version returned by the resolved ccusage executable.
 
 ![Pending token usage in the task detail view](images/dashboard-token-pending.jpg)
 
-For orchestrated tasks, the current usage integration measures the visible
-parent only. The detail view labels that coverage as partial, reports the
-included parent and missing started descendants, and does not present the
-parent total as whole-task usage. Legacy tasks retain complete parent-only
-coverage because they have no TaskChef-managed descendants.
-
-## Orchestrated execution presentation
-
-The task detail view exposes the negotiated execution mode and revision. For
-an orchestrated turn it also shows the classified intent, accepted scope,
-immutable plan reference when present, ordered phase ledger, resolved role,
-opaque agent handle, and any explicitly evidenced child thread binding. The
-dashboard treats this ledger as parent-owned telemetry: it does not infer child
-identity or phase success from titles, summaries, or timing.
-
-While a phase is reserved or running, the dashboard withholds manual terminal
-outcomes so a browser action cannot race the orchestrator's phase ledger. The
-server independently enforces the same fence. Legacy tasks show an explicit
-single-executor state instead of synthesizing phase history.
-
 ## Reported work presentation
 
 The task detail view reports wall-clock elapsed time from TaskChef lifecycle

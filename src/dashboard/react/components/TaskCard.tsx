@@ -18,7 +18,6 @@ export function TaskCard({
   task: Task;
 }) {
   const latest = latestTurnPresentation(task);
-  const currentPhase = task.latestTurn?.phases?.find((phase) => ["reserved", "running"].includes(phase.state));
   return (
     <Paper className="taskchef-task-row" component="article" p="md" radius="md" withBorder>
       <Stack className="taskchef-task-main" gap="sm">
@@ -35,11 +34,6 @@ export function TaskCard({
               </Stack>
             </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
-            {currentPhase && (
-              <Text c="teal" mt={2} size="xs">
-                {currentPhase.kind} · {currentPhase.role} · attempt {currentPhase.attempt}
-              </Text>
-            )}
           </Box>
 
           <Box className="taskchef-summary-grid">

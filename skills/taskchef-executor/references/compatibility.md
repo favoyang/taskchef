@@ -8,8 +8,7 @@ Existing delegated tasks may include the former inline ownership, linking, and
 re-dispatching. Prefer `report_state` when available. If an older installed
 TaskChef exposes only `report_result`, follow its inline protocol; after an
 upgrade, the deprecated `report_result` alias remains available for exact
-legacy-mode retries. It cannot write an orchestrated record or bypass phase
-completion gates. Also accept historical trailing instructions that place the
+legacy retries. Also accept historical trailing instructions that place the
 marker before the invocation, with or without the former blank line before the
 marker; the former compact assignment-to-invocation boundary with the marker
 last; an exact HTML marker on the first line with or without the former blank

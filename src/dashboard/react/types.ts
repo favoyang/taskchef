@@ -23,46 +23,6 @@ export interface TaskTurn {
   turnRef: string | null;
   turnId: string | null;
   provenance?: { kind: string } | null;
-  intent?: "investigate" | "plan_and_implement" | "implement" | "continue_plan" | null;
-  acceptedScope?: string | null;
-  planRef?: PlanReference | null;
-  phases?: TaskPhase[];
-}
-
-export interface PlanReference {
-  repository: string;
-  path: string;
-  revision: string;
-  contentHash: string;
-}
-
-export interface ExecutionResolution {
-  requestedModel: string | null;
-  requestedEffort: string | null;
-  source: string | null;
-  status: "configured" | "missing";
-  resolvedAt: string;
-  model: string | null;
-  effort: string | null;
-  effectiveModel: string | null;
-  effectiveEffort: string | null;
-}
-
-export interface TaskPhase {
-  phaseId: string;
-  kind: "plan" | "implement" | "review" | "verify" | "deliver";
-  attempt: number;
-  role: "orchestrator" | "planner" | "implementer" | "reviewer";
-  resolution: ExecutionResolution;
-  agentHandle: string | null;
-  threadBinding: { threadId: string; provenance: "native" | "child_asserted" } | null;
-  writer: boolean;
-  writerGeneration: number | null;
-  state: "reserved" | "running" | "awaiting_input" | "completed" | "failed" | "interrupted";
-  startedAt: string;
-  endedAt: string | null;
-  result: { summary: string; artifacts: string[] } | null;
-  reviewPassId: string | null;
 }
 
 export interface GitHubLink {
@@ -97,13 +57,6 @@ export interface UsageProjection {
   reason?: string;
   message?: string;
   updatedAt?: string | null;
-  coverage?: {
-    status: "partial";
-    scope: "parent_only";
-    includedMembers: number;
-    missingMembers: number;
-    reason: string;
-  };
 }
 
 export interface ReportedWorkSummary {
@@ -136,9 +89,6 @@ export interface Task {
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;
-  executionMode?: "legacy" | "orchestrated";
-  executionRevision?: number;
-  parentResolution?: ExecutionResolution | null;
 }
 
 export interface NotificationSnapshot {

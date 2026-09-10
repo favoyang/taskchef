@@ -25,7 +25,6 @@ export {
   readTask,
   recordTask,
   reportTaskState,
-  reportTaskPhase,
   reportTaskResult,
   requireSafeId,
   removeProject,
@@ -95,19 +94,3 @@ export {
 export { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./src/version.js";
 
 export { createDashboardAutostart, createTaskChefMcpServer } from "./src/mcp.js";
-
-export {
-  EXECUTION_CONTRACT_VERSION,
-  EXECUTION_INTENTS,
-  EXECUTION_ROLES,
-  PHASE_KINDS,
-  PHASE_STATES,
-  activeExecutionPhase,
-  applyPhaseEvent,
-  assertOrchestratedCompletion,
-  normalizeExecutionResolution,
-  normalizePlanReference,
-  resolutionSnapshotFromRole,
-} from "./src/execution.js";
-
-export { resolveExecutionRole, resolveModelRoles, updateModelRole } from "./src/model-roles.js";

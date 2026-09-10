@@ -5,9 +5,8 @@ description: "Dispatch work received in the canonical TaskChef workspace into Co
 
 # TaskChef Delegate
 
-Create stable visible TaskChef orchestrator parents through the canonical
-per-user TaskChef data workspace and return immediately. Executors, not the
-dispatcher, coordinate any internal role phases.
+Create stable visible TaskChef parent tasks through the canonical per-user
+TaskChef data workspace and return immediately.
 
 ## Invocation boundary
 
@@ -34,9 +33,8 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 - Treat only AGENTS.md, taskchef.json, tasks.jsonl, config-audit.jsonl, and
   TaskChef's private backups and maintenance artifacts as managed dispatcher
   state. Preserve unrelated user-owned paths.
-- Use real Codex tasks for the user-visible assignment. The dispatcher never
-  uses collaboration or subagent tools; an orchestrated executor uses them
-  only inside its already-created visible task.
+- Use real Codex tasks for visible delegated work. The dispatcher never uses
+  collaboration or subagent tools; the created executor may use them internally.
 - Never use hooks, schedules, daemons, background monitors, recent-task
   searches, transcripts, hidden reasoning, or polling for identity.
 - Never wait for delegated work after native creation.
@@ -53,12 +51,11 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 3. Route against configured project `name`, `description`, and canonical
    `githubRepos`; use `path` only as checkout identity. Require exactly one
    match and an exact native-project path. Ask instead of guessing.
-   Select the canonical `orchestrator` preference for every new visible parent.
-   Use `parentRole` and `parentResolution` from preparation, resolve explicit
-   parent choices with `resolve_execution_role`, and follow
-   [model roles](references/model-roles.md). A missing
-   role omits native overrides. Invalid, duplicate, unresolved, or unsupported
-   settings stop dispatch until resolved. Do not resolve unused child roles.
+   Select the `orchestrator` preference from preparation for every visible
+   parent. Resolve explicit choices and follow
+   [model roles](references/model-roles.md). Missing configuration means omit
+   model overrides; surface invalid or unavailable configuration before
+   recording the task.
 4. Build each executor instruction in this exact shape:
 
    - Begin with the actual assignment on the first line and keep its complete
@@ -75,20 +72,11 @@ stop and report that the TaskChef plugin must be reloaded or installed.
    - Do not inline executor ownership, identity, linking, or result-reporting
      protocol. The explicitly invoked executor skill owns those mechanics.
 
-5. Negotiate execution from preparation. When it advertises execution contract
-   version 1 and phase reporting, call `record_task` exactly once with `id`,
-   `project`, `title`, the exact marked `instruction`, `threadId: null`,
-   `executionMode: orchestrated`, `executionContractVersion: 1`, and the exact
-   `parentResolution` from preparation when no explicit parent choice was made,
-   or the exact `resolution` returned by the final explicit parent resolution.
-   A historical dispatcher or executor without
-   both capabilities records `legacy` mode and must describe it honestly; do
-   not claim orchestration. Never add feature flags to taskchef.json schema 2.
+5. Before creating each executor, call `record_task` exactly once with `id`,
+   `project`, `title`, the exact marked `instruction`, and `threadId: null`.
 6. Create one real Codex task using the exact configured project, an appropriate
-   native environment, the marked instruction, a short title, and only the
-   verified orchestrator model/effort overrides. An unqualified explicit model
-   choice retains its historical meaning for this visible parent; descendants
-   require role-specific or clearly task-wide instructions.
+   native environment, the marked instruction, a short title, and the resolved
+   orchestrator model and effort overrides when present.
 7. Return immediately. Preserve a returned provisional client ID only for the
    created-thread directive. Do not call `link_task` from the dispatcher even
    when creation returns a durable ID; the child must self-link.

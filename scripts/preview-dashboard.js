@@ -14,7 +14,6 @@ import {
   prepareDelegation,
   readTask,
   recordTask,
-  reportTaskPhase,
   reportTaskState,
 } from "../index.js";
 import { readBoundedTaskLog } from "../src/dashboard.js";
@@ -51,7 +50,6 @@ const definitions = [
     request: "Inspect the isolated checkout and summarize the operator-facing state.",
     ageMs: 20 * 60 * 1_000,
     terminal: null,
-    orchestrated: true,
   },
   {
     id: "22222222-2222-4222-8222-222222222222",
@@ -128,17 +126,6 @@ const timestamp = (milliseconds) => new Date(milliseconds).toISOString();
 
 for (const definition of definitions) {
   const startedAt = previewNow - definition.ageMs;
-  const parentResolution = {
-    requestedModel: null,
-    requestedEffort: null,
-    source: "~/.codex/agents/orchestrator.toml",
-    status: "configured",
-    resolvedAt: timestamp(startedAt - 3_000),
-    model: "gpt-6-astra",
-    effort: "high",
-    effectiveModel: null,
-    effectiveEffort: null,
-  };
   await recordTask(workspace, {
     id: definition.id,
     project: projectPath,
@@ -148,11 +135,6 @@ for (const definition of definitions) {
       { taskId: definition.id },
     ).instruction,
     threadId: null,
-    ...(definition.orchestrated ? {
-      executionMode: "orchestrated",
-      executionContractVersion: 1,
-      parentResolution,
-    } : {}),
   }, { now: timestamp(startedAt - 2_000) });
   await linkTask(workspace, definition.id, definition.threadId, {
     now: timestamp(startedAt - 1_000),
@@ -164,52 +146,7 @@ for (const definition of definitions) {
     turnId: null,
     status: "working",
     requestSummary: definition.request,
-    ...(definition.orchestrated ? {
-      intent: "implement",
-      acceptedScope: "Update the accepted dashboard surface and its focused tests only.",
-      planRef: {
-        repository: "https://github.com/favoyang/taskchef",
-        path: "plans/stable-orchestrator.md",
-        revision: "preview-fixture",
-        contentHash: "a11ce5eed",
-      },
-    } : {}),
   }, { now: timestamp(startedAt) });
-  if (definition.orchestrated) {
-    const phase = {
-      taskId: definition.id,
-      parentThreadId: definition.threadId,
-      turnRef: definition.turnRef,
-      phaseId: "implement-1",
-    };
-    await reportTaskPhase(workspace, {
-      ...phase,
-      eventId: "71111111-1111-4111-8111-111111111111",
-      expectedRevision: 0,
-      operation: "reserve",
-      kind: "implement",
-      attempt: 1,
-      role: "implementer",
-      resolution: { ...parentResolution, source: "~/.codex/agents/implementer.toml", model: "gpt-5.6-sol" },
-      writer: true,
-      reviewPassId: null,
-    });
-    await reportTaskPhase(workspace, {
-      ...phase,
-      eventId: "71111111-1111-4111-8111-111111111112",
-      expectedRevision: 1,
-      operation: "start",
-      agentHandle: "preview-implementer-handle",
-    });
-    await reportTaskPhase(workspace, {
-      ...phase,
-      eventId: "71111111-1111-4111-8111-111111111113",
-      expectedRevision: 2,
-      operation: "bind",
-      threadId: "019ffb69-57a6-7801-8b7a-8ff4c32a3992",
-      bindingProvenance: "native",
-    });
-  }
   if (definition.terminal) {
     const completedAt = startedAt + definition.durationMs;
     await reportTaskState(workspace, {
@@ -330,13 +267,6 @@ const usageTracker = {
           models: { "gpt-5.6-sol": {} },
         },
         turns: {},
-        coverage: {
-          status: "partial",
-          scope: "parent_only",
-          includedMembers: 1,
-          missingMembers: 1,
-          reason: "Descendant usage is not included because native exclusive child totals are unavailable.",
-        },
       };
     }
     if (task.id === definitions[1].id) {

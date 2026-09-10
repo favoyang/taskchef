@@ -1,4 +1,4 @@
-import { resolveExecutionRole } from "./model-roles.js";
+import { resolveModelRoles } from "./model-roles.js";
 import { execFile as execFileCallback } from "node:child_process";
 import {
   access,
@@ -51,20 +51,6 @@ import {
   taskChefError,
   writeDurableAtomic,
 } from "./state-store.js";
-import {
-  EXECUTION_CONTRACT_VERSION,
-  EXECUTION_INTENTS,
-  activeExecutionPhase,
-  applyPhaseEvent,
-  assertOrchestratedCompletion,
-  interruptExecutionPhases,
-  legacyExecutionTurn,
-  normalizeExecutionResolution,
-  normalizeExecutionTask,
-  normalizeExecutionTurn,
-  normalizePlanReference,
-  resolutionSnapshotFromRole,
-} from "./execution.js";
 
 const execFile = promisify(execFileCallback);
 const DISPATCHER_INSTRUCTIONS_URL = new URL(
@@ -77,8 +63,8 @@ const DISPATCH_FILE_NAME = "tasks.jsonl";
 const WORKSPACE_LOCK_NAME = ".taskchef-workspace.lock";
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const CURRENT_CONFIG_SCHEMA_VERSION = 2;
-const CURRENT_TASK_SCHEMA_VERSION = 11;
-const PREVIOUS_TASK_SCHEMA_VERSION = 10;
+const CURRENT_TASK_SCHEMA_VERSION = 10;
+const PREVIOUS_TASK_SCHEMA_VERSION = 9;
 const TURN_REF_TASK_SCHEMA_VERSION = 9;
 const FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION = 7;
 const INTERRUPTED_TURN_TASK_SCHEMA_VERSION = 8;
@@ -111,22 +97,13 @@ const STATEFUL_DISPATCH_FIELDS = new Set([
 const SCHEMA_5_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "lastResult"]);
 const SCHEMA_6_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "results"]);
 const LEGACY_TURN_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "turns"]);
-const SCHEMA_9_10_DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "turnRef", "turns"]);
-const DISPATCH_FIELDS = new Set([
-  ...SCHEMA_9_10_DISPATCH_FIELDS,
-  "executionMode",
-  "executionRevision",
-  "parentResolution",
-]);
+const DISPATCH_FIELDS = new Set([...STATEFUL_DISPATCH_FIELDS, "turnRef", "turns"]);
 const RECORD_DISPATCH_FIELDS = new Set([
   "id",
   "project",
   "title",
   "instruction",
   "threadId",
-  "executionMode",
-  "executionContractVersion",
-  "parentResolution",
 ]);
 const RESULT_STATUSES = new Set(["needs_input", "completed", "failed"]);
 const TURN_RESULT_STATUSES = new Set([...RESULT_STATUSES, "interrupted"]);
@@ -140,14 +117,7 @@ const LEGACY_TURN_FIELDS = new Set(["turnId", "requestSummary", "startedAt", "re
 const SCHEMA_9_TURN_FIELDS = new Set([
   "turnRef", "turnId", "requestSummary", "startedAt", "result",
 ]);
-const SCHEMA_10_TURN_FIELDS = new Set([...SCHEMA_9_TURN_FIELDS, "provenance"]);
-const TURN_FIELDS = new Set([
-  ...SCHEMA_10_TURN_FIELDS,
-  "intent",
-  "acceptedScope",
-  "planRef",
-  "phases",
-]);
+const TURN_FIELDS = new Set([...SCHEMA_9_TURN_FIELDS, "provenance"]);
 const TURN_PROVENANCE_KINDS = new Set(["legacy", "mcp", "dashboard_manual"]);
 const SIMPLE_TURN_PROVENANCE_FIELDS = new Set(["kind"]);
 const MANUAL_TURN_PROVENANCE_FIELDS = new Set([
@@ -921,29 +891,15 @@ export async function prepareDispatch(workspaceRoot, {
   const projects = await listProjects(workspace);
   const marker = taskChefMarker(taskId);
   const preparedAt = requireTimestamp(now(), "preparedAt");
-  const parentRole = await resolveExecutionRole("orchestrator");
-  const parentResolution = ["configured", "missing"].includes(parentRole.status)
-    ? resolutionSnapshotFromRole(parentRole, { resolvedAt: preparedAt })
-    : null;
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     workspace,
     taskId,
     preparedAt,
     marker,
     projectCount: projects.length,
     projects,
-    capabilities: {
-      executionContractVersion: EXECUTION_CONTRACT_VERSION,
-      orchestratedExecution: true,
-      phaseReporting: true,
-      descendantUsage: "parent_only",
-    },
-    parentRole,
-    parentResolution,
-    // Compatibility shape for dispatchers that read modelRoles without assuming
-    // that preparation resolves every optional child role.
-    modelRoles: { roles: [parentRole], problems: [] },
+    modelRoles: await resolveModelRoles(),
   };
 }
 
@@ -1430,7 +1386,6 @@ async function validateDispatchShape(dispatch, name = "task") {
     LEGACY_RESULTS_TASK_SCHEMA_VERSION,
     FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION,
     INTERRUPTED_TURN_TASK_SCHEMA_VERSION,
-    TURN_REF_TASK_SCHEMA_VERSION,
     PREVIOUS_TASK_SCHEMA_VERSION,
     CURRENT_TASK_SCHEMA_VERSION,
   ];
@@ -1439,10 +1394,8 @@ async function validateDispatchShape(dispatch, name = "task") {
   }
   requireExactFields(
     dispatch,
-    dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
+    dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
       ? DISPATCH_FIELDS
-      : dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
-      ? SCHEMA_9_10_DISPATCH_FIELDS
       : dispatch.schemaVersion >= FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION
         ? LEGACY_TURN_DISPATCH_FIELDS
         : dispatch.schemaVersion === LEGACY_RESULTS_TASK_SCHEMA_VERSION
@@ -1526,9 +1479,7 @@ async function validateDispatchShape(dispatch, name = "task") {
       turn,
       dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
         ? TURN_FIELDS
-        : dispatch.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION
-          ? SCHEMA_10_TURN_FIELDS
-          : dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
+        : dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
           ? SCHEMA_9_TURN_FIELDS
           : LEGACY_TURN_FIELDS,
       turnName,
@@ -1537,7 +1488,7 @@ async function validateDispatchShape(dispatch, name = "task") {
     const normalizedTurnId = rawTurnId === null
       ? null
       : normalizeTurnRef(rawTurnId, `${turnName}.turnId`);
-    const normalized = {
+    return {
       turnRef: dispatch.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION
         ? normalizeTurnRef(turn.turnRef, `${turnName}.turnRef`)
         : normalizedTurnId,
@@ -1547,21 +1498,10 @@ async function validateDispatchShape(dispatch, name = "task") {
       }),
       startedAt: requireTimestamp(turn.startedAt, `${turnName}.startedAt`),
       result: normalizeTurnResult(turn.result, `${turnName}.result`),
-      provenance: dispatch.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION
+      provenance: dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
         ? normalizeTurnProvenance(turn.provenance, `${turnName}.provenance`)
         : null,
     };
-    if (dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
-      Object.assign(normalized, normalizeExecutionTurn(turn, turnName));
-    } else {
-      Object.defineProperties(normalized, {
-        intent: { value: null, enumerable: false },
-        acceptedScope: { value: null, enumerable: false },
-        planRef: { value: null, enumerable: false },
-        phases: { value: [], enumerable: false },
-      });
-    }
-    return normalized;
   };
   let legacyResults = [];
   let turns = [];
@@ -1646,17 +1586,8 @@ async function validateDispatchShape(dispatch, name = "task") {
     results,
     lastResult,
   };
-  if (dispatch.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
-    Object.assign(normalized, normalizeExecutionTask(dispatch, name));
-  } else {
-    Object.defineProperties(normalized, {
-      executionMode: { value: "legacy", enumerable: false },
-      executionRevision: { value: 0, enumerable: false },
-      parentResolution: { value: null, enumerable: false },
-    });
-  }
-  if (normalized.updatedBy === "dashboard" && normalized.schemaVersion < PREVIOUS_TASK_SCHEMA_VERSION) {
-    throw new Error(`${name}.updatedBy dashboard requires schema ${PREVIOUS_TASK_SCHEMA_VERSION}`);
+  if (normalized.updatedBy === "dashboard" && normalized.schemaVersion < CURRENT_TASK_SCHEMA_VERSION) {
+    throw new Error(`${name}.updatedBy dashboard requires schema ${CURRENT_TASK_SCHEMA_VERSION}`);
   }
   if (normalized.schemaVersion >= TURN_REF_TASK_SCHEMA_VERSION) {
     if (normalized.turnId !== null && normalized.turnRef !== normalizeTurnRef(normalized.turnId)) {
@@ -1682,7 +1613,7 @@ async function validateDispatchShape(dispatch, name = "task") {
       }
     }
   }
-  if (normalized.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION) {
+  if (normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
     const actionIds = new Set();
     for (const [index, turn] of normalized.turns.entries()) {
       const provenance = turn.provenance;
@@ -1763,30 +1694,6 @@ async function validateDispatchShape(dispatch, name = "task") {
       throw new Error(`${name} latest manual dashboard turn requires updatedBy dashboard`);
     }
   }
-  if (normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION) {
-    const phases = normalized.turns.flatMap((turn) => turn.phases);
-    const eventCount = phases.reduce((count, phase) => count + phase.events.length, 0);
-    if (normalized.executionRevision < eventCount) {
-      throw new Error(`${name}.executionRevision cannot be behind recorded phase events`);
-    }
-    if (normalized.executionMode === "legacy") {
-      if (normalized.executionRevision !== 0 || phases.length > 0 || normalized.turns.some((turn) => turn.intent !== null)) {
-        throw new Error(`${name} legacy mode cannot contain orchestrated execution state`);
-      }
-    } else {
-      const bindings = phases.flatMap((phase) => phase.threadBinding === null ? [] : [phase.threadBinding.threadId]);
-      if (new Set(bindings).size !== bindings.length) {
-        throw new Error(`${name} reuses a descendant thread identity`);
-      }
-      if (normalized.threadId !== null && bindings.includes(normalized.threadId)) {
-        throw new Error(`${name} cannot bind its parent thread as a descendant`);
-      }
-      const active = activeExecutionPhase(normalized);
-      if (active && (normalized.status !== "working" || !normalized.latestTurn?.phases.includes(active))) {
-        throw new Error(`${name} can keep an active phase only on its current working turn`);
-      }
-    }
-  }
   const isSelfLinkingRecord = normalized.threadId !== null
     && parseTaskChefMarker(normalized.instruction) === normalized.id;
   if (isSelfLinkingRecord) {
@@ -1837,7 +1744,7 @@ async function validateDispatchShape(dispatch, name = "task") {
         && normalized.lastResult?.status === "failed"
         && normalized.lastResult.turnId === null
         && normalized.updatedBy === "mcp";
-      const isManualTerminal = normalized.schemaVersion >= PREVIOUS_TASK_SCHEMA_VERSION
+      const isManualTerminal = normalized.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
         && RESULT_STATUSES.has(normalized.status)
         && normalized.summary !== null
         && normalized.turnId === null
@@ -2104,17 +2011,8 @@ function currentSchemaTask(dispatch, patch = {}) {
     ...persisted
   } = dispatch;
   const sourceTurns = patch.turns ?? dispatch.turns ?? [];
-  const executionMode = patch.executionMode ?? dispatch.executionMode ?? "legacy";
   const turns = sourceTurns.map((turn) => ({
-    ...(executionMode === "orchestrated"
-      ? {
-          ...turn,
-          intent: turn.intent ?? null,
-          acceptedScope: turn.acceptedScope ?? null,
-          planRef: turn.planRef ?? null,
-          phases: turn.phases ?? [],
-        }
-      : legacyExecutionTurn(turn)),
+    ...turn,
     provenance: turn.provenance ?? { kind: "legacy" },
     turnRef: turn.turnRef === null || turn.turnRef === undefined
       ? (turn.turnId === null || turn.turnId === undefined ? randomUUID() : turn.turnId)
@@ -2124,9 +2022,6 @@ function currentSchemaTask(dispatch, patch = {}) {
   return {
     ...persisted,
     schemaVersion: CURRENT_TASK_SCHEMA_VERSION,
-    executionMode,
-    executionRevision: patch.executionRevision ?? dispatch.executionRevision ?? 0,
-    parentResolution: patch.parentResolution ?? dispatch.parentResolution ?? null,
     ...patch,
     turnRef: "turnRef" in patch ? patch.turnRef : latestTurn?.turnRef ?? null,
     turns,
@@ -2187,7 +2082,7 @@ export async function migrateTaskLog(workspaceRoot, {
     const timestamp = requireTimestamp(now(), "migration timestamp")
       .replaceAll(":", "-")
       .replaceAll(".", "-");
-    const backupPath = `${dispatchPath}.pre-v${CURRENT_TASK_SCHEMA_VERSION}-${timestamp}-${randomUUID()}.bak`;
+    const backupPath = `${dispatchPath}.pre-v10-${timestamp}-${randomUUID()}.bak`;
     await writeFile(backupPath, original, { encoding: "utf8", mode: 0o600, flag: "wx" });
     if (await readFile(backupPath, "utf8") !== original) {
       throw new Error(`task log backup validation failed: ${backupPath}`);
@@ -2216,27 +2111,7 @@ export async function migrateTaskLog(workspaceRoot, {
 }
 
 export async function recordTask(workspaceRoot, input, { now } = {}) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("task input must be an object");
-  }
-  const unexpected = Object.keys(input).find((key) => !RECORD_DISPATCH_FIELDS.has(key));
-  if (unexpected) throw new Error(`task input has unsupported field: ${unexpected}`);
-  for (const field of ["id", "project", "title", "instruction", "threadId"]) {
-    if (!(field in input)) throw new Error(`task input is missing field: ${field}`);
-  }
-  const executionMode = input.executionMode ?? "legacy";
-  if (!new Set(["legacy", "orchestrated"]).has(executionMode)) {
-    throw new Error("task input.executionMode must be legacy or orchestrated");
-  }
-  let parentResolution = null;
-  if (executionMode === "orchestrated") {
-    if (input.executionContractVersion !== EXECUTION_CONTRACT_VERSION) {
-      throw new Error(`orchestrated task requires executionContractVersion ${EXECUTION_CONTRACT_VERSION}`);
-    }
-    parentResolution = normalizeExecutionResolution(input.parentResolution, "task input.parentResolution");
-  } else if ("executionContractVersion" in input || "parentResolution" in input) {
-    throw new Error("legacy task input cannot contain orchestration negotiation fields");
-  }
+  requireExactFields(input, RECORD_DISPATCH_FIELDS, "task input");
   const root = await realpath(path.resolve(workspaceRoot));
   return withWorkspaceLock(root, async () => {
     const config = await readConfig(root);
@@ -2259,9 +2134,6 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
       updatedAt: createdAt,
       updatedBy: "dispatcher",
       turns: [],
-      executionMode,
-      executionRevision: 0,
-      parentResolution,
     });
     const existing = await readDispatchesUnlocked(root);
     if (existing.some((item) => item.id === dispatch.id)) {
@@ -2352,7 +2224,6 @@ function dispatchLineWithState(dispatch, patch) {
 function normalizeTaskStateInput(input, { allowWorking }) {
   const fields = new Set([
     "taskId", "threadId", "turnRef", "turnId", "status", "summary", "requestSummary",
-    "intent", "acceptedScope", "planRef", "executionContractVersion", "parentResolution",
   ]);
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("task state must be an object");
@@ -2395,36 +2266,7 @@ function normalizeTaskStateInput(input, { allowWorking }) {
   if (status !== "working" && requestSummary !== null) {
     throw new Error(`requestSummary is accepted only for status working`);
   }
-  const intent = "intent" in input
-    ? requireEnum(input.intent, EXECUTION_INTENTS, "intent")
-    : null;
-  const acceptedScope = optionalString(
-    "acceptedScope" in input ? input.acceptedScope : null,
-    "acceptedScope",
-    { maxLength: MAX_RESULT_SUMMARY_LENGTH },
-  );
-  const planRef = "planRef" in input ? normalizePlanReference(input.planRef) : null;
-  if ((intent === null) !== (acceptedScope === null)) {
-    throw new Error("intent and acceptedScope must be provided together");
-  }
-  const hasAdoption = "executionContractVersion" in input || "parentResolution" in input;
-  let adoption = null;
-  if (hasAdoption) {
-    if (input.executionContractVersion !== EXECUTION_CONTRACT_VERSION || !("parentResolution" in input)) {
-      throw new Error(`orchestration adoption requires executionContractVersion ${EXECUTION_CONTRACT_VERSION} and parentResolution`);
-    }
-    adoption = {
-      executionContractVersion: input.executionContractVersion,
-      parentResolution: normalizeExecutionResolution(input.parentResolution, "parentResolution"),
-    };
-  }
-  if (status !== "working" && (intent !== null || planRef !== null || adoption !== null)) {
-    throw new Error("intent, planRef, and orchestration adoption are accepted only for status working");
-  }
-  return {
-    id, threadId, turnRef, turnId, status, summary, requestSummary,
-    intent, acceptedScope, planRef, adoption,
-  };
+  return { id, threadId, turnRef, turnId, status, summary, requestSummary };
 }
 
 function manualTransitionSummary(status) {
@@ -2508,10 +2350,7 @@ async function reportTaskStateInternal(
   const turnRefWasProvided = input !== null
     && typeof input === "object"
     && Object.prototype.hasOwnProperty.call(input, "turnRef");
-  const {
-    id, threadId, turnRef, turnId, status, summary, requestSummary,
-    intent, acceptedScope, planRef, adoption,
-  } = normalizeTaskStateInput(input, {
+  const { id, threadId, turnRef, turnId, status, summary, requestSummary } = normalizeTaskStateInput(input, {
     allowWorking: !compatibilityAlias,
   });
   const root = await realpath(path.resolve(workspaceRoot));
@@ -2590,17 +2429,6 @@ async function reportTaskStateInternal(
     }
     if (status === "working") {
       const sameWorkingTurn = dispatch.status === "working" && stateTurnRef === dispatch.turnRef;
-      if (adoption !== null && (dispatch.executionMode !== "legacy" || sameWorkingTurn)) {
-        throw new Error("orchestration adoption is accepted only when starting a new turn on a legacy task");
-      }
-      const executionMode = adoption === null ? dispatch.executionMode : "orchestrated";
-      const parentResolution = adoption?.parentResolution ?? dispatch.parentResolution;
-      if (executionMode === "orchestrated" && (intent === null || acceptedScope === null)) {
-        throw new Error("orchestrated working state requires intent and acceptedScope");
-      }
-      if (executionMode === "legacy" && (intent !== null || planRef !== null)) {
-        throw new Error("legacy working state does not accept orchestrated intent or plan metadata");
-      }
       const recordedTurn = dispatch.turns.findLast((turn) => turn.turnRef === stateTurnRef);
       if (!sameWorkingTurn && recordedTurn) {
         throw new Error(`working turnRef is stale: ${id}`);
@@ -2632,16 +2460,6 @@ async function reportTaskStateInternal(
           throw new Error(`working turn already has a different requestSummary: ${id}`);
         }
         if (
-          dispatch.executionMode === "orchestrated"
-          && (
-            intent !== dispatch.latestTurn.intent
-            || acceptedScope !== dispatch.latestTurn.acceptedScope
-            || JSON.stringify(planRef) !== JSON.stringify(dispatch.latestTurn.planRef)
-          )
-        ) {
-          throw new Error(`working turn already has different intent, scope, or plan metadata: ${id}`);
-        }
-        if (
           records[index].raw.schemaVersion === CURRENT_TASK_SCHEMA_VERSION
           && (requestSummary === null || storedRequest === requestSummary)
         ) {
@@ -2651,25 +2469,20 @@ async function reportTaskStateInternal(
       const updatedAt = sameWorkingTurn
         ? dispatch.updatedAt
         : transitionTimestamp(now, dispatch.updatedAt);
-      let interruptedPhase = false;
       const recoveredTurns = (
         !sameWorkingTurn
         && dispatch.status === "working"
         && dispatch.latestTurn?.result === null
       )
         ? dispatch.turns.map((turn, turnIndex) => turnIndex === dispatch.turns.length - 1
-          ? (() => {
-            const execution = interruptExecutionPhases(turn, updatedAt);
-            interruptedPhase = execution.changed;
-            return {
-              ...execution.turn,
-              result: {
-                status: "interrupted",
-                summary: INTERRUPTED_TURN_SUMMARY,
-                updatedAt,
-              },
-            };
-          })()
+          ? {
+            ...turn,
+            result: {
+              status: "interrupted",
+              summary: INTERRUPTED_TURN_SUMMARY,
+              updatedAt,
+            },
+          }
           : turn)
         : dispatch.turns;
       const turns = sameWorkingTurn
@@ -2683,10 +2496,6 @@ async function reportTaskStateInternal(
           startedAt: updatedAt,
           result: null,
           provenance: { kind: "mcp" },
-          intent: executionMode === "orchestrated" ? intent : null,
-          acceptedScope: executionMode === "orchestrated" ? acceptedScope : null,
-          planRef: executionMode === "orchestrated" ? planRef : null,
-          phases: [],
         }];
       const updated = await validateDispatchShape(currentSchemaTask(dispatch, {
         status,
@@ -2696,9 +2505,6 @@ async function reportTaskStateInternal(
         updatedAt,
         updatedBy: "mcp",
         turns,
-        executionMode,
-        parentResolution,
-        executionRevision: dispatch.executionRevision + (interruptedPhase ? 1 : 0),
       }));
       const lines = records.map((record, recordIndex) => recordIndex === index
         ? dispatchLineWithState(updated, {})
@@ -2720,9 +2526,6 @@ async function reportTaskStateInternal(
       throw new Error(`task turn already has a different semantic result: ${id}`);
     }
     if (compatibilityAlias) {
-      if (dispatch.executionMode === "orchestrated" && dispatch.threadId !== null) {
-        throw new Error("report_result cannot write an orchestrated task; use report_state and report_phase");
-      }
       const matchesWorkingTurn = dispatch.status === "working"
         && dispatch.turnRef === stateTurnRef;
       if (!matchesWorkingTurn && dispatch.turns.some((turn) => turn.turnRef === stateTurnRef)) {
@@ -2735,44 +2538,22 @@ async function reportTaskStateInternal(
       throw new Error(`task result must match the current working turnRef: ${id}`);
     }
     const updatedAt = transitionTimestamp(now, dispatch.updatedAt);
-    let executionRevision = dispatch.executionRevision;
-    let executionTurns = dispatch.turns;
-    if (dispatch.executionMode === "orchestrated") {
-      if (status === "completed") {
-        assertOrchestratedCompletion(dispatch);
-      } else if (activeExecutionPhase(dispatch)) {
-        executionTurns = dispatch.turns.map((turn, turnIndex) => {
-          if (turnIndex !== dispatch.turns.length - 1) return turn;
-          const interrupted = interruptExecutionPhases(
-            turn,
-            updatedAt,
-            `Phase interrupted when the parent reported ${status}.`,
-          );
-          if (interrupted.changed) executionRevision += 1;
-          return interrupted.turn;
-        });
-      }
-    }
     const turnResult = { status, summary, updatedAt };
-    const currentTurnIndex = executionTurns.findLastIndex(
+    const currentTurnIndex = dispatch.turns.findLastIndex(
       (turn) => turn.turnRef === stateTurnRef,
     );
     let turns;
     if (currentTurnIndex === -1) {
-      turns = [...executionTurns, {
+      turns = [...dispatch.turns, {
         turnRef: stateTurnRef,
         turnId: stateTurnId,
         requestSummary: null,
         startedAt: updatedAt,
         result: turnResult,
         provenance: { kind: "mcp" },
-        intent: null,
-        acceptedScope: null,
-        planRef: null,
-        phases: [],
       }];
     } else {
-      turns = executionTurns.map((turn, turnIndex) => turnIndex === currentTurnIndex
+      turns = dispatch.turns.map((turn, turnIndex) => turnIndex === currentTurnIndex
         ? { ...turn, result: turnResult }
         : turn);
     }
@@ -2784,7 +2565,6 @@ async function reportTaskStateInternal(
       updatedAt,
       updatedBy: "mcp",
       turns,
-      executionRevision,
     });
     const updated = await validateDispatchShape(candidate);
     const lines = records.map((record, recordIndex) => recordIndex === index
@@ -2797,50 +2577,6 @@ async function reportTaskStateInternal(
 
 export async function reportTaskState(workspaceRoot, input, { now } = {}) {
   return reportTaskStateInternal(workspaceRoot, input, { now });
-}
-
-export async function reportTaskPhase(workspaceRoot, input, { now } = {}) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("phase event must be an object");
-  }
-  const normalizedInput = {
-    ...input,
-    taskId: requireSafeId(input.taskId, "taskId"),
-    parentThreadId: normalizeCodexThreadId(input.parentThreadId, "parentThreadId"),
-    turnRef: normalizeExecutorTurnRef(input.turnRef, "turnRef"),
-    eventId: normalizeExecutorTurnRef(input.eventId, "eventId"),
-    ...(input.operation === "bind"
-      ? { threadId: normalizeCodexThreadId(input.threadId, "threadId") }
-      : {}),
-  };
-  const root = await realpath(path.resolve(workspaceRoot));
-  return withWorkspaceLock(root, async () => {
-    const records = await readDispatchRecordsUnlocked(root);
-    const index = records.findIndex((record) => record.normalized.id === normalizedInput.taskId);
-    if (index === -1) throw new Error(`task not found: ${normalizedInput.taskId}`);
-    const applied = applyPhaseEvent(records[index].normalized, normalizedInput, { now });
-    if (applied.idempotent) {
-      return {
-        task: records[index].normalized,
-        phase: applied.phase,
-        eventId: normalizedInput.eventId,
-        executionRevision: records[index].normalized.executionRevision,
-        idempotent: true,
-      };
-    }
-    const updated = await validateDispatchShape(currentSchemaTask(applied.task));
-    const lines = records.map((record, recordIndex) => recordIndex === index
-      ? dispatchLineWithState(updated, {})
-      : record.line);
-    await writeDispatchLinesAtomic(root, lines);
-    return {
-      task: updated,
-      phase: applied.phase,
-      eventId: normalizedInput.eventId,
-      executionRevision: updated.executionRevision,
-      idempotent: false,
-    };
-  });
 }
 
 export async function reportTaskResult(workspaceRoot, input, options = {}) {
@@ -2891,13 +2627,6 @@ export async function manuallyTransitionTask(
     }
 
     const dispatch = dispatches[index];
-    if (activeExecutionPhase(dispatch)) {
-      throw taskOperationError(
-        "active_phase",
-        `task has an active orchestrated phase that must be reconciled before a manual transition: ${id}`,
-        dispatch,
-      );
-    }
     if (!canManuallyTransition(dispatch.status, normalizedInput.targetStatus)) {
       throw taskOperationError(
         "invalid_transition",
@@ -2960,10 +2689,6 @@ export async function manuallyTransitionTask(
         updatedAt,
       },
       provenance,
-      intent: null,
-      acceptedScope: null,
-      planRef: null,
-      phases: [],
     }];
     const updated = await validateDispatchShape(currentSchemaTask(dispatch, {
       status: normalizedInput.targetStatus,
@@ -3116,24 +2841,6 @@ function taskBriefEntry(task) {
       reason: null,
     },
     interruptedTurnCount,
-    execution: {
-      mode: task.executionMode,
-      revision: task.executionRevision,
-      intent: task.latestTurn?.intent ?? null,
-      acceptedScope: task.latestTurn?.acceptedScope ?? null,
-      planRef: task.latestTurn?.planRef ?? null,
-      currentPhase: task.latestTurn?.phases?.find((phase) => (
-        phase.state === "reserved" || phase.state === "running"
-      )) ?? null,
-      attempts: task.latestTurn?.phases?.map((phase) => ({
-        phaseId: phase.phaseId,
-        kind: phase.kind,
-        attempt: phase.attempt,
-        role: phase.role,
-        state: phase.state,
-        result: phase.result?.summary ?? null,
-      })) ?? [],
-    },
   };
 }
 

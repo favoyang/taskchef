@@ -6,13 +6,10 @@ import {
   linkTask,
   recordTask,
   reportTaskState,
-  reportTaskPhase,
   reportTaskResult,
   dashboardAutostartEnabled,
   readConfig,
 } from "./workspace.js";
-import { resolveExecutionRole } from "./model-roles.js";
-import { resolutionSnapshotFromRole } from "./execution.js";
 import { parseTaskChefMarker } from "./delegation.js";
 import { createDashboardManager } from "./dashboard-manager.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
@@ -40,56 +37,10 @@ const turnProvenanceSchema = z.union([
   }),
 ]);
 
-const executionResolutionSchema = z.object({
-  requestedModel: z.string().nullable(),
-  requestedEffort: z.string().nullable(),
-  source: z.string().nullable(),
-  status: z.enum(["configured", "missing"]),
-  resolvedAt: z.string(),
-  model: z.string().nullable(),
-  effort: z.string().nullable(),
-  effectiveModel: z.string().nullable(),
-  effectiveEffort: z.string().nullable(),
-});
-
-const planReferenceSchema = z.object({
-  repository: z.string(),
-  path: z.string(),
-  revision: z.string(),
-  contentHash: z.string(),
-});
-
-const phaseSchema = z.object({
-  phaseId: z.string(),
-  kind: z.enum(["plan", "implement", "review", "verify", "deliver"]),
-  attempt: z.number().int(),
-  role: z.enum(["orchestrator", "planner", "implementer", "reviewer"]),
-  resolution: executionResolutionSchema,
-  agentHandle: z.string().nullable(),
-  threadBinding: z.object({
-    threadId: z.string(),
-    provenance: z.enum(["native", "child_asserted"]),
-  }).nullable(),
-  writer: z.boolean(),
-  writerGeneration: z.number().int().nullable(),
-  state: z.enum(["reserved", "running", "awaiting_input", "completed", "failed", "interrupted"]),
-  startedAt: z.string(),
-  endedAt: z.string().nullable(),
-  result: z.object({ summary: z.string(), artifacts: z.array(z.string()) }).nullable(),
-  reviewPassId: z.string().nullable(),
-  events: z.array(z.object({
-    eventId: z.string(),
-    operation: z.enum(["reserve", "start", "bind", "finish"]),
-    payloadHash: z.string(),
-    at: z.string(),
-  })),
-});
-
 const taskSchema = z.object({
   schemaVersion: z.union([
     z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9),
     z.literal(10),
-    z.literal(11),
   ]),
   id: z.string(),
   project: projectSchema,
@@ -114,10 +65,6 @@ const taskSchema = z.object({
       updatedAt: z.string(),
     }).nullable(),
     provenance: turnProvenanceSchema.nullable(),
-    intent: z.enum(["investigate", "plan_and_implement", "implement", "continue_plan"]).nullable().optional(),
-    acceptedScope: z.string().nullable().optional(),
-    planRef: planReferenceSchema.nullable().optional(),
-    phases: z.array(phaseSchema).optional(),
   })),
   latestTurn: z.object({
     turnRef: z.string().nullable(),
@@ -130,10 +77,6 @@ const taskSchema = z.object({
       updatedAt: z.string(),
     }).nullable(),
     provenance: turnProvenanceSchema.nullable(),
-    intent: z.enum(["investigate", "plan_and_implement", "implement", "continue_plan"]).nullable().optional(),
-    acceptedScope: z.string().nullable().optional(),
-    planRef: planReferenceSchema.nullable().optional(),
-    phases: z.array(phaseSchema).optional(),
   }).nullable(),
   results: z.array(z.object({
     status: z.enum(["needs_input", "completed", "failed"]),
@@ -151,26 +94,15 @@ const taskSchema = z.object({
     updatedAt: z.string(),
     provenance: turnProvenanceSchema.optional(),
   }).nullable(),
-  executionMode: z.enum(["legacy", "orchestrated"]).optional(),
-  executionRevision: z.number().int().optional(),
-  parentResolution: executionResolutionSchema.nullable().optional(),
 });
 
 const preparationSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.literal(1),
   workspace: z.string(),
   taskId: z.string(),
   preparedAt: z.string(),
   marker: z.string(),
   modelRoles: z.record(z.string(), z.unknown()).optional(),
-  parentRole: z.record(z.string(), z.unknown()).optional(),
-  parentResolution: executionResolutionSchema.nullable().optional(),
-  capabilities: z.object({
-    executionContractVersion: z.number().int(),
-    orchestratedExecution: z.boolean(),
-    phaseReporting: z.boolean(),
-    descendantUsage: z.enum(["parent_only"]),
-  }).optional(),
   projectCount: z.number(),
   projects: z.array(projectSchema),
 });
@@ -233,9 +165,7 @@ export function createTaskChefMcpServer({
   record = recordTask,
   reportResult = reportTaskResult,
   reportState = reportTaskState,
-  reportPhase = reportTaskPhase,
   link = linkTask,
-  resolveRole = resolveExecutionRole,
   dashboardManager = createDashboardManager({ workspace }),
   readConfiguration = readConfig,
   logDashboardDiagnostic,
@@ -257,7 +187,6 @@ export function createTaskChefMcpServer({
     closing = true;
     closePromise ??= (async () => {
       const results = await Promise.allSettled([
-        Promise.resolve().then(() => usageTracker.close?.()),
         dashboardManager.close(),
         originalClose(),
       ]);
@@ -326,9 +255,6 @@ export function createTaskChefMcpServer({
         title: z.string().min(1),
         instruction: z.string().min(1),
         threadId: z.null(),
-        executionMode: z.enum(["legacy", "orchestrated"]).optional(),
-        executionContractVersion: z.number().int().optional(),
-        parentResolution: executionResolutionSchema.optional(),
       },
       outputSchema: { task: taskSchema },
       annotations: {
@@ -343,42 +269,6 @@ export function createTaskChefMcpServer({
       }
       const task = await record(workspace, input);
       return toolResult("task", task, `Recorded TaskChef task ${task.id}.`);
-    },
-  );
-
-  server.registerTool(
-    "resolve_execution_role",
-    {
-      title: "Resolve TaskChef execution role",
-      description:
-        "Resolve exactly one global orchestrator, planner, implementer, or reviewer model preference immediately before creating that parent or spawning that phase. Cached availability is advisory; the current native creation tool remains authoritative.",
-      inputSchema: {
-        role: z.enum(["orchestrator", "planner", "implementer", "reviewer"]),
-        explicitModel: z.string().min(1).max(256).nullable().optional(),
-        explicitEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).nullable().optional(),
-        nativeAvailabilityConfirmed: z.boolean().optional(),
-      },
-      outputSchema: { role: z.record(z.string(), z.unknown()) },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        openWorldHint: false,
-      },
-    },
-    async ({ role, explicitModel = null, explicitEffort = null, nativeAvailabilityConfirmed = false }) => {
-      const resolved = await resolveRole(role, {
-        explicitModel,
-        explicitEffort,
-        nativeAvailabilityConfirmed,
-      });
-      const resolution = ["configured", "missing"].includes(resolved.status)
-        ? resolutionSnapshotFromRole(resolved, { requestedModel: explicitModel, requestedEffort: explicitEffort })
-        : null;
-      return toolResult(
-        "role",
-        { ...resolved, resolution },
-        `Resolved TaskChef ${role} role with status ${resolved.status}.`,
-      );
     },
   );
 
@@ -419,11 +309,6 @@ export function createTaskChefMcpServer({
         status: z.enum(["working", "needs_input", "completed", "failed"]),
         summary: z.string().min(1).max(2_000).nullable().optional(),
         requestSummary: z.string().min(1).max(1_000).nullable().optional(),
-        intent: z.enum(["investigate", "plan_and_implement", "implement", "continue_plan"]).optional(),
-        acceptedScope: z.string().min(1).max(2_000).optional(),
-        planRef: planReferenceSchema.nullable().optional(),
-        executionContractVersion: z.number().int().optional(),
-        parentResolution: executionResolutionSchema.optional(),
       },
       outputSchema: { task: taskSchema },
       annotations: {
@@ -436,55 +321,6 @@ export function createTaskChefMcpServer({
       const task = await reportState(workspace, input);
       void usageTracker.observe(task).catch(() => {});
       return toolResult("task", task, `Recorded ${task.status} state for TaskChef task ${task.id}.`);
-    },
-  );
-
-  server.registerTool(
-    "report_phase",
-    {
-      title: "Report TaskChef execution phase",
-      description:
-        reportingDestination + "Record a parent-owned orchestrated phase event. Reserve before spawning, start with the returned opaque handle, optionally bind a durable child identity only from explicit evidence, and finish after native terminal state is established. Events use optimistic execution revisions and exact idempotency IDs; only the self-linked parent may report them.",
-      inputSchema: {
-        taskId: z.string().min(1),
-        parentThreadId: z.string().min(1),
-        turnRef: z.string().min(1).max(256),
-        eventId: z.string().min(1).max(256),
-        expectedRevision: z.number().int().min(0),
-        operation: z.enum(["reserve", "start", "bind", "finish"]),
-        phaseId: z.string().min(1).max(256),
-        kind: z.enum(["plan", "implement", "review", "verify", "deliver"]).optional(),
-        attempt: z.number().int().min(1).max(100).optional(),
-        role: z.enum(["orchestrator", "planner", "implementer", "reviewer"]).optional(),
-        resolution: executionResolutionSchema.optional(),
-        writer: z.boolean().optional(),
-        agentHandle: z.string().min(1).max(512).optional(),
-        threadId: z.string().min(1).max(256).optional(),
-        bindingProvenance: z.enum(["native", "child_asserted"]).optional(),
-        state: z.enum(["awaiting_input", "completed", "failed", "interrupted"]).optional(),
-        summary: z.string().min(1).max(2_000).optional(),
-        artifacts: z.array(z.string().min(1).max(1_000)).max(32).optional(),
-        reviewPassId: z.string().min(1).max(256).nullable().optional(),
-      },
-      outputSchema: {
-        event: z.object({
-          task: taskSchema,
-          phase: phaseSchema,
-          eventId: z.string(),
-          executionRevision: z.number().int(),
-          idempotent: z.boolean(),
-        }),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        openWorldHint: false,
-      },
-    },
-    async (input) => {
-      const event = await reportPhase(workspace, input);
-      void usageTracker.observe(event.task).catch(() => {});
-      return toolResult("event", event, `Recorded ${input.operation} for TaskChef phase ${input.phaseId}.`);
     },
   );
 

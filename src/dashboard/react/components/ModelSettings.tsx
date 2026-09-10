@@ -66,7 +66,7 @@ export function ModelSettings() {
         setRevision((value) => value + 1);
       }}><IconRefresh className={loading ? 'taskchef-refresh-spinning' : undefined} size={18} stroke={1.8} /></ActionIcon>
     </Group>
-    <Text c="dimmed" size="sm">The orchestrator applies to new visible TaskChef parents. Planner, implementer, and reviewer preferences are re-read when each future child phase starts.</Text>
+    <Text c="dimmed" size="sm">Your models for orchestration, planning, implementation, and review.</Text>
     {error && <Alert color="red" role="alert">{error}</Alert>}
     {profile && <>
       {profile.problems.map((problem) => <Alert color="yellow" key={problem}>{problem}</Alert>)}
