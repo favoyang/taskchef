@@ -275,12 +275,16 @@ the final link, preserving the delegate skill's immediate-return contract.
    TaskChef MUST atomically close it as `interrupted` before appending the new
    working turn; the executor MUST NOT report semantic `failed` for recovery.
 
-The visible executor MAY use fresh Planner, Implementer, and Reviewer subagents
-to perform suitable parts of the assignment. It MUST resolve the applicable
-role preference immediately before creating a child, keep at most one writing
-agent active, and verify child results. Small direct changes MAY skip planning.
-TaskChef persists only the visible executor's lifecycle and MUST NOT store or
-infer child phases, identities, or usage.
+For repository work, the visible executor MUST route an explicit combined
+investigate-or-plan-and-implement request through a fresh Planner, then a fresh
+Implementer, then a fresh Reviewer. A direct implementation request, or a later
+request to implement prior investigation or planning, MUST skip the Planner and
+use a fresh Implementer followed by a fresh Reviewer in the same visible task.
+It MUST resolve the applicable role preference immediately before creating a
+child when agent TOML exists; absent agent configuration inherits the parent's
+model settings without requiring Python. It MUST keep at most one writing agent
+active and verify child results. TaskChef persists only the visible executor's
+lifecycle and MUST NOT store or infer child phases, identities, or usage.
 
 Normal executor completion MUST stop after the terminal callback and return
 normally. It MUST NOT archive, hand off, close, navigate away from, or otherwise

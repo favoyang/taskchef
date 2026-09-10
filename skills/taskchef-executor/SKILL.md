@@ -63,14 +63,24 @@ link-pending state.
 ## Coordinate the assignment
 
 Keep this visible task as the stable owner of the assignment and its follow-ups.
-Use fresh subagents only when they make the work clearer or safer: a Planner for
-substantial planning, an Implementer for code changes, and the installed
-`$branch-review-subagent-loop` skill when independent review is required. Skip
-the Planner for a small, direct change. TaskChef tracks only this parent task's
-lifecycle; do not report child phases or identities to TaskChef.
+For repository work, use these tight routes:
 
-Immediately before starting a child, resolve that role with the packaged
-resolver and use its `subagentOverrides` when valid:
+- An explicit investigate-or-plan-and-implement request starts a fresh Planner,
+  then a fresh Implementer, then a fresh Reviewer.
+- A direct implementation request starts a fresh Implementer, then a fresh
+  Reviewer; skip the Planner.
+- A later request to implement prior investigation or planning stays in this
+  visible task and starts a fresh Implementer, then a fresh Reviewer.
+
+Make the Reviewer read-only and cover the complete change. Use the installed
+`$branch-review-subagent-loop` when available or required by repository policy.
+TaskChef tracks only this parent task's lifecycle; do not report child phases or
+identities to TaskChef.
+
+Immediately before starting a child, check the Codex agents directory. If it
+contains no TOML files, inherit the parent's model settings without invoking
+Python. Otherwise resolve that role with the packaged resolver and use its
+`subagentOverrides` when valid:
 
 ```sh
 python3 <plugin-root>/scripts/roles/resolve_roles.py --role <planner|implementer|reviewer>

@@ -181,10 +181,12 @@ Use $taskchef-executor to execute and report this delegated TaskChef assignment.
 
 TaskChef can apply personal Orchestrator, Planner, Implementer, and Reviewer
 model preferences from `~/.codex/agents/`. Every delegated task uses the
-Orchestrator preference for its visible parent. That parent may start fresh
-Planner, Implementer, or Reviewer subagents as needed while the same visible
-task owns the request and its follow-ups. Explicit model choices take
-precedence for the role they target.
+Orchestrator preference for its visible parent. For repository work, a combined
+investigate-or-plan-and-implement request runs fresh Planner, Implementer, and
+Reviewer subagents in that order. A direct implementation, or a later request
+to implement prior investigation, skips the Planner and runs a fresh Implementer
+and Reviewer in the same visible task. Explicit model choices take precedence
+for the role they target.
 
 ## Work with and report executors
 
