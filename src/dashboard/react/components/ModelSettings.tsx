@@ -66,7 +66,7 @@ export function ModelSettings() {
         setRevision((value) => value + 1);
       }}><IconRefresh className={loading ? 'taskchef-refresh-spinning' : undefined} size={18} stroke={1.8} /></ActionIcon>
     </Group>
-    <Text c="dimmed" size="sm">Your models for planning, implementation, and review.</Text>
+    <Text c="dimmed" size="sm">Your models for orchestration, planning, implementation, and review.</Text>
     {error && <Alert color="red" role="alert">{error}</Alert>}
     {profile && <>
       {profile.problems.map((problem) => <Alert color="yellow" key={problem}>{problem}</Alert>)}

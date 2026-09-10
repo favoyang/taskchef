@@ -60,6 +60,40 @@ UUID is the lifecycle identity. Retry a possibly lost working callback with the
 same `turnRef`; never generate a replacement for the same prompt or bypass a
 link-pending state.
 
+## Coordinate the assignment
+
+Keep this visible task as the stable owner of the assignment and its follow-ups.
+For repository work, use these tight routes:
+
+- An explicit investigate-or-plan-and-implement request starts a fresh Planner,
+  then a fresh Implementer, then a fresh Reviewer.
+- A direct implementation request starts a fresh Implementer, then a fresh
+  Reviewer; skip the Planner.
+- A later request to implement prior investigation or planning stays in this
+  visible task and starts a fresh Implementer, then a fresh Reviewer.
+
+Make the Reviewer read-only and cover the complete change. Use the installed
+`$branch-review-subagent-loop` when available or required by repository policy.
+TaskChef tracks only this parent task's lifecycle; do not report child phases or
+identities to TaskChef.
+
+Immediately before starting a child, check the Codex agents directory. If it
+contains no TOML files, inherit the parent's model settings without invoking
+Python. Otherwise resolve that role with the packaged resolver and use its
+`subagentOverrides` when valid:
+
+```sh
+python3 <plugin-root>/scripts/roles/resolve_roles.py --role <planner|implementer|reviewer>
+```
+
+Resolve `<plugin-root>` from this skill's installed path. Missing configuration
+means inherit the parent's model settings. Surface invalid or unavailable
+configuration instead of silently ignoring it. Give each child only the goal,
+scope, repository or worktree, relevant instructions, and validation expected;
+ask it to return changed files, tests, and blockers. Keep at most one writing
+agent active, verify its result, and use a fresh writer before another review
+when review finds a valid issue.
+
 ## Finish every execution turn
 
 Before ending, call `report_state` with the same `turnRef` and `turnId` values

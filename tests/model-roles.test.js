@@ -27,9 +27,10 @@ test('packaged resolver runs outside a checkout with profile/fallback behavior',
   await cp(new URL('../scripts/roles', import.meta.url), copy, { recursive: true });
   const { stdout } = await execFile('python3', [path.join(copy, 'resolve_roles.py'), '--codex-home', home], { cwd: root });
   const result = JSON.parse(stdout);
-  assert.deepEqual(result.roles[1].taskOverrides, { model: 'fixture-model', thinking: 'medium' });
-  assert.deepEqual(result.roles[2].subagentOverrides, {});
-  assert.equal(result.roles[2].status, 'missing');
+  assert.deepEqual(result.roles.map((role) => role.role), ['orchestrator', 'planner', 'implementer', 'reviewer']);
+  assert.deepEqual(result.roles[2].taskOverrides, { model: 'fixture-model', thinking: 'medium' });
+  assert.deepEqual(result.roles[3].subagentOverrides, {});
+  assert.equal(result.roles[3].status, 'missing');
   const preview = await resolveModelRoles({ env: { ...process.env, CODEX_HOME: home } });
   assert.deepEqual(preview.roles, result.roles.map((role) => ({
     ...role,
@@ -52,10 +53,11 @@ test('absent agent configuration preserves defaults without Python', async () =>
   const root = await mkdtemp(path.join(os.tmpdir(), 'roles-no-python-'));
   const result = await resolveModelRoles({ env: { ...process.env, CODEX_HOME: path.join(root, 'absent') }, run: async () => { throw new Error('must not run Python'); } });
   assert.deepEqual(result.problems, []);
-  assert.equal(result.roles.length, 3);
+  assert.equal(result.roles.length, 4);
   assert.ok(result.roles.every((role) => role.status === 'missing'));
   assert.deepEqual(result.roles[0].taskOverrides, {});
-  assert.deepEqual(result.roles[2].subagentOverrides, {});
+  assert.equal(result.roles[0].fallback, 'native new-task default');
+  assert.deepEqual(result.roles[3].subagentOverrides, {});
 });
 
 test('dispatch and settings expose personal roles only', async () => {
@@ -67,6 +69,10 @@ test('dispatch and settings expose personal roles only', async () => {
   await addProject(workspace, { name: 'Fixture', path: project });
   const preparation = await prepareDispatch(workspace);
   assert.ok(preparation.modelRoles);
+  assert.deepEqual(
+    preparation.modelRoles.roles.map((role) => role.role),
+    ['orchestrator', 'planner', 'implementer', 'reviewer'],
+  );
   assert.equal('projectModelRoles' in preparation, false);
   const server = await createDashboardServer({ workspace, port: 0 });
   try {
@@ -92,8 +98,8 @@ test('updates only personal model preferences and preserves the rest of native T
   assert.match(content, /model="gpt-fixture"/);
   assert.match(content, /model_reasoning_effort="high"/);
   assert.match(content, /\[tools\]\nmodel="nested-preserved"/);
-  assert.equal(result.roles[1].displaySource, '~/.codex/agents/implementer.toml');
-  assert.equal(result.roles[1].model, 'gpt-fixture');
+  assert.equal(result.roles[2].displaySource, '~/.codex/agents/implementer.toml');
+  assert.equal(result.roles[2].model, 'gpt-fixture');
 });
 
 test('role updates preserve multiline instructions containing TOML-like examples', async () => {
@@ -123,17 +129,17 @@ test('settings update requires same origin and returns the refreshed personal pr
     updateRole: async (...args) => { calls.push(args); return profile; },
   });
   try {
-    const blocked = await fetch(`${server.url}api/settings/planner`, {
+    const blocked = await fetch(`${server.url}api/settings/orchestrator`, {
       method: 'POST', headers: { Origin: 'http://example.invalid', 'Content-Type': 'application/json' },
       body: JSON.stringify({ schemaVersion: 1, model: 'gpt-fixture', effort: 'low' }),
     });
     assert.equal(blocked.status, 403);
-    const saved = await fetch(`${server.url}api/settings/planner`, {
+    const saved = await fetch(`${server.url}api/settings/orchestrator`, {
       method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ schemaVersion: 1, model: 'gpt-fixture', effort: 'low' }),
     });
     assert.equal(saved.status, 200);
-    assert.deepEqual(calls, [['planner', 'gpt-fixture', 'low']]);
+    assert.deepEqual(calls, [['orchestrator', 'gpt-fixture', 'low']]);
     assert.equal((await saved.json()).profile.id, 'personal');
   } finally { await server.close(); }
 });

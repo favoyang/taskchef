@@ -1251,7 +1251,7 @@ export async function createDashboardServer({
       return;
     }
 
-    const settingsMatch = url.pathname.match(/^\/api\/settings\/(planner|implementer|reviewer)$/);
+    const settingsMatch = url.pathname.match(/^\/api\/settings\/(orchestrator|planner|implementer|reviewer)$/);
     if (settingsMatch && method === "POST") {
       if (request.headers.origin !== allowedOrigin) {
         sendJson(response, 403, { code: "invalid_origin", message: "Dashboard origin validation failed." });

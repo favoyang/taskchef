@@ -149,6 +149,16 @@ Record-before-create makes native creation failure observable. Executor
 self-linking removes dispatcher-side polling, task search, title matching, and
 parent/child identity inference.
 
+The created executor is the stable visible owner. For repository work, an
+explicit combined investigate-or-plan-and-implement request runs a fresh
+Planner, Implementer, and Reviewer in that order. Direct implementation and a
+later request to implement prior investigation skip the Planner and run a fresh
+Implementer and Reviewer in the same visible task. Each role is resolved
+immediately before use when agent TOML exists; absent configuration inherits the
+parent's settings without requiring Python. Only one writer may be active.
+TaskChef records only the executor's ordinary request/result timeline; it does
+not track child phases or identities.
+
 The generated task begins with the complete assignment, adds the local reporting
 authorization paragraph separated by a blank line, leaves one blank line,
 then places one explicit `$taskchef-executor` invocation immediately before its

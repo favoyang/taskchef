@@ -4156,6 +4156,20 @@ test("executor skill owns initial, follow-up, identity, reporting, and privacy p
   assert.match(content, /exactly two[\s\S]+newline characters \(one blank\s+line\)/i);
   assert.match(content, /no blank line between the invocation and marker/i);
   assert.match(content, /Own and execute[\s\S]+Do not\s+re-dispatch/i);
+  assert.match(content, /stable owner[\s\S]+fresh Planner/i);
+  assert.match(
+    content,
+    /investigate-or-plan-and-implement[\s\S]+fresh Planner[\s\S]+fresh Implementer[\s\S]+review/i,
+  );
+  assert.match(content, /direct implementation[\s\S]+fresh Implementer[\s\S]+skip the Planner/i);
+  assert.match(
+    content,
+    /later request to implement[\s\S]+stays in this[\s\S]+visible task[\s\S]+fresh Implementer/i,
+  );
+  assert.match(content, /Reviewer read-only[\s\S]+complete change/i);
+  assert.match(content, /no TOML files[\s\S]+inherit the parent's[\s\S]+without invoking\s+Python/i);
+  assert.match(content, /TaskChef tracks only this parent\s+task's[\s\S]+do not report child phases/i);
+  assert.match(content, /at most one writing\s+agent active/i);
   assert.match(content, /CODEX_THREAD_ID/);
   assert.match(content, /Never\s+use `CODEX_SESSION_ID`[\s\S]+parent or delegator/i);
   assert.match(content, /initial turn[\s\S]+`link_task`[\s\S]+first TaskChef action/i);

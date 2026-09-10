@@ -15,11 +15,11 @@ async function hasAgentFiles(directory) {
 
 function missingRoles() {
   return {
-    roles: ['planner', 'implementer', 'reviewer'].map((role) => ({
+    roles: ['orchestrator', 'planner', 'implementer', 'reviewer'].map((role) => ({
       role, source: null, effectiveSource: null, model: null, effort: null,
       status: 'missing', availability: 'No role files', problems: [],
       taskOverrides: {}, subagentOverrides: {},
-      fallback: role === 'reviewer' ? 'inherit parent settings' : 'native new-task default (not guaranteed dispatcher inheritance)',
+      fallback: role === 'orchestrator' ? 'native new-task default' : 'inherit parent settings',
     })),
     problems: [], catalogSource: null, modelOptions: [],
     precedence: 'explicit user model (and its explicit effort) > personal role > native defaults; explicit effort alone overrides role effort',
@@ -50,7 +50,7 @@ export async function resolveModelRoles({ run = execFile, env = process.env, inc
 }
 
 export async function updateModelRole(role, model, effort, { run = execFile, env = process.env } = {}) {
-  const allowedRoles = new Set(['planner', 'implementer', 'reviewer']);
+  const allowedRoles = new Set(['orchestrator', 'planner', 'implementer', 'reviewer']);
   if (!allowedRoles.has(role) || typeof model !== 'string' || typeof effort !== 'string') {
     const error = new Error('Invalid model role update.');
     error.code = 'invalid_request';

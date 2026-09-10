@@ -259,7 +259,8 @@ the final link, preserving the delegate skill's immediate-return contract.
    NOT place a blank line between the invocation and marker or inline the
    executor protocol into a new instruction.
 4. It MUST call `record_task` with `threadId: null` before native creation.
-5. It MUST create exactly one native Codex executor and return immediately.
+5. It MUST create exactly one native Codex executor using the resolved
+   Orchestrator preference when configured, then return immediately.
 6. The executor MUST read its own `CODEX_THREAD_ID` and call `link_task`
    before substantive work. It MUST NOT use parent/session identity or guess.
 7. After initial linking, the executor MUST establish a `turnRef`. It MUST use
@@ -273,6 +274,17 @@ the final link, preserving the delegate skill's immediate-return contract.
    It MUST NOT reuse a prior prompt's ref. If the preceding turn is still unfinished,
    TaskChef MUST atomically close it as `interrupted` before appending the new
    working turn; the executor MUST NOT report semantic `failed` for recovery.
+
+For repository work, the visible executor MUST route an explicit combined
+investigate-or-plan-and-implement request through a fresh Planner, then a fresh
+Implementer, then a fresh Reviewer. A direct implementation request, or a later
+request to implement prior investigation or planning, MUST skip the Planner and
+use a fresh Implementer followed by a fresh Reviewer in the same visible task.
+It MUST resolve the applicable role preference immediately before creating a
+child when agent TOML exists; absent agent configuration inherits the parent's
+model settings without requiring Python. It MUST keep at most one writing agent
+active and verify child results. TaskChef persists only the visible executor's
+lifecycle and MUST NOT store or infer child phases, identities, or usage.
 
 Normal executor completion MUST stop after the terminal callback and return
 normally. It MUST NOT archive, hand off, close, navigate away from, or otherwise

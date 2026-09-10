@@ -12,7 +12,7 @@ import re
 import sys
 import tomllib
 
-ROLES = ('planner', 'implementer', 'reviewer')
+ROLES = ('orchestrator', 'planner', 'implementer', 'reviewer')
 EFFORTS = ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
 
 
@@ -120,7 +120,7 @@ def resolve(codex_home=None, explicit_model=None, explicit_effort=None):
                         'availability': availability, 'problems': errors,
                         'taskOverrides': overrides,
                         'subagentOverrides': {('reasoning_effort' if k == 'thinking' else k): v for k, v in overrides.items()},
-                        'fallback': 'inherit parent settings' if role == 'reviewer' else 'native new-task default (not guaranteed dispatcher inheritance)'})
+                        'fallback': 'native new-task default' if role == 'orchestrator' else 'inherit parent settings'})
     model_options = [] if catalog is None else [
         {'value': slug, 'label': entry.get('display_name') or slug,
          'efforts': [level['effort'] for level in entry['supported_reasoning_levels']]}

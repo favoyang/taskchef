@@ -5,8 +5,8 @@ description: "Dispatch work received in the canonical TaskChef workspace into Co
 
 # TaskChef Delegate
 
-Create real Codex tasks through the canonical per-user TaskChef data workspace
-and return immediately.
+Create stable visible TaskChef parent tasks through the canonical per-user
+TaskChef data workspace and return immediately.
 
 ## Invocation boundary
 
@@ -33,7 +33,8 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 - Treat only AGENTS.md, taskchef.json, tasks.jsonl, config-audit.jsonl, and
   TaskChef's private backups and maintenance artifacts as managed dispatcher
   state. Preserve unrelated user-owned paths.
-- Use real Codex tasks, never collaboration or subagent tools.
+- Use real Codex tasks for visible delegated work. The dispatcher never uses
+  collaboration or subagent tools; the created executor may use them internally.
 - Never use hooks, schedules, daemons, background monitors, recent-task
   searches, transcripts, hidden reasoning, or polling for identity.
 - Never wait for delegated work after native creation.
@@ -50,13 +51,11 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 3. Route against configured project `name`, `description`, and canonical
    `githubRepos`; use `path` only as checkout identity. Require exactly one
    match and an exact native-project path. Ask instead of guessing.
-   Select `planner` for a requested planning assignment and `implementer` for
-   coding work. Use the personal `modelRoles` from preparation;
-   resolve explicit user choices and follow [model roles](references/model-roles.md).
-   Small coding changes need no separate planning task. For a planning/coding
-   split, the saved plan is the handoff to a separately requested implementation
-   assignment; do not switch models during a turn or coordinate phases automatically.
-   Resolve configuration problems before recording the task.
+   Select the `orchestrator` preference from preparation for every visible
+   parent. Resolve explicit choices and follow
+   [model roles](references/model-roles.md). Missing configuration means omit
+   model overrides; surface invalid or unavailable configuration before
+   recording the task.
 4. Build each executor instruction in this exact shape:
 
    - Begin with the actual assignment on the first line and keep its complete
@@ -76,7 +75,8 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 5. Before creating each executor, call `record_task` exactly once with `id`,
    `project`, `title`, the exact marked `instruction`, and `threadId: null`.
 6. Create one real Codex task using the exact configured project, an appropriate
-   native environment, the marked instruction, and a short title.
+   native environment, the marked instruction, a short title, and the resolved
+   orchestrator model and effort overrides when present.
 7. Return immediately. Preserve a returned provisional client ID only for the
    created-thread directive. Do not call `link_task` from the dispatcher even
    when creation returns a durable ID; the child must self-link.
