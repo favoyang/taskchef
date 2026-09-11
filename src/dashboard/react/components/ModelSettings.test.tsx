@@ -11,7 +11,7 @@ vi.mock('@mantine/core', async () => {
   const block = ({ children }: { children?: import('react').ReactNode }) => createElement('div', null, children);
   return {
     MantineProvider: block, Tooltip: block, Badge: block, Group: block, Paper: block, SimpleGrid: block, Stack: block, Text: block, Title: block,
-    Select: ({ 'aria-busy': busy, 'aria-label': label, data = [], disabled, onChange, readOnly, value }: { 'aria-busy'?: boolean; 'aria-label': string; data?: Array<string | { value: string; label: string }>; disabled?: boolean; onChange: (value: string | null) => void; readOnly?: boolean; value: string | null }) => createElement('select', { 'aria-busy': busy, 'aria-label': label, disabled, 'aria-readonly': readOnly, value: value ?? '', onChange: (event: { currentTarget: { value: string } }) => onChange(event.currentTarget.value) }, [createElement('option', { key: '', value: '' }), ...data.map((item) => typeof item === 'string' ? createElement('option', { key: item, value: item }, item) : createElement('option', { key: item.value, value: item.value }, item.label))]),
+    Select: ({ 'aria-busy': busy, 'aria-label': label, data = [], disabled, onChange, readOnly, value }: { 'aria-busy'?: boolean; 'aria-label': string; data?: Array<string | { value: string; label: string; disabled?: boolean }>; disabled?: boolean; onChange: (value: string | null) => void; readOnly?: boolean; value: string | null }) => createElement('select', { 'aria-busy': busy, 'aria-label': label, disabled, 'aria-readonly': readOnly, value: value ?? '', onChange: (event: { currentTarget: { value: string } }) => onChange(event.currentTarget.value) }, [createElement('option', { key: '', value: '' }), ...data.map((item) => typeof item === 'string' ? createElement('option', { key: item, value: item }, item) : createElement('option', { key: item.value, value: item.value, disabled: item.disabled }, item.label))]),
     Alert: ({ children }: { children?: import('react').ReactNode }) => createElement('div', { role: 'alert' }, children),
     ActionIcon: ({ children, loading, onClick, 'aria-label': label, ...props }: { children?: import('react').ReactNode; loading?: boolean; onClick: () => void; 'aria-label': string; className?: string }) => createElement('button', { ...props, disabled: loading, onClick, 'aria-label': label }, children),
   };
@@ -111,4 +111,53 @@ test('serializes role saves so an older response cannot replace a newer selectio
   apiMocks.updateModelRole.mockResolvedValueOnce({ profile: { ...profile, roles: [{ ...planner, model: 'gpt-two', effort: 'medium' }, { ...reviewer, model: 'gpt-two', effort: 'medium' }] } });
   fireEvent.change(reviewerModel, { target: { value: 'gpt-two' } });
   await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenCalledTimes(2));
+});
+
+const effortRole = { role: 'planner', source: null, model: 'gpt-one', effort: 'low', status: 'configured', problems: [] as string[] };
+const effortProfile = { id: 'personal', roles: [effortRole], problems: [], modelOptions: [
+  { value: 'gpt-one', label: 'GPT One', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+  { value: 'gpt-two', label: 'GPT Two', efforts: ['max', 'medium'] },
+] };
+
+test.each([['Light', 'low'], ['Medium', 'medium'], ['High', 'high'], ['Extra High', 'xhigh'], ['Ultra', 'ultra']])('saves %s as native %s and omits max choices', async (label, native) => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ profiles: [effortProfile] }) }));
+  apiMocks.updateModelRole.mockResolvedValue({ profile: { ...effortProfile, roles: [{ ...effortRole, effort: native }] } });
+  render(<ModelSettings />);
+  const effort = await screen.findByRole('combobox', { name: 'planner reasoning effort' });
+  expect(screen.getByRole('option', { name: label })).toHaveValue(native);
+  expect(screen.queryByRole('option', { name: /max/i })).not.toBeInTheDocument();
+  fireEvent.change(effort, { target: { value: native } });
+  await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenCalledWith('planner', 'gpt-one', native));
+});
+
+test('model changes filter supported efforts and never default to max', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ profiles: [effortProfile] }) }));
+  apiMocks.updateModelRole.mockResolvedValue({ profile: { ...effortProfile, roles: [{ ...effortRole, model: 'gpt-two', effort: 'medium' }] } });
+  render(<ModelSettings />);
+  fireEvent.change(await screen.findByRole('combobox', { name: 'planner model' }), { target: { value: 'gpt-two' } });
+  await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenCalledWith('planner', 'gpt-two', 'medium'));
+  expect(screen.getByRole('option', { name: 'Medium' })).toHaveValue('medium');
+  expect(screen.queryByRole('option', { name: 'Light' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /max/i })).not.toBeInTheDocument();
+});
+
+test('saved max is displayed without being selectable and survives refresh and supported model changes', async () => {
+  const profile = { ...effortProfile, roles: [{ ...effortRole, effort: 'max' }] };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ profiles: [profile] }) }));
+  apiMocks.updateModelRole.mockResolvedValue({ profile: { ...profile, roles: [{ ...effortRole, model: 'gpt-two', effort: 'max' }] } });
+  render(<ModelSettings />);
+  const effort = await screen.findByRole('combobox', { name: 'planner reasoning effort' });
+  expect(effort).toHaveValue('max');
+  expect(screen.getByRole('option', { name: 'Max (current setting)' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(apiMocks.updateModelRole).not.toHaveBeenCalled();
+  await waitFor(() => expect(effort).toHaveAttribute('aria-readonly', 'false'));
+  fireEvent.change(screen.getByRole('combobox', { name: 'planner model' }), { target: { value: 'gpt-two' } });
+  await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenCalledWith('planner', 'gpt-two', 'max'));
+  await waitFor(() => expect(effort).toHaveAttribute('aria-readonly', 'false'));
+  apiMocks.updateModelRole.mockResolvedValue({ profile: { ...profile, roles: [{ ...effortRole, model: 'gpt-two', effort: 'medium' }] } });
+  fireEvent.change(effort, { target: { value: 'medium' } });
+  await waitFor(() => expect(apiMocks.updateModelRole).toHaveBeenLastCalledWith('planner', 'gpt-two', 'medium'));
+  expect(screen.queryByRole('option', { name: /max/i })).not.toBeInTheDocument();
 });
