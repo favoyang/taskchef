@@ -3,6 +3,8 @@ import { IconRefresh } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { updateModelRole } from '../api';
 
+const effortLabels: Record<string, string> = { low: 'Light', medium: 'Medium', high: 'High', xhigh: 'Extra High', ultra: 'Ultra' };
+
 type ModelOption = { value: string; label: string; efforts: string[] };
 type Role = { role: string; source: string | null; displaySource?: string | null; model: unknown; effort: unknown; status: string; problems: string[] };
 type Profile = { id: string; roles: Role[]; problems: string[]; modelOptions?: ModelOption[] };
@@ -77,11 +79,14 @@ export function ModelSettings() {
             <Select label="Model" aria-label={`${role.role} model`} aria-busy={loading || saving !== null} data={profile.modelOptions ?? []} value={typeof role.model === 'string' ? role.model : null} readOnly={loading || saving !== null} allowDeselect={false} searchable onChange={(model) => {
               if (loading || saving || !model) return;
               const option = profile.modelOptions?.find((candidate) => candidate.value === model);
-              const effort = typeof role.effort === 'string' && option?.efforts.includes(role.effort) ? role.effort : option?.efforts[0];
+              const effort = typeof role.effort === 'string' && option?.efforts.includes(role.effort) ? role.effort : option?.efforts.find((value) => value !== 'max');
               if (effort) void save(role, model, effort);
             }} />
-            <Select label="Reasoning effort" aria-label={`${role.role} reasoning effort`} aria-busy={loading || saving !== null} data={(profile.modelOptions?.find((option) => option.value === role.model)?.efforts ?? []).map((value) => ({ value, label: value }))} value={typeof role.effort === 'string' ? role.effort : null} disabled={typeof role.model !== 'string'} readOnly={loading || saving !== null} allowDeselect={false} onChange={(effort) => {
-              if (!loading && !saving && effort && typeof role.model === 'string') void save(role, role.model, effort);
+            <Select label="Reasoning effort" aria-label={`${role.role} reasoning effort`} aria-busy={loading || saving !== null} data={[
+              ...(profile.modelOptions?.find((option) => option.value === role.model)?.efforts ?? []).filter((value) => value !== 'max').map((value) => ({ value, label: effortLabels[value] ?? value })),
+              ...(role.effort === 'max' ? [{ value: 'max', label: 'Max (current setting)', disabled: true }] : []),
+            ]} value={typeof role.effort === 'string' ? role.effort : null} disabled={typeof role.model !== 'string'} readOnly={loading || saving !== null} allowDeselect={false} onChange={(effort) => {
+              if (!loading && !saving && effort && effort !== 'max' && typeof role.model === 'string') void save(role, role.model, effort);
             }} />
           </SimpleGrid>
           <Text size="sm" style={{ overflowWrap: 'anywhere' }}>Source: {role.displaySource ?? role.source ?? 'No role file'}</Text>
