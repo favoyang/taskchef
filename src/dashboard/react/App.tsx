@@ -42,6 +42,7 @@ import { usageStillCalculating } from "./presentation";
 import type { DashboardSnapshot, NotificationSnapshot, Task } from "./types";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { TaskCard } from "./components/TaskCard";
+import { TaskBoard } from "./components/TaskBoard";
 import { TaskDetail } from "./components/TaskDetail";
 import { RelativeTimeProvider } from "./components/RelativeTime";
 
@@ -70,6 +71,12 @@ const theme = createTheme({
   },
 });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="taskchef-style-nonce"]')?.content;
+const VIEW_STORAGE_KEY = "taskchef.dashboard.view";
+
+function savedView(): "board" | "list" {
+  try { return window.localStorage.getItem(VIEW_STORAGE_KEY) === "board" ? "board" : "list"; }
+  catch { return "list"; }
+}
 
 interface NotificationState {
   initialized: boolean;
@@ -116,6 +123,9 @@ export function DashboardApp({
   const [project, setProject] = useState(initialFilters.project ?? "");
   const [status, setStatus] = useState(initialFilters.status ?? "");
   const [date, setDate] = useState(initialFilters.date ?? "all");
+  const [preferredView, setPreferredView] = useState(savedView);
+  const [desktop, setDesktop] = useState(() => window.innerWidth >= 1200);
+  const [completedLimit, setCompletedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detailOpened, setDetailOpened] = useState(false);
@@ -165,6 +175,12 @@ export function DashboardApp({
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const update = () => setDesktop(window.innerWidth >= 1200);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
   useEffect(() => {
@@ -227,11 +243,19 @@ export function DashboardApp({
     ...[...new Set(tasks.map((task) => task.project.name))].sort().map((value) => ({ label: value, value })),
   ], [tasks]);
   const visible = useMemo(() => filterTasks(tasks, { project, status, date, now }), [tasks, project, status, date, now]);
+  const boardTasks = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
+  const board = desktop && preferredView === "board";
   const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
   const statusData = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
     label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
     value,
   }));
+
+  function changeView(value: string) {
+    if (value !== "board" && value !== "list") return;
+    setPreferredView(value);
+    try { window.localStorage.setItem(VIEW_STORAGE_KEY, value); } catch { /* Preference remains in memory. */ }
+  }
 
   async function handleOpenCodex(task: Task) {
     setDetailBusy(true);
@@ -303,7 +327,7 @@ export function DashboardApp({
     >
       <RelativeTimeProvider now={now}>
       <AppShell className="taskchef-shell" padding={0}>
-        <Container className="taskchef-header" component="header" size={1080}>
+        <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} component="header" size={board ? "100%" : 1080}>
           <Group className="taskchef-header-layout" align="stretch" justify="space-between" wrap="nowrap">
             <Box className="taskchef-header-copy">
               <Text c="var(--taskchef-accent)" fw={750} size="xs" tt="uppercase">TaskChef {version && <span className="taskchef-version">v{version}</span>}</Text>
@@ -326,7 +350,7 @@ export function DashboardApp({
         </Container>
 
         <AppShell.Main>
-          <Container className="taskchef-main" pb={80} size={1080}>
+          <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}`} pb={80} size={board ? "100%" : 1080}>
             {projectIndex?.status === "unavailable" && (
               <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="md" title="Project index unavailable">
                 Task history is still visible. Verify the index and inspect backups before making project changes.
@@ -344,25 +368,26 @@ export function DashboardApp({
             {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
             <Paper className="taskchef-toolbar" p="sm" radius="md" withBorder>
               <Stack gap="sm">
+                {desktop && <SegmentedControl aria-label="View" data={[{ label: "List", value: "list" }, { label: "Board", value: "board" }]} onChange={changeView} size="xs" value={preferredView} />}
                 <Group align="end" gap="sm">
-                  <Select aria-label="Project" data={projects} label="Project" onChange={(value) => setProject(value ?? "")} size="sm" value={project} />
+                  <Select aria-label="Project" data={projects} label="Project" onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />
                   <Select
                     aria-label="Updated"
                     data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]}
                     label="Updated"
-                    onChange={(value) => setDate(value ?? "all")}
+                    onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }}
                     size="sm"
                     value={date}
                   />
                 </Group>
-                <Box>
+                {!board && <Box>
                   <Text className="taskchef-filter-label" mb={5}>Status</Text>
                   <SegmentedControl aria-label="Status" data={statusData} fullWidth onChange={setStatus} size="xs" value={status} />
-                </Box>
+                </Box>}
               </Stack>
             </Paper>
 
-            <TaskResultsSummary totalCount={tasks.length} visibleCount={visible.length} />
+            {!board && <TaskResultsSummary totalCount={tasks.length} visibleCount={visible.length} />}
 
             {message && (
               <Alert color="yellow" icon={<IconAlertTriangle aria-hidden size={17} />} mt="md" role="status">
@@ -373,7 +398,13 @@ export function DashboardApp({
               </Alert>
             )}
 
-            <Stack aria-describedby="task-results-summary" aria-label="Tasks" component="section" gap="sm" mt="xs">
+            {board ? <TaskBoard
+              completedLimit={completedLimit}
+              onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)}
+              onOpenCodex={handleOpenCodex}
+              onOpenDetail={(value) => void loadDetail(value)}
+              tasks={boardTasks}
+            /> : <Stack aria-describedby="task-results-summary" aria-label="Tasks" component="section" gap="sm" mt="xs">
               {visible.map((task: Task) => (
                 <TaskCard key={task.id} onOpenCodex={handleOpenCodex} onOpenDetail={(value) => void loadDetail(value)} task={task} />
               ))}
@@ -383,7 +414,7 @@ export function DashboardApp({
                   <Text c="dimmed" mt={4} size="sm">Choose a different project, date, or status.</Text>
                 </Paper>
               )}
-            </Stack>
+            </Stack>}
             </>}
           </Container>
         </AppShell.Main>

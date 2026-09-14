@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ElementType, ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { DashboardApp } from "./App";
@@ -16,6 +16,12 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock("./api", () => apiMocks);
 vi.mock("./components/NotificationCenter", () => ({ NotificationCenter: () => null }));
 vi.mock("./components/TaskCard", () => ({ TaskCard: () => null }));
+vi.mock("./components/TaskBoard", () => ({ TaskBoard: ({ tasks, completedLimit, onMoreCompleted }: { tasks: ReturnType<typeof fixtureTask>[]; completedLimit: number; onMoreCompleted: () => void }) => (
+  <section aria-label="Task board" data-completed-limit={completedLimit}>
+    {tasks.map((task) => <span key={task.id}>{task.title}</span>)}
+    <button onClick={onMoreCompleted}>Show more</button>
+  </section>
+) }));
 vi.mock("./components/TaskDetail", () => ({ TaskDetail: () => null }));
 vi.mock("@tabler/icons-react", async () => {
   const { createElement } = await vi.importActual<typeof import("react")>("react");
@@ -135,6 +141,8 @@ vi.mock("@mantine/core", async () => {
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
+  window.innerWidth = 1024;
   apiMocks.dashboardVersion.mockResolvedValue("7.25.1");
 });
 
@@ -210,3 +218,63 @@ test("places the filtered task count below the toolbar and updates it from live 
   expect(summary).toHaveTextContent("Tasks: 2 of 2");
   expect(summary).toHaveAttribute("aria-live", "polite");
 }, 60_000);
+
+test("Board ignores the List status filter and restores it on return", () => {
+  window.innerWidth = 1280;
+  const tasks = [
+    fixtureTask({ id: "one", title: "Working task" }),
+    fixtureTask({ id: "two", title: "Completed task", status: "completed" }),
+  ];
+  render(<DashboardApp connect={false} initialFilters={{ status: "completed" }} initialTasks={tasks} />);
+  expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(screen.queryByRole("radiogroup", { name: "Status" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Tasks: 1 of 2")).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Working task");
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Completed task");
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
+  expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
+  expect(screen.getByText("Tasks: 1 of 2")).toBeInTheDocument();
+});
+
+test("Board preference persists, falls back to List below 1200px, and restores on widening", () => {
+  window.innerWidth = 1280;
+  const { unmount } = render(<DashboardApp connect={false} />);
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(window.localStorage.getItem("taskchef.dashboard.view")).toBe("board");
+  expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
+  act(() => { window.innerWidth = 1199; window.dispatchEvent(new Event("resize")); });
+  expect(screen.queryByRole("radiogroup", { name: "View" })).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Tasks" })).toBeInTheDocument();
+  act(() => { window.innerWidth = 1200; window.dispatchEvent(new Event("resize")); });
+  expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
+  unmount();
+  render(<DashboardApp connect={false} />);
+  expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
+});
+
+test("storage failure keeps the selected view in memory", () => {
+  window.innerWidth = 1280;
+  const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+  render(<DashboardApp connect={false} />);
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
+  setItem.mockRestore();
+});
+
+test("completed expansion survives view changes and resets for project or date", () => {
+  window.innerWidth = 1280;
+  render(<DashboardApp connect={false} initialTasks={[fixtureTask({ project: { name: "Project A", path: "/tmp/a", githubRepos: [] } })]} />);
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  const board = screen.getByRole("region", { name: "Task board" });
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  expect(board).toHaveAttribute("data-completed-limit", "10");
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "10");
+  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "Latest 7 days" } });
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "5");
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "Project A" } });
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "5");
+});

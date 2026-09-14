@@ -68,6 +68,30 @@ body {
 .taskchef-stat + .taskchef-stat { border-inline-start: 1px solid var(--taskchef-border); }
 .taskchef-empty { border-style: dashed; background: transparent; }
 
+.taskchef-main-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
+.taskchef-header-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
+.taskchef-main-board .taskchef-toolbar { margin-bottom: 22px; padding-inline: 0; border: 0; background: transparent; box-shadow: none; }
+.taskchef-main-board .taskchef-toolbar .mantine-SegmentedControl-root[aria-label="View"] { width: 142px; max-width: 142px; }
+.taskchef-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: 18px; }
+.taskchef-board:has(> :nth-child(5)) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.taskchef-board-lane { min-width: 0; }
+.taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px 11px; border-bottom: 1px solid var(--taskchef-border); margin-bottom: 11px; }
+.taskchef-board-lane-heading h2 { font-size: var(--mantine-font-size-sm); font-weight: 680; }
+.taskchef-board-empty { padding: 12px 4px; }
+.taskchef-board-card { display: flex; flex-direction: column; min-height: 205px; min-width: 0; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
+.taskchef-board-card:hover { border-color: light-dark(#bdc8c0, #5b685e); }
+.taskchef-board-project { color: var(--taskchef-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskchef-board-title { margin-top: 8px; line-height: 1.3; }
+.taskchef-board-title .taskchef-title-button { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
+.taskchef-board-excerpt { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; margin-top: 18px; color: var(--taskchef-text); }
+.taskchef-board-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-top: auto; padding-top: 18px; }
+.taskchef-board-card-footer .taskchef-time { padding-inline-start: 0; }
+.taskchef-board-chat { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--taskchef-muted); cursor: pointer; }
+.taskchef-board-chat:hover { background: var(--taskchef-surface-muted); color: var(--taskchef-text); }
+.taskchef-board-chat:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
+.taskchef-board-link-pending { text-align: right; }
+.taskchef-board-more { align-self: flex-start; padding-inline: 4px; color: var(--taskchef-muted); }
+
 .taskchef-notifications {
   position: fixed;
   z-index: 400;
