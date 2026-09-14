@@ -59,7 +59,6 @@ export function ActivityTimeline({ highlightTurnRef, task }: { highlightTurnRef:
                   <RelativeTime
                     icon={<IconHistory aria-hidden size={14} />}
                     label="Turn update time"
-                    tooltipLabel="Updated at"
                     value={presentation.updatedAt}
                   />
                 </StatCell>

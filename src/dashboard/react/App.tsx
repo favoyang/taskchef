@@ -319,7 +319,7 @@ export function DashboardApp({
     >
       <RelativeTimeProvider now={now}>
       <AppShell className="taskchef-shell" padding={0}>
-        <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} component="header" size={board ? "100%" : 1080}>
+        <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} component="header" size="100%">
           <Group className="taskchef-header-layout" align="stretch" justify="space-between" wrap="nowrap">
             <Box className="taskchef-header-copy">
               <Text c="var(--taskchef-accent)" fw={750} size="xs" tt="uppercase">TaskChef {version && <span className="taskchef-version">v{version}</span>}</Text>
@@ -342,7 +342,7 @@ export function DashboardApp({
         </Container>
 
         <AppShell.Main>
-          <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}`} pb={80} size={board ? "100%" : 1080}>
+          <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}`} pb={80} size="100%">
             {projectIndex?.status === "unavailable" && (
               <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="md" title="Project index unavailable">
                 Task history is still visible. Verify the index and inspect backups before making project changes.
@@ -358,16 +358,16 @@ export function DashboardApp({
               </Alert>
             )}
             {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
-            <Paper className="taskchef-toolbar" p={board ? undefined : "sm"} radius={board ? 0 : "md"} withBorder>
+            <Paper className="taskchef-toolbar" radius={0}>
               <Stack gap="sm">
                 <Group className="taskchef-toolbar-view">
-                  <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={preferredView} />
+                  <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={preferredView} withItemsBorders={false} />
                 </Group>
                 <Group>
                   <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="xs" value={project} />
                 </Group>
-                {!board && <Box>
-                  <SegmentedControl aria-label="Status" data={statusData} fullWidth onChange={setStatus} size="xs" value={status} />
+                {!board && <Box className="taskchef-toolbar-status">
+                  <SegmentedControl aria-label="Status" data={statusData} onChange={setStatus} size="xs" value={status} withItemsBorders={false} />
                 </Box>}
               </Stack>
             </Paper>
@@ -389,7 +389,7 @@ export function DashboardApp({
               onOpenCodex={handleOpenCodex}
               onOpenDetail={(value) => void loadDetail(value)}
               tasks={boardTasks}
-            /> : <Stack aria-describedby="task-results-summary" aria-label="Tasks" component="section" gap="sm" mt="xs">
+            /> : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task: Task) => (
                 <TaskCard key={task.id} onOpenCodex={handleOpenCodex} onOpenDetail={(value) => void loadDetail(value)} task={task} />
               ))}

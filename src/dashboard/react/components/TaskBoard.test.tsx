@@ -51,6 +51,9 @@ test("uses current request for working and latest historical result for finished
   const completedLane = screen.getByRole("region", { name: "Completed, 1 tasks" });
   expect(completedLane).toHaveTextContent("Latest reported result");
   expect(completedLane).not.toHaveTextContent("Old reported result");
+  const completedCard = within(completedLane).getByRole("article");
+  expect(completedCard.firstElementChild).toHaveClass("taskchef-board-title");
+  expect(completedCard.children[1]).toHaveClass("taskchef-board-project");
   fireEvent.click(within(completedLane).getByRole("button", { name: "Finished task" }));
   expect(onOpenDetail).toHaveBeenCalledWith(completed);
   fireEvent.click(within(completedLane).getByRole("button", { name: "Open chat for Finished task" }));

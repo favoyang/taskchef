@@ -126,11 +126,11 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
   const excerpt = task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
   return (
-    <Paper className="taskchef-board-card" component="article" p="sm" withBorder>
-      <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
+    <Paper className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
       </Title>
+      <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
       <Text className="taskchef-board-excerpt taskchef-preserve-lines" size="sm">
         <LinkedText task={task} text={excerpt} />
       </Text>

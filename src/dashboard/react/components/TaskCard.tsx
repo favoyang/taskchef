@@ -1,9 +1,9 @@
 import { Box, Paper, Stack, Text, Title } from "@mantine/core";
+import { IconArrowUpRight } from "@tabler/icons-react";
 import { latestTurnPresentation } from "../../state.js";
 import type { Task } from "../types";
 import { GitHubLinks } from "./GitHubLinks";
 import { LinkedText } from "./LinkedText";
-import { OpenChatButton } from "./OpenChatButton";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
 import { TaskCardStats } from "./TaskCardStats";
@@ -19,7 +19,7 @@ export function TaskCard({
 }) {
   const latest = latestTurnPresentation(task);
   return (
-    <Paper className="taskchef-task-row" component="article" p="md" radius="md" withBorder>
+    <Paper className="taskchef-task-row" component="article" px="sm" py="md" radius="md" withBorder>
       <Stack className="taskchef-task-main" gap="sm">
           <Box>
             <Box className="taskchef-card-heading">
@@ -30,7 +30,6 @@ export function TaskCard({
               </Title>
               <Stack align="flex-end" className="taskchef-card-metadata" gap={4}>
                 <StatusBadge status={task.status} />
-                <OpenChatButton onClick={() => onOpenCodex(task)} taskTitle={task.title} />
               </Stack>
             </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
@@ -51,6 +50,11 @@ export function TaskCard({
 
           <GitHubLinks task={task} />
           <TaskCardStats task={task} />
+          <Box className="taskchef-list-card-footer">
+            <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
+              <IconArrowUpRight aria-hidden size={19} stroke={1.6} />
+            </button>
+          </Box>
       </Stack>
     </Paper>
   );

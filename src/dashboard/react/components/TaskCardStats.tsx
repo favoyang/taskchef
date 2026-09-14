@@ -19,7 +19,6 @@ export function TaskCardStats({ task }: { task: Task }) {
         <RelativeTime
           icon={<IconHistory aria-hidden size={14} />}
           label={`Updated time for ${task.title}`}
-          tooltipLabel="Updated at"
           value={task.meaningfulUpdatedAt ?? task.updatedAt}
         />
       </StatCell>

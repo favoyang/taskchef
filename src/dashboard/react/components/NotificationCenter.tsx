@@ -1,7 +1,7 @@
 import { ActionIcon, Box, Button, Group, Paper, Portal, ScrollArea, Stack, Text, Tooltip } from "@mantine/core";
 import { IconBell, IconX } from "@tabler/icons-react";
 import { notificationDismissLabel, notificationOpenLabel, notificationTitle } from "../../state.js";
-import { formatRelativeTime } from "../../time.js";
+import { formatExactTime, formatRelativeTime } from "../../time.js";
 import type { NotificationSnapshot, Task } from "../types";
 import { StatusBadge } from "./StatusBadge";
 
@@ -65,7 +65,7 @@ export function NotificationCenter({
                       <Text lineClamp={1} size="sm">{notification.title}</Text>
                       {notification.summary && <Text className="taskchef-preserve-lines" id={summaryId} lineClamp={3} size="xs">{notification.summary}</Text>}
                       <Text c="dimmed" id={metadataId} size="xs">
-                        {formatRelativeTime(notification.timestamp)}{available ? "" : " · Task no longer available"}
+                        <Tooltip label={formatExactTime(notification.timestamp)}><span>{formatRelativeTime(notification.timestamp)}</span></Tooltip>{available ? "" : " · Task no longer available"}
                       </Text>
                     </button>
                     <Tooltip label="Dismiss notification">
