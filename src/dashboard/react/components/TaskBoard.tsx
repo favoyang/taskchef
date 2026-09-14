@@ -1,4 +1,5 @@
 import { Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
@@ -31,9 +32,66 @@ export function TaskBoard({
   onOpenDetail: (task: Task) => void;
   tasks: Task[];
 }) {
+  const boardRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "mouse" || event.button !== 0 || !event.isPrimary) return;
+    const target = event.target as Element;
+    if (target.closest("button, a, input, textarea, select, [contenteditable], .taskchef-board-card, h1, h2, h3, p, span")) return;
+    const board = boardRef.current;
+    if (!board || board.scrollWidth <= board.clientWidth) return;
+    dragRef.current = { pointerId: event.pointerId, startX: event.clientX, scrollLeft: board.scrollLeft, moved: false };
+    board.setPointerCapture(event.pointerId);
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const board = boardRef.current;
+    if (!drag || !board || drag.pointerId !== event.pointerId) return;
+    const delta = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(delta) < 6) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      board.classList.add("taskchef-board-dragging");
+    }
+    event.preventDefault();
+    board.scrollLeft = drag.scrollLeft - delta;
+  }
+
+  function endPointer(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const board = boardRef.current;
+    if (!drag || !board || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    board.classList.remove("taskchef-board-dragging");
+    if (board.hasPointerCapture(event.pointerId)) board.releasePointerCapture(event.pointerId);
+    if (drag.moved) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+    }
+  }
+
   const visibleLanes = lanes.filter((lane) => lane.status !== null || tasks.some((task) => laneFor(task) === null));
   return (
-    <Box aria-label="Task board" className="taskchef-board" component="section" tabIndex={0}>
+    <Box
+      aria-label="Task board"
+      className="taskchef-board"
+      component="section"
+      onClickCapture={(event) => {
+        if (!suppressClickRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        suppressClickRef.current = false;
+      }}
+      onPointerCancel={endPointer}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPointer}
+      ref={boardRef}
+      tabIndex={0}
+    >
       {visibleLanes.map(({ status, label }) => {
         const matching = tasks.filter((task) => laneFor(task) === status);
         const shown = status === "completed" ? matching.slice(0, completedLimit) : matching;
@@ -68,7 +126,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
   const excerpt = task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
   return (
-    <Paper className="taskchef-board-card" component="article" p="md" withBorder>
+    <Paper className="taskchef-board-card" component="article" p="sm" withBorder>
       <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>

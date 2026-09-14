@@ -364,10 +364,9 @@ export function DashboardApp({
                   <SegmentedControl aria-label="View" data={[{ label: "List", value: "list" }, { label: "Board", value: "board" }]} onChange={changeView} size="xs" value={preferredView} />
                 </Group>
                 <Group>
-                  <Select aria-label="Project" data={projects} label="Project" onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />
+                  <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />
                 </Group>
                 {!board && <Box>
-                  <Text className="taskchef-filter-label" mb={5}>Status</Text>
                   <SegmentedControl aria-label="Status" data={statusData} fullWidth onChange={setStatus} size="xs" value={status} />
                 </Box>}
               </Stack>

@@ -1,5 +1,5 @@
 import { Button } from "@mantine/core";
-import { IconExternalLink } from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
 
 export function OpenChatButton({
   loading,
@@ -13,7 +13,7 @@ export function OpenChatButton({
   return (
     <Button
       aria-label={`Open chat for ${taskTitle}`}
-      leftSection={<IconExternalLink aria-hidden size={15} />}
+      leftSection={<IconArrowUpRight aria-hidden size={15} stroke={1.6} />}
       loading={loading}
       onClick={onClick}
       size="compact-sm"

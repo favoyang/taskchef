@@ -14,6 +14,12 @@ function task(id: number, status: ReturnType<typeof fixtureTask>["status"], titl
   });
 }
 
+function pointer(target: Element, type: string, pointerType: string, clientX: number, pointerId = 1) {
+  const event = new MouseEvent(type, { bubbles: true, button: 0, clientX });
+  Object.assign(event, { pointerType, pointerId, isPrimary: true });
+  fireEvent(target, event);
+}
+
 test("groups by task status, counts all completed tasks, and reveals five more", () => {
   const tasks = [task(1, "working"), task(2, "needs_input"), ...Array.from({ length: 11 }, (_, index) => task(index + 3, "completed")), task(20, "failed"), task(21, null)];
   const more = vi.fn();
@@ -67,4 +73,47 @@ test("unexpected status appears in Unresolved instead of disappearing", () => {
   unexpected.status = "paused" as typeof unexpected.status;
   render(<MantineProvider><TaskBoard tasks={[unexpected]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
   expect(within(screen.getByRole("region", { name: "Unresolved, 1 tasks" })).getByRole("article")).toBeInTheDocument();
+});
+
+test("mouse drag pans from empty lane space without activating a card", () => {
+  const onOpenDetail = vi.fn();
+  render(<MantineProvider><TaskBoard tasks={[task(1, "working")]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={onOpenDetail} /></MantineProvider>);
+  const board = screen.getByRole("region", { name: "Task board" });
+  const lane = screen.getByRole("region", { name: "Working, 1 tasks" });
+  Object.defineProperties(board, { scrollWidth: { value: 1700 }, clientWidth: { value: 700 } });
+  const capture = vi.fn();
+  const release = vi.fn();
+  board.setPointerCapture = capture;
+  board.hasPointerCapture = () => true;
+  board.releasePointerCapture = release;
+
+  pointer(lane, "pointerdown", "mouse", 200);
+  expect(capture).toHaveBeenCalledWith(1);
+  pointer(board, "pointermove", "mouse", 197);
+  expect(board.scrollLeft).toBe(0);
+  pointer(board, "pointermove", "mouse", 120);
+  expect(board.scrollLeft).toBe(80);
+  pointer(board, "pointerup", "mouse", 120);
+  expect(release).toHaveBeenCalledWith(1);
+  expect(board).not.toHaveClass("taskchef-board-dragging");
+  fireEvent.click(within(lane).getByRole("button", { name: "Task 1" }));
+  expect(onOpenDetail).not.toHaveBeenCalled();
+});
+
+test("card controls and touch gestures do not start mouse panning", () => {
+  const onOpenDetail = vi.fn();
+  render(<MantineProvider><TaskBoard tasks={[task(1, "working")]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={onOpenDetail} /></MantineProvider>);
+  const board = screen.getByRole("region", { name: "Task board" });
+  const lane = screen.getByRole("region", { name: "Working, 1 tasks" });
+  Object.defineProperties(board, { scrollWidth: { value: 1700 }, clientWidth: { value: 700 } });
+  const capture = vi.fn();
+  board.setPointerCapture = capture;
+  const title = within(lane).getByRole("button", { name: "Task 1" });
+  pointer(title, "pointerdown", "mouse", 200);
+  pointer(lane, "pointerdown", "touch", 200, 2);
+  pointer(board, "pointermove", "touch", 120, 2);
+  expect(capture).not.toHaveBeenCalled();
+  expect(board.scrollLeft).toBe(0);
+  fireEvent.click(title);
+  expect(onOpenDetail).toHaveBeenCalledOnce();
 });
