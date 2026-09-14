@@ -361,7 +361,7 @@ export function DashboardApp({
             <Paper className="taskchef-toolbar" p={board ? 0 : "sm"} radius="md" withBorder>
               <Stack gap="sm">
                 <Group className="taskchef-toolbar-view">
-                  <SegmentedControl aria-label="View" data={[{ label: "List", value: "list" }, { label: "Board", value: "board" }]} onChange={changeView} size="xs" value={preferredView} />
+                  <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={preferredView} />
                 </Group>
                 <Group>
                   <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />

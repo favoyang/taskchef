@@ -71,7 +71,8 @@ body {
 .taskchef-main-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-header-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-main-board .taskchef-toolbar { margin-bottom: 22px; padding-inline: 0; border: 0; background: transparent; box-shadow: none; }
-.taskchef-toolbar-view .mantine-SegmentedControl-root { width: 142px; }
+.taskchef-toolbar-view .mantine-SegmentedControl-root { width: 110px; }
+.taskchef-toolbar-view .mantine-SegmentedControl-label { padding-inline-start: 9px; text-align: start; }
 .taskchef-board {
   display: grid;
   grid-auto-flow: column;
