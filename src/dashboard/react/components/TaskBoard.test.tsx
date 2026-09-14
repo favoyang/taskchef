@@ -18,6 +18,7 @@ test("groups by task status, counts all completed tasks, and reveals five more",
   const tasks = [task(1, "working"), task(2, "needs_input"), ...Array.from({ length: 11 }, (_, index) => task(index + 3, "completed")), task(20, "failed"), task(21, null)];
   const more = vi.fn();
   const { rerender } = render(<MantineProvider><TaskBoard tasks={tasks} completedLimit={5} onMoreCompleted={more} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("tabindex", "0");
   expect(screen.getByRole("region", { name: "Working, 1 tasks" })).toBeInTheDocument();
   expect(screen.getByRole("region", { name: "Needs input, 1 tasks" })).toBeInTheDocument();
   const completed = screen.getByRole("region", { name: "Completed, 11 tasks" });

@@ -105,17 +105,18 @@ historical task snapshots reference paths absent from the current index and
 offers recovery-oriented read-only commands. It never mutates or restores
 configuration.
 
-At desktop widths of 1200 px or more, the task dashboard offers List and Board
-views. List remains the default and keeps its status filter, task metrics, and
+The task dashboard offers List and Board views at every screen width. List
+remains the default and keeps its status filter, task metrics, and
 actions. Board groups tasks by recorded status, with an Unresolved column only
 when needed. Project and updated-date filters apply to both views; Board ignores
 the remembered List status filter. Completed initially shows five cards, with
 five more available per click. Each Board card shows its project's name, title,
 current request or latest reported result, relative update time, and a chat
 shortcut when the task has a linked chat. Opening the title uses the full task
-detail view. Below 1200 px the dashboard shows List, and widening restores the
-saved desktop view. The view preference is stored locally when browser storage
-is available.
+detail view. Below 1200 px, Board shows one readable column and a peek of the
+next. Swipe or scroll horizontally to reach every column, or focus the board
+to scroll it with a keyboard; the page still scrolls vertically through tasks.
+The view preference is stored locally when browser storage is available.
 
 The detail view distinguishes an active turn whose final usage is pending from
 a terminal turn whose usage is being calculated. Available usage keeps both the

@@ -124,7 +124,6 @@ export function DashboardApp({
   const [status, setStatus] = useState(initialFilters.status ?? "");
   const [date, setDate] = useState(initialFilters.date ?? "all");
   const [preferredView, setPreferredView] = useState(savedView);
-  const [desktop, setDesktop] = useState(() => window.innerWidth >= 1200);
   const [completedLimit, setCompletedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -175,12 +174,6 @@ export function DashboardApp({
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const update = () => setDesktop(window.innerWidth >= 1200);
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
   }, []);
 
   useEffect(() => {
@@ -244,7 +237,7 @@ export function DashboardApp({
   ], [tasks]);
   const visible = useMemo(() => filterTasks(tasks, { project, status, date, now }), [tasks, project, status, date, now]);
   const boardTasks = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
-  const board = desktop && preferredView === "board";
+  const board = preferredView === "board";
   const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
   const statusData = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
     label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
@@ -380,7 +373,7 @@ export function DashboardApp({
                       value={date}
                     />
                   </Group>
-                  {desktop && <SegmentedControl aria-label="View" data={[{ label: "List", value: "list" }, { label: "Board", value: "board" }]} onChange={changeView} size="xs" value={preferredView} />}
+                  <SegmentedControl aria-label="View" data={[{ label: "List", value: "list" }, { label: "Board", value: "board" }]} onChange={changeView} size="xs" value={preferredView} />
                 </Group>
                 {!board && <Box>
                   <Text className="taskchef-filter-label" mb={5}>Status</Text>

@@ -237,18 +237,22 @@ test("Board ignores the List status filter and restores it on return", () => {
   expect(screen.getByText("Tasks: 1 of 2")).toBeInTheDocument();
 });
 
-test("Board preference persists, falls back to List below 1200px, and restores on widening", () => {
+test("Board preference and view switch remain available across screen widths", () => {
   window.innerWidth = 1280;
   const { unmount } = render(<DashboardApp connect={false} />);
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
   expect(window.localStorage.getItem("taskchef.dashboard.view")).toBe("board");
   expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
-  act(() => { window.innerWidth = 1199; window.dispatchEvent(new Event("resize")); });
-  expect(screen.queryByRole("radiogroup", { name: "View" })).not.toBeInTheDocument();
+  act(() => { window.innerWidth = 375; window.dispatchEvent(new Event("resize")); });
+  expect(screen.getByRole("radiogroup", { name: "View" })).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
   expect(screen.getByRole("region", { name: "Tasks" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
   act(() => { window.innerWidth = 1200; window.dispatchEvent(new Event("resize")); });
   expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
   unmount();
+  window.innerWidth = 375;
   render(<DashboardApp connect={false} />);
   expect(screen.getByRole("region", { name: "Task board" })).toBeInTheDocument();
 });

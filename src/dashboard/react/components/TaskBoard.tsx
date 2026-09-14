@@ -33,7 +33,7 @@ export function TaskBoard({
 }) {
   const visibleLanes = lanes.filter((lane) => lane.status !== null || tasks.some((task) => laneFor(task) === null));
   return (
-    <Box aria-label="Task board" className="taskchef-board" component="section">
+    <Box aria-label="Task board" className="taskchef-board" component="section" tabIndex={0}>
       {visibleLanes.map(({ status, label }) => {
         const matching = tasks.filter((task) => laneFor(task) === status);
         const shown = status === "completed" ? matching.slice(0, completedLimit) : matching;
