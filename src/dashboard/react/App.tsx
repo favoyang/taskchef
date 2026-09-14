@@ -358,13 +358,13 @@ export function DashboardApp({
               </Alert>
             )}
             {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
-            <Paper className="taskchef-toolbar" p={board ? 0 : "sm"} radius="md" withBorder>
+            <Paper className="taskchef-toolbar" p={board ? undefined : "sm"} radius={board ? 0 : "md"} withBorder>
               <Stack gap="sm">
                 <Group className="taskchef-toolbar-view">
                   <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={preferredView} />
                 </Group>
                 <Group>
-                  <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />
+                  <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="xs" value={project} />
                 </Group>
                 {!board && <Box>
                   <SegmentedControl aria-label="Status" data={statusData} fullWidth onChange={setStatus} size="xs" value={status} />

@@ -70,9 +70,10 @@ body {
 
 .taskchef-main-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-header-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
-.taskchef-main-board .taskchef-toolbar { margin-bottom: 22px; padding-inline: 0; border: 0; background: transparent; box-shadow: none; }
-.taskchef-toolbar-view .mantine-SegmentedControl-root { width: 110px; }
-.taskchef-toolbar-view .mantine-SegmentedControl-label { padding-inline-start: 9px; text-align: start; }
+.taskchef-main-board .taskchef-toolbar { margin-bottom: 22px; padding: var(--mantine-spacing-md) 0; border: 0; border-bottom: 1px solid var(--taskchef-border); background: transparent; box-shadow: none; }
+.taskchef-toolbar .mantine-Select-input { padding-inline-start: 12px; }
+.taskchef-toolbar-view .mantine-SegmentedControl-root { width: 110px; height: 30px; padding: 0; }
+.taskchef-toolbar-view .mantine-SegmentedControl-label { display: flex; align-items: center; height: 100%; padding-inline-start: 13px; font-size: var(--mantine-font-size-xs); text-align: start; }
 .taskchef-board {
   display: grid;
   grid-auto-flow: column;
@@ -90,7 +91,7 @@ body {
 .taskchef-board:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
 .taskchef-board-dragging { scroll-snap-type: none; user-select: none; cursor: grabbing; }
 .taskchef-board-lane { min-width: 0; scroll-snap-align: start; cursor: grab; }
-.taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 13px 11px; border-bottom: 1px solid var(--taskchef-border); margin-bottom: 11px; }
+.taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 13px 11px; margin-bottom: 11px; }
 .taskchef-board-lane-heading h2 { font-size: var(--mantine-font-size-sm); font-weight: 680; }
 .taskchef-board-empty { padding: 12px 4px; }
 .taskchef-board-card { display: flex; flex-direction: column; min-width: 0; cursor: auto; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
