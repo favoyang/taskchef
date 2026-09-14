@@ -106,7 +106,7 @@ export function DashboardApp({
   initialTasks = [],
 }: {
   connect?: boolean;
-  initialFilters?: { date?: string; project?: string; status?: string };
+  initialFilters?: { project?: string; status?: string };
   initialTasks?: Task[];
 }) {
   const [settings, setSettings] = useState(() => window.location.hash === '#settings');
@@ -122,7 +122,6 @@ export function DashboardApp({
   const [version, setVersion] = useState<string | null>(null);
   const [project, setProject] = useState(initialFilters.project ?? "");
   const [status, setStatus] = useState(initialFilters.status ?? "");
-  const [date, setDate] = useState(initialFilters.date ?? "all");
   const [preferredView, setPreferredView] = useState(savedView);
   const [completedLimit, setCompletedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
@@ -235,10 +234,10 @@ export function DashboardApp({
     { label: "All projects", value: "" },
     ...[...new Set(tasks.map((task) => task.project.name))].sort().map((value) => ({ label: value, value })),
   ], [tasks]);
-  const visible = useMemo(() => filterTasks(tasks, { project, status, date, now }), [tasks, project, status, date, now]);
-  const boardTasks = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
+  const visible = useMemo(() => filterTasks(tasks, { project, status }), [tasks, project, status]);
+  const boardTasks = useMemo(() => filterTasks(tasks, { project }), [tasks, project]);
   const board = preferredView === "board";
-  const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
+  const counts = useMemo(() => statusFilterCounts(tasks, { project }), [tasks, project]);
   const statusData = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
     label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
     value,
@@ -361,19 +360,11 @@ export function DashboardApp({
             {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
             <Paper className="taskchef-toolbar" p={board ? 0 : "sm"} radius="md" withBorder>
               <Stack gap="sm">
-                <Group align="end" className="taskchef-toolbar-primary" gap="sm" justify="space-between">
-                  <Group align="end" gap="sm">
-                    <Select aria-label="Project" data={projects} label="Project" onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />
-                    <Select
-                      aria-label="Updated"
-                      data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]}
-                      label="Updated"
-                      onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }}
-                      size="sm"
-                      value={date}
-                    />
-                  </Group>
+                <Group className="taskchef-toolbar-view">
                   <SegmentedControl aria-label="View" data={[{ label: "List", value: "list" }, { label: "Board", value: "board" }]} onChange={changeView} size="xs" value={preferredView} />
+                </Group>
+                <Group>
+                  <Select aria-label="Project" data={projects} label="Project" onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="sm" value={project} />
                 </Group>
                 {!board && <Box>
                   <Text className="taskchef-filter-label" mb={5}>Status</Text>
@@ -406,7 +397,7 @@ export function DashboardApp({
               {visible.length === 0 && (
                 <Paper className="taskchef-empty" p={48} ta="center" withBorder>
                   <Title order={2} size="h4">No tasks match these filters</Title>
-                  <Text c="dimmed" mt={4} size="sm">Choose a different project, date, or status.</Text>
+                  <Text c="dimmed" mt={4} size="sm">Choose a different project or status.</Text>
                 </Paper>
               )}
             </Stack>}

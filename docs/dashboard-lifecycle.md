@@ -108,14 +108,17 @@ configuration.
 The task dashboard offers List and Board views at every screen width. List
 remains the default and keeps its status filter, task metrics, and
 actions. Board groups tasks by recorded status, with an Unresolved column only
-when needed. Project and updated-date filters apply to both views; Board ignores
+when needed. The view switch precedes the project filter in both views. The
+project filter applies to both views; Board ignores
 the remembered List status filter. Completed initially shows five cards, with
 five more available per click. Each Board card shows its project's name, title,
 current request or latest reported result, relative update time, and a chat
 shortcut when the task has a linked chat. Opening the title uses the full task
-detail view. Below 1200 px, Board shows one readable column and a peek of the
-next. Swipe or scroll horizontally to reach every column, or focus the board
-to scroll it with a keyboard; the page still scrolls vertically through tasks.
+detail view. Board columns are 340 px wide where space permits and scroll
+horizontally when needed. On phones, a column fits the viewport with a peek of
+the next. Swipe or scroll horizontally to reach every column, or focus the
+board to scroll it with a keyboard; the page still scrolls vertically through
+tasks.
 The view preference is stored locally when browser storage is available.
 
 The detail view distinguishes an active turn whose final usage is pending from

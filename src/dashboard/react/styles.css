@@ -71,11 +71,22 @@ body {
 .taskchef-main-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-header-board { max-width: 1760px; padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-main-board .taskchef-toolbar { margin-bottom: 22px; padding-inline: 0; border: 0; background: transparent; box-shadow: none; }
-.taskchef-main-board .taskchef-toolbar .mantine-SegmentedControl-root[aria-label="View"] { width: 142px; max-width: 142px; }
-.taskchef-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: 18px; }
-.taskchef-board:has(> :nth-child(5)) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.taskchef-toolbar-view .mantine-SegmentedControl-root { width: 142px; }
+.taskchef-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(340px, calc(100% - 36px));
+  align-items: start;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
 .taskchef-board:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
-.taskchef-board-lane { min-width: 0; }
+.taskchef-board-lane { min-width: 0; scroll-snap-align: start; }
 .taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 16px 11px; border-bottom: 1px solid var(--taskchef-border); margin-bottom: 11px; }
 .taskchef-board-lane-heading h2 { font-size: var(--mantine-font-size-sm); font-weight: 680; }
 .taskchef-board-empty { padding: 12px 4px; }
@@ -92,23 +103,6 @@ body {
 .taskchef-board-chat:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
 .taskchef-board-link-pending { text-align: right; }
 .taskchef-board-more { align-self: flex-start; padding-inline: 4px; color: var(--taskchef-muted); }
-
-@media (max-width: 1199px) {
-  .taskchef-board,
-  .taskchef-board:has(> :nth-child(5)) {
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: calc(100% - 36px);
-    gap: 12px;
-    width: 100%;
-    min-width: 0;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: thin;
-  }
-  .taskchef-board-lane { scroll-snap-align: start; }
-}
 
 .taskchef-notifications {
   position: fixed;

@@ -175,7 +175,7 @@ test("places the filtered task count below the toolbar and updates it from live 
 
   render(
     <DashboardApp
-      initialFilters={{ date: "24h", project: "Another project", status: "completed" }}
+      initialFilters={{ project: "Another project", status: "completed" }}
       initialTasks={tasks}
     />,
   );
@@ -187,13 +187,15 @@ test("places the filtered task count below the toolbar and updates it from live 
   expect(within(headerActions).getByRole("link", { name: "Settings" })).toHaveClass("taskchef-icon-button");
   expect(within(headerActions).getByRole("button", { name: "Use dark theme" })).toHaveClass("taskchef-icon-button");
   const projectFilter = screen.getByRole("combobox", { name: "Project" });
-  const dateFilter = screen.getByRole("combobox", { name: "Updated" });
+  const viewSwitch = screen.getByRole("radiogroup", { name: "View" });
   const toolbar = document.querySelector<HTMLElement>(".taskchef-toolbar");
   const summary = document.querySelector<HTMLElement>(".taskchef-results-summary");
   const taskList = screen.getByRole("region", { name: "Tasks" });
 
   expect(projectFilter).toHaveValue("Another project");
-  expect(dateFilter).toHaveValue("Latest 24 hours");
+  expect(screen.queryByRole("combobox", { name: "Updated" })).not.toBeInTheDocument();
+  expect(toolbar?.firstElementChild?.firstElementChild).toContainElement(viewSwitch);
+  expect(viewSwitch.compareDocumentPosition(projectFilter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
   expect(summary).toHaveTextContent("Tasks: 1 of 3");
   expect(toolbar).not.toContainElement(summary);
@@ -228,6 +230,9 @@ test("Board ignores the List status filter and restores it on return", () => {
   render(<DashboardApp connect={false} initialFilters={{ status: "completed" }} initialTasks={tasks} />);
   expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  const toolbar = document.querySelector<HTMLElement>(".taskchef-toolbar");
+  expect(toolbar?.firstElementChild?.firstElementChild).toContainElement(screen.getByRole("radiogroup", { name: "View" }));
+  expect(screen.getByRole("radiogroup", { name: "View" }).compareDocumentPosition(screen.getByRole("combobox", { name: "Project" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.queryByRole("radiogroup", { name: "Status" })).not.toBeInTheDocument();
   expect(screen.queryByText("Tasks: 1 of 2")).not.toBeInTheDocument();
   expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Working task");
@@ -266,7 +271,7 @@ test("storage failure keeps the selected view in memory", () => {
   setItem.mockRestore();
 });
 
-test("completed expansion survives view changes and resets for project or date", () => {
+test("completed expansion survives view changes and resets for project", () => {
   window.innerWidth = 1280;
   render(<DashboardApp connect={false} initialTasks={[fixtureTask({ project: { name: "Project A", path: "/tmp/a", githubRepos: [] } })]} />);
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
@@ -276,9 +281,14 @@ test("completed expansion survives view changes and resets for project or date",
   fireEvent.click(screen.getByRole("radio", { name: "List" }));
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
   expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "10");
-  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "Latest 7 days" } });
-  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "5");
-  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "Project A" } });
   expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "5");
+});
+
+test("old tasks remain available in List and Board", () => {
+  const oldTask = fixtureTask({ id: "old", title: "Older task", updatedAt: "2020-01-01T00:00:00.000Z", meaningfulUpdatedAt: "2020-01-01T00:00:00.000Z" });
+  render(<DashboardApp connect={false} initialTasks={[oldTask]} />);
+  expect(screen.getByText("Tasks: 1 of 1")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Older task");
 });
