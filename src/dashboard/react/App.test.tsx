@@ -193,7 +193,7 @@ test("places the filtered task count below the toolbar and updates it from live 
   const taskList = screen.getByRole("region", { name: "Tasks" });
 
   expect(projectFilter).toHaveValue("Another project");
-  expect(screen.queryByRole("combobox", { name: "Updated" })).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Updated" })).toHaveValue("All time");
   expect(toolbar?.firstElementChild?.firstElementChild).toContainElement(viewSwitch);
   expect(viewSwitch.compareDocumentPosition(projectFilter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
@@ -283,6 +283,32 @@ test("completed expansion survives view changes and resets for project", () => {
   expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "10");
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "Project A" } });
   expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "5");
+});
+
+test("Updated filters both views and List counts, and resets completed expansion", () => {
+  const recent = new Date().toISOString();
+  const tasks = [
+    fixtureTask({ id: "recent", title: "Recent task", status: "completed", updatedAt: recent, meaningfulUpdatedAt: recent }),
+    fixtureTask({ id: "old", title: "Older task", status: "completed", updatedAt: "2020-01-01T00:00:00.000Z", meaningfulUpdatedAt: "2020-01-01T00:00:00.000Z" }),
+  ];
+  render(<DashboardApp connect={false} initialTasks={tasks} />);
+  const updated = screen.getByRole("combobox", { name: "Updated" });
+  expect(updated).toHaveValue("All time");
+  expect(screen.getByText("Tasks: 2 of 2")).toBeInTheDocument();
+  fireEvent.change(updated, { target: { value: "Latest 24 hours" } });
+  expect(screen.getByText("Tasks: 1 of 2")).toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: "Completed 1" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Recent task");
+  expect(screen.getByRole("region", { name: "Task board" })).not.toHaveTextContent("Older task");
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "10");
+  fireEvent.change(updated, { target: { value: "Latest 7 days" } });
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveAttribute("data-completed-limit", "5");
+  fireEvent.change(updated, { target: { value: "All time" } });
+  expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Older task");
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
+  expect(screen.getByText("Tasks: 2 of 2")).toBeInTheDocument();
 });
 
 test("old tasks remain available in List and Board", () => {

@@ -108,8 +108,9 @@ configuration.
 The task dashboard offers List and Board views at every screen width. List
 remains the default and keeps its status filter, task metrics, and
 actions. Board groups tasks by recorded status, with an Unresolved column only
-when needed. The view switch precedes the project filter in both views. The
-project filter applies to both views; Board ignores
+when needed. The view switch precedes the project and Updated filters in both
+views. Both filters apply to Board and List; Updated offers the latest 24 hours,
+latest 7 days, and all time. Board ignores
 the remembered List status filter. Completed initially shows five cards, with
 five more available per click. Each Board card shows its project's name, title,
 current request or latest reported result, relative update time, and a chat
