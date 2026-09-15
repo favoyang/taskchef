@@ -320,25 +320,27 @@ export function DashboardApp({
     >
       <RelativeTimeProvider now={now}>
       <AppShell className="taskchef-shell" padding={0}>
-        <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} component="header" size="100%">
-          <Group className="taskchef-header-layout" justify="space-between" wrap="nowrap">
-            <Group className="taskchef-header-copy" gap="xs" wrap="nowrap">
-              <BrandIcon />
-              <Title className="taskchef-brand-title" order={1}>
-                <span>TaskChef Dashboard</span>
-                {version && <span className="taskchef-version">v{version}</span>}
-              </Title>
-            </Group>
-            <Group className="taskchef-header-actions" gap={2} justify="flex-end" wrap="nowrap">
-              <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
-              <ThemeToggle />
-              <Group aria-live="polite" className="taskchef-connection" gap={7} role="status" wrap="nowrap">
-                <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
-                <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
+        <Box className="taskchef-header-shell" component="header">
+          <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} size="100%">
+            <Group className="taskchef-header-layout" justify="space-between" wrap="nowrap">
+              <Group className="taskchef-header-copy" gap="xs" wrap="nowrap">
+                <BrandIcon />
+                <Title className="taskchef-brand-title" order={1}>
+                  <span>TaskChef Dashboard</span>
+                  {version && <span className="taskchef-version">v{version}</span>}
+                </Title>
+              </Group>
+              <Group className="taskchef-header-actions" gap={2} justify="flex-end" wrap="nowrap">
+                <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
+                <ThemeToggle />
+                <Group aria-live="polite" className="taskchef-connection" gap={7} role="status" wrap="nowrap">
+                  <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
+                  <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
+                </Group>
               </Group>
             </Group>
-          </Group>
-        </Container>
+          </Container>
+        </Box>
 
         <AppShell.Main>
           <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}`} pb={80} size="100%">

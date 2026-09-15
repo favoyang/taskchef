@@ -19,7 +19,7 @@ export function TaskCard({
 }) {
   const latest = latestTurnPresentation(task);
   return (
-    <Paper className="taskchef-task-row" component="article" px="sm" py="md" radius="md" withBorder>
+    <Paper className="taskchef-task-row" component="article" pb={8} pt="md" px="sm" radius="md" withBorder>
       <Stack className="taskchef-task-main" gap="sm">
           <Box>
             <Box className="taskchef-card-heading">

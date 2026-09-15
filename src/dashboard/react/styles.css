@@ -16,8 +16,8 @@ body {
 }
 
 .taskchef-shell { min-height: 100vh; background: var(--taskchef-page); }
-.taskchef-shell header { border-bottom: 1px solid var(--taskchef-border); }
-.taskchef-header { max-width: 1760px; padding: 10px clamp(12px, 3vw, 48px); }
+.taskchef-header-shell { border-bottom: 1px solid var(--taskchef-border); }
+.taskchef-header { max-width: 1510px; padding: 10px clamp(12px, 3vw, 48px); }
 .taskchef-header-layout { min-width: 0; min-height: 36px; gap: 8px; }
 .taskchef-header-copy { min-width: 0; }
 .taskchef-header-actions { flex: none; }
@@ -26,7 +26,7 @@ body {
 .taskchef-brand-title { min-width: 0; color: var(--taskchef-accent); font-size: 0.875rem; font-weight: 750; letter-spacing: 0.035em; line-height: 1; text-transform: uppercase; white-space: nowrap; }
 .taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-size: 0.78em; font-weight: 600; letter-spacing: 0; text-transform: none; }
 .taskchef-brand-icon, .taskchef-brand-icon img { display: block; flex: none; width: 28px; height: 28px; }
-.taskchef-main { max-width: 1760px; padding-top: var(--mantine-spacing-md); padding-inline: clamp(16px, 3vw, 48px); }
+.taskchef-main { max-width: 1510px; padding-top: 8px; padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-toolbar { max-width: none; margin-bottom: 22px; padding: 8px 0 var(--mantine-spacing-md); border: 0; border-bottom: 1px solid var(--taskchef-border); background: transparent; box-shadow: none; }
 .taskchef-toolbar-filters { width: min(100%, 488px); min-width: 0; }
 .taskchef-toolbar-filters .mantine-InputWrapper-root { flex: 1 1 0; width: 0; min-width: 0; max-width: 240px; }
@@ -93,7 +93,7 @@ body {
 .taskchef-board:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
 .taskchef-board-dragging { scroll-snap-type: none; user-select: none; cursor: grabbing; }
 .taskchef-board-lane { min-width: 0; scroll-snap-align: start; cursor: grab; }
-.taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 13px 11px; margin-bottom: 11px; }
+.taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 13px 6px; margin-bottom: 6px; }
 .taskchef-board-lane-heading h2 { font-size: var(--mantine-font-size-sm); font-weight: 680; }
 .taskchef-board-empty { padding: 12px 4px; }
 .taskchef-board-card { display: flex; flex-direction: column; min-width: 0; cursor: auto; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
