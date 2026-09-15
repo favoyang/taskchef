@@ -68,6 +68,7 @@ const theme = createTheme({
   components: {
     Button: { defaultProps: { radius: "md" } },
     Paper: { defaultProps: { radius: "md" } },
+    Select: { defaultProps: { size: "xs" } },
   },
 });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="taskchef-style-nonce"]')?.content;
@@ -94,7 +95,7 @@ export function TaskResultsSummary({
   visibleCount: number;
 }) {
   return (
-    <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">
+    <Text aria-live="polite" className="taskchef-results-summary taskchef-content" id="task-results-summary">
       Tasks: {visibleCount} of {totalCount}
     </Text>
   );
@@ -358,15 +359,15 @@ export function DashboardApp({
                 ))}
               </Alert>
             )}
-            {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
+            {settings ? <Stack className="taskchef-settings-page taskchef-content" gap="sm"><Button component="a" href="#" variant="subtle" size="xs" leftSection={<IconArrowLeft size={14} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
             <Paper className="taskchef-toolbar" radius={0}>
               <Stack gap="sm">
                 <Group className="taskchef-toolbar-view">
                   <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={preferredView} withItemsBorders={false} />
                 </Group>
                 <Group className="taskchef-toolbar-filters" gap="sm" wrap="nowrap">
-                  <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="xs" value={project} />
-                  <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} size="xs" value={date} />
+                  <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} value={project} />
+                  <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} />
                 </Group>
                 {!board && <Box className="taskchef-toolbar-status">
                   <SegmentedControl aria-label="Status" data={statusData} onChange={setStatus} size="xs" value={status} withItemsBorders={false} />
@@ -391,7 +392,7 @@ export function DashboardApp({
               onOpenCodex={handleOpenCodex}
               onOpenDetail={(value) => void loadDetail(value)}
               tasks={boardTasks}
-            /> : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
+            /> : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list taskchef-content" component="section" gap="sm" mt="xs">
               {visible.map((task: Task) => (
                 <TaskCard key={task.id} onOpenCodex={handleOpenCodex} onOpenDetail={(value) => void loadDetail(value)} task={task} />
               ))}

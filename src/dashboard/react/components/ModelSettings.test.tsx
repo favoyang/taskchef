@@ -8,7 +8,7 @@ vi.mock('../api', () => apiMocks);
 
 vi.mock('@mantine/core', async () => {
   const { createElement } = await import('react');
-  const block = ({ children }: { children?: import('react').ReactNode }) => createElement('div', null, children);
+  const block = ({ children, className, 'aria-label': ariaLabel }: { children?: import('react').ReactNode; className?: string; 'aria-label'?: string }) => createElement('div', { className, 'aria-label': ariaLabel }, children);
   return {
     MantineProvider: block, Tooltip: block, Badge: block, Group: block, Paper: block, SimpleGrid: block, Stack: block, Text: block, Title: block,
     Select: ({ 'aria-busy': busy, 'aria-label': label, data = [], disabled, onChange, readOnly, value }: { 'aria-busy'?: boolean; 'aria-label': string; data?: Array<string | { value: string; label: string; disabled?: boolean }>; disabled?: boolean; onChange: (value: string | null) => void; readOnly?: boolean; value: string | null }) => createElement('select', { 'aria-busy': busy, 'aria-label': label, disabled, 'aria-readonly': readOnly, value: value ?? '', onChange: (event: { currentTarget: { value: string } }) => onChange(event.currentTarget.value) }, [createElement('option', { key: '', value: '' }), ...data.map((item) => typeof item === 'string' ? createElement('option', { key: item, value: item }, item) : createElement('option', { key: item.value, value: item.value, disabled: item.disabled }, item.label))]),
@@ -32,6 +32,22 @@ test('shows the ccusage version pinned by TaskChef without an availability statu
   expect(screen.getByText('Usage provider')).toBeInTheDocument();
   expect(screen.getByText(/Version pinned by TaskChef/)).toBeInTheDocument();
   expect(screen.queryByText('available')).not.toBeInTheDocument();
+});
+
+test('uses the shared dashboard content and section treatment', async () => {
+  const role = { role: 'planner', source: null, model: 'gpt-one', effort: 'low', status: 'configured', problems: [] as string[] };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      profiles: [{ id: 'personal', roles: [role], problems: [], modelOptions: [{ value: 'gpt-one', label: 'GPT One', efforts: ['low'] }] }],
+      usageProvider: { provider: 'ccusage', status: 'available', version: '20.0.21' },
+    }),
+  }));
+  const { container } = render(<MantineProvider><ModelSettings /></MantineProvider>);
+  expect(await screen.findByRole('combobox', { name: 'planner model' })).toBeInTheDocument();
+  expect(container.querySelector('[aria-label="Model settings"]')).toHaveClass('taskchef-settings');
+  expect(container.querySelector('.taskchef-settings-fields')).toBeInTheDocument();
+  expect(container.querySelectorAll('.taskchef-section')).toHaveLength(2);
 });
 
 test('refresh shows configuration failures and does not label them honored', async () => {

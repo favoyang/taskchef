@@ -5,6 +5,9 @@
   --taskchef-text: light-dark(#202521, #edf1ee);
   --taskchef-muted: light-dark(#657068, #aab4ad);
   --taskchef-accent: light-dark(#087f5b, #38d9a9);
+  --taskchef-page-max-width: 1510px;
+  --taskchef-content-max-width: 1080px;
+  --taskchef-page-gutter: clamp(16px, 3vw, 48px);
 }
 
 * { box-sizing: border-box; }
@@ -17,7 +20,7 @@ body {
 
 .taskchef-shell { min-height: 100vh; background: var(--taskchef-page); }
 .taskchef-header-shell { border-bottom: 1px solid var(--taskchef-border); }
-.taskchef-header { max-width: 1510px; padding: 10px clamp(12px, 3vw, 48px); }
+.taskchef-header { max-width: var(--taskchef-page-max-width); padding: 10px var(--taskchef-page-gutter); }
 .taskchef-header-layout { min-width: 0; min-height: 36px; gap: 8px; }
 .taskchef-header-copy { min-width: 0; }
 .taskchef-header-actions { flex: none; }
@@ -26,15 +29,23 @@ body {
 .taskchef-brand-title { min-width: 0; color: var(--taskchef-accent); font-size: 0.875rem; font-weight: 750; letter-spacing: 0.035em; line-height: 1; text-transform: uppercase; white-space: nowrap; }
 .taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-size: 0.78em; font-weight: 600; letter-spacing: 0; text-transform: none; }
 .taskchef-brand-icon, .taskchef-brand-icon img { display: block; flex: none; width: 28px; height: 28px; }
-.taskchef-main { max-width: 1510px; padding-top: 8px; padding-inline: clamp(16px, 3vw, 48px); }
+.taskchef-main { max-width: var(--taskchef-page-max-width); padding-top: 8px; padding-inline: var(--taskchef-page-gutter); }
+.taskchef-content { width: 100%; max-width: var(--taskchef-content-max-width); }
 .taskchef-toolbar { max-width: none; margin-bottom: 22px; padding: 8px 0 var(--mantine-spacing-md); border: 0; border-bottom: 1px solid var(--taskchef-border); background: transparent; box-shadow: none; }
 .taskchef-toolbar-filters { width: min(100%, 488px); min-width: 0; }
 .taskchef-toolbar-filters .mantine-InputWrapper-root { flex: 1 1 0; width: 0; min-width: 0; max-width: 240px; }
 .taskchef-toolbar .mantine-InputWrapper-label, .taskchef-filter-label { font-size: var(--mantine-font-size-sm); font-weight: 600; line-height: var(--mantine-line-height-sm); }
 .taskchef-toolbar .mantine-SegmentedControl-root { max-width: 650px; }
-.taskchef-results-summary { max-width: 1080px; margin-top: 12px; color: var(--taskchef-muted); font-size: var(--mantine-font-size-xs); line-height: 1.35; white-space: nowrap; }
-.taskchef-list { max-width: 1080px; }
-.taskchef-task-row { container-type: inline-size; background: light-dark(#fff, #202421); box-shadow: 0 1px 0 light-dark(rgb(22 31 25 / 3%), transparent); }
+.taskchef-results-summary { max-width: var(--taskchef-content-max-width); margin-top: 12px; color: var(--taskchef-muted); font-size: var(--mantine-font-size-xs); line-height: 1.35; white-space: nowrap; }
+.taskchef-list { max-width: var(--taskchef-content-max-width); }
+.taskchef-settings-fields {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--mantine-spacing-sm);
+  width: min(100%, 36rem);
+}
+.taskchef-task-row { container-type: inline-size; }
+.taskchef-task-row,
+.taskchef-section { background: light-dark(#fff, #202421); box-shadow: 0 1px 0 light-dark(rgb(22 31 25 / 3%), transparent); }
 .taskchef-task-row:hover { border-color: light-dark(var(--mantine-color-teal-4), var(--mantine-color-teal-8)); }
 .taskchef-task-main { min-width: 0; flex: 1; }
 .taskchef-card-heading,
@@ -73,7 +84,7 @@ body {
 .taskchef-stat + .taskchef-stat { border-inline-start: 1px solid var(--taskchef-border); }
 .taskchef-empty { border-style: dashed; background: transparent; }
 
-.taskchef-toolbar .mantine-Select-input { width: 100%; height: 30px; min-height: 30px; padding-inline-start: 12px; font-size: var(--mantine-font-size-xs); }
+.taskchef-toolbar .mantine-Select-input { width: 100%; }
 .taskchef-toolbar-view .mantine-SegmentedControl-root, .taskchef-toolbar-status .mantine-SegmentedControl-root { width: max-content; max-width: 100%; height: 30px; padding: 0; }
 .taskchef-toolbar-view .mantine-SegmentedControl-label, .taskchef-toolbar-status .mantine-SegmentedControl-label { display: flex; align-items: center; height: 100%; padding-inline: 12px; font-size: var(--mantine-font-size-xs); text-align: start; }
 .taskchef-board {

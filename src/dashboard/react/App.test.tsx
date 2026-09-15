@@ -32,6 +32,7 @@ vi.mock("@tabler/icons-react", async () => {
     IconAlertTriangle: Icon,
     IconCircleFilled: Icon,
     IconMoon: Icon,
+    IconRefresh: Icon,
     IconSun: Icon,
   };
 });
@@ -45,6 +46,7 @@ vi.mock("@mantine/core", async () => {
     fw: _fontWeight,
     gap: _gap,
     justify: _justify,
+    leftSection: _leftSection,
     mb: _marginBottom,
     mt: _marginTop,
     p: _padding,
@@ -146,6 +148,16 @@ beforeEach(() => {
   apiMocks.dashboardVersion.mockResolvedValue("7.25.1");
 });
 
+test("Settings uses the same capped content layout as List", () => {
+  window.location.hash = "#settings";
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ profiles: [] }) }));
+  const { container } = render(<DashboardApp connect={false} />);
+  const settingsPage = container.querySelector(".taskchef-settings-page");
+  expect(settingsPage).toHaveClass("taskchef-content");
+  expect(within(settingsPage as HTMLElement).getByRole("link", { name: "Back to tasks" })).toBeInTheDocument();
+  window.location.hash = "";
+});
+
 test("places the filtered task count below the toolbar and updates it from live snapshots", async () => {
   const recent = new Date().toISOString();
   const tasks = [
@@ -205,6 +217,8 @@ test("places the filtered task count below the toolbar and updates it from live 
   expect(toolbar).not.toContainElement(summary);
   expect(toolbar?.nextElementSibling).toBe(summary);
   expect(taskList).toHaveAttribute("aria-describedby", summary?.id);
+  expect(taskList).toHaveClass("taskchef-content");
+  expect(summary).toHaveClass("taskchef-content");
 
   act(() => {
     onSnapshot?.({

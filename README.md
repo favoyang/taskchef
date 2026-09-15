@@ -17,6 +17,7 @@ request -> recorded TaskChef task -> Codex executor -> request/result turn timel
 | Install, configure, dispatch, inspect, and recover | This README |
 | Follow the normative agent contract and MCP interfaces | [Specification](docs/spec.md) |
 | Understand dashboard start, upgrade, and shutdown | [Dashboard lifecycle](docs/dashboard-lifecycle.md) |
+| Build or change dashboard pages consistently | [Dashboard UI baseline](docs/dashboard-ui.md) |
 | Understand implementation flows and trust boundaries | [Workflows](docs/workflows.md) |
 | Compare TaskChef with FirstMate | [FirstMate comparison research](docs/firstmate-taskchef-comparison.md) |
 | Review deferred ideas | [Backlog](BACKLOG.md) |

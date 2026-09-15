@@ -26,6 +26,7 @@
     "docs/spec.md",
     "docs/workflows.md",
     "docs/dashboard-lifecycle.md",
+    "docs/dashboard-ui.md",
     "docs/firstmate-taskchef-comparison.md",
     "docs/images/dashboard-identity.jpg",
     "docs/images/ccusage-token-consumption.png",
