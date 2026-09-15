@@ -70,7 +70,7 @@ const FIRST_TURN_HISTORY_TASK_SCHEMA_VERSION = 7;
 const INTERRUPTED_TURN_TASK_SCHEMA_VERSION = 8;
 const LEGACY_RESULTS_TASK_SCHEMA_VERSION = 6;
 const FIRST_SELF_LINKING_TASK_SCHEMA_VERSION = 4;
-const CONFIG_FIELDS = new Set(["schemaVersion", "projects", "dashboard"]);
+const CONFIG_FIELDS = new Set(["schemaVersion", "projects", "dashboard", "projectIndex"]);
 const DASHBOARD_CONFIG_FIELDS = new Set(["autostart"]);
 const PROJECT_FIELDS = new Set([
   "name",
@@ -80,6 +80,17 @@ const PROJECT_FIELDS = new Set([
   "description",
 ]);
 const PROJECT_INPUT_FIELDS = new Set(["name", "path", "githubRepos", "description"]);
+const PROJECT_INDEX_FIELDS = new Set(["bindings", "exclusions", "routingHints"]);
+const PROJECT_BINDING_FIELDS = new Set(["hostId", "projectId", "path"]);
+const ROUTING_HINT_FIELDS = new Set(["path", "aliases", "githubRepos", "responsibilities", "forgotten"]);
+const ROUTING_FACT_FIELDS = new Set(["value", "provenance"]);
+const FORGOTTEN_FACT_FIELDS = new Set(["kind", "value"]);
+const ROUTING_PROVENANCE = new Set(["explicit_user", "verified_repository", "accepted_terminal_report"]);
+const ROUTING_PROVENANCE_FIELDS = new Set([
+  "kind", "evidence", "taskId", "threadId", "turnRef", "repositoryPath",
+]);
+const ROUTING_HINT_KINDS = new Set(["alias", "githubRepo", "responsibility"]);
+const MAX_ROUTING_HINTS = 128;
 const STATEFUL_DISPATCH_FIELDS = new Set([
   "schemaVersion",
   "id",
@@ -521,6 +532,150 @@ async function normalizeProjects(
   return normalized;
 }
 
+function normalizedAbsolutePath(value, name) {
+  const normalized = requireString(value, name).trim();
+  if (!path.isAbsolute(normalized) || path.normalize(normalized) !== normalized) {
+    throw new Error(`${name} must be a normalized absolute path`);
+  }
+  return normalized;
+}
+
+function normalizeRoutingFacts(value, name, { kind, maxCount, maxLength }) {
+  if (!Array.isArray(value) || value.length > maxCount) {
+    throw new Error(`${name} must be an array with at most ${maxCount} entries`);
+  }
+  const seen = new Set();
+  return value.map((fact, index) => {
+    requireExactFields(fact, ROUTING_FACT_FIELDS, `${name}[${index}]`);
+    let normalized = requireString(fact.value, `${name}[${index}].value`).trim();
+    if (normalized.length > maxLength) throw new Error(`${name}[${index}].value is too long`);
+    if (kind === "githubRepo") normalized = canonicalGithubRepository(normalized, `${name}[${index}].value`);
+    requireExactFields(fact.provenance, ROUTING_PROVENANCE_FIELDS, `${name}[${index}].provenance`);
+    const provenanceKind = requireEnum(
+      fact.provenance.kind,
+      ROUTING_PROVENANCE,
+      `${name}[${index}].provenance.kind`,
+    );
+    const provenance = {
+      kind: provenanceKind,
+      evidence: requireString(fact.provenance.evidence, `${name}[${index}].provenance.evidence`).trim(),
+      taskId: fact.provenance.taskId === null
+        ? null : requireSafeId(fact.provenance.taskId, `${name}[${index}].provenance.taskId`),
+      threadId: fact.provenance.threadId === null
+        ? null : normalizeDurableThreadId(fact.provenance.threadId, `${name}[${index}].provenance.threadId`),
+      turnRef: fact.provenance.turnRef === null
+        ? null : normalizeTurnRef(fact.provenance.turnRef, `${name}[${index}].provenance.turnRef`),
+      repositoryPath: fact.provenance.repositoryPath === null
+        ? null : normalizedAbsolutePath(
+          fact.provenance.repositoryPath,
+          `${name}[${index}].provenance.repositoryPath`,
+        ),
+    };
+    if (provenance.evidence.length > 240) throw new Error(`${name}[${index}].provenance.evidence is too long`);
+    if (provenanceKind === "accepted_terminal_report"
+        && [provenance.taskId, provenance.threadId, provenance.turnRef].some((part) => part === null)) {
+      throw new Error(`${name}[${index}].provenance requires taskId, threadId, and turnRef`);
+    }
+    if (provenanceKind !== "accepted_terminal_report"
+        && [provenance.taskId, provenance.threadId, provenance.turnRef].some((part) => part !== null)) {
+      throw new Error(`${name}[${index}].provenance task identity is only valid for accepted reports`);
+    }
+    const item = {
+      value: normalized,
+      provenance,
+    };
+    const key = item.value.toLowerCase();
+    if (seen.has(key)) throw new Error(`${name} must not contain duplicate values`);
+    seen.add(key);
+    return item;
+  });
+}
+
+function normalizeProjectIndex(value) {
+  requireExactFields(value, PROJECT_INDEX_FIELDS, "taskchef.json.projectIndex");
+  if (!Array.isArray(value.bindings) || !Array.isArray(value.exclusions)
+      || !Array.isArray(value.routingHints)) {
+    throw new Error("taskchef.json.projectIndex lists must be arrays");
+  }
+  if (value.routingHints.length > MAX_ROUTING_HINTS) {
+    throw new Error(`taskchef.json.projectIndex.routingHints must have at most ${MAX_ROUTING_HINTS} entries`);
+  }
+  const bindings = value.bindings.map((binding, index) => {
+    const name = `taskchef.json.projectIndex.bindings[${index}]`;
+    requireExactFields(binding, PROJECT_BINDING_FIELDS, name);
+    return {
+      hostId: requireEnum(binding.hostId, new Set(["local"]), `${name}.hostId`),
+      projectId: requireString(binding.projectId, `${name}.projectId`).trim(),
+      path: normalizedAbsolutePath(binding.path, `${name}.path`),
+    };
+  });
+  const exclusions = value.exclusions.map((entry, index) => {
+    const name = `taskchef.json.projectIndex.exclusions[${index}]`;
+    requireExactFields(entry, PROJECT_BINDING_FIELDS, name);
+    return {
+      hostId: requireEnum(entry.hostId, new Set(["local"]), `${name}.hostId`),
+      projectId: entry.projectId === null
+        ? null : requireString(entry.projectId, `${name}.projectId`).trim(),
+      path: normalizedAbsolutePath(entry.path, `${name}.path`),
+    };
+  });
+  const routingHints = value.routingHints.map((hint, index) => {
+    const name = `taskchef.json.projectIndex.routingHints[${index}]`;
+    requireExactFields(hint, ROUTING_HINT_FIELDS, name);
+    if (!Array.isArray(hint.forgotten) || hint.forgotten.length > 32) {
+      throw new Error(`${name}.forgotten must be an array with at most 32 entries`);
+    }
+    const forgotten = hint.forgotten.map((fact, factIndex) => {
+      const factName = `${name}.forgotten[${factIndex}]`;
+      requireExactFields(fact, FORGOTTEN_FACT_FIELDS, factName);
+      const kind = requireEnum(fact.kind, ROUTING_HINT_KINDS, `${factName}.kind`);
+      let normalized = requireString(fact.value, `${factName}.value`).trim();
+      if (kind === "githubRepo") normalized = canonicalGithubRepository(normalized, `${factName}.value`);
+      return { kind, value: normalized };
+    });
+    return {
+      path: normalizedAbsolutePath(hint.path, `${name}.path`),
+      aliases: normalizeRoutingFacts(hint.aliases, `${name}.aliases`, {
+        kind: "alias", maxCount: 16, maxLength: 80,
+      }),
+      githubRepos: normalizeRoutingFacts(hint.githubRepos, `${name}.githubRepos`, {
+        kind: "githubRepo", maxCount: 16, maxLength: 256,
+      }),
+      responsibilities: normalizeRoutingFacts(hint.responsibilities, `${name}.responsibilities`, {
+        kind: "responsibility", maxCount: 8, maxLength: 240,
+      }),
+      forgotten,
+    };
+  });
+  for (const [name, entries] of [["bindings", bindings], ["exclusions", exclusions]]) {
+    const ids = entries.map((entry) => `${entry.hostId}\0${entry.projectId ?? `path:${entry.path}`}`);
+    if (new Set(ids).size !== ids.length) throw new Error(`projectIndex ${name} must not contain duplicate native IDs`);
+  }
+  if (new Set(bindings.map((entry) => entry.path)).size !== bindings.length) {
+    throw new Error("projectIndex bindings must not contain duplicate paths");
+  }
+  if (new Set(exclusions.map((entry) => entry.path)).size !== exclusions.length) {
+    throw new Error("projectIndex exclusions must not contain duplicate paths");
+  }
+  if (new Set(routingHints.map((entry) => entry.path)).size !== routingHints.length) {
+    throw new Error("projectIndex routingHints must not contain duplicate paths");
+  }
+  return { bindings, exclusions, routingHints };
+}
+
+function emptyProjectIndex() {
+  return { bindings: [], exclusions: [], routingHints: [] };
+}
+
+function projectIndexForProjects(projectIndex, projects) {
+  const paths = new Set(projects.map((project) => project.path));
+  return {
+    bindings: projectIndex.bindings.filter((entry) => paths.has(entry.path)),
+    exclusions: projectIndex.exclusions,
+    routingHints: projectIndex.routingHints.filter((entry) => paths.has(entry.path)),
+  };
+}
+
 function normalizeGithubRemote(remote) {
   if (typeof remote !== "string" || remote.trim().length === 0) return null;
   try {
@@ -615,10 +770,24 @@ export async function validateConfig(config, { checkPaths = true } = {}) {
     }
     dashboard = { autostart: config.dashboard.autostart };
   }
+  const projectIndex = "projectIndex" in config
+    ? normalizeProjectIndex(config.projectIndex)
+    : null;
+  const projects = await normalizeProjects(config.projects, { checkPaths });
+  if (projectIndex) {
+    const projectPaths = new Set(projects.map((project) => project.path));
+    if (projectIndex.bindings.some((entry) => !projectPaths.has(entry.path))) {
+      throw new Error("projectIndex binding path must identify a configured project");
+    }
+    if (projectIndex.routingHints.some((entry) => !projectPaths.has(entry.path))) {
+      throw new Error("projectIndex routing hint path must identify a configured project");
+    }
+  }
   return {
     schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
-    projects: await normalizeProjects(config.projects, { checkPaths }),
+    projects,
     ...(dashboard ? { dashboard } : {}),
+    ...(projectIndex ? { projectIndex } : {}),
   };
 }
 
@@ -724,11 +893,17 @@ export async function readProjectIndex(workspaceRoot, { checkPaths = true } = {}
     configHash: configHash(config),
     projectSetHash: projectSetHash(config.projects),
     projects,
+    ...(config.projectIndex ? { projectIndex: config.projectIndex } : {}),
   };
 }
 
 function mutationPreview(root, operation, current, updated) {
   const diff = projectDiff(current.projects, updated.projects);
+  const beforeIndex = current.projectIndex ?? emptyProjectIndex();
+  const afterIndex = updated.projectIndex ?? emptyProjectIndex();
+  const projectIndexDiff = JSON.stringify(beforeIndex) === JSON.stringify(afterIndex)
+    ? null
+    : { before: beforeIndex, after: afterIndex };
   const preview = {
     schemaVersion: 1,
     operation,
@@ -741,6 +916,7 @@ function mutationPreview(root, operation, current, updated) {
     beforeProjects: current.projects,
     afterProjects: updated.projects,
     diff,
+    projectIndexDiff,
   };
   return {
     ...preview,
@@ -883,12 +1059,475 @@ async function commitConfigMutation(root, operation, current, updated, preview, 
   return { transactionId, backupId: backup.id, backupDeduplicated: backup.deduplicated };
 }
 
+function validateNativeProjectSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)
+      || snapshot.schemaVersion !== 2 || !Array.isArray(snapshot.projects)) {
+    throw new Error("native project snapshot must be a schemaVersion 2 object with a projects array");
+  }
+  return snapshot.projects.map((project, index) => {
+    const name = `native projects[${index}]`;
+    if (!project || typeof project !== "object" || Array.isArray(project)) {
+      throw new Error(`${name} must be an object`);
+    }
+    for (const field of ["projectId", "projectKind", "label"]) {
+      if (!(field in project)) throw new Error(`${name} is missing field: ${field}`);
+    }
+    const normalized = {
+      projectId: requireString(project.projectId, `${name}.projectId`).trim(),
+      projectKind: requireString(project.projectKind, `${name}.projectKind`).trim(),
+      label: requireString(project.label, `${name}.label`).trim(),
+      path: typeof project.path === "string" ? project.path.trim() : null,
+      hostId: typeof project.hostId === "string" ? project.hostId.trim() : null,
+      hostDisplayName: typeof project.hostDisplayName === "string"
+        ? project.hostDisplayName.trim() : null,
+      isGitRepository: typeof project.isGitRepository === "boolean"
+        ? project.isGitRepository : null,
+    };
+    if (normalized.projectKind === "local"
+        && (normalized.path === null || normalized.path.length === 0
+          || normalized.hostId === null || normalized.hostId.length === 0
+          || normalized.isGitRepository === null)) {
+      throw new Error(`${name} local project requires path, hostId, and isGitRepository`);
+    }
+    return normalized;
+  });
+}
+
+function uniqueProjectName(preferred, projects) {
+  const base = preferred.trim();
+  const names = new Set(projects.map((project) => project.name.toLowerCase()));
+  if (!names.has(base.toLowerCase())) return base;
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${base} (${suffix})`;
+    if (!names.has(candidate.toLowerCase())) return candidate;
+  }
+  throw new Error(`could not allocate a unique project name for ${base}`);
+}
+
+function routingView(config) {
+  return (config.projectIndex?.routingHints ?? []).map((hint) => ({
+    path: hint.path,
+    aliases: hint.aliases.map((fact) => fact.value),
+    githubRepos: hint.githubRepos.map((fact) => fact.value),
+    responsibilities: hint.responsibilities.map((fact) => fact.value),
+  }));
+}
+
+export async function reconcileProjects(workspaceRoot, nativeSnapshot, options = {}) {
+  const nativeProjects = validateNativeProjectSnapshot(nativeSnapshot);
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const current = await readConfig(root, { checkPaths: false });
+    const storedIndex = current.projectIndex ?? emptyProjectIndex();
+    const diagnostics = [];
+    const candidates = [];
+    for (const native of nativeProjects) {
+      if (native.projectKind !== "local" || native.hostId !== "local") {
+        diagnostics.push({
+          projectId: native.projectId,
+          code: "ineligible-host",
+          message: "Only local projects on the active local execution host are eligible.",
+        });
+        continue;
+      }
+      try {
+        const canonicalPath = await canonicalDirectory(native.path);
+        assertWorkspaceOutsideProject(root, canonicalPath);
+        candidates.push({ ...native, path: canonicalPath });
+      } catch (error) {
+        diagnostics.push({
+          projectId: native.projectId,
+          code: /own delegation project|inside a delegation project/.test(error.message)
+            ? "workspace-excluded" : "unavailable-path",
+          message: error.message,
+        });
+      }
+    }
+    const storedPaths = new Set([
+      ...current.projects.map((project) => project.path),
+      ...storedIndex.bindings.map((entry) => entry.path),
+      ...storedIndex.exclusions.map((entry) => entry.path),
+      ...storedIndex.routingHints.map((entry) => entry.path),
+    ]);
+    const resolvedPaths = new Map();
+    for (const storedPath of storedPaths) {
+      resolvedPaths.set(storedPath, await canonicalDirectory(storedPath).catch(() => null));
+    }
+    const configuredCanonicalCounts = new Map();
+    const candidatePaths = new Set(candidates.map((candidate) => candidate.path));
+    for (const project of current.projects) {
+      const canonicalPath = resolvedPaths.get(project.path);
+      if (canonicalPath) {
+        configuredCanonicalCounts.set(
+          canonicalPath,
+          (configuredCanonicalCounts.get(canonicalPath) ?? 0) + 1,
+        );
+      }
+    }
+    const canCanonicalize = (storedPath, canonicalPath) => (
+      storedPath === canonicalPath
+      || [storedIndex.bindings, storedIndex.exclusions, storedIndex.routingHints].every((entries) => (
+        !entries.some((entry) => entry.path === canonicalPath && entry.path !== storedPath)
+      ))
+    );
+    const canonicalizedPaths = new Map();
+    for (const project of current.projects) {
+      const canonicalPath = resolvedPaths.get(project.path);
+      if (canonicalPath && candidatePaths.has(canonicalPath)
+          && configuredCanonicalCounts.get(canonicalPath) === 1
+          && canCanonicalize(project.path, canonicalPath)) {
+        canonicalizedPaths.set(project.path, canonicalPath);
+      }
+    }
+    const canonicalizeIndexedPath = (entry) => ({
+      ...entry,
+      path: canonicalizedPaths.get(entry.path) ?? entry.path,
+    });
+    const projects = current.projects.map((project) => ({
+      ...project,
+      path: canonicalizedPaths.get(project.path) ?? project.path,
+    }));
+    const currentIndex = {
+      bindings: storedIndex.bindings.map(canonicalizeIndexedPath),
+      exclusions: storedIndex.exclusions.map(canonicalizeIndexedPath),
+      routingHints: storedIndex.routingHints.map(canonicalizeIndexedPath),
+    };
+    const resolvedStoredPath = (storedPath) => resolvedPaths.get(storedPath) ?? storedPath;
+    const idCounts = new Map();
+    const pathCounts = new Map();
+    for (const candidate of candidates) {
+      const id = `${candidate.hostId}\0${candidate.projectId}`;
+      idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+      pathCounts.set(candidate.path, (pathCounts.get(candidate.path) ?? 0) + 1);
+    }
+    const bindings = [...currentIndex.bindings];
+    const added = [];
+    const bound = [];
+    const available = [];
+    for (const candidate of candidates) {
+      const id = `${candidate.hostId}\0${candidate.projectId}`;
+      if (idCounts.get(id) > 1 || pathCounts.get(candidate.path) > 1) {
+        diagnostics.push({
+          projectId: candidate.projectId,
+          code: idCounts.get(id) > 1 ? "duplicate-native-id" : "duplicate-canonical-path",
+          message: "Ambiguous native project identity was ignored.",
+        });
+        continue;
+      }
+      const excluded = currentIndex.exclusions.some((entry) => (
+        entry.hostId === candidate.hostId
+        && (entry.projectId === candidate.projectId
+          || resolvedStoredPath(entry.path) === candidate.path)
+      ));
+      if (excluded) {
+        diagnostics.push({
+          projectId: candidate.projectId,
+          code: "explicitly-excluded",
+          message: "Project remains excluded until explicitly included.",
+        });
+        continue;
+      }
+      const idBinding = bindings.find((entry) => (
+        entry.hostId === candidate.hostId && entry.projectId === candidate.projectId
+      ));
+      if (idBinding && resolvedStoredPath(idBinding.path) !== candidate.path) {
+        diagnostics.push({
+          projectId: candidate.projectId,
+          code: "identity-path-conflict",
+          message: `Native identity is still bound to ${idBinding.path}; review the move explicitly.`,
+        });
+        continue;
+      }
+      const pathBindings = bindings.filter(
+        (entry) => resolvedStoredPath(entry.path) === candidate.path,
+      );
+      if (pathBindings.length > 1) {
+        diagnostics.push({
+          projectId: candidate.projectId,
+          code: "ambiguous-configured-path",
+          message: "Multiple configured index paths resolve to this native project.",
+        });
+        continue;
+      }
+      const [pathBinding] = pathBindings;
+      if (pathBinding && (pathBinding.hostId !== candidate.hostId
+          || pathBinding.projectId !== candidate.projectId)) {
+        diagnostics.push({
+          projectId: candidate.projectId,
+          code: "path-identity-conflict",
+          message: "Canonical path is already bound to another native identity.",
+        });
+        continue;
+      }
+      const configuredMatches = projects.filter(
+        (project) => resolvedStoredPath(project.path) === candidate.path,
+      );
+      if (configuredMatches.length > 1) {
+        diagnostics.push({
+          projectId: candidate.projectId,
+          code: "ambiguous-configured-path",
+          message: "Multiple configured project paths resolve to this native project.",
+        });
+        continue;
+      }
+      let [configured] = configuredMatches;
+      if (!configured) {
+        try {
+          configured = await inspectProject({
+            path: candidate.path,
+            name: uniqueProjectName(candidate.label || path.basename(candidate.path), projects),
+          });
+          if (configured.isGitRepository !== candidate.isGitRepository) {
+            throw new Error("native Git repository metadata does not match the canonical path");
+          }
+          projects.push(configured);
+          added.push(configured);
+        } catch (error) {
+          diagnostics.push({
+            projectId: candidate.projectId,
+            code: "inspection-failed",
+            message: error.message,
+          });
+          continue;
+        }
+      }
+      if (!idBinding) {
+        const binding = {
+          hostId: candidate.hostId,
+          projectId: candidate.projectId,
+          path: configured.path,
+        };
+        bindings.push(binding);
+        bound.push(binding);
+      }
+      available.push({
+        hostId: candidate.hostId,
+        projectId: candidate.projectId,
+        path: candidate.path,
+      });
+    }
+    const indexChanged = JSON.stringify(bindings) !== JSON.stringify(currentIndex.bindings);
+    const updated = await validateConfig({
+      ...current,
+      projects,
+      ...(current.projectIndex || indexChanged
+        ? { projectIndex: { ...currentIndex, bindings } }
+        : {}),
+    }, { checkPaths: false });
+    const preview = mutationPreview(root, "project-reconcile", current, updated);
+    const changed = preview.beforeConfigHash !== preview.afterConfigHash;
+    const committed = changed
+      ? await commitConfigMutation(root, "project-reconcile", current, updated, preview, options)
+      : { transactionId: null, backupId: null, backupDeduplicated: false };
+    return {
+      schemaVersion: 1,
+      changed,
+      added,
+      bound,
+      available,
+      diagnostics,
+      projectCount: updated.projects.length,
+      ...preview,
+      ...committed,
+    };
+  });
+}
+
+export async function includeProject(workspaceRoot, selector, options = {}) {
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const current = await readConfig(root, { checkPaths: false });
+    const index = current.projectIndex ?? emptyProjectIndex();
+    const selectedPaths = new Set();
+    if (selector.path) {
+      const requestedPath = path.resolve(requireString(selector.path, "project path").trim());
+      selectedPaths.add(requestedPath);
+      const canonicalPath = await canonicalDirectory(requestedPath).catch(() => null);
+      if (canonicalPath) selectedPaths.add(canonicalPath);
+    }
+    const exclusions = index.exclusions.filter((entry) => !(
+      selectedPaths.has(entry.path)
+      || (selector.projectId && entry.hostId === (selector.hostId ?? "local")
+        && entry.projectId === selector.projectId)
+    ));
+    if (exclusions.length === index.exclusions.length) {
+      return { changed: false, exclusions, configHash: configHash(current) };
+    }
+    const updated = await validateConfig({
+      ...current,
+      projectIndex: { ...index, exclusions },
+    }, { checkPaths: false });
+    const preview = mutationPreview(root, "project-include", current, updated);
+    const committed = await commitConfigMutation(root, "project-include", current, updated, preview, options);
+    return { changed: true, exclusions, ...preview, ...committed };
+  });
+}
+
+function routingHintField(kind) {
+  if (kind === "alias") return "aliases";
+  if (kind === "githubRepo") return "githubRepos";
+  return "responsibilities";
+}
+
+function emptyRoutingHint(projectPath) {
+  return {
+    path: projectPath,
+    aliases: [],
+    githubRepos: [],
+    responsibilities: [],
+    forgotten: [],
+  };
+}
+
+export async function updateProjectHint(workspaceRoot, input, options = {}) {
+  requireExactFields(
+    input,
+    new Set(["action", "project", "kind", "value", "provenance"]),
+    "project hint input",
+  );
+  const action = requireEnum(
+    input.action,
+    new Set(["remember", "correct", "forget"]),
+    "project hint action",
+  );
+  const kind = requireEnum(input.kind, ROUTING_HINT_KINDS, "project hint kind");
+  let value = requireString(input.value, "project hint value").trim();
+  if (kind === "alias" && value.length > 80) throw new Error("project alias must be at most 80 characters");
+  if (kind === "responsibility" && value.length > 240) {
+    throw new Error("project responsibility must be at most 240 characters");
+  }
+  if (kind === "githubRepo") value = canonicalGithubRepository(value, "project hint value");
+  const root = await realpath(path.resolve(workspaceRoot));
+  return withWorkspaceLock(root, async () => {
+    const current = await readConfig(root, { checkPaths: false });
+    const configuredPath = path.resolve(requireString(input.project, "project hint project").trim());
+    const project = current.projects.find((candidate) => candidate.path === configuredPath);
+    if (!project) throw new Error(`configured project not found: ${configuredPath}`);
+    const normalizedFact = normalizeRoutingFacts([{
+      value,
+      provenance: input.provenance,
+    }], "project hint", {
+      kind,
+      maxCount: 1,
+      maxLength: kind === "alias" ? 80 : kind === "responsibility" ? 240 : 256,
+    })[0];
+    const provenance = normalizedFact.provenance;
+    if (action === "correct" && kind !== "alias") {
+      throw new Error("correct is only valid for an explicit alias correction");
+    }
+    if (action === "forget" && provenance.kind !== "explicit_user") {
+      throw new Error("forget requires explicit_user provenance");
+    }
+    if (action !== "forget" && kind === "alias" && provenance.kind !== "explicit_user") {
+      throw new Error("aliases require explicit_user provenance");
+    }
+    if (action !== "forget" && kind === "githubRepo"
+        && !new Set(["verified_repository", "accepted_terminal_report"]).has(provenance.kind)) {
+      throw new Error("repository ownership requires verified repository evidence");
+    }
+    if (action !== "forget" && kind === "responsibility"
+        && provenance.kind !== "accepted_terminal_report") {
+      throw new Error("responsibilities require accepted_terminal_report provenance");
+    }
+    if (action !== "forget" && kind === "githubRepo") {
+      if (provenance.repositoryPath === null) {
+        throw new Error("repository ownership requires an inspected repositoryPath");
+      }
+      const repositoryPath = await canonicalGitRoot(provenance.repositoryPath);
+      const relative = path.relative(project.path, repositoryPath);
+      if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
+        throw new Error("repositoryPath must be the selected project or a contained Git root");
+      }
+      const inspected = await inspectProject({ path: repositoryPath });
+      if (!inspected.githubRepos.some((repository) => repository.toLowerCase() === value.toLowerCase())) {
+        throw new Error("repository hint is not the inspected project's canonical origin");
+      }
+    }
+    if (provenance.kind === "accepted_terminal_report") {
+      const tasks = await readDispatchesUnlocked(root);
+      const task = tasks.find((candidate) => candidate.id === provenance.taskId);
+      const turn = task?.latestTurn;
+      if (!task || task.project.path !== project.path
+          || task.threadId !== provenance.threadId
+          || turn?.turnRef !== provenance.turnRef
+          || !RESULT_STATUSES.has(turn.result?.status)) {
+        throw new Error("project hint provenance is not the accepted current terminal report");
+      }
+    }
+    const projectIndex = current.projectIndex ?? emptyProjectIndex();
+    let hints = projectIndex.routingHints.map((hint) => ({
+      ...hint,
+      aliases: [...hint.aliases],
+      githubRepos: [...hint.githubRepos],
+      responsibilities: [...hint.responsibilities],
+      forgotten: [...hint.forgotten],
+    }));
+    let hint = hints.find((candidate) => candidate.path === project.path);
+    if (!hint) {
+      if (hints.length >= MAX_ROUTING_HINTS) throw new Error("project routing hint capacity is full");
+      hint = emptyRoutingHint(project.path);
+      hints.push(hint);
+    }
+    const field = routingHintField(kind);
+    const key = value.toLowerCase();
+    const forgottenIndex = hint.forgotten.findIndex((fact) => (
+      fact.kind === kind && fact.value.toLowerCase() === key
+    ));
+    let suppressed = false;
+    if (action !== "forget") {
+      if (forgottenIndex !== -1 && provenance.kind !== "explicit_user") {
+        suppressed = true;
+      } else {
+        if (forgottenIndex !== -1) hint.forgotten.splice(forgottenIndex, 1);
+        if (action === "correct" && kind === "alias") {
+          for (const other of hints.filter((candidate) => candidate.path !== project.path)) {
+            const removed = other.aliases.some((fact) => fact.value.toLowerCase() === key);
+            other.aliases = other.aliases.filter((fact) => fact.value.toLowerCase() !== key);
+            if (removed && !other.forgotten.some((fact) => (
+              fact.kind === "alias" && fact.value.toLowerCase() === key
+            ))) {
+              if (other.forgotten.length >= 32) throw new Error("project forgotten-hint capacity is full");
+              other.forgotten.push({ kind: "alias", value });
+            }
+          }
+        }
+        if (!hint[field].some((fact) => fact.value.toLowerCase() === key)) {
+          const limit = kind === "alias" ? 16 : kind === "githubRepo" ? 16 : 8;
+          if (hint[field].length >= limit) throw new Error(`project ${field} capacity is full`);
+          hint[field].push(normalizedFact);
+        }
+      }
+    } else {
+      hint[field] = hint[field].filter((fact) => fact.value.toLowerCase() !== key);
+      if (forgottenIndex === -1) {
+        if (hint.forgotten.length >= 32) throw new Error("project forgotten-hint capacity is full");
+        hint.forgotten.push({ kind, value });
+      }
+    }
+    hints = hints.filter((candidate) => (
+      candidate.aliases.length || candidate.githubRepos.length
+      || candidate.responsibilities.length || candidate.forgotten.length
+    ));
+    const updated = await validateConfig({
+      ...current,
+      projectIndex: { ...projectIndex, routingHints: hints },
+    }, { checkPaths: false });
+    const preview = mutationPreview(root, `project-hint-${action}`, current, updated);
+    const changed = preview.beforeConfigHash !== preview.afterConfigHash;
+    const committed = changed
+      ? await commitConfigMutation(root, `project-hint-${action}`, current, updated, preview, options)
+      : { transactionId: null, backupId: null, backupDeduplicated: false };
+    return { changed, suppressed, project: project.path, kind, value, ...preview, ...committed };
+  });
+}
+
 export async function prepareDispatch(workspaceRoot, {
   taskId = randomUUID(),
   now = () => new Date().toISOString(),
 } = {}) {
   const workspace = await realpath(path.resolve(workspaceRoot));
-  const projects = await listProjects(workspace);
+  const config = await readConfig(workspace, { checkPaths: false });
+  const projects = [...config.projects].sort((left, right) => left.name.localeCompare(right.name));
   const marker = taskChefMarker(taskId);
   const preparedAt = requireTimestamp(now(), "preparedAt");
   return {
@@ -899,6 +1538,7 @@ export async function prepareDispatch(workspaceRoot, {
     marker,
     projectCount: projects.length,
     projects,
+    routingHints: routingView(config),
     modelRoles: await resolveModelRoles(),
   };
 }
@@ -909,9 +1549,14 @@ export async function addProject(workspaceRoot, input, options = {}) {
     const config = await readConfig(root, { checkPaths: false });
     const project = await inspectProject(input);
     assertWorkspaceOutsideProject(root, project.path);
+    const currentIndex = config.projectIndex ?? emptyProjectIndex();
+    const exclusions = currentIndex.exclusions.filter((entry) => entry.path !== project.path);
     const updated = await validateConfig({
       ...config,
       projects: [...config.projects, project],
+      ...(config.projectIndex || exclusions.length !== currentIndex.exclusions.length
+        ? { projectIndex: { ...currentIndex, exclusions } }
+        : {}),
     }, { checkPaths: false });
     const preview = mutationPreview(root, "project-add", config, updated);
     if (options.dryRun) return { changed: true, project, ...preview };
@@ -952,9 +1597,36 @@ export async function importProjects(workspaceRoot, inputs, { replace = false, d
       if (index === -1) projects.push(project);
       else projects[index] = project;
     }
+    const currentIndex = current.projectIndex ?? emptyProjectIndex();
+    const retainedPaths = new Set(projects.map((project) => project.path));
+    const removedProjects = replace
+      ? current.projects.filter((project) => !retainedPaths.has(project.path))
+      : [];
+    const exclusions = [...currentIndex.exclusions];
+    for (const project of removedProjects) {
+      const binding = currentIndex.bindings.find((entry) => entry.path === project.path);
+      const alreadyExcluded = exclusions.some((entry) => (
+        entry.path === project.path
+        || (binding && entry.hostId === binding.hostId && entry.projectId === binding.projectId)
+      ));
+      if (!alreadyExcluded) {
+        exclusions.push({
+          hostId: binding?.hostId ?? "local",
+          projectId: binding?.projectId ?? null,
+          path: project.path,
+        });
+      }
+    }
+    const nextProjectIndex = {
+      ...projectIndexForProjects(currentIndex, projects),
+      exclusions,
+    };
     const config = await validateConfig({
       ...current,
       projects,
+      ...(current.projectIndex || removedProjects.length > 0
+        ? { projectIndex: nextProjectIndex }
+        : {}),
     }, { checkPaths: false });
     const preview = mutationPreview(root, replace ? "project-replace" : "project-import", current, config);
     if (dryRun) {
@@ -994,9 +1666,24 @@ export async function removeProject(workspaceRoot, name, { dryRun = false, ...op
     if (index === -1) throw new Error(`configured project not found: ${name}`);
     const [project] = config.projects.slice(index, index + 1);
     const projects = config.projects.filter((_, projectIndex) => projectIndex !== index);
+    const currentIndex = config.projectIndex ?? emptyProjectIndex();
+    const binding = currentIndex.bindings.find((entry) => entry.path === project.path);
+    const exclusion = {
+      hostId: binding?.hostId ?? "local",
+      projectId: binding?.projectId ?? null,
+      path: project.path,
+    };
     const updated = await validateConfig({
       ...config,
       projects,
+      projectIndex: {
+        bindings: currentIndex.bindings.filter((entry) => entry.path !== project.path),
+        exclusions: [
+          ...currentIndex.exclusions.filter((entry) => entry.path !== project.path),
+          exclusion,
+        ],
+        routingHints: currentIndex.routingHints.filter((entry) => entry.path !== project.path),
+      },
     }, { checkPaths: false });
     const preview = mutationPreview(root, "project-remove", config, updated);
     if (dryRun) return { project, changed: true, ...preview };
@@ -1163,7 +1850,15 @@ export async function restoreWorkspaceBackup(workspaceRoot, id, {
         "projects-only restore requires readable current configuration; preview --scope config or state instead",
       );
     }
-    const updated = scope === "projects" ? { ...current, projects: stored.projects } : stored;
+    let updated = stored;
+    if (scope === "projects") {
+      const { projectIndex: _currentIndex, ...currentWithoutIndex } = current;
+      updated = await validateConfig({
+        ...currentWithoutIndex,
+        projects: stored.projects,
+        ...(stored.projectIndex ? { projectIndex: stored.projectIndex } : {}),
+      }, { checkPaths: false });
+    }
     const beforeStateHash = current
       ? configHash(current)
       : currentPresent ? `unreadable:${sha256(currentBytes)}` : "missing";
@@ -2114,10 +2809,25 @@ export async function recordTask(workspaceRoot, input, { now } = {}) {
   requireExactFields(input, RECORD_DISPATCH_FIELDS, "task input");
   const root = await realpath(path.resolve(workspaceRoot));
   return withWorkspaceLock(root, async () => {
-    const config = await readConfig(root);
-    const projectPath = await canonicalDirectory(input.project);
-    const project = config.projects.find((candidate) => candidate.path === projectPath);
-    if (!project) throw new Error(`project is not configured in taskchef.json: ${projectPath}`);
+    const config = await readConfig(root, { checkPaths: false });
+    const requested = requireString(input.project, "task input.project").trim();
+    const requestedPath = path.resolve(requested);
+    let configured = config.projects.find((candidate) => candidate.path === requestedPath);
+    if (!configured) {
+      const canonicalRequested = await canonicalDirectory(requested);
+      for (const candidate of config.projects) {
+        const canonicalCandidate = await realpath(candidate.path).catch(() => null);
+        if (canonicalCandidate === canonicalRequested) {
+          configured = candidate;
+          break;
+        }
+      }
+    }
+    if (!configured) throw new Error(`project is not configured in taskchef.json: ${requestedPath}`);
+    const projectPath = configured.isGitRepository
+      ? await canonicalGitRoot(requested)
+      : await canonicalDirectory(requested);
+    const project = { ...configured, path: projectPath };
     const createdAt = now ?? new Date().toISOString();
     const dispatch = await validateDispatchShape({
       schemaVersion: CURRENT_TASK_SCHEMA_VERSION,

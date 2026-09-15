@@ -100,9 +100,22 @@ malformed, preview an explicit config or state restore, then bind the apply to
 the preview's raw-state hash and plan with --confirm-unreadable-current.
 
 Reindexing catches TaskChef up with newly saved Codex projects by comparing
-exact canonical paths and indexing missing requested projects. It preserves
-existing curated entries and does not silently remove projects or overwrite
-metadata.
+exact same-host canonical paths from one native schema-2 project snapshot.
+Reconciliation adds eligible paths and identity bindings atomically, isolates
+per-project failures, and preserves existing curated names, descriptions, and
+complete repository lists. It does not delete missing projects. Duplicate
+native IDs, duplicate canonical targets, and identity/path moves remain
+diagnostics rather than guesses.
+
+Configuration schema 2 accepts an optional strict `projectIndex` containing
+local native identity bindings, explicit exclusions, and bounded routing hints.
+Removing a project records an exclusion so reconciliation cannot silently
+re-add it; `include_project` clears an exact exclusion before a later reconcile.
+Aliases come only from explicit selection or correction. Repository ownership
+requires an inspected exact origin, and report-derived responsibilities retain
+their accepted task/thread/turn provenance. Forgetting keeps bounded suppression
+so an old report retry cannot recreate a removed hint. Older TaskChef releases
+reject this optional field; use a compatible backup before downgrading.
 
 Codex CLI resolution follows the same contract as
 `workspace init --register-codex`: an explicit `--codex-cli` path wins, then
@@ -149,7 +162,8 @@ From another project, invoke the delegation skill explicitly:
 $taskchef-delegate In payments, add structured logs for failed retries and test them.
 ```
 
-TaskChef prepares a UUID and marker, persists the task before native creation,
+The dispatcher lists native projects once per batch, reconciles that snapshot,
+then prepares a UUID and marker for each outcome, persists the task before native creation,
 creates the executor, and returns its task link. New executor instructions keep
 the assignment visible from the first line, add a concise local reporting
 authorization paragraph, leave one blank line, then place

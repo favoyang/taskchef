@@ -40,6 +40,12 @@ export function projectDiff(beforeProjects, afterProjects) {
 
 export function mutationPreview(workspace, operation, beforeConfig, afterConfig) {
   const diff = projectDiff(beforeConfig.projects, afterConfig.projects);
+  const emptyIndex = { bindings: [], exclusions: [], routingHints: [] };
+  const beforeProjectIndex = beforeConfig.projectIndex ?? emptyIndex;
+  const afterProjectIndex = afterConfig.projectIndex ?? emptyIndex;
+  const projectIndexDiff = JSON.stringify(beforeProjectIndex) === JSON.stringify(afterProjectIndex)
+    ? null
+    : { before: beforeProjectIndex, after: afterProjectIndex };
   const preview = {
     schemaVersion: 1,
     operation,
@@ -50,6 +56,7 @@ export function mutationPreview(workspace, operation, beforeConfig, afterConfig)
     beforeCount: beforeConfig.projects.length,
     afterCount: afterConfig.projects.length,
     diff,
+    projectIndexDiff,
     projects: afterConfig.projects,
   };
   return {
@@ -61,6 +68,7 @@ export function mutationPreview(workspace, operation, beforeConfig, afterConfig)
       beforeConfigHash: preview.beforeConfigHash,
       afterConfigHash: preview.afterConfigHash,
       diff,
+      projectIndexDiff,
     }, "taskchef-mutation-plan-v1"),
   };
 }

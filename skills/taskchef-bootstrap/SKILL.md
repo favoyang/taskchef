@@ -39,14 +39,17 @@ all deterministic workspace operations.
    invokes the supported `codex app <path>` command through a validated Codex
    CLI discovered from the current desktop environment; never invoke
    `codex add` or hard-code an application bundle path.
-3. `workspace init` takes no stdin, creates an empty
+3. After registration is verified, pass the final native schema-2 snapshot to
+   `reconcile_projects` once. Preserve its diagnostics; one unavailable or
+   ineligible project does not invalidate eligible additions.
+4. `workspace init` takes no stdin, creates an empty
    configuration when missing, creates the one-entry-per-task JSONL log, and
    refreshes managed instructions. The installed plugin provides all four
    TaskChef skills outside the dispatcher workspace.
-4. Run `doctor --json` after setup or when the user asks to diagnose the
+5. Run `doctor --json` after setup or when the user asks to diagnose the
    workspace. Doctor is read-only. Rerun `workspace init --json` to repair the
    managed scaffold.
-5. Report the actions or failed checks. A successful initialization with failed
+6. Report the actions or failed checks. A successful initialization with failed
    Codex opening remains initialized but not verified as a saved local project.
    End without dispatching unless the user
    separately requested work.
@@ -60,6 +63,11 @@ proof of registration. Completion requires verifying the intended index entry
 and the complete project set. Any operation that removes a project entry
 requires the user's explicit permission for the exact removed names; removing a
 repository URL from an entry does not authorize removing the entry.
+Removal records a reconciliation exclusion. Use `include_project` only after an
+explicit request to include that exact native project again, then reconcile a
+fresh native snapshot. An identity/path move remains diagnostic until the old
+exact entry is removed through its preview-bound workflow, its exclusion is
+explicitly cleared, and reconciliation validates the new target.
 
 ## Optional model roles
 

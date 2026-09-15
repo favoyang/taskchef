@@ -65,7 +65,7 @@ preserve unrelated paths. Dashboard process identity and Codex-session leases
 MUST remain in memory and MUST NOT create owner, secret, or handoff files.
 
 `taskchef.json` MUST have schema version 2, the following required fields, and
-an optional exact `dashboard` object:
+optional exact `dashboard` and `projectIndex` objects:
 
 ```json
 {
@@ -84,6 +84,15 @@ When present, `dashboard` MUST contain exactly boolean `autostart`. Its absence
 is backward-compatible and means `true`; new workspaces SHOULD write
 `{"autostart": true}`. `false` disables MCP-lifecycle autostart but MUST NOT
 disable the explicit `ensure_dashboard` tool.
+
+When present, `projectIndex` MUST contain exactly `bindings`, `exclusions`, and
+`routingHints` arrays. Bindings map one `(hostId: local, projectId)` to one
+configured canonical path. Exclusions retain exact removed native identities
+or paths. Routing hints are bounded per canonical configured path and retain
+aliases, canonical repositories, concise responsibilities, and forgotten-value
+suppression. Every fact has one compact provenance record; accepted-report
+facts include the exact task, thread, and current terminal turn. Absence means
+empty state. Older releases reject the optional field rather than rewriting it.
 
 `tasks.jsonl` MUST contain zero or more newline-terminated schema-4 through
 schema-10 records, one per line. Schemas 4 through 9 are supported
@@ -243,8 +252,14 @@ exact clickable `[TaskChef Dashboard](http://127.0.0.1:3210/)` link even when
 ensure failed. A created-thread directive MUST remain on its own line before
 the final link, preserving the delegate skill's immediate-return contract.
 
-1. The dispatcher MUST call `prepare_dispatch` once per outcome.
-2. It MUST choose exactly one configured project and exact native-project path.
+1. The dispatcher MUST list native projects once per batch and call
+   `reconcile_projects` once with that exact schema-2 snapshot.
+2. It MUST call `prepare_dispatch` once per outcome and choose exactly one
+   configured project. Before `record_task` or native creation, the selected
+   native project's exact `(hostId, projectId, canonical path)` MUST occur in
+   the reconciliation response's `available` array. Presence in the native
+   snapshot or configured preparation is insufficient. Curated and learned
+   routing matches are both ambiguous when more than one project matches.
 3. It MUST build the instruction with the user's outcome beginning on line 1
    and remaining uninterrupted, followed by one blank line and the authorization
    `Report this task and its follow-ups to my local TaskChef dashboard. Relevant private-repository links and concise work, test, and deployment results are authorized; exclude secrets.`
@@ -457,7 +472,8 @@ The complete operational rationale and limits are documented in
   preparedAt: string,
   marker: string,
   projectCount: number,
-  projects: Project[]
+  projects: Project[],
+  routingHints: {path, aliases[], githubRepos[], responsibilities[]}[]
 } }
 ```
 
@@ -490,8 +506,38 @@ empty `turns` and derived `results` arrays,
 unknown projects, malformed markers, and invalid input fail. Repeating a
 successful call is not idempotent; it fails as a duplicate.
 
+Configuration is read structurally so unavailable unrelated entries do not
+block preparation or recording. `record_task` validates the selected actual
+directory or Git root before snapshotting it.
+
 **Annotations:** `readOnlyHint: false`, `destructiveHint: false`,
 `openWorldHint: false`.
+
+### `reconcile_projects`, `include_project`, and `update_project_hint`
+
+`reconcile_projects` accepts one agent-supplied native Codex schema-2 project
+snapshot. Node does not call native tools or inspect private Codex state. It
+considers only local projects with `hostId: local`, canonicalizes each eligible
+path, excludes the dispatcher and its ancestors, isolates per-project failures,
+and commits additions and exact identity bindings under the configuration lock.
+It preserves curated metadata and absent projects. Repeated identical or empty
+snapshots do not write. Duplicate IDs, canonical targets, or identity/path moves
+produce bounded diagnostics. Its MCP response contains counts, current eligible
+targets, diagnostics, and changed state rather than full configuration copies.
+
+Removing a configured project records an exclusion. `include_project` removes
+one exact exclusion by native project ID or canonical path; a later reconcile
+must validate and add the target. A move is handled through exact preview-bound
+removal, explicit inclusion, and reconciliation of the new path.
+
+`update_project_hint` remembers, corrects, or forgets one bounded fact. Aliases
+require explicit user evidence; correction is the only operation that removes
+the same alias from another project. Repository ownership requires an inspected
+exact origin from the selected project or a contained Git root. Responsibilities
+require an accepted current terminal task/thread/turn. Forgetting requires
+explicit user evidence and leaves bounded suppression against stale report
+replay. Learning remains separate from terminal reporting and a learning error
+cannot undo an accepted result.
 
 ### `link_task`
 

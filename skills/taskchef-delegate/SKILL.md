@@ -24,9 +24,10 @@ delegated tasks. Execute a valid one in the current task. Do not re-dispatch it
 merely because it concerns TaskChef or a configured project. Explicit requests
 to delegate separate work remain valid.
 
-Use the bundled `prepare_dispatch`, `record_task`, and `report_state` MCP tools
-directly. Never fall back to shell writes. If a required tool is unavailable,
-stop and report that the TaskChef plugin must be reloaded or installed.
+Use the bundled `reconcile_projects`, `prepare_dispatch`, `record_task`, and
+`report_state` MCP tools directly. Never fall back to shell writes. If a
+required tool is unavailable, stop and report that the TaskChef plugin must be
+reloaded or installed.
 
 ## Boundaries
 
@@ -45,12 +46,18 @@ stop and report that the TaskChef plugin must be reloaded or installed.
 
 1. Split the request into the smallest independently useful outcomes. Include
    constraints, expected testing, and reporting in every instruction.
-2. In parallel, list native Codex projects once and call `prepare_dispatch`
-   exactly once per outcome. Never reuse a task ID or marker. Do not take a
-   pre-creation thread snapshot.
-3. Route against configured project `name`, `description`, and canonical
-   `githubRepos`; use `path` only as checkout identity. Require exactly one
-   match and an exact native-project path. Ask instead of guessing.
+2. List native Codex projects once. Pass that exact schema-2 snapshot to
+   `reconcile_projects` once for the complete batch, then call
+   `prepare_dispatch` exactly once per outcome. Never reuse a task ID or marker.
+   Do not take a pre-creation thread snapshot.
+3. Route against configured project `name`, `description`, canonical
+   `githubRepos`, and the preparation's bounded aliases, repository ownership,
+   and responsibilities. Use `path` only as checkout identity. Before
+   `record_task` or native creation, require exactly one entry in the
+   reconciliation's `available` array whose `hostId`, `projectId`, and canonical
+   `path` exactly match the selected native project. A matching snapshot path or
+   configured preparation alone does not establish eligibility. Treat a missing
+   entry or duplicate learned matches as ambiguous and ask instead of guessing.
    Select the `orchestrator` preference from preparation for every visible
    parent. Resolve explicit choices and follow
    [model roles](references/model-roles.md). Missing configuration means omit
@@ -84,3 +91,7 @@ stop and report that the TaskChef plugin must be reloaded or installed.
    `report_state` with it as `turnRef`, `failed`, null thread and Codex turn IDs,
    and a bounded summary before returning the failure. Retain that UUID for an
    exact retry.
+
+When the user explicitly selects or corrects a project name or alias, call
+`update_project_hint` with explicit-user evidence after routing. A guessed
+route, generic keywords, or ordinary task wording is never learning evidence.

@@ -10,6 +10,7 @@ export {
   ensureWorkspaceInstructions,
   filterTasks,
   importProjects,
+  includeProject,
   initializeWorkspace,
   linkTask,
   listProjects,
@@ -20,6 +21,7 @@ export {
   manuallyTransitionTask,
   migrateTaskLog,
   prepareDispatch,
+  reconcileProjects,
   readConfig,
   listTasks,
   readTask,
@@ -31,6 +33,7 @@ export {
   restoreWorkspaceBackup,
   validateConfig,
   updateProject,
+  updateProjectHint,
   verifyWorkspaceBackup,
 } from "./src/workspace.js";
 

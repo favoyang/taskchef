@@ -9,6 +9,14 @@ delegation. It stores canonical paths and routing metadata such as curated
 names, descriptions, Git status, and GitHub repositories. It does not index
 repository contents or create a second kind of project.
 
+For a whole-project refresh, pass the agent's single native schema-2
+`list_projects` snapshot to `reconcile_projects`. TaskChef validates local
+`hostId: local` entries, canonicalizes each path, isolates per-project failures,
+adds new eligible paths, and binds native project IDs only by exact same-host
+canonical path. It preserves curated names, descriptions, and complete
+repository lists. Missing native entries are retained; duplicate identities,
+duplicate canonical targets, and identity/path moves return diagnostics.
+
 Index only Codex projects local to the TaskChef workspace's execution host.
 Remote connection projects are outside the v1 contract. Never index the
 TaskChef dispatcher workspace or a directory containing it; the dispatcher is
@@ -69,11 +77,8 @@ the correct workspace rather than guessing from the folder name.
 ### Reindex after Codex changes
 
 When the user asks TaskChef to reindex or catch up after saving more projects in
-Codex, list native local Codex projects once and run `project list --json` once
-before mutation. Compare exact canonical paths, then index each requested
-eligible Codex project that is missing from TaskChef by following the
-appropriate path above, sharing the batch verification instead of relisting
-after each write. After all additions, run `project list --json` once more and
+Codex, list native projects once and call `reconcile_projects` once with that
+exact snapshot. After reconciliation, run `project list --json` once and
 verify every intended canonical path and its routing metadata before reporting
 the index as current.
 
@@ -135,3 +140,15 @@ TaskChef accepts configuration schema version 2 only. Its optional exact
 `false` opts out of MCP-lifecycle dashboard startup without disabling manual
 `$taskchef-dashboard` recovery. `githubRepos` is always an array; unsupported
 configuration is rejected without being rewritten.
+
+Schema 2 also accepts an optional strict `projectIndex` object holding local
+native identity bindings, explicit exclusions, and bounded routing hints.
+Absence means empty state. Removing a project records an exclusion so later
+reconciliation cannot silently re-add it; an explicit `include_project` clears
+that exclusion. Aliases require explicit user selection. Repository facts
+require an inspected exact origin, including a contained Git root when a
+workspace owns child repositories. Report-derived responsibilities retain the
+accepted task, thread, and turn as compact provenance. Forgetting retains a
+bounded suppression entry so an old report retry cannot recreate the fact.
+Older TaskChef releases reject configurations containing `projectIndex`;
+downgrade by restoring a compatible backup rather than editing live state.
