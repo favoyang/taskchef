@@ -8,7 +8,7 @@ const effortLabels: Record<string, string> = { low: 'Light', medium: 'Medium', h
 type ModelOption = { value: string; label: string; efforts: string[] };
 type Role = { role: string; source: string | null; displaySource?: string | null; model: unknown; effort: unknown; status: string; problems: string[] };
 type Profile = { id: string; roles: Role[]; problems: string[]; modelOptions?: ModelOption[] };
-type UsageProvider = { provider: string; status: 'available' | 'unavailable'; version: string | null };
+type UsageProvider = { provider: string; version: string | null };
 
 export function ModelSettings() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -97,12 +97,9 @@ export function ModelSettings() {
     </>}
     {usageProvider && <Paper withBorder p="md">
       <Stack gap="xs">
-        <Group justify="space-between">
-          <Title order={3} size="h4">Usage provider</Title>
-          <Badge color={usageProvider.status === 'available' ? 'teal' : 'red'}>{usageProvider.status}</Badge>
-        </Group>
+        <Title order={3} size="h4">Usage provider</Title>
         <Text>{usageProvider.provider}{usageProvider.version ? ` ${usageProvider.version}` : ' version unavailable'}</Text>
-        <Text c="dimmed" size="sm">Version reported by the executable TaskChef uses for token and cost estimates.</Text>
+        <Text c="dimmed" size="sm">Version pinned by TaskChef for token and cost estimates.</Text>
       </Stack>
     </Paper>}
   </Stack>;
