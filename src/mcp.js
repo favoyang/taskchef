@@ -8,7 +8,10 @@ import {
   reportTaskState,
   reportTaskResult,
   dashboardAutostartEnabled,
+  includeProject,
   readConfig,
+  reconcileProjects,
+  updateProjectHint,
 } from "./workspace.js";
 import { parseTaskChefMarker } from "./delegation.js";
 import { createDashboardManager } from "./dashboard-manager.js";
@@ -105,6 +108,60 @@ const preparationSchema = z.object({
   modelRoles: z.record(z.string(), z.unknown()).optional(),
   projectCount: z.number(),
   projects: z.array(projectSchema),
+  routingHints: z.array(z.object({
+    path: z.string(),
+    aliases: z.array(z.string()),
+    githubRepos: z.array(z.string()),
+    responsibilities: z.array(z.string()),
+  })).optional(),
+});
+
+const nativeProjectSnapshotSchema = z.object({
+  schemaVersion: z.literal(2),
+  projects: z.array(z.object({
+    projectId: z.string().min(1),
+    projectKind: z.string().min(1),
+    label: z.string().min(1),
+    path: z.string().nullable().optional(),
+    hostId: z.string().nullable().optional(),
+    hostDisplayName: z.string().nullable().optional(),
+    isGitRepository: z.boolean().nullable().optional(),
+  }).passthrough()),
+}).passthrough();
+
+const routingProvenanceSchema = z.object({
+  kind: z.enum(["explicit_user", "verified_repository", "accepted_terminal_report"]),
+  evidence: z.string().min(1).max(240),
+  taskId: z.string().min(1).nullable(),
+  threadId: z.string().min(1).nullable(),
+  turnRef: z.string().min(1).max(256).nullable(),
+  repositoryPath: z.string().min(1).nullable(),
+});
+
+const reconciliationSchema = z.object({
+  schemaVersion: z.literal(1),
+  changed: z.boolean(),
+  projectCount: z.number().int().nonnegative(),
+  addedCount: z.number().int().nonnegative(),
+  boundCount: z.number().int().nonnegative(),
+  available: z.array(z.object({
+    hostId: z.string(),
+    projectId: z.string(),
+    path: z.string(),
+  })),
+  diagnostics: z.array(z.object({
+    projectId: z.string(),
+    code: z.string(),
+    message: z.string(),
+  })),
+});
+
+const hintUpdateSchema = z.object({
+  changed: z.boolean(),
+  suppressed: z.boolean(),
+  project: z.string(),
+  kind: z.enum(["alias", "githubRepo", "responsibility"]),
+  value: z.string(),
 });
 
 const dashboardSchema = z.object({
@@ -166,6 +223,9 @@ export function createTaskChefMcpServer({
   reportResult = reportTaskResult,
   reportState = reportTaskState,
   link = linkTask,
+  reconcile = reconcileProjects,
+  updateHint = updateProjectHint,
+  include = includeProject,
   dashboardManager = createDashboardManager({ workspace }),
   readConfiguration = readConfig,
   logDashboardDiagnostic,
@@ -224,6 +284,75 @@ export function createTaskChefMcpServer({
   );
 
   server.registerTool(
+    "reconcile_projects",
+    {
+      title: "Reconcile TaskChef projects",
+      description:
+        "Atomically reconcile an agent-supplied native Codex list_projects schema-2 snapshot into the local TaskChef project index. Only eligible local projects on hostId local are considered; existing curated metadata and missing entries are preserved.",
+      inputSchema: { snapshot: nativeProjectSnapshotSchema },
+      outputSchema: { reconciliation: reconciliationSchema },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ snapshot }) => {
+      const result = await reconcile(workspace, snapshot);
+      const reconciliation = {
+        schemaVersion: 1,
+        changed: result.changed,
+        projectCount: result.projectCount,
+        addedCount: result.added.length,
+        boundCount: result.bound.length,
+        available: result.available,
+        diagnostics: result.diagnostics,
+      };
+      return toolResult(
+        "reconciliation",
+        reconciliation,
+        `Reconciled ${reconciliation.projectCount} TaskChef project(s).`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "include_project",
+    {
+      title: "Include a previously excluded TaskChef project",
+      description:
+        "Remove an explicit reconciliation exclusion by exact local native projectId or canonical path. Reconciliation must run afterward before the project becomes a routing target again.",
+      inputSchema: {
+        projectId: z.string().min(1).optional(),
+        path: z.string().min(1).optional(),
+      },
+      outputSchema: {
+        result: z.object({ changed: z.boolean(), remainingExclusionCount: z.number().int().nonnegative() }),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ projectId, path: projectPath }) => {
+      if (Boolean(projectId) === Boolean(projectPath)) {
+        throw new Error("include_project requires exactly one projectId or path");
+      }
+      const updated = await include(workspace, projectId
+        ? { projectId, hostId: "local" }
+        : { path: projectPath });
+      const result = {
+        changed: updated.changed,
+        remainingExclusionCount: updated.exclusions.length,
+      };
+      return toolResult("result", result, result.changed
+        ? "Removed the TaskChef project exclusion."
+        : "No matching TaskChef project exclusion exists.");
+    },
+  );
+
+  server.registerTool(
     "prepare_dispatch",
     {
       title: "Prepare TaskChef dispatch",
@@ -240,6 +369,43 @@ export function createTaskChefMcpServer({
     async () => {
       const preparation = await prepare(workspace);
       return toolResult("preparation", preparation, `Prepared TaskChef task ${preparation.taskId}.`);
+    },
+  );
+
+  server.registerTool(
+    "update_project_hint",
+    {
+      title: "Remember or forget TaskChef project routing",
+      description:
+        "Remember or forget one bounded routing fact for an exact configured project. Aliases and forgetting require explicit user evidence; repository ownership requires verified origin evidence; report-derived responsibilities require the accepted current terminal task/turn identity.",
+      inputSchema: {
+        action: z.enum(["remember", "correct", "forget"]),
+        project: z.string().min(1),
+        kind: z.enum(["alias", "githubRepo", "responsibility"]),
+        value: z.string().min(1).max(256),
+        provenance: routingProvenanceSchema,
+      },
+      outputSchema: { result: hintUpdateSchema },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const updated = await updateHint(workspace, input);
+      const result = {
+        changed: updated.changed,
+        suppressed: updated.suppressed,
+        project: updated.project,
+        kind: updated.kind,
+        value: updated.value,
+      };
+      return toolResult(
+        "result",
+        result,
+        `${result.changed ? "Updated" : "Kept"} TaskChef project routing.`,
+      );
     },
   );
 

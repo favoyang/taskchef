@@ -124,6 +124,16 @@ and unnecessary personal data. Identical lifecycle retries are safe; never
 replace a same-`turnRef` report with different content or let an older turn
 overwrite newer state.
 
+After an accepted terminal report, `update_project_hint` may optionally retain
+one concise responsibility when that report coherently establishes it. Supply
+the same task ID, self-linked thread ID, and current turn ref as provenance.
+Repository ownership may be retained only after inspecting the exact selected
+repository or a contained Git root and verifying that exact canonical origin;
+include that repository path with the same accepted task/turn provenance.
+Never learn aliases, scan the transcript, or derive generic keywords here. A
+learning failure is nonfatal to the accepted task result: report it separately
+and do not retry with weaker evidence.
+
 ## Preserve delivery context
 
 Summaries are the durable TaskChef timeline; the dashboard does not scan the

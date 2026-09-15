@@ -74,8 +74,9 @@ export function normalizeGithubRepositories(
   return repositories;
 }
 
-export function matchProjectForGithubUrl(value, projects) {
+export function matchProjectForGithubUrl(value, projects, routingHints = []) {
   if (!Array.isArray(projects)) throw new Error("projects must be an array");
+  if (!Array.isArray(routingHints)) throw new Error("routingHints must be an array");
   let parsed;
   try {
     parsed = parseGithubUrl(value, "GitHub URL", { allowIssueOrPull: true });
@@ -84,15 +85,17 @@ export function matchProjectForGithubUrl(value, projects) {
   }
   const repository = `https://github.com/${parsed.owner}/${parsed.repository}`;
   const key = repository.toLowerCase();
-  const matches = projects.filter((project) =>
-    Array.isArray(project?.githubRepos)
-    && project.githubRepos.some((candidate) => {
+  const matches = projects.filter((project) => {
+    const learned = routingHints.find((hint) => hint?.path === project?.path)?.githubRepos ?? [];
+    return [...(Array.isArray(project?.githubRepos) ? project.githubRepos : []), ...learned]
+      .some((candidate) => {
       try {
         return canonicalGithubRepository(candidate).toLowerCase() === key;
       } catch {
         return false;
       }
-    }));
+    });
+  });
   if (matches.length === 1) {
     return { status: "matched", repository, project: matches[0], projects: matches };
   }

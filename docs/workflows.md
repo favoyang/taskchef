@@ -127,13 +127,12 @@ sequenceDiagram
   participant C as Native Codex
   participant E as Executor
   U->>D: Request outcome
-  par Route once
-    D->>C: List native projects
-  and Prepare each outcome
+  D->>C: List native projects once
+  D->>M: reconcile_projects(snapshot)
+  M-->>D: Counts, available targets, diagnostics
+  par Prepare each outcome
     D->>M: prepare_dispatch()
-    M->>W: prepareDispatch()
-    W-->>M: UUID, marker, projects
-    M-->>D: preparation
+    M-->>D: UUID, marker, projects
   end
   D->>D: Choose one configured and native project
   D->>M: record_task(id, project, title, instruction, null)
@@ -450,6 +449,15 @@ identity uniqueness checks, link eligibility, and result freshness occur
 inside the critical section. Writes use temporary files/hard links and atomic
 rename so readers see complete snapshots. Configuration replacement syncs the
 new file and workspace directory before its audit transaction is committed.
+
+Project reconciliation consumes one agent-supplied native schema-2 snapshot;
+the Node process never calls native Codex project tools. It filters to eligible
+local-host targets, canonicalizes paths, preserves curated and missing entries,
+and writes only when projects or identity bindings change. Explicit removal
+stores an exclusion. Learned aliases, repository ownership, and responsibilities
+stay in bounded configuration slots with compact evidence and never alter
+historical task snapshots. Optional learning happens after an accepted terminal
+report, so its failure cannot change that task result.
 
 The dispatcher controls routing and immutable intent. The executor controls its
 cooperatively asserted identity and semantic result. Neither identity nor

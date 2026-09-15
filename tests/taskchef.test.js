@@ -638,27 +638,31 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     const listed = await client.listTools();
     assert.deepEqual(listed.tools.map((tool) => tool.name), [
       "ensure_dashboard",
+      "reconcile_projects",
+      "include_project",
       "prepare_dispatch",
+      "update_project_hint",
       "record_task",
       "link_task",
       "report_state",
       "report_result",
     ]);
-    assert.equal(listed.tools[0].annotations.readOnlyHint, false);
-    assert.equal(listed.tools[0].annotations.destructiveHint, false);
-    assert.equal(listed.tools[0].annotations.openWorldHint, false);
-    assert.equal(listed.tools[1].annotations.readOnlyHint, true);
-    assert.equal(listed.tools[2].annotations.readOnlyHint, false);
-    assert.equal(listed.tools[2].annotations.destructiveHint, false);
-    assert.equal(listed.tools[2].annotations.openWorldHint, false);
-    for (const tool of listed.tools.slice(4)) {
+    const byName = (name) => listed.tools.find((tool) => tool.name === name);
+    assert.equal(byName("ensure_dashboard").annotations.readOnlyHint, false);
+    assert.equal(byName("ensure_dashboard").annotations.destructiveHint, false);
+    assert.equal(byName("ensure_dashboard").annotations.openWorldHint, false);
+    assert.equal(byName("prepare_dispatch").annotations.readOnlyHint, true);
+    assert.equal(byName("record_task").annotations.readOnlyHint, false);
+    assert.equal(byName("record_task").annotations.destructiveHint, false);
+    assert.equal(byName("record_task").annotations.openWorldHint, false);
+    for (const tool of [byName("report_state"), byName("report_result")]) {
       assert.equal(tool.annotations.destructiveHint, true);
       assert.ok(tool.description.includes(JSON.stringify(path.resolve(workspace, "tasks.jsonl"))));
       assert.ok(tool.description.includes(JSON.stringify(path.resolve(workspace, ".taskchef-usage.json"))));
       assert.match(tool.description, /GitHub URLs are stored as references, not published to GitHub/);
     }
-    assert.match(listed.tools[5].title, /deprecated/i);
-    assert.deepEqual(Object.keys(listed.tools[4].inputSchema.properties).sort(), [
+    assert.match(byName("report_result").title, /deprecated/i);
+    assert.deepEqual(Object.keys(byName("report_state").inputSchema.properties).sort(), [
       "requestSummary", "status", "summary", "taskId", "threadId", "turnId", "turnRef",
     ]);
     for (const tool of listed.tools) {
@@ -879,7 +883,7 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
   await client.connect(clientTransport);
   try {
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal((await client.listTools()).tools.length, 6);
+    assert.equal((await client.listTools()).tools.length, 9);
     assert.deepEqual(isolatedDiagnostics, [
       "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.",
     ]);
@@ -3861,7 +3865,9 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
     assert.equal(parsed.diagramType, "sequence");
     assert.ok(diagram.trim().split("\n").length <= 32);
   }
-  for (const call of ["ensure_dashboard", "prepare_dispatch", "record_task", "link_task", "report_state"]) {
+  for (const call of [
+    "ensure_dashboard", "reconcile_projects", "prepare_dispatch", "record_task", "link_task", "report_state",
+  ]) {
     assert.match(workflows, new RegExp(`\\b${call}\\(`));
   }
   assert.match(workflows, /Follow-up turns/);
@@ -4121,7 +4127,7 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.doesNotMatch(frontmatter, /\$[a-z0-9-]+/);
 
   const body = content.slice(content.indexOf("\n---", 4) + 4);
-  for (const toolName of ["prepare_dispatch", "record_task", "link_task", "report_state"]) {
+  for (const toolName of ["reconcile_projects", "prepare_dispatch", "record_task", "link_task", "report_state"]) {
     assert.match(body, new RegExp(`\\b${toolName}\\b`));
   }
   assert.match(body, /Never fall back to shell writes/i);
@@ -4133,6 +4139,11 @@ test("delegate skill isolates trigger metadata and requires structured workspace
   assert.match(body, /exactly one accepted marker[\s\S]+non-whitespace[\s\S]+exactly one adjacent to the marker/i);
   assert.match(body, /Marker-only,[\s\S]+duplicate-marker,[\s\S]+scaffold-only,[\s\S]+misplaced-invocation/i);
   assert.match(body, /Never reuse a task ID or marker/i);
+  assert.match(
+    body,
+    /Before[\s\S]+`record_task` or native creation[\s\S]+reconciliation's `available` array[\s\S]+`hostId`, `projectId`, and canonical[\s\S]+`path` exactly match/i,
+  );
+  assert.match(body, /matching snapshot path or[\s\S]+configured preparation alone does not establish eligibility/i);
   assert.match(body, /Before creating each executor, call `record_task` exactly once/i);
   assert.match(body, /Do not call `link_task` from the dispatcher/i);
   assert.match(body, /Begin with the actual assignment on the first line/i);
@@ -4249,8 +4260,8 @@ test("bootstrap skill initializes and indexes Codex projects through verified ca
   assert.match(content, /managed `\*-workspace` Codex project[\s\S]+repeated `--github-repo/i);
   assert.match(content, /Repeated `--github-repo[\s\S]+replace[\s\S]+complete advertised repository list/i);
   assert.match(content, /repeat the[\s\S]+origin explicitly when it should remain routable/i);
-  assert.match(content, /reindex or catch up[\s\S]+project list --json[\s\S]+exact canonical paths/i);
-  assert.match(content, /project list --json` once[\s\S]+before mutation[\s\S]+After all additions[\s\S]+project list --json` once more[\s\S]+verify every intended canonical path/i);
+  assert.match(content, /reindex or catch up[\s\S]+reconcile_projects[\s\S]+project list --json[\s\S]+verify every intended canonical path/i);
+  assert.match(content, /list native projects once[\s\S]+exact snapshot[\s\S]+project list --json` once/i);
   assert.match(content, /Do not call `project add` for a path already in the TaskChef index/i);
   assert.match(content, /Preserve[\s\S]+curated entries[\s\S]+do not remove entries/i);
   assert.match(content, /Bulk import[\s\S]+list native local Codex projects once[\s\S]+require an exact local-project match for every entry/i);

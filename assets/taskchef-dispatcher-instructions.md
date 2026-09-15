@@ -19,6 +19,8 @@ This folder is the canonical per-user TaskChef dispatcher workspace.
 - For every other actionable request that asks for an independent new outcome,
   use `$taskchef-delegate` automatically, even when the user does not explicitly
   say "delegate" or mention TaskChef.
+- Delegation lists native projects once per batch, reconciles that exact
+  snapshot once, and routes only to one eligible exact native target.
 - GitHub issue and pull-request URLs may identify any repository advertised by
   a configured project, including child repositories of managed workspaces.
 - Do not perform delegated work directly in the dispatcher thread.
