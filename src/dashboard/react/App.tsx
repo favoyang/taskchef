@@ -42,6 +42,7 @@ import { usageStillCalculating } from "./presentation";
 import type { DashboardSnapshot, NotificationSnapshot, Task } from "./types";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { TaskCard } from "./components/TaskCard";
+import { TaskBoard } from "./components/TaskBoard";
 import { TaskDetail } from "./components/TaskDetail";
 import { RelativeTimeProvider } from "./components/RelativeTime";
 
@@ -70,6 +71,12 @@ const theme = createTheme({
   },
 });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="taskchef-style-nonce"]')?.content;
+const VIEW_STORAGE_KEY = "taskchef.dashboard.view";
+
+function savedView(): "board" | "list" {
+  try { return window.localStorage.getItem(VIEW_STORAGE_KEY) === "board" ? "board" : "list"; }
+  catch { return "list"; }
+}
 
 interface NotificationState {
   initialized: boolean;
@@ -99,7 +106,7 @@ export function DashboardApp({
   initialTasks = [],
 }: {
   connect?: boolean;
-  initialFilters?: { date?: string; project?: string; status?: string };
+  initialFilters?: { project?: string; status?: string };
   initialTasks?: Task[];
 }) {
   const [settings, setSettings] = useState(() => window.location.hash === '#settings');
@@ -115,7 +122,9 @@ export function DashboardApp({
   const [version, setVersion] = useState<string | null>(null);
   const [project, setProject] = useState(initialFilters.project ?? "");
   const [status, setStatus] = useState(initialFilters.status ?? "");
-  const [date, setDate] = useState(initialFilters.date ?? "all");
+  const [date, setDate] = useState("all");
+  const [preferredView, setPreferredView] = useState(savedView);
+  const [completedLimit, setCompletedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detailOpened, setDetailOpened] = useState(false);
@@ -227,11 +236,19 @@ export function DashboardApp({
     ...[...new Set(tasks.map((task) => task.project.name))].sort().map((value) => ({ label: value, value })),
   ], [tasks]);
   const visible = useMemo(() => filterTasks(tasks, { project, status, date, now }), [tasks, project, status, date, now]);
+  const boardTasks = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
+  const board = preferredView === "board";
   const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
   const statusData = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
     label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
     value,
   }));
+
+  function changeView(value: string) {
+    if (value !== "board" && value !== "list") return;
+    setPreferredView(value);
+    try { window.localStorage.setItem(VIEW_STORAGE_KEY, value); } catch { /* Preference remains in memory. */ }
+  }
 
   async function handleOpenCodex(task: Task) {
     setDetailBusy(true);
@@ -303,30 +320,30 @@ export function DashboardApp({
     >
       <RelativeTimeProvider now={now}>
       <AppShell className="taskchef-shell" padding={0}>
-        <Container className="taskchef-header" component="header" size={1080}>
-          <Group className="taskchef-header-layout" align="stretch" justify="space-between" wrap="nowrap">
-            <Box className="taskchef-header-copy">
-              <Text c="var(--taskchef-accent)" fw={750} size="xs" tt="uppercase">TaskChef {version && <span className="taskchef-version">v{version}</span>}</Text>
-              <Group gap="sm" mt={5} wrap="nowrap">
+        <Box className="taskchef-header-shell" component="header">
+          <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} size="100%">
+            <Group className="taskchef-header-layout" justify="space-between" wrap="nowrap">
+              <Group className="taskchef-header-copy" gap="xs" wrap="nowrap">
                 <BrandIcon />
-                <Title order={1} size="h2">Dashboard</Title>
+                <Title className="taskchef-brand-title" order={1}>
+                  <span>TaskChef Dashboard</span>
+                  {version && <span className="taskchef-version">v{version}</span>}
+                </Title>
               </Group>
-            </Box>
-            <Stack align="flex-end" className="taskchef-header-actions" gap={0} justify="space-between">
-              <Group aria-live="polite" className="taskchef-connection" gap={7} role="status" wrap="nowrap">
-                <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
-                <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
-              </Group>
-              <Group className="taskchef-header-icon-row" gap={2} justify="flex-end" wrap="nowrap">
+              <Group className="taskchef-header-actions" gap={2} justify="flex-end" wrap="nowrap">
                 <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
                 <ThemeToggle />
+                <Group aria-live="polite" className="taskchef-connection" gap={7} role="status" wrap="nowrap">
+                  <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
+                  <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
+                </Group>
               </Group>
-            </Stack>
-          </Group>
-        </Container>
+            </Group>
+          </Container>
+        </Box>
 
         <AppShell.Main>
-          <Container className="taskchef-main" pb={80} size={1080}>
+          <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}`} pb={80} size="100%">
             {projectIndex?.status === "unavailable" && (
               <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="md" title="Project index unavailable">
                 Task history is still visible. Verify the index and inspect backups before making project changes.
@@ -342,27 +359,22 @@ export function DashboardApp({
               </Alert>
             )}
             {settings ? <Stack gap="md"><Button component="a" href="#" variant="subtle" size="sm" leftSection={<IconArrowLeft size={16} />} style={{ alignSelf: 'flex-start' }}>Back to tasks</Button><ModelSettings /></Stack> : <>
-            <Paper className="taskchef-toolbar" p="sm" radius="md" withBorder>
+            <Paper className="taskchef-toolbar" radius={0}>
               <Stack gap="sm">
-                <Group align="end" gap="sm">
-                  <Select aria-label="Project" data={projects} label="Project" onChange={(value) => setProject(value ?? "")} size="sm" value={project} />
-                  <Select
-                    aria-label="Updated"
-                    data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]}
-                    label="Updated"
-                    onChange={(value) => setDate(value ?? "all")}
-                    size="sm"
-                    value={date}
-                  />
+                <Group className="taskchef-toolbar-view">
+                  <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={preferredView} withItemsBorders={false} />
                 </Group>
-                <Box>
-                  <Text className="taskchef-filter-label" mb={5}>Status</Text>
-                  <SegmentedControl aria-label="Status" data={statusData} fullWidth onChange={setStatus} size="xs" value={status} />
-                </Box>
+                <Group className="taskchef-toolbar-filters" gap="sm" wrap="nowrap">
+                  <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} size="xs" value={project} />
+                  <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} size="xs" value={date} />
+                </Group>
+                {!board && <Box className="taskchef-toolbar-status">
+                  <SegmentedControl aria-label="Status" data={statusData} onChange={setStatus} size="xs" value={status} withItemsBorders={false} />
+                </Box>}
               </Stack>
             </Paper>
 
-            <TaskResultsSummary totalCount={tasks.length} visibleCount={visible.length} />
+            {!board && <TaskResultsSummary totalCount={tasks.length} visibleCount={visible.length} />}
 
             {message && (
               <Alert color="yellow" icon={<IconAlertTriangle aria-hidden size={17} />} mt="md" role="status">
@@ -373,17 +385,23 @@ export function DashboardApp({
               </Alert>
             )}
 
-            <Stack aria-describedby="task-results-summary" aria-label="Tasks" component="section" gap="sm" mt="xs">
+            {board ? <TaskBoard
+              completedLimit={completedLimit}
+              onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)}
+              onOpenCodex={handleOpenCodex}
+              onOpenDetail={(value) => void loadDetail(value)}
+              tasks={boardTasks}
+            /> : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task: Task) => (
                 <TaskCard key={task.id} onOpenCodex={handleOpenCodex} onOpenDetail={(value) => void loadDetail(value)} task={task} />
               ))}
               {visible.length === 0 && (
                 <Paper className="taskchef-empty" p={48} ta="center" withBorder>
                   <Title order={2} size="h4">No tasks match these filters</Title>
-                  <Text c="dimmed" mt={4} size="sm">Choose a different project, date, or status.</Text>
+                  <Text c="dimmed" mt={4} size="sm">Choose a different project, update window, or status.</Text>
                 </Paper>
               )}
-            </Stack>
+            </Stack>}
             </>}
           </Container>
         </AppShell.Main>
@@ -485,9 +503,9 @@ function BrandIcon() {
       alt=""
       aria-hidden
       className="taskchef-brand-icon"
-      height="42"
+      height="28"
       src={colorScheme === "dark" ? "/assets/taskchef-dark.svg" : "/assets/taskchef.svg"}
-      width="42"
+      width="28"
     />
   );
 }

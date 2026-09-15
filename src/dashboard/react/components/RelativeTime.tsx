@@ -12,12 +12,10 @@ export function RelativeTimeProvider({ children, now }: { children: ReactNode; n
 export function RelativeTime({
   icon,
   label,
-  tooltipLabel,
   value,
 }: {
   icon?: ReactNode;
   label: string;
-  tooltipLabel?: string;
   value: string | null | undefined;
 }) {
   const [exact, setExact] = useState(false);
@@ -25,13 +23,9 @@ export function RelativeTime({
   const text = exact ? formatExactTime(value) : formatRelativeTime(value);
   const exactText = formatExactTime(value);
   const unavailable = exactText === "—";
-  const tooltip = exactText === "—"
-    ? "Updated time unavailable"
-    : exact
-      ? "Show relative time"
-      : `Exact time: ${exactText}. Show exact time`;
+  const tooltip = unavailable ? "Updated time unavailable" : exact ? formatRelativeTime(value) : exactText;
   return (
-    <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltipLabel ?? tooltip}>
+    <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
       <UnstyledButton
         aria-label={unavailable
           ? `${label}: unavailable.`

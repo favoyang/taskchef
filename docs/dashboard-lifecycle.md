@@ -105,6 +105,23 @@ historical task snapshots reference paths absent from the current index and
 offers recovery-oriented read-only commands. It never mutates or restores
 configuration.
 
+The task dashboard offers List and Board views at every screen width. List
+remains the default and keeps its status filter, task metrics, and
+actions. Board groups tasks by recorded status, with an Unresolved column only
+when needed. The view switch precedes the project and Updated filters in both
+views. Both filters apply to Board and List; Updated offers the latest 24 hours,
+latest 7 days, and all time. Board ignores
+the remembered List status filter. Completed initially shows five cards, with
+five more available per click. Each Board card shows its project's name, title,
+current request or latest reported result, relative update time, and a chat
+shortcut when the task has a linked chat. Opening the title uses the full task
+detail view. Board columns are 340 px wide where space permits and scroll
+horizontally when needed. On phones, a column fits the viewport with a peek of
+the next. Swipe or scroll horizontally to reach every column, or focus the
+board to scroll it with a keyboard; the page still scrolls vertically through
+tasks.
+The view preference is stored locally when browser storage is available.
+
 The detail view distinguishes an active turn whose final usage is pending from
 a terminal turn whose usage is being calculated. Available usage keeps both the
 token total and API-equivalent USD estimate. The dashboard owns a bounded

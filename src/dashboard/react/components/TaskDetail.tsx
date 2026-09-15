@@ -97,7 +97,7 @@ export function TaskDetail({
           <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
             <Menu.Target>
               <Tooltip label="More task actions">
-                <ActionIcon aria-label="More task actions" disabled={busy} variant="default">
+                <ActionIcon aria-label="More task actions" className="taskchef-detail-more" disabled={busy} variant="default">
                   <IconDots aria-hidden size={17} />
                 </ActionIcon>
               </Tooltip>

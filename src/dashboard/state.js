@@ -49,10 +49,13 @@ export function taskStatusLabel(task) {
   return task.status === null ? "unresolved" : task.status.replaceAll("_", " ");
 }
 
+export function hasLinkedCodexThread(task) {
+  return typeof task.threadId === "string" && CODEX_THREAD_ID_PATTERN.test(task.threadId);
+}
+
 export function isArchiveTaskEligible(task) {
   return task.status !== "working"
-    && typeof task.threadId === "string"
-    && CODEX_THREAD_ID_PATTERN.test(task.threadId);
+    && hasLinkedCodexThread(task);
 }
 
 export function canArchiveTask(task) {

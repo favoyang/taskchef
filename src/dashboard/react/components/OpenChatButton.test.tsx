@@ -15,6 +15,7 @@ test("uses the shared open-chat presentation and accessible task label", () => {
 
   const button = screen.getByRole("button", { name: "Open chat for Review checkout reconciliation" });
   expect(button).toHaveTextContent("Open chat");
+  expect(button).toHaveClass("taskchef-open-chat");
   expect(button).toHaveAttribute("data-variant", "default");
   expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   fireEvent.click(button);
