@@ -321,24 +321,22 @@ export function DashboardApp({
       <RelativeTimeProvider now={now}>
       <AppShell className="taskchef-shell" padding={0}>
         <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} component="header" size="100%">
-          <Group className="taskchef-header-layout" align="stretch" justify="space-between" wrap="nowrap">
-            <Box className="taskchef-header-copy">
-              <Text c="var(--taskchef-accent)" fw={750} size="xs" tt="uppercase">TaskChef {version && <span className="taskchef-version">v{version}</span>}</Text>
-              <Group gap="sm" mt={5} wrap="nowrap">
-                <BrandIcon />
-                <Title order={1} size="h2">Dashboard</Title>
-              </Group>
-            </Box>
-            <Stack align="flex-end" className="taskchef-header-actions" gap={0} justify="space-between">
+          <Group className="taskchef-header-layout" justify="space-between" wrap="nowrap">
+            <Group className="taskchef-header-copy" gap="xs" wrap="nowrap">
+              <BrandIcon />
+              <Title className="taskchef-brand-title" order={1}>
+                <span>TaskChef Dashboard</span>
+                {version && <span className="taskchef-version">v{version}</span>}
+              </Title>
+            </Group>
+            <Group className="taskchef-header-actions" gap={2} justify="flex-end" wrap="nowrap">
+              <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
+              <ThemeToggle />
               <Group aria-live="polite" className="taskchef-connection" gap={7} role="status" wrap="nowrap">
                 <IconCircleFilled aria-hidden color={connected ? "var(--mantine-color-teal-6)" : "var(--mantine-color-yellow-6)"} size={9} />
                 <Text c="dimmed" size="xs">{connected ? "Live" : connect ? "Connecting…" : "Fixture preview"}</Text>
               </Group>
-              <Group className="taskchef-header-icon-row" gap={2} justify="flex-end" wrap="nowrap">
-                <Tooltip label="Settings"><ActionIcon className="taskchef-icon-button" component="a" href="#settings" aria-label="Settings" aria-current={settings ? 'page' : undefined} variant="subtle" color="gray" size="lg"><IconSettings size={18} stroke={1.8} /></ActionIcon></Tooltip>
-                <ThemeToggle />
-              </Group>
-            </Stack>
+            </Group>
           </Group>
         </Container>
 
@@ -503,9 +501,9 @@ function BrandIcon() {
       alt=""
       aria-hidden
       className="taskchef-brand-icon"
-      height="42"
+      height="28"
       src={colorScheme === "dark" ? "/assets/taskchef-dark.svg" : "/assets/taskchef.svg"}
-      width="42"
+      width="28"
     />
   );
 }

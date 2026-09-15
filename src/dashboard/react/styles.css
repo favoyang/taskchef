@@ -17,14 +17,15 @@ body {
 
 .taskchef-shell { min-height: 100vh; background: var(--taskchef-page); }
 .taskchef-shell header { border-bottom: 1px solid var(--taskchef-border); }
-.taskchef-header { max-width: 1760px; padding: 28px clamp(16px, 3vw, 48px) 22px; }
+.taskchef-header { max-width: 1760px; padding: 10px clamp(12px, 3vw, 48px); }
+.taskchef-header-layout { min-width: 0; min-height: 36px; gap: 8px; }
 .taskchef-header-copy { min-width: 0; }
-.taskchef-header-actions { align-self: stretch; flex: none; }
-.taskchef-connection { align-self: flex-end; }
-.taskchef-header-icon-row { justify-content: flex-end; }
+.taskchef-header-actions { flex: none; }
+.taskchef-connection { flex: none; margin-inline-start: 5px; }
 .taskchef-icon-button { flex: none; }
-.taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
-.taskchef-brand-icon, .taskchef-brand-icon img { display: block; width: 42px; height: 42px; }
+.taskchef-brand-title { min-width: 0; color: var(--taskchef-accent); font-size: 0.875rem; font-weight: 750; letter-spacing: 0.035em; line-height: 1; text-transform: uppercase; white-space: nowrap; }
+.taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-size: 0.78em; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.taskchef-brand-icon, .taskchef-brand-icon img { display: block; flex: none; width: 28px; height: 28px; }
 .taskchef-main { max-width: 1760px; padding-top: var(--mantine-spacing-md); padding-inline: clamp(16px, 3vw, 48px); }
 .taskchef-toolbar { max-width: none; margin-bottom: 22px; padding: 8px 0 var(--mantine-spacing-md); border: 0; border-bottom: 1px solid var(--taskchef-border); background: transparent; box-shadow: none; }
 .taskchef-toolbar-filters { width: min(100%, 488px); min-width: 0; }
@@ -171,8 +172,15 @@ body {
 }
 
 @media (max-width: 34em) {
-  .taskchef-header { padding-top: 22px; padding-bottom: 18px; }
-  .taskchef-brand-icon, .taskchef-brand-icon img { width: 36px; height: 36px; }
+  .taskchef-header { padding-inline: 8px; padding-block: 7px; }
+  .taskchef-header-layout { min-height: 32px; gap: 4px; }
+  .taskchef-header-copy { gap: 5px; }
+  .taskchef-brand-title { font-size: clamp(0.625rem, 2.7vw, 0.75rem); letter-spacing: 0.015em; line-height: 1.15; white-space: normal; }
+  .taskchef-version { margin-inline-start: 0.3rem; }
+  .taskchef-brand-icon, .taskchef-brand-icon img { width: 24px; height: 24px; }
+  .taskchef-header-actions { gap: 0; }
+  .taskchef-icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; }
+  .taskchef-connection { gap: 5px; margin-inline-start: 2px; }
 }
 
 @container (max-width: 27.5rem) {

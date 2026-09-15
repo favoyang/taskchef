@@ -146,7 +146,7 @@ beforeEach(() => {
   apiMocks.dashboardVersion.mockResolvedValue("7.25.1");
 });
 
-test("places the filtered task count below the toolbar and updates it from live snapshots", () => {
+test("places the filtered task count below the toolbar and updates it from live snapshots", async () => {
   const recent = new Date().toISOString();
   const tasks = [
     fixtureTask({
@@ -179,11 +179,15 @@ test("places the filtered task count below the toolbar and updates it from live 
       initialTasks={tasks}
     />,
   );
+  const header = screen.getByRole("banner");
+  const title = within(header).getByRole("heading", { level: 1 });
   const headerActions = document.querySelector<HTMLElement>(".taskchef-header-actions")!;
-  const headerIconRow = within(headerActions).getByRole("link", { name: "Settings" }).parentElement?.parentElement;
-  expect(headerActions.firstElementChild).toBe(within(headerActions).getByRole("status"));
-  expect(headerActions.lastElementChild).toHaveClass("taskchef-header-icon-row");
-  expect(headerIconRow).toBe(headerActions.lastElementChild);
+  expect(title).toHaveTextContent("TaskChef Dashboard");
+  expect(await within(title).findByText("v7.25.1")).toHaveClass("taskchef-version");
+  expect(header.querySelector(".taskchef-brand-icon")).toHaveAttribute("width", "28");
+  expect(headerActions.children[0]).toContainElement(within(headerActions).getByRole("link", { name: "Settings" }));
+  expect(headerActions.children[1]).toContainElement(within(headerActions).getByRole("button", { name: "Use dark theme" }));
+  expect(headerActions.lastElementChild).toBe(within(headerActions).getByRole("status"));
   expect(within(headerActions).getByRole("link", { name: "Settings" })).toHaveClass("taskchef-icon-button");
   expect(within(headerActions).getByRole("button", { name: "Use dark theme" })).toHaveClass("taskchef-icon-button");
   const projectFilter = screen.getByRole("combobox", { name: "Project" });
