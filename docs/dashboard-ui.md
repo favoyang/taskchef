@@ -14,7 +14,9 @@ rules.
   document hierarchy.
 - Selects inherit the compact `xs` dashboard size from the shared Mantine
   theme. New pages get the same 30 px control height and 12 px control text
-  without page-specific selectors.
+  without page-specific selectors. Keep short, related selects in one compact
+  row when they remain readable at narrow widths; give the field with longer
+  values the larger share of the row.
 - Use `.taskchef-section`, `p="sm"`, and `gap="sm"` for bordered page sections.
   Keep intentional Board and List differences, such as lane width and card
   excerpts, in their existing component classes.

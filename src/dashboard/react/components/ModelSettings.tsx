@@ -75,7 +75,7 @@ export function ModelSettings() {
       {profile.roles.map((role) => <Paper className="taskchef-section" key={role.role} withBorder p="sm">
         <Stack gap="xs">
           <Group justify="space-between"><Title order={3} size="h5" tt="capitalize">{role.role}</Title><Badge color={['invalid', 'unavailable'].includes(role.status) ? 'red' : role.status === 'missing' ? 'gray' : 'teal'}>{role.status}</Badge></Group>
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <SimpleGrid className="taskchef-settings-fields" cols={2}>
             <Select label="Model" aria-label={`${role.role} model`} aria-busy={loading || saving !== null} data={profile.modelOptions ?? []} value={typeof role.model === 'string' ? role.model : null} readOnly={loading || saving !== null} allowDeselect={false} searchable onChange={(model) => {
               if (loading || saving || !model) return;
               const option = profile.modelOptions?.find((candidate) => candidate.value === model);
