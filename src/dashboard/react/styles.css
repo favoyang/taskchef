@@ -38,6 +38,11 @@ body {
 .taskchef-toolbar .mantine-SegmentedControl-root { max-width: 650px; }
 .taskchef-results-summary { max-width: var(--taskchef-content-max-width); margin-top: 12px; color: var(--taskchef-muted); font-size: var(--mantine-font-size-xs); line-height: 1.35; white-space: nowrap; }
 .taskchef-list { max-width: var(--taskchef-content-max-width); }
+.taskchef-settings-fields {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--mantine-spacing-sm);
+  width: min(100%, 36rem);
+}
 .taskchef-task-row { container-type: inline-size; }
 .taskchef-task-row,
 .taskchef-section { background: light-dark(#fff, #202421); box-shadow: 0 1px 0 light-dark(rgb(22 31 25 / 3%), transparent); }

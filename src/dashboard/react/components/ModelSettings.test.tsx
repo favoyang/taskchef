@@ -46,6 +46,7 @@ test('uses the shared dashboard content and section treatment', async () => {
   const { container } = render(<MantineProvider><ModelSettings /></MantineProvider>);
   expect(await screen.findByRole('combobox', { name: 'planner model' })).toBeInTheDocument();
   expect(container.querySelector('[aria-label="Model settings"]')).toHaveClass('taskchef-settings');
+  expect(container.querySelector('.taskchef-settings-fields')).toBeInTheDocument();
   expect(container.querySelectorAll('.taskchef-section')).toHaveLength(2);
 });
 
