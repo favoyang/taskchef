@@ -59,9 +59,9 @@ export function ModelSettings() {
       setSaving(null);
     }
   };
-  return <Stack gap="md" aria-label="Model settings">
+  return <Stack className="taskchef-settings" gap="sm" aria-label="Model settings">
     <Group justify="space-between">
-      <Title order={2} size="h3">Model roles</Title>
+      <Title order={2} size="h5">Model roles</Title>
       <ActionIcon aria-label="Refresh" aria-busy={loading} aria-disabled={loading || saving !== null} className="taskchef-icon-button" color="gray" variant="subtle" size="lg" onClick={() => {
         if (loading || saving) return;
         setLoading(true);
@@ -72,9 +72,9 @@ export function ModelSettings() {
     {error && <Alert color="red" role="alert">{error}</Alert>}
     {profile && <>
       {profile.problems.map((problem) => <Alert color="yellow" key={problem}>{problem}</Alert>)}
-      {profile.roles.map((role) => <Paper key={role.role} withBorder p="md">
+      {profile.roles.map((role) => <Paper className="taskchef-section" key={role.role} withBorder p="sm">
         <Stack gap="xs">
-          <Group justify="space-between"><Title order={3} size="h4" tt="capitalize">{role.role}</Title><Badge color={['invalid', 'unavailable'].includes(role.status) ? 'red' : role.status === 'missing' ? 'gray' : 'teal'}>{role.status}</Badge></Group>
+          <Group justify="space-between"><Title order={3} size="h5" tt="capitalize">{role.role}</Title><Badge color={['invalid', 'unavailable'].includes(role.status) ? 'red' : role.status === 'missing' ? 'gray' : 'teal'}>{role.status}</Badge></Group>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <Select label="Model" aria-label={`${role.role} model`} aria-busy={loading || saving !== null} data={profile.modelOptions ?? []} value={typeof role.model === 'string' ? role.model : null} readOnly={loading || saving !== null} allowDeselect={false} searchable onChange={(model) => {
               if (loading || saving || !model) return;
@@ -95,13 +95,13 @@ export function ModelSettings() {
         </Stack>
       </Paper>)}
     </>}
-    {usageProvider && <Paper withBorder p="md">
+    {usageProvider && <Paper className="taskchef-section" withBorder p="sm">
       <Stack gap="xs">
         <Group justify="space-between">
-          <Title order={3} size="h4">Usage provider</Title>
+          <Title order={3} size="h5">Usage provider</Title>
           <Badge color={usageProvider.status === 'available' ? 'teal' : 'red'}>{usageProvider.status}</Badge>
         </Group>
-        <Text>{usageProvider.provider}{usageProvider.version ? ` ${usageProvider.version}` : ' version unavailable'}</Text>
+        <Text size="sm">{usageProvider.provider}{usageProvider.version ? ` ${usageProvider.version}` : ' version unavailable'}</Text>
         <Text c="dimmed" size="sm">Version reported by the executable TaskChef uses for token and cost estimates.</Text>
       </Stack>
     </Paper>}
