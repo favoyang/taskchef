@@ -24,11 +24,15 @@ import {
   readConfig,
   readTask,
 } from "./workspace.js";
-import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
+import {
+  DASHBOARD_SERVER_VERSION,
+  PINNED_CCUSAGE_VERSION,
+  TASKCHEF_VERSION,
+} from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
 import { CODEX_CHAT_ARCHIVE_ENABLED } from "./dashboard/state.js";
 import { createUsageTracker } from "./usage-tracker.js";
-import { readCcusageRuntimeInfo, readUsageStore, usageStorePath } from "./usage.js";
+import { readUsageStore, usageStorePath } from "./usage.js";
 import { reportedWorkSummary } from "./reported-work.js";
 import {
   DASHBOARD_CONTROL_SESSION_PATH,
@@ -794,7 +798,6 @@ export async function createDashboardServer({
   usageSummaryMonitor = null,
   usagePreloadIntervalMs = 30_000,
   resolveRoles = resolveModelRoles,
-  resolveUsageProvider = readCcusageRuntimeInfo,
   updateRole = updateModelRole,
   control = null,
 } = {}) {
@@ -861,8 +864,6 @@ export async function createDashboardServer({
   }
   const clients = new Set();
   const archiveRequests = new Set();
-  let usageProviderPromise = null;
-
   const broadcast = (event, value) => {
     const payload = ssePayload(event, value);
     for (const client of clients) client.write(payload);
@@ -989,12 +990,11 @@ export async function createDashboardServer({
 
     if (url.pathname === "/api/settings" && method === "GET") {
       const profiles = [{ id: "personal", project: "Personal", ...await resolveRoles({ includeCatalog: true }) }];
-      usageProviderPromise ??= Promise.resolve(resolveUsageProvider()).catch(() => ({
+      const usageProvider = {
         provider: "ccusage",
-        status: "unavailable",
-        version: null,
-      }));
-      sendJson(response, 200, { profiles, usageProvider: await usageProviderPromise });
+        version: PINNED_CCUSAGE_VERSION,
+      };
+      sendJson(response, 200, { profiles, usageProvider });
       return;
     }
 

@@ -1957,25 +1957,29 @@ test("dashboard preloads usage independently of detail requests and publishes ca
   }
 });
 
-test("dashboard settings reports the ccusage version resolved at runtime", async () => {
+test("dashboard settings reports pinned ccusage metadata without runtime resolution", async () => {
   const { workspace } = await fixture();
+  const packageMetadata = JSON.parse(await readFile(
+    new URL("../package.json", import.meta.url),
+    "utf8",
+  ));
+  let runtimeResolutions = 0;
   const server = await createDashboardServer({
     workspace,
     port: 0,
     resolveRoles: async () => ({ roles: [], problems: [], modelOptions: [] }),
-    resolveUsageProvider: async () => ({
-      provider: "ccusage",
-      status: "available",
-      version: "20.0.21",
-    }),
+    resolveUsageProvider: async () => {
+      runtimeResolutions += 1;
+      throw new Error("Settings must not resolve or execute ccusage");
+    },
   });
   try {
     const settings = await (await fetch(`${server.origin}/api/settings`)).json();
     assert.deepEqual(settings.usageProvider, {
       provider: "ccusage",
-      status: "available",
-      version: "20.0.21",
+      version: packageMetadata.optionalDependencies.ccusage,
     });
+    assert.equal(runtimeResolutions, 0);
   } finally {
     await server.close();
   }
