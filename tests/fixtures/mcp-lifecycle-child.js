@@ -28,10 +28,14 @@ if (process.env.TASKCHEF_TEST_CONNECT_NEVER === "1") {
   };
 }
 if (process.env.TASKCHEF_TEST_TRANSPORT_CLOSE_MS) {
-  setTimeout(
-    () => { void transport.close(); },
-    Number(process.env.TASKCHEF_TEST_TRANSPORT_CLOSE_MS),
-  );
+  const start = transport.start.bind(transport);
+  transport.start = async () => {
+    await start();
+    setTimeout(
+      () => { void transport.close(); },
+      Number(process.env.TASKCHEF_TEST_TRANSPORT_CLOSE_MS),
+    );
+  };
 }
 
 const startupKeepAlive = process.env.TASKCHEF_TEST_CONNECT_NEVER === "1"

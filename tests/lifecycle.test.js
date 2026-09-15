@@ -141,7 +141,11 @@ test("transport-driven protocol close exits with stdin still open", async (t) =>
   const fixture = await processFixture();
   t.after(() => stopChild(fixture.session));
   const child = spawn(process.execPath, [CHILD_PATH], {
-    env: { ...fixture.env, TASKCHEF_TEST_TRANSPORT_CLOSE_MS: "250" },
+    env: {
+      ...fixture.env,
+      TASKCHEF_TEST_CONNECT_DELAY_MS: "500",
+      TASKCHEF_TEST_TRANSPORT_CLOSE_MS: "25",
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
   t.after(() => stopChild(child));
