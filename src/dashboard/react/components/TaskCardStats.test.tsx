@@ -128,7 +128,7 @@ describe("task card stats", () => {
     expect(container.querySelectorAll(".taskchef-shimmer")).toHaveLength(1);
   });
 
-  test("places icon-only Open chat at the card bottom right and keeps callbacks working", () => {
+  test("places statistics and icon-only Open chat together in the card footer", () => {
     const openChat = vi.fn();
     const openDetail = vi.fn();
     const { container } = render(<MantineProvider><TaskCard
@@ -138,9 +138,12 @@ describe("task card stats", () => {
     /></MantineProvider>);
     const metadata = container.querySelector(".taskchef-card-metadata") as HTMLElement;
     const footer = container.querySelector(".taskchef-list-card-footer") as HTMLElement;
+    const stats = container.querySelector(".taskchef-card-stats") as HTMLElement;
     expect(metadata.children[0]).toHaveClass("taskchef-status-badge");
     expect(metadata.children).toHaveLength(1);
+    expect(footer.children[0]).toBe(stats);
     const button = within(footer).getByRole("button", { name: /open chat/i });
+    expect(footer.children[1]).toBe(button);
     expect(button).toHaveClass("taskchef-board-chat");
     expect(button).not.toHaveTextContent("Open chat");
     fireEvent.click(button);

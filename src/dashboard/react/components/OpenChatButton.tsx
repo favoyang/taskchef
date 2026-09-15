@@ -13,6 +13,7 @@ export function OpenChatButton({
   return (
     <Button
       aria-label={`Open chat for ${taskTitle}`}
+      className="taskchef-open-chat"
       leftSection={<IconArrowUpRight aria-hidden size={15} stroke={1.6} />}
       loading={loading}
       onClick={onClick}

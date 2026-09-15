@@ -40,7 +40,8 @@ body {
 .taskchef-card-heading,
 .taskchef-turn-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--mantine-spacing-sm); }
 .taskchef-card-metadata { width: max-content; min-width: 0; max-width: min(25rem, 45cqw); }
-.taskchef-list-card-footer { display: flex; justify-content: flex-end; margin-top: -8px; }
+.taskchef-list-card-footer { display: flex; align-items: end; gap: 4px; min-width: 0; }
+.taskchef-list-card-footer .taskchef-card-stats { flex: 1 1 auto; min-width: 0; margin-top: 2px; }
 .taskchef-status-badge { flex: none; font-size: var(--mantine-font-size-xs); }
 .taskchef-title-button {
   all: unset;
@@ -107,6 +108,9 @@ body {
 .taskchef-board-chat { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--taskchef-muted); cursor: pointer; }
 .taskchef-board-chat:hover { background: var(--taskchef-surface-muted); color: var(--taskchef-text); }
 .taskchef-board-chat:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
+.taskchef-open-chat, .taskchef-detail-more { height: 26px; min-height: 26px; }
+.taskchef-open-chat .mantine-Button-section[data-position="left"] { margin-inline-end: 4px; }
+.taskchef-detail-more { width: 26px; min-width: 26px; }
 .taskchef-board-link-pending { text-align: right; }
 .taskchef-board-more { align-self: flex-start; padding-inline: 4px; color: var(--taskchef-muted); }
 
