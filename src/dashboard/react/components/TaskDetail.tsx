@@ -186,7 +186,7 @@ export function TaskDetail({
       opened={opened}
       overlayProps={{ backgroundOpacity: 0.55, blur: 2 }}
       scrollAreaComponent={ScrollArea.Autosize}
-      size="min(820px, calc(100vw - 32px))"
+      size="min(600px, calc(100vw - 32px))"
       title={<span className="taskchef-visually-hidden">Task details</span>}
       trapFocus
       zIndex={300}

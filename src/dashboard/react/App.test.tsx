@@ -154,6 +154,8 @@ test("Settings uses the same capped content layout as List", () => {
   const { container } = render(<DashboardApp connect={false} />);
   const settingsPage = container.querySelector(".taskchef-settings-page");
   expect(settingsPage).toHaveClass("taskchef-content");
+  expect(container.querySelector(".taskchef-header")).not.toHaveClass("taskchef-list-layout");
+  expect(container.querySelector(".taskchef-main")).not.toHaveClass("taskchef-list-layout");
   expect(within(settingsPage as HTMLElement).getByRole("link", { name: "Back to tasks" })).toBeInTheDocument();
   window.location.hash = "";
 });
@@ -208,6 +210,8 @@ test("places the filtered task count below the toolbar and updates it from live 
   const summary = document.querySelector<HTMLElement>(".taskchef-results-summary");
   const taskList = screen.getByRole("region", { name: "Tasks" });
 
+  expect(header.querySelector(".taskchef-header")).toHaveClass("taskchef-list-layout");
+  expect(document.querySelector(".taskchef-main")).toHaveClass("taskchef-list-layout");
   expect(projectFilter).toHaveValue("Another project");
   expect(screen.getByRole("combobox", { name: "Updated" })).toHaveValue("All time");
   expect(toolbar?.firstElementChild?.firstElementChild).toContainElement(viewSwitch);
@@ -248,6 +252,8 @@ test("Board ignores the List status filter and restores it on return", () => {
   render(<DashboardApp connect={false} initialFilters={{ status: "completed" }} initialTasks={tasks} />);
   expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(document.querySelector(".taskchef-header")).not.toHaveClass("taskchef-list-layout");
+  expect(document.querySelector(".taskchef-main")).not.toHaveClass("taskchef-list-layout");
   const toolbar = document.querySelector<HTMLElement>(".taskchef-toolbar");
   expect(toolbar?.firstElementChild?.firstElementChild).toContainElement(screen.getByRole("radiogroup", { name: "View" }));
   expect(screen.getByRole("radiogroup", { name: "View" }).compareDocumentPosition(screen.getByRole("combobox", { name: "Project" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -256,6 +262,8 @@ test("Board ignores the List status filter and restores it on return", () => {
   expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Working task");
   expect(screen.getByRole("region", { name: "Task board" })).toHaveTextContent("Completed task");
   fireEvent.click(screen.getByRole("radio", { name: "List" }));
+  expect(document.querySelector(".taskchef-header")).toHaveClass("taskchef-list-layout");
+  expect(document.querySelector(".taskchef-main")).toHaveClass("taskchef-list-layout");
   expect(screen.getByRole("radio", { name: /Completed/ })).toBeChecked();
   expect(screen.getByText("Tasks: 1 of 2")).toBeInTheDocument();
 });

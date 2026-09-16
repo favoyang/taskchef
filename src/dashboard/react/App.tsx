@@ -239,6 +239,7 @@ export function DashboardApp({
   const visible = useMemo(() => filterTasks(tasks, { project, status, date, now }), [tasks, project, status, date, now]);
   const boardTasks = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
   const board = preferredView === "board";
+  const listLayout = !board && !settings;
   const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
   const statusData = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
     label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
@@ -322,7 +323,7 @@ export function DashboardApp({
       <RelativeTimeProvider now={now}>
       <AppShell className="taskchef-shell" padding={0}>
         <Box className="taskchef-header-shell" component="header">
-          <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}`} size="100%">
+          <Container className={`taskchef-header${board ? " taskchef-header-board" : ""}${listLayout ? " taskchef-list-layout" : ""}`} size="100%">
             <Group className="taskchef-header-layout" justify="space-between" wrap="nowrap">
               <Group className="taskchef-header-copy" gap="xs" wrap="nowrap">
                 <BrandIcon />
@@ -344,7 +345,7 @@ export function DashboardApp({
         </Box>
 
         <AppShell.Main>
-          <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}`} pb={80} size="100%">
+          <Container className={`taskchef-main${board ? " taskchef-main-board" : ""}${listLayout ? " taskchef-list-layout" : ""}`} pb={80} size="100%">
             {projectIndex?.status === "unavailable" && (
               <Alert color="yellow" icon={<IconAlertTriangle size={18} />} mb="md" title="Project index unavailable">
                 Task history is still visible. Verify the index and inspect backups before making project changes.
