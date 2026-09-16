@@ -30,7 +30,7 @@ body {
 .taskchef-version { margin-inline-start: 0.45rem; color: var(--taskchef-muted); font-size: 0.78em; font-weight: 600; letter-spacing: 0; text-transform: none; }
 .taskchef-brand-icon, .taskchef-brand-icon img { display: block; flex: none; width: 28px; height: 28px; }
 .taskchef-main { max-width: var(--taskchef-page-max-width); padding-top: 8px; padding-inline: var(--taskchef-page-gutter); }
-.taskchef-list-layout { --taskchef-content-max-width: 960px; max-width: calc(var(--taskchef-content-max-width) + 2 * var(--taskchef-page-gutter)); }
+.taskchef-list-layout { --taskchef-content-max-width: 720px; max-width: calc(var(--taskchef-content-max-width) + 2 * var(--taskchef-page-gutter)); }
 .taskchef-content { width: 100%; max-width: var(--taskchef-content-max-width); }
 .taskchef-toolbar { max-width: none; margin-bottom: 22px; padding: 8px 0 var(--mantine-spacing-md); border: 0; border-bottom: 1px solid var(--taskchef-border); background: transparent; box-shadow: none; }
 .taskchef-toolbar-filters { width: min(100%, 488px); min-width: 0; }
