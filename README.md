@@ -153,3 +153,12 @@ implementation contracts. TaskChef was inspired by
 [FirstMate](https://github.com/kunchenguid/firstmate); the
 [comparison](docs/firstmate-taskchef-comparison.md) explains their different
 approaches.
+
+## License
+
+Copyright 2026 Favo Yang. TaskChef is licensed under the
+[Apache License 2.0](LICENSE).
+
+Third-party dependencies retain their own licenses. The OpenAI Codex icons
+are excluded from TaskChef's license; see the
+[Codex asset notice](assets/CODEX_ASSET_NOTICE.md).
