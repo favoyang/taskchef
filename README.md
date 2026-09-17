@@ -46,23 +46,22 @@ A plan file is created when you request one; it is not a required step for
 every task.
 
 The screenshots in this walkthrough use illustrative demo data. Open the
-dashboard to see both tasks across your projects. **Board** groups tasks by
-**Working**, **Needs input**, **Completed**, and **Failed**. The demo board also
-includes two earlier completed tasks.
+dashboard beside TaskChef master to see both tasks across your projects.
+**Board** groups tasks by **Working**, **Needs input**, **Completed**, and
+**Failed** so you can see their status at a glance.
 
-![TaskChef dashboard board with recipe-book working and payments waiting for input](docs/images/readme-board.png)
+![TaskChef master beside the dashboard board with recipe-book working and payments needing input](docs/images/readme-board.png)
 
-*Board shows tasks grouped by status across projects.*
+*Board gives an overview of task status across projects.*
 
 If the payments task needs a decision, it might ask, for example, whether to
 show a failed refund beside the original payment or in a separate list. Switch
-to **List** to see each task's request, latest result, and status in rows.
+to **List** to see each task's request, latest result, and status in rows. Filter
+by **Needs input** to focus on the payments task's question.
 
-![Dashboard list with All selected, showing payments and recipe-book tasks](docs/images/readme-list.png)
+![TaskChef master beside the dashboard list filtered to Needs input, showing the payments request and result](docs/images/readme-list.png)
 
-*List shows the same tasks with All statuses selected.*
-
-In the list view, filter by **Needs input** to find the payments task's question.
+*List shows the payments request and result in the Needs input queue.*
 
 Select the payments task and choose **Open chat** to answer in its original
 Codex conversation.
