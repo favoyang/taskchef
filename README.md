@@ -33,24 +33,37 @@ project. It then opens a separate Codex task there and returns its link. The
 task investigates the issue in its own conversation while other delegated
 tasks can work in recipe-book or other projects.
 
-> **Screenshot placeholder:** Issue handoff in the dispatcher conversation,
-> with a link to the new payments task.
+The screenshots in this walkthrough use illustrative demo data.
+
+![TaskChef dispatcher beside the dashboard board, with recipe-book working and payments waiting for input](docs/images/readme-board.png)
+
+*The dispatcher beside the board as payments waits for input.*
 
 If the payments task needs a decision, it might ask, for example, whether to
 show a failed refund beside the original payment or in a separate list. Open
 the dashboard to see tasks across your projects. The board groups them by
-**Working**, **Needs input**, **Completed**, and **Failed**. In the list view,
-filter by **Needs input** to find the payments task's question.
+**Working**, **Needs input**, **Completed**, and **Failed**. The list view shows
+each task's request, latest result, and status.
 
-> **Screenshot placeholder:** Dashboard with payments and recipe-book tasks and
-> the **Needs input** filter selected.
+![Dashboard list with All selected, showing payments and recipe-book tasks](docs/images/readme-list.png)
+
+*The list view with All selected.*
+
+In the list view, filter by **Needs input** to find the payments task's question.
 
 Select the payments task and choose **Open chat** to answer in its original
-Codex conversation. When the work finishes, its result appears on the
-dashboard; TaskChef does not post each result back into the dispatcher chat.
+Codex conversation.
 
-> **Screenshot placeholder:** Original payments task conversation after a reply,
-> followed by its completed result on the dashboard.
+![Payments task detail showing Open chat and the question in its activity timeline](docs/images/readme-needs-input.png)
+
+*Payments task details show the question and the Open chat action.*
+
+When the work finishes, its result appears on the dashboard; TaskChef does
+not post each result back into the dispatcher chat.
+
+![Completed payments task detail showing the latest result and earlier question](docs/images/readme-completed.png)
+
+*The completed task shows its latest result above the earlier question.*
 
 In the same dispatcher conversation, you can also start from a rough idea for
 the other project:
