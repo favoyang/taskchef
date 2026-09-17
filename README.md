@@ -157,8 +157,7 @@ approaches.
 ## License
 
 Copyright 2026 Favo Yang. TaskChef is licensed under the
-[Apache License 2.0](LICENSE). Earlier releases distributed under MIT remain
-available under their original MIT terms.
+[Apache License 2.0](LICENSE).
 
 Third-party dependencies retain their own licenses. The OpenAI Codex icons
 are excluded from TaskChef's license; see the
