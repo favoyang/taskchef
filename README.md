@@ -33,21 +33,34 @@ project. It then opens a separate Codex task there and returns its link. The
 task investigates the issue in its own conversation while other delegated
 tasks can work in recipe-book or other projects.
 
-The screenshots in this walkthrough use illustrative demo data.
+In the same dispatcher conversation, start another task from a rough idea:
 
-![TaskChef dispatcher beside the dashboard board, with recipe-book working and payments waiting for input](docs/images/readme-board.png)
+```text
+In recipe-book, explore an idea for weekly meal planning. Discuss the approach with me before coding.
+```
 
-*The dispatcher beside the board as payments waits for input.*
+TaskChef selects recipe-book by name and opens a separate task there. Discuss
+the options in that task. If a written plan would help, ask it to save a
+Markdown plan, then ask it to implement the agreed approach in the same task.
+A plan file is created when you request one; it is not a required step for
+every task.
+
+The screenshots in this walkthrough use illustrative demo data. Open the
+dashboard to see both tasks across your projects. **Board** groups tasks by
+**Working**, **Needs input**, **Completed**, and **Failed**. The demo board also
+includes two earlier completed tasks.
+
+![TaskChef dashboard board with recipe-book working and payments waiting for input](docs/images/readme-board.png)
+
+*Board shows tasks grouped by status across projects.*
 
 If the payments task needs a decision, it might ask, for example, whether to
-show a failed refund beside the original payment or in a separate list. Open
-the dashboard to see tasks across your projects. The board groups them by
-**Working**, **Needs input**, **Completed**, and **Failed**. The list view shows
-each task's request, latest result, and status.
+show a failed refund beside the original payment or in a separate list. Switch
+to **List** to see each task's request, latest result, and status in rows.
 
 ![Dashboard list with All selected, showing payments and recipe-book tasks](docs/images/readme-list.png)
 
-*The list view with All selected.*
+*List shows the same tasks with All statuses selected.*
 
 In the list view, filter by **Needs input** to find the payments task's question.
 
@@ -58,25 +71,18 @@ Codex conversation.
 
 *Payments task details show the question and the Open chat action.*
 
+In that conversation, answer the question and ask the task to finish:
+
+```text
+Show failed refunds beside the original payment. Implement it and run the tests.
+```
+
 When the work finishes, its result appears on the dashboard; TaskChef does
 not post each result back into the dispatcher chat.
 
 ![Completed payments task detail showing the latest result and earlier question](docs/images/readme-completed.png)
 
 *The completed task shows its latest result above the earlier question.*
-
-In the same dispatcher conversation, you can also start from a rough idea for
-the other project:
-
-```text
-In recipe-book, explore an idea for weekly meal planning. Discuss the approach with me before coding.
-```
-
-TaskChef selects recipe-book by the name in your request and opens a separate
-task there. Discuss the options in that task. If a written plan would help,
-ask it to save a Markdown plan, then ask it to implement the agreed approach
-in the same task. A plan file is created when you request one; it is not a
-required step for every task.
 
 Keep the dashboard beside your conversation in Codex's built-in browser. It
 shows each task's latest request and result. Open a task to see its total
@@ -134,6 +140,10 @@ TaskChef saves these preferences in native Codex agent files under
 `~/.codex/agents/` and applies them when it dispatches the corresponding work.
 Set them once for future tasks; a model choice you make explicitly for a task
 takes precedence over its role preference.
+
+![TaskChef Settings page with model and reasoning effort for four roles](docs/images/readme-roles.png)
+
+*Settings shows the model and reasoning effort selected for each role.*
 
 ## More detail
 
