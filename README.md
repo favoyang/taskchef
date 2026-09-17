@@ -92,9 +92,10 @@ $taskchef-bootstrap Set up TaskChef and index my local Codex projects.
 ```
 
 After bootstrap, choose **New chat** in Codex and select the TaskChef dispatcher
-project at `~/.agents/taskchef`. Use this as your dispatcher conversation and pin
-it for easy return. Bootstrap registers and opens the project; you create and
-pin the conversation yourself. Replace `<your-project>` with one of your indexed
+project at `~/.agents/taskchef`. We suggest renaming the new conversation
+**TaskChef master**, then pinning it for easy return. Bootstrap registers and
+opens the project; you create, rename, and pin the conversation yourself.
+Replace `<your-project>` with one of your indexed
 Codex project names and try a read-only first request:
 
 ```text
