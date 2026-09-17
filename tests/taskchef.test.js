@@ -4282,12 +4282,14 @@ test("plugin wording presents bootstrap as indexing existing Codex projects", as
   assert.ok(manifest.interface.defaultPrompt.includes(
     "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
   ));
-  assert.match(readme, /Set up the local TaskChef dispatcher and index your saved Codex projects/i);
+  assert.match(readme, /For the first run, set up the TaskChef dispatcher and import your saved local\s+Codex projects/i);
+  assert.match(readme, /checks your saved Codex projects when you delegate, so you do not need to\s+reindex/i);
+  assert.match(readme, /dashboard link[^\n]+from the\s+end of each dispatcher response in Codex's side browser/i);
   assert.match(readme, /\[advanced guide\]\(docs\/advanced-guide\.md\)/);
   assert.match(guide, /^## Bootstrap and index projects$/m);
   assert.match(guide, /indexes existing Codex projects for delegation/i);
   assert.match(guide, /never indexes repository contents/i);
-  assert.match(guide, /Reindexing catches TaskChef up with newly saved Codex projects/i);
+  assert.match(guide, /dispatcher also reconciles saved Codex projects automatically before each\s+delegation batch/i);
   assert.match(guide, /CLI command writes TaskChef metadata only; it does not query Codex/i);
   assert.match(guide, /verify that[\s\S]+exactly matches the[\s\S]+canonical path of an existing local Codex project/i);
   assert.doesNotMatch(readme, /routing project/i);

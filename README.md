@@ -84,7 +84,8 @@ codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
 ```
 
-Set up the local TaskChef dispatcher and index your saved Codex projects:
+For the first run, set up the TaskChef dispatcher and import your saved local
+Codex projects:
 
 ```text
 $taskchef-bootstrap Set up TaskChef and index my local Codex projects.
@@ -98,12 +99,16 @@ read-only first request:
 In <your-project>, explain how to run the app and tests. Do not change files.
 ```
 
-TaskChef returns a link to the new Codex task. Its local dashboard is at
-[127.0.0.1:3210](http://127.0.0.1:3210/). If it is unavailable, ask
-`$taskchef-dashboard` to ensure and open it. You can add repository mappings
-or refine project descriptions with `$taskchef-bootstrap` when routing needs
-more context. If the installed skills do not appear, activate or reload the
-TaskChef plugin in Codex and try again.
+TaskChef returns a link to the new Codex task. From then on, the dispatcher
+checks your saved Codex projects when you delegate, so you do not need to
+reindex after adding one. The local dashboard normally starts when the TaskChef
+plugin activates. Open the [dashboard link](http://127.0.0.1:3210/) from the
+end of each dispatcher response in Codex's side browser, beside your
+conversation. If the dashboard is unavailable, ask `$taskchef-dashboard` to
+ensure and open it. Use `$taskchef-bootstrap` to add repository mappings or
+refine project descriptions when routing needs more context. If the installed
+skills do not appear, activate or reload the TaskChef plugin in Codex and try
+again.
 
 ## Choose models for each role
 

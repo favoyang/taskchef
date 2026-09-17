@@ -36,7 +36,8 @@ or background identity search and needs no elevated permissions.
 
 ## Bootstrap and index projects
 
-Ask the bootstrap skill to create the per-user dispatcher:
+For the first run, ask the bootstrap skill to create and verify the per-user
+dispatcher and import saved local Codex projects:
 
 ```text
 $taskchef-bootstrap Set up TaskChef and index my local Codex projects.
@@ -51,7 +52,7 @@ tasks.jsonl     one task snapshot per line (schema 10; schema 4-9 migration supp
 .taskchef-usage.json   optional mode-0600 ccusage snapshot and turn-boundary cache
 ```
 
-Index or inspect Codex projects conversationally:
+To inspect or manually adjust the project index later, use the bootstrap skill:
 
 ```text
 $taskchef-bootstrap List my indexed Codex projects.
@@ -85,8 +86,10 @@ creates a pre-restore safety snapshot. If the live configuration is missing or
 malformed, preview an explicit config or state restore, then bind the apply to
 the preview's raw-state hash and plan with --confirm-unreadable-current.
 
-Reindexing catches TaskChef up with newly saved Codex projects by comparing
-exact same-host canonical paths from one native schema-2 project snapshot.
+The dispatcher also reconciles saved Codex projects automatically before each
+delegation batch. You do not need a separate reindex step when adding a native
+Codex project. Manual reindexing compares exact same-host canonical paths from
+one native schema-2 project snapshot.
 Reconciliation adds eligible paths and identity bindings atomically, isolates
 per-project failures, and preserves existing curated names, descriptions, and
 complete repository lists. It does not delete missing projects. Duplicate
@@ -262,7 +265,10 @@ eight-character prefix.
 
 ## Dashboard
 
-Use the packaged recovery skill to make the dashboard available and open it:
+The dashboard normally starts when the TaskChef MCP activates, and the
+dispatcher retries startup at the beginning of each turn. Its final response
+includes the dashboard link even if startup fails. If the dashboard is
+unavailable, use the packaged recovery skill to start or open it:
 
 ```text
 $taskchef-dashboard Ensure and open the TaskChef dashboard.
