@@ -20,8 +20,8 @@ as you go.
 
 ## What working with TaskChef looks like
 
-Suppose you have indexed two Codex projects, **payments** and **storefront**,
-and saved a GitHub repository mapping for each. In your TaskChef dispatcher
+Suppose you have indexed two Codex projects, **payments** and **recipe-book**,
+and saved a GitHub repository mapping for payments. In your TaskChef dispatcher
 conversation, paste a payments issue link and ask:
 
 ```text
@@ -31,7 +31,7 @@ Investigate this issue, fix the cause, and run the relevant tests: https://githu
 TaskChef uses the issue URL's repository to identify the mapped payments
 project. It then opens a separate Codex task there and returns its link. The
 task investigates the issue in its own conversation while other delegated
-tasks can work in storefront or other projects.
+tasks can work in recipe-book or other projects.
 
 > **Screenshot placeholder:** Issue handoff in the dispatcher conversation,
 > with a link to the new payments task.
@@ -42,7 +42,7 @@ the dashboard to see tasks across your projects. The board groups them by
 **Working**, **Needs input**, **Completed**, and **Failed**. In the list view,
 filter by **Needs input** to find the payments task's question.
 
-> **Screenshot placeholder:** Dashboard with tasks from several projects and
+> **Screenshot placeholder:** Dashboard with payments and recipe-book tasks and
 > the **Needs input** filter selected.
 
 Select the payments task and choose **Open chat** to answer in its original
@@ -52,16 +52,18 @@ dashboard; TaskChef does not post each result back into the dispatcher chat.
 > **Screenshot placeholder:** Original payments task conversation after a reply,
 > followed by its completed result on the dashboard.
 
-You can also start from a rough idea:
+In the same dispatcher conversation, you can also start from a rough idea for
+the other project:
 
 ```text
-Explore an idea for clearer refund history in payments. Discuss the approach with me before coding.
+In recipe-book, explore an idea for weekly meal planning. Discuss the approach with me before coding.
 ```
 
-TaskChef opens a task in the selected project. Discuss the options in that
-task. If a written plan would help, ask it to save a Markdown plan, then ask
-it to implement the agreed approach in the same task. A plan file is created
-when you request one; it is not a required step for every task.
+TaskChef selects recipe-book by the name in your request and opens a separate
+task there. Discuss the options in that task. If a written plan would help,
+ask it to save a Markdown plan, then ask it to implement the agreed approach
+in the same task. A plan file is created when you request one; it is not a
+required step for every task.
 
 Keep the dashboard beside your conversation in Codex's built-in browser. It
 shows each task's latest request and result. Open a task to see its total
