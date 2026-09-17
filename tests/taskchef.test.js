@@ -3881,6 +3881,7 @@ test("workflow document keeps current MCP sequences renderable and focused", asy
 
 test("workspace contract excludes removed dashboard ownership and handoff records", async () => {
   const readme = await readFile(path.resolve("README.md"), "utf8");
+  const guide = await readFile(path.resolve("docs/advanced-guide.md"), "utf8");
   const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
   const lifecycle = await readFile(path.resolve("docs/dashboard-lifecycle.md"), "utf8");
   for (const fileName of [
@@ -3888,10 +3889,11 @@ test("workspace contract excludes removed dashboard ownership and handoff record
     ".taskchef-dashboard-handoff.json",
   ]) {
     assert.equal(readme.includes(fileName), false);
+    assert.equal(guide.includes(fileName), false);
     assert.equal(spec.includes(fileName), false);
     assert.equal(lifecycle.includes(fileName), false);
   }
-  assert.match(readme, /Lease state is not transferred across versions/);
+  assert.match(guide, /Lease state is not transferred across versions/);
   assert.match(spec, /MUST NOT create owner, secret, or handoff files/);
   assert.match(lifecycle, /request-shape checks, not authentication/);
 });
@@ -4276,16 +4278,20 @@ test("bootstrap skill initializes and indexes Codex projects through verified ca
 test("plugin wording presents bootstrap as indexing existing Codex projects", async () => {
   const manifest = JSON.parse(await readFile(path.resolve(".codex-plugin/plugin.json"), "utf8"));
   const readme = await readFile(path.resolve("README.md"), "utf8");
+  const guide = await readFile(path.resolve("docs/advanced-guide.md"), "utf8");
   assert.ok(manifest.interface.defaultPrompt.includes(
     "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
   ));
-  assert.match(readme, /^## Bootstrap and index projects$/m);
-  assert.match(readme, /indexes existing Codex projects for delegation/i);
-  assert.match(readme, /never indexes repository contents/i);
-  assert.match(readme, /Reindexing catches TaskChef up with newly saved Codex projects/i);
-  assert.match(readme, /CLI command writes TaskChef metadata only; it does not query Codex/i);
-  assert.match(readme, /verify that[\s\S]+exactly matches the[\s\S]+canonical path of an existing local Codex project/i);
+  assert.match(readme, /Set up the local TaskChef dispatcher and index your saved Codex projects/i);
+  assert.match(readme, /\[advanced guide\]\(docs\/advanced-guide\.md\)/);
+  assert.match(guide, /^## Bootstrap and index projects$/m);
+  assert.match(guide, /indexes existing Codex projects for delegation/i);
+  assert.match(guide, /never indexes repository contents/i);
+  assert.match(guide, /Reindexing catches TaskChef up with newly saved Codex projects/i);
+  assert.match(guide, /CLI command writes TaskChef metadata only; it does not query Codex/i);
+  assert.match(guide, /verify that[\s\S]+exactly matches the[\s\S]+canonical path of an existing local Codex project/i);
   assert.doesNotMatch(readme, /routing project/i);
+  assert.doesNotMatch(guide, /routing project/i);
 });
 
 test("dashboard skill ensures the dashboard, reports its action and URL, and stays maintenance-only", async () => {
@@ -4314,9 +4320,11 @@ test("dashboard skill ensures the dashboard, reports its action and URL, and sta
 
 test("release-install guidance activates MCP before ensure and verifies the complete identity", async () => {
   const readme = await readFile(path.resolve("README.md"), "utf8");
+  const guide = await readFile(path.resolve("docs/advanced-guide.md"), "utf8");
   const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
   const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
-  for (const content of [readme, workflows, spec]) {
+  assert.match(readme, /\[advanced guide\]\(docs\/advanced-guide\.md\)/);
+  for (const content of [guide, workflows, spec]) {
     const releaseIndex = content.search(
       /(?:release-install sequence|Release-install verification|Release verification MUST)/i,
     );
@@ -4363,9 +4371,10 @@ test("plugin package omits lifecycle hooks", async () => {
   assert.equal((await readFile(path.resolve("package.json"), "utf8")).includes('"hooks"'), false);
 });
 
-test("documentation architecture keeps four audience owners linked and current", async () => {
+test("documentation architecture keeps audience owners linked and current", async () => {
   const documents = [
     "README.md",
+    "docs/advanced-guide.md",
     "docs/spec.md",
     "docs/workflows.md",
     "docs/firstmate-taskchef-comparison.md",
@@ -4383,7 +4392,10 @@ test("documentation architecture keeps four audience owners linked and current",
     }
   }
 
-  assert.match(contents.get("README.md"), /Which document should I read\?/);
+  assert.match(contents.get("README.md"), /What working with TaskChef looks like/);
+  assert.match(contents.get("README.md"), /\[advanced guide\]\(docs\/advanced-guide\.md\)/);
+  assert.match(contents.get("docs/advanced-guide.md"), /Detailed setup, operation, recovery, and development reference/);
+  assert.match(contents.get("docs/advanced-guide.md"), /\[specification\]\(spec\.md\)/);
   assert.match(contents.get("docs/spec.md"), /normative agent-facing contract/i);
   assert.match(contents.get("docs/workflows.md"), /TaskChef workflows/);
   const comparison = await readFile(path.resolve("docs/firstmate-taskchef-comparison.md"), "utf8");
@@ -4396,16 +4408,16 @@ test("documentation architecture keeps four audience owners linked and current",
 });
 
 test("interrupted-turn recovery documentation defines schema, privacy, migration, and compatibility", async () => {
-  const readme = await readFile(path.resolve("README.md"), "utf8");
+  const guide = await readFile(path.resolve("docs/advanced-guide.md"), "utf8");
   const spec = await readFile(path.resolve("docs/spec.md"), "utf8");
   const workflows = await readFile(path.resolve("docs/workflows.md"), "utf8");
-  for (const content of [readme, spec, workflows]) {
+  for (const content of [guide, spec, workflows]) {
     assert.match(content, /schema 10/i);
     assert.match(content, /interrupted/i);
     assert.match(content, /results[\s\S]{0,200}lastResult|lastResult[\s\S]{0,200}results/i);
   }
-  assert.match(readme, /does not\s+store transcripts, hidden reasoning, crash output/i);
-  assert.match(readme, /tasks\.jsonl\.pre-v10-\*\.bak/);
+  assert.match(guide, /does not\s+store transcripts, hidden reasoning, crash output/i);
+  assert.match(guide, /tasks\.jsonl\.pre-v10-\*\.bak/);
   assert.match(spec, /fixed summary[\s\S]{0,200}no crash output, transcript, user text/i);
   assert.match(spec, /Interrupted outcomes MUST be excluded/i);
   assert.match(workflows, /Concurrent\s+newer starts serialize under the lock/i);

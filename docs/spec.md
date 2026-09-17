@@ -2,9 +2,10 @@
 
 This is TaskChef's normative agent-facing contract. **MUST**, **MUST NOT**,
 **SHOULD**, and **MAY** are requirements in the RFC 2119 sense. The
-[README](../README.md) owns user setup and operation; [workflows](workflows.md)
-owns implementation walkthroughs; the [FirstMate comparison](firstmate-taskchef-comparison.md)
-is dated research, not contract.
+[advanced guide](advanced-guide.md) owns detailed user setup and operation;
+[workflows](workflows.md) owns implementation walkthroughs; the
+[FirstMate comparison](firstmate-taskchef-comparison.md) is dated research,
+not contract.
 
 ## Terminology
 

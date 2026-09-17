@@ -2,7 +2,7 @@
 
 This developer and advanced-agent guide explains how the current implementation
 moves data through TaskChef. The [specification](spec.md) is normative; the
-[README](../README.md) owns user operation. The
+[advanced guide](advanced-guide.md) owns detailed user operation. The
 [FirstMate comparison](firstmate-taskchef-comparison.md) is non-normative
 research. The [dashboard lifecycle](dashboard-lifecycle.md) owns the focused
 start, upgrade, shutdown, and security rationale.

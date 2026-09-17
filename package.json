@@ -23,6 +23,7 @@
     "assets",
     "BACKLOG.md",
     "bin",
+    "docs/advanced-guide.md",
     "docs/spec.md",
     "docs/workflows.md",
     "docs/dashboard-lifecycle.md",
