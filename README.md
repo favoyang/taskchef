@@ -37,7 +37,12 @@ it to implement the agreed approach in the same task. A plan file is created
 when you request one; it is not a required step for every task.
 
 The dashboard groups tasks by **Working**, **Needs input**, **Completed**, and
-**Failed** states and shows the latest request and result.
+**Failed** states and shows the latest request and result. Open a task to see
+its total reported work duration, token usage, and estimated cost, with the
+same figures for each turn in its activity timeline. Duration is reported
+wall-clock time spent on turns; cost is an API-equivalent estimate, not a bill.
+Token and cost figures can be unavailable when usage cannot be mapped to the
+Codex task.
 Keep it beside your conversation in Codex's built-in browser. The board gives
 you an overview; in the list view, filter by **Needs input** when you want to
 find decisions waiting for you. Select a task and choose **Open chat** to reply
@@ -45,6 +50,15 @@ in its original Codex conversation. Later outcomes update the
 dashboard; TaskChef does not post each result back into the dispatcher chat.
 These states normally come from the task's own reports; TaskChef does not
 automatically supervise execution.
+
+## Choose models for each role
+
+In the dashboard's **Settings** page, choose a model and reasoning effort for
+the **Orchestrator**, **Planner**, **Implementer**, and **Reviewer** roles.
+TaskChef saves these preferences in native Codex agent files under
+`~/.codex/agents/` and applies them when it dispatches the corresponding work.
+Set them once for future tasks; a model choice you make explicitly for a task
+takes precedence over its role preference.
 
 ## Install and delegate your first task
 
