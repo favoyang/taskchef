@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/favoyang/taskchef#readme",
   "repository": "https://github.com/favoyang/taskchef",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "codex",
     "delegation",

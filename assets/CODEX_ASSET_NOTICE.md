@@ -16,7 +16,7 @@ icon previews. Their SHA-256 digests are:
 - `codex-app-light.png`: `de7d43f3386105ab20952958c2c25beb0d903e2aeb6e1aef57c49a648c0d1c07`
 
 The Codex icon is an OpenAI trademark and copyrighted asset. It is not covered
-by TaskChef's MIT license. TaskChef uses it unchanged and only beside the
+by TaskChef's Apache-2.0 license. TaskChef uses it unchanged and only beside the
 visible **Open task** label to identify an action that opens the corresponding
 task in OpenAI Codex. Use remains subject to the [OpenAI Design
 Guidelines](https://openai.com/brand/), including OpenAI's Marks usage terms.

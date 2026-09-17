@@ -2,7 +2,7 @@
   "name": "taskchef",
   "version": "8.5.1",
   "description": "A non-blocking interactive dispatcher for visible Codex tasks.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Favo Yang",
   "repository": {
     "type": "git",
