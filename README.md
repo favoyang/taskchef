@@ -1,18 +1,18 @@
 # TaskChef
 
+**Less time managing tasks. More time moving them forward.**
+
 When work spans several Codex projects, you have to choose the right project,
 find each conversation again, and check which tasks are waiting for you.
-TaskChef gives you one conversation for delegating that work and a dashboard
-for seeing what needs your attention.
-
-**Less time managing tasks. More time moving them forward.**
+TaskChef gives you one dispatcher conversation as a central place to talk to
+agents and delegate work across projects, plus a dashboard for seeing what
+needs your attention.
 
 Give TaskChef a GitHub issue or a rough idea. It uses an explicit project name,
 the conversation's context, or saved repository mappings to choose a Codex
-project; if the destination is unclear, it asks you to choose. One local Codex
-project can map to several repositories. TaskChef creates separate, ordinary
-Codex tasks in those projects. Each has its own conversation and native tools,
-and tasks can run in parallel.
+project; if the destination is unclear, it asks you to choose. TaskChef creates
+separate, ordinary Codex tasks in those projects. Each has its own conversation
+and native tools, and tasks can run in parallel.
 
 You can keep using Codex as you do today. Start by delegating work where the
 project choice or follow-up is cumbersome, then bring more work into TaskChef
@@ -20,24 +20,27 @@ as you go.
 
 ## What working with TaskChef looks like
 
-In your TaskChef dispatcher conversation, paste an issue link and ask:
+Suppose you have indexed two Codex projects, **payments** and **storefront**,
+and saved a GitHub repository mapping for each. In your TaskChef dispatcher
+conversation, paste a payments issue link and ask:
 
 ```text
 Investigate this issue, fix the cause, and run the relevant tests: https://github.com/example/payments/issues/42
 ```
 
-If the saved repository mapping identifies the payments project, TaskChef
-opens a separate Codex task there and returns its link. The task investigates
-the issue in its own conversation while other delegated tasks can work in
-other projects.
+TaskChef uses the issue URL's repository to identify the mapped payments
+project. It then opens a separate Codex task there and returns its link. The
+task investigates the issue in its own conversation while other delegated
+tasks can work in storefront or other projects.
 
 > **Screenshot placeholder:** Issue handoff in the dispatcher conversation,
 > with a link to the new payments task.
 
-Later, open the dashboard to see tasks across your projects. The board groups
-them by **Working**, **Needs input**, **Completed**, and **Failed**. In the list
-view, filter by **Needs input** to find decisions waiting for you, including a
-question from the payments task.
+If the payments task needs a decision, it might ask, for example, whether to
+show a failed refund beside the original payment or in a separate list. Open
+the dashboard to see tasks across your projects. The board groups them by
+**Working**, **Needs input**, **Completed**, and **Failed**. In the list view,
+filter by **Needs input** to find the payments task's question.
 
 > **Screenshot placeholder:** Dashboard with tasks from several projects and
 > the **Needs input** filter selected.
@@ -72,12 +75,11 @@ automatically supervise execution.
 ## Install and delegate your first task
 
 You need Node.js 18 or newer, Git, Codex desktop, and local access to the
-projects that will receive work. Install the plugin and CLI:
+projects that will receive work. Install the plugin:
 
 ```sh
 codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
-npm install --global taskchef
 ```
 
 Set up the local TaskChef dispatcher and index your saved Codex projects:

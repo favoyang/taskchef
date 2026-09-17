@@ -20,13 +20,19 @@ unavailable.
 ```sh
 codex plugin marketplace add favoyang/codex-plugins
 codex plugin add taskchef@favoyang-plugins
+```
+
+The plugin provides five skills and a local MCP server. Its skills use the CLI
+bundled with the plugin, so a global npm installation is not needed for the
+dispatcher workflow. To run `taskchef` directly from a terminal, install the
+CLI separately:
+
+```sh
 npm install --global taskchef
 ```
 
-The plugin provides five skills and a local MCP server. The npm installation
-puts the `taskchef` CLI on `PATH`. TaskChef installs no hooks, schedules,
-daemons, login items, system services, or background identity search and needs
-no elevated permissions.
+TaskChef installs no hooks, schedules, daemons, login items, system services,
+or background identity search and needs no elevated permissions.
 
 ## Bootstrap and index projects
 
