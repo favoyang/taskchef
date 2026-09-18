@@ -146,6 +146,9 @@ takes precedence over its role preference.
 
 ## More detail
 
+Read the [frequently asked questions](https://favoyang.com/taskchef/#faq) for
+answers about delegation, the dashboard, model roles, and local data.
+
 The [advanced guide](docs/advanced-guide.md) covers project indexing, routing,
 task reporting, dashboard behavior, recovery, updates, and development. The
 [specification](docs/spec.md) and [workflows](docs/workflows.md) describe the
