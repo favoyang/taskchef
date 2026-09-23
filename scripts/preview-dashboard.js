@@ -209,7 +209,7 @@ function usageRecord(definition, {
       models: {},
       provenance: {
         provider: "ccusage",
-        version: "20.0.20",
+        version: "20.0.24",
         pricingMode: "offline",
         sessionCount: 1,
       },

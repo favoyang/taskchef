@@ -100,6 +100,6 @@
     "zod"
   ],
   "optionalDependencies": {
-    "ccusage": "20.0.20"
+    "ccusage": "20.0.24"
   }
 }
