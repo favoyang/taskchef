@@ -100,7 +100,7 @@ test("ccusage adapter aggregates every session segment for one exact Codex threa
     ],
   }, THREAD_ID, {
     sampledAt: "2026-08-28T13:42:00.000Z",
-    version: "20.0.20",
+    version: "20.0.24",
     pricingMode: "online",
   });
 
@@ -115,6 +115,27 @@ test("ccusage adapter aggregates every session segment for one exact Codex threa
   assert.equal(Object.hasOwn(usage.provenance, "costCoverage"), false);
   assert.deepEqual(Object.keys(usage.models).sort(), ["gpt-test", "gpt-test-next"]);
   assert.equal(usage.sourceUpdatedAt, "2026-08-28T13:41:00.000Z");
+});
+
+test("ccusage adapter preserves GPT-6 Sol and Luna usage and reported cost", () => {
+  const usage = aggregateCcusageSessions({ sessions: [
+    session("", { model: "gpt-6-sol", costUSD: 0.04 }),
+    session("_01a04878-e7d8-7d12-a393-c91eea3483fb", {
+      model: "gpt-6-luna",
+      inputTokens: 7,
+      cacheReadTokens: 11,
+      outputTokens: 3,
+      reasoningOutputTokens: 1,
+      costUSD: 0.01,
+    }),
+  ] }, THREAD_ID, { version: "20.0.24", pricingMode: "online" });
+
+  assert.deepEqual(Object.keys(usage.models).sort(), ["gpt-6-luna", "gpt-6-sol"]);
+  assert.equal(usage.models["gpt-6-luna"].totalTokens, 21);
+  assert.equal(usage.models["gpt-6-sol"].totalTokens, 35);
+  assert.equal(usage.totalTokens, 56);
+  assert.equal(usage.estimatedCostUsd, 0.05);
+  assert.equal(usage.provenance.version, "20.0.24");
 });
 
 test("ccusage adapter keeps zero-priced positive usage explicitly cost-unavailable", () => {
@@ -165,7 +186,7 @@ test("managed ccusage resolution prefers the pinned package and has a pinned npx
     "/managed/@ccusage/ccusage-darwin-arm64/bin/ccusage",
   );
   assert.deepEqual(local.args, []);
-  assert.equal(local.version, "20.0.20");
+  assert.equal(local.version, "20.0.24");
   const missing = () => { throw new Error("missing"); };
   const fallback = managedCcusageInvocation({
     platform: "darwin",
@@ -174,13 +195,13 @@ test("managed ccusage resolution prefers the pinned package and has a pinned npx
   });
   assert.equal(fallback.command, "npx");
   assert.deepEqual(fallback.args.slice(0, 4), [
-    "--yes", "--prefer-offline", "--package=ccusage@20.0.20", "node",
+    "--yes", "--prefer-offline", "--package=ccusage@20.0.24", "node",
   ]);
   assert.match(fallback.args[4], /resolve-ccusage\.js$/u);
   assert.deepEqual(fallback.args.slice(5), [
     "@ccusage/ccusage-darwin-arm64", "ccusage",
   ]);
-  assert.equal(fallback.version, "20.0.20");
+  assert.equal(fallback.version, "20.0.24");
   assert.equal(fallback.resolvesNative, true);
   const windows = managedCcusageInvocation({
     platform: "win32",
@@ -192,7 +213,7 @@ test("managed ccusage resolution prefers the pinned package and has a pinned npx
   assert.equal(windows.command, process.execPath);
   assert.deepEqual(windows.args.slice(0, 5), [
     "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
-    "--yes", "--prefer-offline", "--package=ccusage@20.0.20", "node",
+    "--yes", "--prefer-offline", "--package=ccusage@20.0.24", "node",
   ]);
   assert.match(windows.args[5], /resolve-ccusage\.js$/u);
   assert.deepEqual(windows.args.slice(6), [
@@ -243,11 +264,11 @@ test("ccusage execution prefers online pricing and remains bounded and structure
   const calls = [];
   const run = async (_command, args, options) => {
     calls.push({ args, options });
-    if (args[0] === "--version") return { stdout: "ccusage 20.0.20\n" };
+    if (args[0] === "--version") return { stdout: "ccusage 20.0.24\n" };
     return { stdout: JSON.stringify({ sessions: [session("")] }) };
   };
   const usage = await readCcusageThreadUsage(THREAD_ID, { command: "ccusage", run });
-  assert.equal(usage.provenance.version, "20.0.20");
+  assert.equal(usage.provenance.version, "20.0.24");
   assert.equal(usage.provenance.pricingMode, "online");
   assert.deepEqual(calls[1].args, ["codex", "session", "--json", "--no-offline"]);
   assert.equal(calls[1].options.timeout, 8_000);
@@ -264,7 +285,7 @@ test("ccusage execution falls back to bundled offline pricing when online pricin
   const calls = [];
   const run = async (_command, args) => {
     calls.push(args);
-    if (args[0] === "--version") return { stdout: "ccusage 20.0.20\n" };
+    if (args[0] === "--version") return { stdout: "ccusage 20.0.24\n" };
     if (args.includes("--no-offline")) throw new Error("pricing network unavailable");
     return { stdout: JSON.stringify({ sessions: [session("")] }) };
   };
@@ -291,7 +312,7 @@ test("GPT-5.6 cumulative estimates use the cost supplied by ccusage", () => {
   const usage = aggregateCcusageSessions({ sessions: [session("", {
     model: "gpt-5.6-sol",
     costUSD: 0.2884664,
-  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  })] }, THREAD_ID, { version: "20.0.24", pricingMode: "online" });
   assert.equal(usage.estimatedCostUsd, 0.2884664);
   assert.equal(usage.costStatus, "estimated");
   assert.equal(Object.hasOwn(usage.provenance, "costCoverage"), false);
@@ -301,7 +322,7 @@ test("an Astra-to-GPT-5.6 transition keeps compatible whole-task and turn estima
   const previous = aggregateCcusageSessions({ sessions: [session("", {
     model: "gpt-6-astra",
     costUSD: 0.02,
-  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  })] }, THREAD_ID, { version: "20.0.24", pricingMode: "online" });
   const current = aggregateCcusageSessions({ sessions: [
     session("", { model: "gpt-6-astra", costUSD: 0.02 }),
     session("_01a04878-e7d8-7d12-a393-c91eea3483fb", {
@@ -312,7 +333,7 @@ test("an Astra-to-GPT-5.6 transition keeps compatible whole-task and turn estima
       model: "gpt-5.6-sol",
       costUSD: 0.03,
     }),
-  ] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  ] }, THREAD_ID, { version: "20.0.24", pricingMode: "online" });
 
   assert.equal(current.estimatedCostUsd, 0.05);
   assert.deepEqual(Object.keys(current.models).sort(), ["gpt-5.6-sol", "gpt-6-astra"]);
@@ -388,7 +409,7 @@ test("a pricing-mode or analyzer-version change invalidates only the cost delta"
     outputTokens: 9,
     reasoningOutputTokens: 4,
     costUSD: 0.03,
-  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  })] }, THREAD_ID, { version: "20.0.24", pricingMode: "online" });
   const delta = usageDelta(current, previous);
   assert.equal(delta.totalTokens, 14);
   assert.equal(delta.estimatedCostUsd, null);
@@ -478,7 +499,7 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
   let snapshot = aggregateCcusageSessions(
     { sessions: [session("")] },
     THREAD_ID,
-    { version: "20.0.20", pricingMode: "online" },
+    { version: "20.0.24", pricingMode: "online" },
   );
   const tracker = createUsageTracker({
     workspace,
@@ -507,7 +528,7 @@ test("tracker records adjacent cumulative boundaries as per-turn token and cost 
     outputTokens: 8,
     reasoningOutputTokens: 3,
     costUSD: 0.03,
-  })] }, THREAD_ID, { version: "20.0.20", pricingMode: "online" });
+  })] }, THREAD_ID, { version: "20.0.24", pricingMode: "online" });
   const second = {
     ...completedFirst,
     turns: [...completedFirst.turns, { turnRef: SECOND_TURN, result: { status: "completed" } }],
@@ -849,7 +870,7 @@ test("a stable ccusage correction replaces the task total and invalidates old tu
   let currentSnapshot = aggregateCcusageSessions(
     { sessions: [session("")] },
     THREAD_ID,
-    { sampledAt: "2026-08-28T14:00:00.000Z", version: "20.0.20" },
+    { sampledAt: "2026-08-28T14:00:00.000Z", version: "20.0.24" },
   );
   const timers = [];
   const tracker = createUsageTracker({
@@ -876,7 +897,7 @@ test("a stable ccusage correction replaces the task total and invalidates old tu
   currentSnapshot = aggregateCcusageSessions(
     { sessions: [session("", { inputTokens: 15 })] },
     THREAD_ID,
-    { sampledAt: "2026-08-28T15:00:00.000Z", version: "20.0.20" },
+    { sampledAt: "2026-08-28T15:00:00.000Z", version: "20.0.24" },
   );
   const secondTurn = { turnRef: SECOND_TURN, result: { status: "completed" } };
   const continuedTask = {
@@ -897,7 +918,7 @@ test("background preload preserves a current cached task total with historical t
   const snapshot = aggregateCcusageSessions(
     { sessions: [session("")] },
     THREAD_ID,
-    { sampledAt: "2026-08-28T14:00:00.000Z", version: "20.0.20" },
+    { sampledAt: "2026-08-28T14:00:00.000Z", version: "20.0.24" },
   );
   await writeUsageStore(workspace, {
     schemaVersion: 1,
