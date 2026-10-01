@@ -47,6 +47,8 @@ every task.
 
 The screenshots in this walkthrough use illustrative demo data. Open the
 dashboard beside TaskChef master to see both tasks across your projects.
+In Codex, you can also call `open_taskchef_board` for a compact [sidebar app](docs/mcp-app.md)
+with a task board, task details, chat links, and confirmed manual status changes.
 **Board** groups tasks by **Working**, **Needs input**, **Completed**, and
 **Failed** so you can see their status at a glance.
 
