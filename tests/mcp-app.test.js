@@ -8,13 +8,15 @@ import { registerTaskChefApp, TASKCHEF_APP_URI } from "../src/mcp-app.js";
 
 const task = {
   id: "task-1", title: "Check board", status: "working", threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab",
-  turnRef: null, updatedAt: new Date().toISOString(), project: { name: "Example", path: "/example" },
+  turnRef: null, updatedAt: new Date().toISOString(), project: { name: "Example", path: "/example", githubRepos: ["owner/repo"] },
+  instruction: "Resolve owner/repo#12", summary: "owner/repo#12", turns: [], latestTurn: null,
 };
 
 test("MCP app advertises a UI resource and keeps board actions app-only", async () => {
   let refreshes = 0;
   let transitions = 0;
   let opened = null;
+  let usageReads = 0;
   const monitor = {
     tasks: [task],
     snapshot: () => ({ tasks: [task], healthy: true }),
@@ -26,6 +28,8 @@ test("MCP app advertises a UI resource and keeps board actions app-only", async 
   registerTaskChefApp(server, {
     workspace: "/example",
     createMonitor: () => monitor,
+    createUsageSummaryMonitor: () => ({ start: async () => {}, close: () => {}, project: () => ({ status: "available", task: { totalTokens: 42 } }) }),
+    createTaskUsageTracker: () => ({ get: async () => { usageReads += 1; return { status: "available", task: { totalTokens: 42 }, turns: {} }; }, preload: () => {}, close: () => {} }),
     transition: async (_workspace, taskId, input) => {
       assert.equal(taskId, task.id);
       assert.equal(input.targetStatus, "completed");
@@ -52,8 +56,12 @@ test("MCP app advertises a UI resource and keeps board actions app-only", async 
     assert.equal(initial.structuredContent.taskCount, 1);
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.tasks[0].id, task.id);
+    assert.equal(snapshot.structuredContent.snapshot.tasks[0].usage.task.totalTokens, 42);
     const detail = await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id } });
     assert.equal(detail.structuredContent.task.title, task.title);
+    assert.equal(detail.structuredContent.task.usage.task.totalTokens, 42);
+    assert.equal(detail.structuredContent.task.relatedGitHubLinks[0].url, "https://github.com/owner/repo/issues/12");
+    assert.equal(usageReads, 1);
     const openedResult = await client.callTool({ name: "taskchef_app_open_chat", arguments: { taskId: task.id } });
     assert.equal(openedResult.isError, undefined);
     assert.equal(opened, task.threadId);

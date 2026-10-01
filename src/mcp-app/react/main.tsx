@@ -1,23 +1,21 @@
 import { App } from "@modelcontextprotocol/ext-apps";
-import { MantineProvider, Button, Group, Badge } from "@mantine/core";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
+import { IconRefresh } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Task, TaskStatus } from "../../dashboard/react/types";
-import { latestTurnPresentation } from "../../dashboard/state.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
+import { filterTasks, manualTransitionExpectedState, statusFilterCounts, STATUS_FILTERS, taskMatchesManualTransitionExpected } from "../../dashboard/state.js";
+import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
+import { TaskCard } from "../../dashboard/react/components/TaskCard";
+import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
+import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
+import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
+import "../../dashboard/react/styles.css";
 import "./styles.css";
 
 const bridge = new App({ name: "TaskChef board", version: "1.0.0" });
 const connected = bridge.connect();
-const lanes: Array<{ status: TaskStatus; name: string }> = [
-  { status: "working", name: "Working" },
-  { status: "needs_input", name: "Needs input" },
-  { status: "completed", name: "Completed" },
-  { status: "failed", name: "Failed" },
-  { status: null, name: "Unresolved" },
-];
-const knownStatuses = new Set<TaskStatus>(["working", "needs_input", "completed", "failed"]);
-const laneFor = (task: Task): TaskStatus => knownStatuses.has(task.status) ? task.status : null;
 
 async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   await connected;
@@ -26,24 +24,38 @@ async function call<T>(name: string, args: Record<string, unknown> = {}): Promis
   return result.structuredContent as T;
 }
 
+const VIEW_KEY = "taskchef.app.view";
+function initialView(): "board" | "list" {
+  try { return window.localStorage.getItem(VIEW_KEY) === "board" ? "board" : "list"; }
+  catch { return "list"; }
+}
+
 export function TaskChefApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<Task | null>(null);
-  const [pending, setPending] = useState<"completed" | "failed" | null>(null);
+  const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [project, setProject] = useState("");
+  const [date, setDate] = useState("all");
+  const [status, setStatus] = useState("");
+  const [view, setView] = useState(initialView);
+  const [completedLimit, setCompletedLimit] = useState(5);
+  const [now, setNow] = useState(() => Date.now());
   const selectedRef = useRef<Task | null>(null);
   const selectionVersion = useRef(0);
+  const detailRequestVersion = useRef(0);
   const refreshVersion = useRef(0);
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: { tasks: Task[]; healthy: boolean } }>("taskchef_app_snapshot");
+    const data = await call<{ snapshot: DashboardSnapshot }>("taskchef_app_snapshot");
     if (version !== refreshVersion.current) return;
     setTasks(data.snapshot.tasks);
-    if (!data.snapshot.healthy) setError("Task log is temporarily unavailable. Showing the last valid snapshot.");
-    else setError(null);
+    setNow(Date.now());
+    setError(data.snapshot.healthy === false ? "Task log is temporarily unavailable. Showing the last valid snapshot." : null);
     const selectedTask = selectedRef.current;
     if (!selectedTask || initialSelection !== selectionVersion.current) return;
     const selection = selectionVersion.current;
@@ -51,106 +63,145 @@ export function TaskChefApp() {
       selectionVersion.current += 1;
       selectedRef.current = null;
       setSelected(null);
-      setPending(null);
+      setOpened(false);
+      setDetailError(null);
     };
-    if (data.snapshot.healthy && !data.snapshot.tasks.some((task) => task.id === selectedTask.id)) {
+    if (data.snapshot.healthy !== false && !data.snapshot.tasks.some((task) => task.id === selectedTask.id)) {
       clearRemovedTask();
       return;
     }
-    let detail: { task: Task };
+    const detailRequest = ++detailRequestVersion.current;
     try {
-      detail = await call<{ task: Task }>("taskchef_app_task", { taskId: selectedTask.id });
+      const detail = await call<{ task: Task }>("taskchef_app_task", { taskId: selectedTask.id });
+      if (version !== refreshVersion.current || selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current || selectedRef.current?.id !== detail.task.id) return;
+      selectedRef.current = detail.task;
+      setSelected(detail.task);
+      setDetailError(null);
     } catch (cause) {
-      if (version !== refreshVersion.current || selection !== selectionVersion.current) return;
-      if (cause instanceof Error && cause.message === "Task not found.") {
-        clearRemovedTask();
-        return;
-      }
-      throw cause;
+      if (version !== refreshVersion.current || selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
+      if (cause instanceof Error && cause.message === "Task not found.") clearRemovedTask();
+      else setDetailError(String(cause));
     }
-    if (version !== refreshVersion.current || selection !== selectionVersion.current) return;
-    if (selectedRef.current?.id !== detail.task.id) return;
-    if (["status", "turnRef", "threadId", "updatedAt"].some((key) => selectedRef.current?.[key as keyof Task] !== detail.task[key as keyof Task])) setPending(null);
-    selectedRef.current = detail.task;
-    setSelected(detail.task);
   }, []);
   useEffect(() => {
     void refresh().catch((cause) => setError(String(cause)));
     const timer = window.setInterval(() => { void refresh().catch((cause) => setError(String(cause))); }, 5000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+  const projects = useMemo(() => [
+    { label: "All projects", value: "" },
+    ...[...new Set(tasks.map((task) => task.project.name))].sort().map((value) => ({ label: value, value })),
+  ], [tasks]);
+  const visible: Task[] = useMemo(() => filterTasks(tasks, { project, date, status, now }), [tasks, project, date, status, now]);
+  const boardTasks: Task[] = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
+  const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
+  const statusOptions = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
+    label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
+    value,
+  }));
+
+  function changeView(value: string) {
+    if (value !== "board" && value !== "list") return;
+    setView(value);
+    try { window.localStorage.setItem(VIEW_KEY, value); } catch { /* Keep the selection in memory. */ }
+  }
   async function select(task: Task) {
     const selection = ++selectionVersion.current;
+    const detailRequest = ++detailRequestVersion.current;
     selectedRef.current = task;
-    setPending(null);
+    setSelected(task);
+    setOpened(true);
+    setDetailError(null);
     setNotice(null);
-    setError(null);
     try {
       const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id });
-      if (selection !== selectionVersion.current) return;
+      if (selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
       selectedRef.current = result.task;
       setSelected(result.task);
     } catch (cause) {
-      if (selection === selectionVersion.current) {
-        selectedRef.current = null;
-        setError(String(cause));
-      }
+      if (selection === selectionVersion.current && detailRequest === detailRequestVersion.current) setDetailError(String(cause));
     }
   }
-  async function openChat() {
-    if (!selected) return;
+  async function openChat(task: Task) {
     setBusy(true);
     try {
-      const result = await call<{ message: string }>("taskchef_app_open_chat", { taskId: selected.id });
+      const result = await call<{ message: string }>("taskchef_app_open_chat", { taskId: task.id });
       setNotice(result.message);
-    } catch (cause) { setError(String(cause)); }
+    } catch (cause) {
+      if (selectedRef.current?.id === task.id) setDetailError(String(cause));
+      else setError(String(cause));
+    }
     finally { setBusy(false); }
   }
-  async function confirm() {
-    if (!selected || !pending) return;
+  async function transition(targetStatus: "completed" | "failed", actionId: string) {
+    const requestTask = selectedRef.current;
+    if (!requestTask) return { ok: false };
+    const selection = selectionVersion.current;
+    const expected = manualTransitionExpectedState(requestTask);
     setBusy(true);
-    setError(null);
+    setDetailError(null);
     try {
       const result = await call<{ task: Task }>("taskchef_app_transition", {
-        taskId: selected.id,
-        actionId: crypto.randomUUID(),
-        expected: { status: selected.status, turnRef: selected.turnRef, threadId: selected.threadId, updatedAt: selected.updatedAt },
-        targetStatus: pending,
+        taskId: requestTask.id, actionId,
+        expected, targetStatus,
       });
-      if (selectedRef.current?.id === result.task.id) {
+      if (selection === selectionVersion.current && taskMatchesManualTransitionExpected(selectedRef.current, expected)) {
         selectedRef.current = result.task;
         setSelected(result.task);
       }
-      setPending(null);
-      setNotice(`Marked ${result.task.status}.`);
-      await refresh();
+      setTasks((current) => current.map((task) => task.id === result.task.id && taskMatchesManualTransitionExpected(task, expected) ? { ...task, ...result.task } : task));
+      setNotice(`Marked ${result.task.status?.replace("_", " ")}.`);
+      void refresh().catch((cause) => setError(String(cause)));
+      return { ok: true };
     } catch (cause) {
-      setPending(null);
-      try { await refresh(); } catch { /* Keep the transition error visible. */ }
-      setError(`${String(cause)} The task has been refreshed; review its current state before trying again.`);
+      await refresh().catch(() => {});
+      setDetailError(`${String(cause)} The task has been refreshed; review its current state before trying again.`);
+      return { ok: false, rotateActionId: true };
     } finally { setBusy(false); }
   }
-  return <main>
-    <header className="topbar"><div><h1>TaskChef</h1><p>Task board</p></div><Button onClick={() => void refresh().catch((cause) => setError(String(cause)))} size="compact-xs" variant="subtle">Refresh</Button></header>
-    {error && <p role="alert" className="error">{error}</p>}
-    {notice && <p role="status" className="notice">{notice}</p>}
-    {selected ? <section className="detail" aria-label="Task detail">
-      <Button onClick={() => { selectionVersion.current += 1; selectedRef.current = null; setSelected(null); setPending(null); }} size="compact-xs" variant="subtle">← Board</Button>
-      <p className="eyebrow">{selected.project.name}</p><h2>{selected.title}</h2><Badge color={selected.status === "failed" ? "red" : selected.status === "completed" ? "teal" : selected.status === "needs_input" ? "yellow" : "blue"}>{selected.status?.replace("_", " ") ?? "Unresolved"}</Badge>
-      <Group mt="md" gap="xs"><Button disabled={busy} onClick={() => void openChat()} size="compact-sm" variant="default">Open chat ↗</Button>
-      {selected.status && (["completed", "failed"] as const).filter((status) => status !== selected.status).map((status) => <Button disabled={busy} key={status} onClick={() => setPending(status)} size="compact-sm" variant="light" color={status === "failed" ? "red" : "teal"}>Mark {status}</Button>)}</Group>
-      {pending && <div className="confirm" role="alert"><strong>Mark task {pending}?</strong><p>This interrupts active work and appends an audited manual dashboard turn.</p><Group gap="xs"><Button loading={busy} onClick={() => void confirm()} size="compact-sm" color={pending === "failed" ? "red" : "teal"}>Confirm</Button><Button disabled={busy} onClick={() => setPending(null)} size="compact-sm" variant="default">Cancel</Button></Group></div>}
-      <section><h3>Latest activity</h3><p className="preserve">{selected.status === "working" ? latestTurnPresentation(selected).requestSummary : latestTurnPresentation(selected).resultSummary}</p></section>
-      {Boolean(selected.turns?.length) && <section><h3>Turn history</h3><ol className="turns">{selected.turns?.slice().reverse().map((turn, index) => <li key={`${turn.turnRef ?? turn.startedAt}-${index}`}><small>{new Date(turn.startedAt).toLocaleString()}</small><p className="preserve">{turn.requestSummary ?? "Request not recorded"}</p>{turn.result && <p className="preserve"><strong>{turn.result.status.replace("_", " ")}: </strong>{turn.result.summary}</p>}</li>)}</ol></section>}
-      <section><h3>Original instruction</h3><pre>{selected.instruction}</pre></section>
-      <section><h3>Task details</h3><dl><dt>Task ID</dt><dd>{selected.id}</dd><dt>Thread ID</dt><dd>{selected.threadId ?? "Pending"}</dd><dt>Updated</dt><dd>{new Date(selected.updatedAt).toLocaleString()}</dd></dl></section>
-    </section> : <div className="board">{lanes.filter((lane) => lane.status !== null || tasks.some((task) => laneFor(task) === null)).map((lane) => {
-      const matching = tasks.filter((task) => laneFor(task) === lane.status);
-      return <section key={lane.name} className="lane"><div className="lane-head"><h2>{lane.name}</h2><span>{matching.length}</span></div>
-        {matching.length ? matching.map((task) => <button className="card" key={task.id} onClick={() => void select(task)}><strong>{task.title}</strong><small>{task.project.name} · {new Date(task.meaningfulUpdatedAt ?? task.updatedAt).toLocaleDateString()}</small><span>{task.status === "working" ? latestTurnPresentation(task).requestSummary : latestTurnPresentation(task).resultSummary}</span></button>) : <p className="empty">No tasks</p>}</section>;
-    })}</div>}
-  </main>;
+  function closeDetail() {
+    if (busy) return;
+    selectionVersion.current += 1;
+    selectedRef.current = null;
+    setOpened(false);
+    setSelected(null);
+    setDetailError(null);
+  }
+  return <MantineProvider forceColorScheme="dark">
+    <RelativeTimeProvider now={now}>
+      <Box className="taskchef-app-shell">
+        <header className="taskchef-app-header">
+          <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef <span>Dashboard</span></Title></Group>
+          <ActionIcon aria-label="Refresh" onClick={() => void refresh().catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
+        </header>
+        <main className={`taskchef-app-main${view === "list" ? " taskchef-app-main-list" : ""}`}>
+          <Paper className="taskchef-toolbar" radius={0}>
+            <Stack gap="sm">
+              <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={view} withItemsBorders={false} />
+              <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
+                <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} value={project} size="xs" />
+                <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
+              </Group>
+              {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
+            </Stack>
+          </Paper>
+          {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
+          {error && <Alert color="yellow" role="alert" mt="sm">{error}</Alert>}
+          {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
+          {view === "board" ? <TaskBoard completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+            : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
+              {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
+              {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}
+            </Stack>}
+        </main>
+      </Box>
+      <TaskDetail busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
+        if (!selected) return;
+        void navigator.clipboard.writeText(selected.id).then(() => setNotice("Task ID copied."), () => setNotice("Clipboard unavailable. Copy the ID from metadata."));
+      }} onOpenCodex={() => selected && void openChat(selected)} onTransition={transition} opened={opened} task={selected} notice={notice} />
+    </RelativeTimeProvider>
+  </MantineProvider>;
 }
 
 const root = document.getElementById("root");
-if (root) createRoot(root).render(<MantineProvider forceColorScheme="dark"><TaskChefApp /></MantineProvider>);
+if (root) createRoot(root).render(<TaskChefApp />);
