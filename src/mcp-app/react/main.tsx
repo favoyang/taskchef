@@ -177,7 +177,7 @@ export function TaskChefApp() {
         <main className={`taskchef-app-main${view === "list" ? " taskchef-app-main-list" : ""}`}>
           <Paper className="taskchef-toolbar" radius={0}>
             <Stack gap="sm">
-              <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={view} withItemsBorders={false} />
+              <SegmentedControl aria-label="View" className="taskchef-app-view" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={view} withItemsBorders={false} />
               <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
                 <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} value={project} size="xs" />
                 <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
