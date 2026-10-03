@@ -30,7 +30,7 @@ test("MCP board title changes only for the preview environment", () => {
     registerTaskChefApp(server);
     process.env.TASKCHEF_PREVIEW = "1";
     registerTaskChefApp(server);
-    assert.deepEqual(titles, ["Open TaskChef task board", "Open TaskChef task board", "TaskChef Preview"]);
+    assert.deepEqual(titles, ["TaskChef", "TaskChef", "TaskChef Preview"]);
   } finally {
     if (previous === undefined) delete process.env.TASKCHEF_PREVIEW;
     else process.env.TASKCHEF_PREVIEW = previous;
