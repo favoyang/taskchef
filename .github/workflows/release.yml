@@ -34,6 +34,12 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Validate MCP app bundle
+        run: |
+          npm run check:mcp-app
+          npm run build:mcp-app
+          git diff --quiet -- src/mcp-app/dist/index.html
+
       - name: Validate package contents
         run: npm pack --dry-run
 

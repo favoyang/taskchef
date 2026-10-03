@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
-    include: ["src/dashboard/react/**/*.test.{ts,tsx}"],
+    include: ["src/dashboard/react/**/*.test.{ts,tsx}", "src/mcp-app/react/**/*.test.{ts,tsx}"],
     setupFiles: ["src/dashboard/react/test-setup.ts"],
   },
 });

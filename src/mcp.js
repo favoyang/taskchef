@@ -18,6 +18,7 @@ import { createDashboardManager } from "./dashboard-manager.js";
 import { resolveWorkspacePath } from "./workspace-path.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { createUsageTracker } from "./usage-tracker.js";
+import { registerTaskChefApp } from "./mcp-app.js";
 
 const projectSchema = z.object({
   name: z.string(),
@@ -517,6 +518,8 @@ export function createTaskChefMcpServer({
       return toolResult("task", task, `Recorded ${task.status} result for TaskChef task ${task.id}.`);
     },
   );
+
+  registerTaskChefApp(server, { workspace });
 
   const originalConnect = server.connect.bind(server);
   const autostartDashboard = createDashboardAutostart({

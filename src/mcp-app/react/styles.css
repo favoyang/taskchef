@@ -1,0 +1,35 @@
+:root { color-scheme: dark; --taskchef-page-gutter: 12px; }
+html, body, #root { min-width: 0; min-height: 100%; }
+body { background: var(--taskchef-page); }
+.taskchef-app-shell { min-height: 100vh; background: var(--taskchef-page); }
+.taskchef-app-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
+.taskchef-app-header h1 { color: var(--taskchef-accent); font-size: 13px; font-weight: 750; letter-spacing: .025em; line-height: 1.1; text-transform: uppercase; }
+.taskchef-app-header h1 span { color: var(--taskchef-muted); font-weight: 600; }
+.taskchef-app-mark { display: block; flex: none; width: 25px; height: 25px; }
+.taskchef-app-main { min-width: 0; padding: 6px 12px 28px; }
+.taskchef-app-main-list { max-width: 624px; margin-inline: auto; }
+.taskchef-app-main .taskchef-toolbar { margin-bottom: 8px; padding-bottom: 10px; }
+.taskchef-app-main .mantine-SegmentedControl-root { max-width: 100%; }
+.taskchef-app-view { width: max-content; }
+.taskchef-app-filters { min-width: 0; width: min(100%, 488px); }
+.taskchef-app-filters .mantine-InputWrapper-root { flex: 1 1 0; width: 0; min-width: 0; max-width: 240px; }
+.taskchef-app-status { max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
+.taskchef-app-status .mantine-SegmentedControl-root { width: max-content; min-width: max-content; }
+.taskchef-app-status .mantine-SegmentedControl-label { padding-inline: 9px; font-size: 11px; white-space: nowrap; }
+.taskchef-app-main .taskchef-results-summary { margin: 4px 0 12px; }
+.taskchef-app-main .taskchef-board { grid-auto-columns: min(300px, calc(100% - 24px)); gap: 12px; min-height: 400px; padding-bottom: 12px; }
+.taskchef-app-main .taskchef-board-lane-heading { padding-inline: 4px; }
+.taskchef-app-main .taskchef-task-row { padding-inline: 10px; }
+.taskchef-app-main .taskchef-card-heading { gap: 5px; }
+.taskchef-app-main .taskchef-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.taskchef-app-main .taskchef-stat { padding: 6px 3px; }
+.taskchef-app-main .taskchef-stat:nth-child(3) { border-inline-start: 0; }
+.taskchef-app-main .taskchef-stat:nth-child(n + 3) { border-top: 1px solid var(--taskchef-border); }
+.taskchef-app-main .taskchef-list-card-footer { align-items: center; }
+.taskchef-app-main .taskchef-board-card { min-height: 140px; }
+@media (max-width: 360px) {
+  .taskchef-app-main { padding-inline: 8px; }
+  .taskchef-app-filters { flex-wrap: wrap; }
+  .taskchef-app-filters .mantine-InputWrapper-root { flex-basis: 100%; max-width: none; }
+  .taskchef-app-main .taskchef-board { grid-auto-columns: min(300px, calc(100% - 18px)); }
+}

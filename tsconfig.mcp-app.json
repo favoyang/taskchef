@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.dashboard.json",
+  "include": ["src/mcp-app/react/**/*.ts", "src/mcp-app/react/**/*.tsx", "src/dashboard/react/types.ts", "vite.mcp-app.config.ts"]
+}
