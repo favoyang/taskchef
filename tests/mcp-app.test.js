@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -17,18 +18,23 @@ test("MCP app advertises a UI resource and keeps board actions app-only", async 
   let transitions = 0;
   let opened = null;
   let usageReads = 0;
-  const monitor = {
+  let healthy = true;
+  const monitor = Object.assign(new EventEmitter(), {
     tasks: [task],
-    snapshot: () => ({ tasks: [task], healthy: true }),
+    snapshot: () => ({ tasks: [task], healthy }),
     start: async () => {},
     refresh: async () => { refreshes += 1; },
     close: () => {},
-  };
+  });
+  Object.defineProperty(monitor, "unhealthy", { get: () => !healthy });
+  const summary = Object.assign(new EventEmitter(), {
+    start: async () => {}, close: () => {}, project: () => ({ status: "available", task: { totalTokens: 42 } }),
+  });
   const server = new McpServer({ name: "taskchef-app-test", version: "1" });
   registerTaskChefApp(server, {
     workspace: "/example",
     createMonitor: () => monitor,
-    createUsageSummaryMonitor: () => ({ start: async () => {}, close: () => {}, project: () => ({ status: "available", task: { totalTokens: 42 } }) }),
+    createUsageSummaryMonitor: () => summary,
     createTaskUsageTracker: () => ({ get: async () => { usageReads += 1; return { status: "available", task: { totalTokens: 42 }, turns: {} }; }, preload: () => {}, close: () => {} }),
     transition: async (_workspace, taskId, input) => {
       assert.equal(taskId, task.id);
@@ -57,6 +63,22 @@ test("MCP app advertises a UI resource and keeps board actions app-only", async 
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.tasks[0].id, task.id);
     assert.equal(snapshot.structuredContent.snapshot.tasks[0].usage.task.totalTokens, 42);
+    const revision = snapshot.structuredContent.snapshot.revision;
+    const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision });
+    summary.emit("change");
+    const updatedUsage = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
+    assert.equal(updatedUsage.structuredContent.snapshot.revision, revision + 1);
+    monitor.emit("snapshot");
+    const changed = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision: revision + 1 } });
+    assert.equal(changed.structuredContent.snapshot.revision, revision + 2);
+    healthy = false;
+    const unhealthy = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision: revision + 2 } });
+    assert.equal(unhealthy.structuredContent.snapshot.healthy, false);
+    healthy = true;
+    monitor.emit("snapshot");
+    const recovered = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision: revision + 2 } });
+    assert.equal(recovered.structuredContent.snapshot.healthy, true);
     const detail = await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id } });
     assert.equal(detail.structuredContent.task.title, task.title);
     assert.equal(detail.structuredContent.task.usage.task.totalTokens, 42);
@@ -65,11 +87,11 @@ test("MCP app advertises a UI resource and keeps board actions app-only", async 
     const openedResult = await client.callTool({ name: "taskchef_app_open_chat", arguments: { taskId: task.id } });
     assert.equal(openedResult.isError, undefined);
     assert.equal(opened, task.threadId);
-    const changed = await client.callTool({ name: "taskchef_app_transition", arguments: {
+    const transitionResult = await client.callTool({ name: "taskchef_app_transition", arguments: {
       taskId: task.id, actionId: randomUUID(), targetStatus: "completed",
       expected: { status: task.status, turnRef: task.turnRef, threadId: task.threadId, updatedAt: task.updatedAt },
     } });
-    assert.equal(changed.structuredContent.task.status, "completed");
+    assert.equal(transitionResult.structuredContent.task.status, "completed");
     assert.equal(transitions, 1);
     assert.ok(refreshes > 0);
   } finally {

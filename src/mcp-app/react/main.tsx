@@ -48,14 +48,20 @@ export function TaskChefApp() {
   const selectionVersion = useRef(0);
   const detailRequestVersion = useRef(0);
   const refreshVersion = useRef(0);
+  const revisionRef = useRef<number | null>(null);
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot }>("taskchef_app_snapshot");
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number }; unchanged?: never } | { unchanged: true; revision: number; snapshot?: never }>(
+      "taskchef_app_snapshot", revisionRef.current === null ? {} : { revision: revisionRef.current },
+    );
     if (version !== refreshVersion.current) return;
-    setTasks(data.snapshot.tasks);
+    if (data.snapshot) {
+      revisionRef.current = data.snapshot.revision;
+      setTasks(data.snapshot.tasks);
+      setError(data.snapshot.healthy === false ? "Task log is temporarily unavailable. Showing the last valid snapshot." : null);
+    } else setError(null);
     setNow(Date.now());
-    setError(data.snapshot.healthy === false ? "Task log is temporarily unavailable. Showing the last valid snapshot." : null);
     const selectedTask = selectedRef.current;
     if (!selectedTask || initialSelection !== selectionVersion.current) return;
     const selection = selectionVersion.current;
@@ -66,7 +72,7 @@ export function TaskChefApp() {
       setOpened(false);
       setDetailError(null);
     };
-    if (data.snapshot.healthy !== false && !data.snapshot.tasks.some((task) => task.id === selectedTask.id)) {
+    if (data.snapshot && data.snapshot.healthy !== false && !data.snapshot.tasks.some((task) => task.id === selectedTask.id)) {
       clearRemovedTask();
       return;
     }

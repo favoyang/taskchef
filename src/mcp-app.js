@@ -32,6 +32,7 @@ export function registerTaskChefApp(server, {
   let usageSummaryMonitor;
   let usageTracker;
   let starting;
+  let appRevision = 0;
   async function currentMonitor() {
     if (!monitor) {
       starting ??= (async () => {
@@ -43,6 +44,9 @@ export function registerTaskChefApp(server, {
           catch (error) { summary.close(); throw error; }
           usageSummaryMonitor = summary;
           usageTracker = createTaskUsageTracker(candidate.workspace);
+          appRevision = 1;
+          candidate.on?.("snapshot", () => { appRevision += 1; });
+          summary.on?.("change", () => { appRevision += 1; });
           monitor = candidate;
           return candidate;
         } catch (error) {
@@ -67,7 +71,7 @@ export function registerTaskChefApp(server, {
   const appOnly = { ui: { resourceUri: TASKCHEF_APP_URI, visibility: ["app"] } };
   function appSnapshot() {
     const snapshot = monitor.snapshot();
-    return { ...snapshot, tasks: snapshot.tasks.map((task) => ({
+    return { ...snapshot, revision: appRevision, tasks: snapshot.tasks.map((task) => ({
       ...task,
       usage: usageSummaryMonitor.project(task),
     })) };
@@ -93,11 +97,14 @@ export function registerTaskChefApp(server, {
   });
   server.registerTool("taskchef_app_snapshot", {
     title: "Refresh TaskChef board", description: "Read the local task board.",
-    inputSchema: {}, _meta: appOnly,
+    inputSchema: { revision: z.number().int().nonnegative().optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, async () => {
+  }, async ({ revision }) => {
     await currentMonitor();
     void Promise.resolve(usageTracker.preload?.(monitor.tasks)).catch(() => {});
+    if (revision !== undefined && revision === appRevision && monitor.unhealthy === false) {
+      return { structuredContent: { unchanged: true, revision: appRevision }, content: [] };
+    }
     return { structuredContent: { snapshot: appSnapshot() }, content: [] };
   });
   server.registerTool("taskchef_app_task", {

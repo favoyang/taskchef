@@ -105,6 +105,28 @@ test("refresh updates detail and removes a disappeared selection", async () => {
   await waitFor(() => expect(screen.queryByRole("region", { name: "Task detail" })).not.toBeInTheDocument());
 });
 
+test("refresh sends the last revision and keeps selection detail current on unchanged snapshots", async () => {
+  let revision = 1;
+  server.call.mockImplementation(({ name, arguments: args }) => {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: args.revision === revision
+      ? { unchanged: true, revision }
+      : { snapshot: { tasks, healthy: true, revision } } });
+    if (name === "taskchef_app_task") return Promise.resolve({ structuredContent: { task: details.get(args.taskId as string) } });
+    throw new Error(`Unexpected tool: ${name}`);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Task one" }));
+  details.set("one", task("one", "needs_input"));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("needs_input"));
+  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1 } });
+  tasks = [task("two")];
+  revision = 2;
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Task detail" })).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+});
+
 test("an older selection detail cannot replace a newer refresh detail", async () => {
   let releaseFirst!: (value: unknown) => void;
   const first = new Promise((resolve) => { releaseFirst = resolve; });
