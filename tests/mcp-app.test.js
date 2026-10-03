@@ -13,6 +13,30 @@ const task = {
   instruction: "Resolve owner/repo#12", summary: "owner/repo#12", turns: [], latestTurn: null,
 };
 
+test("MCP board title changes only for the preview environment", () => {
+  const previous = process.env.TASKCHEF_PREVIEW;
+  const titles = [];
+  const server = {
+    close: async () => {},
+    registerResource: () => {},
+    registerTool: (name, definition) => {
+      if (name === "open_taskchef_board") titles.push(definition.title);
+    },
+  };
+  try {
+    delete process.env.TASKCHEF_PREVIEW;
+    registerTaskChefApp(server);
+    process.env.TASKCHEF_PREVIEW = "true";
+    registerTaskChefApp(server);
+    process.env.TASKCHEF_PREVIEW = "1";
+    registerTaskChefApp(server);
+    assert.deepEqual(titles, ["TaskChef", "TaskChef", "TaskChef Preview"]);
+  } finally {
+    if (previous === undefined) delete process.env.TASKCHEF_PREVIEW;
+    else process.env.TASKCHEF_PREVIEW = previous;
+  }
+});
+
 test("MCP app advertises a UI resource and keeps board actions app-only", async () => {
   let refreshes = 0;
   let transitions = 0;
