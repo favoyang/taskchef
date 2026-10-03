@@ -85,7 +85,7 @@ export function registerTaskChefApp(server, {
     text: await readFile(htmlPath, "utf8"),
   }] }));
   server.registerTool("open_taskchef_board", {
-    title: "Open TaskChef task board",
+    title: process.env.TASKCHEF_PREVIEW === "1" ? "TaskChef Preview" : "Open TaskChef task board",
     description: "Show the local TaskChef task board in the Codex sidebar.",
     inputSchema: {},
     _meta: { ui: { resourceUri: TASKCHEF_APP_URI }, "openai/ui": { entrypoints: [{ type: "global" }] } },
