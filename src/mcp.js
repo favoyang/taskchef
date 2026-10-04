@@ -418,7 +418,7 @@ export function createTaskChefMcpServer({
         "Atomically append one prepared TaskChef task before creating its Codex executor. Pass the exact marked instruction and null threadId; only the executor may self-link it.",
       inputSchema: {
         id: z.string().min(1),
-        project: z.string().min(1),
+        project: z.string().min(1).describe("Selected configured project's canonical absolute path, not its name or native project ID."),
         title: z.string().min(1),
         instruction: z.string().min(1),
         threadId: z.null(),
