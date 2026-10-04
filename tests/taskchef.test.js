@@ -686,6 +686,18 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
     assert.equal(prepared.projectCount, 1);
 
     const instruction = `${prepared.marker}\n\nImplement and test the requested change.`;
+    const nameInsteadOfPath = await client.callTool({
+      name: "record_task",
+      arguments: {
+        id: prepared.taskId,
+        project: prepared.projects[0].name,
+        title: "Invalid project selector",
+        instruction,
+        threadId: null,
+      },
+    });
+    assert.equal(nameInsteadOfPath.isError, true);
+    await assert.rejects(readTask(workspace, prepared.taskId), /task not found/);
     const recordedResult = await client.callTool({
       name: "record_task",
       arguments: {
