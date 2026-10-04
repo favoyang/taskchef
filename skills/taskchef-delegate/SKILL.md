@@ -81,6 +81,11 @@ reloaded or installed.
 
 5. Before creating each executor, call `record_task` exactly once with `id`,
    `project`, `title`, the exact marked `instruction`, and `threadId: null`.
+   Pass the selected configured project's canonical `path` as `project`, not
+   its name, label, or native project ID. Require a successful tool result
+   whose returned `task.id` equals the prepared task ID before native creation.
+   If recording fails or cannot be confirmed, report the failure and stop;
+   do not create an executor with an unrecorded task marker.
 6. Create one real Codex task using the exact configured project, an appropriate
    native environment, the marked instruction, a short title, and the resolved
    orchestrator model and effort overrides when present.
