@@ -30,7 +30,7 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-interface ScanStats { mode: string; checkedAt: string; intervalSeconds: number; fullIntervalSeconds: number; indexedFiles: number; activeFiles: number; archivedFiles: number; parsedFiles: number; visibleFiles: number; unreadFiles: number; errors: number; }
+interface ScanStats { source?: "database" | "rollout files"; mode: string; checkedAt: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
 export function TaskChefApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -63,7 +63,7 @@ export function TaskChefApp() {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.tasks);
       setScan(data.snapshot.scan);
-      setError(data.snapshot.healthy === false ? "Task log is temporarily unavailable. Showing the last valid snapshot." : null);
+      setError(data.snapshot.healthy === false ? "Codex session data is temporarily unavailable. Showing the last valid snapshot." : null);
     } else { setScan(data.scan); setError(null); }
     setNow(Date.now());
     const selectedTask = selectedRef.current;
@@ -176,7 +176,7 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
-          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only scan · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · every ${scan.intervalSeconds}s` : ""}</Text>{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} logs ({scan.activeFiles} active, {scan.archivedFiles} archived); {scan.parsedFiles} parsed this scan, {scan.unreadFiles} outside recent limit{scan.errors > 0 ? `, ${scan.errors} read/parse error${scan.errors === 1 ? "" : "s"}` : ""}. Full reparse every {Math.round(scan.fullIntervalSeconds / 60)} min.</Text>}<Text c="dimmed" size="xs">Data: session IDs, timestamps, project directory, archive location, turn events, message counts, file size. Task outcome needs further evidence.</Text></Paper>}
+          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only {scan.source ?? "session data"} · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · while open, checks every ${scan.intervalSeconds}s` : ""}</Text>{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} {scan.source === "database" ? "chats" : "logs"}; {scan.unreadFiles} outside recent limit{scan.source === "rollout files" ? ` (${scan.activeFiles} active, ${scan.archivedFiles} archived; ${scan.parsedFiles} parsed this scan). Full reparse after ${Math.round((scan.fullIntervalSeconds ?? 0) / 60)} min when checked.` : "."}{(scan.errors ?? 0) > 0 ? ` ${scan.errors} read/parse error${scan.errors === 1 ? "" : "s"}.` : ""}</Text>}<Text c="dimmed" size="xs">{scan.source === "database" ? "Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, latest turn status." : "Data: session IDs, timestamps, project directory, archive location, turn events, message counts, file size."} Latest turn status does not establish task outcome.</Text></Paper>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="yellow" role="alert" mt="sm">{error}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}

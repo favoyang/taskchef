@@ -202,7 +202,7 @@ test("shows scan cadence, coverage, and available fields without transcript text
   server.call.mockImplementation(({ name }) => {
     if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
       tasks: [], healthy: true, revision: 1,
-      scan: { mode: "full", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 30, fullIntervalSeconds: 600,
+      scan: { source: "rollout files", mode: "full", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 30, fullIntervalSeconds: 600,
         indexedFiles: 8582, activeFiles: 3772, archivedFiles: 4810, parsedFiles: 300, visibleFiles: 300, unreadFiles: 8282, errors: 2 },
     } } });
     throw new Error(`Unexpected tool: ${name}`);
@@ -210,9 +210,26 @@ test("shows scan cadence, coverage, and available fields without transcript text
   mount();
   expect(await screen.findByText(/300 shown of 8582 logs/)).toBeVisible();
   expect(screen.getByText(/every 30s/)).toBeVisible();
-  expect(screen.getByText(/Full reparse every 10 min/)).toBeVisible();
+  expect(screen.getByText(/Full reparse after 10 min when checked/)).toBeVisible();
   expect(screen.getByText(/2 read\/parse errors/)).toBeVisible();
   expect(screen.getByText(/Data: session IDs, timestamps, project directory/)).toBeVisible();
+});
+
+test("shows database source and five second coverage without a reparse claim", async () => {
+  server.call.mockImplementation(({ name }) => {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
+      tasks: [], healthy: true, revision: 1,
+      scan: { source: "database", mode: "database", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 5,
+        indexedFiles: 8620, visibleFiles: 300, unreadFiles: 8320, errors: 0 },
+    } } });
+    throw new Error(`Unexpected tool: ${name}`);
+  });
+  mount();
+  expect(await screen.findByText(/300 shown of 8620 chats/)).toBeVisible();
+  expect(screen.getByText(/Read-only database/)).toBeVisible();
+  expect(screen.getByText(/while open, checks every 5s/)).toBeVisible();
+  expect(screen.getByText(/title \(may contain user text\)/)).toBeVisible();
+  expect(screen.queryByText(/Full reparse/)).not.toBeInTheDocument();
 });
 
 test("shows an initial inventory failure without undefined scan counts", async () => {
@@ -224,8 +241,8 @@ test("shows an initial inventory failure without undefined scan counts", async (
     throw new Error(`Unexpected tool: ${name}`);
   });
   mount();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Task log is temporarily unavailable");
-  expect(screen.getByText(/Read-only scan · error/)).toBeVisible();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Codex session data is temporarily unavailable");
+  expect(screen.getByText(/Read-only session data · error/)).toBeVisible();
   expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
   expect(screen.queryByText(/shown of/)).not.toBeInTheDocument();
 });

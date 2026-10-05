@@ -9,6 +9,58 @@ const id = "0199aabb-ccdd-7eef-8abc-0123456789ab";
 const line = (type, payload) => JSON.stringify({ type, timestamp: "2026-10-05T00:00:00Z", payload }) + "\n";
 const fileName = `rollout-2026-10-05T00-00-00-${id}.jsonl`;
 
+test("reads indexed database metadata on each request without parsing rollout text", async (t) => {
+  const sqlite = await import("node:sqlite").catch(() => null);
+  if (!sqlite?.DatabaseSync) return t.skip("node:sqlite is unavailable");
+  const home = await mkdtemp(join(tmpdir(), "taskchef-next-db-"));
+  let now = Date.now();
+  try {
+    const state = new sqlite.DatabaseSync(join(home, "state_5.sqlite"));
+    const history = new sqlite.DatabaseSync(join(home, "thread_history_1.sqlite"));
+    state.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, cwd TEXT, archived INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER, recency_at_ms INTEGER); CREATE INDEX recent_threads ON threads(recency_at_ms DESC)");
+    history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT); CREATE INDEX recent_turns ON thread_turns(thread_id, rollout_ordinal DESC)");
+    const insert = state.prepare("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?)");
+    insert.run(id, "Private user title", "/example/project", 0, now - 1000, now - 1000, now - 1000);
+    const older = "0199aabb-ccdd-7eef-8abc-0123456789ac";
+    insert.run(older, "Older", "/example/older", 1, now - 5000, now - 5000, now - 5000);
+    history.prepare("INSERT INTO thread_turns VALUES (?, ?, ?)").run(id, 1, "completed");
+    history.prepare("INSERT INTO thread_turns VALUES (?, ?, ?)").run(id, 2, "inProgress");
+    const scanner = new CodexSessionScanner({ codexHome: home, now: () => now, fileLimit: 1 });
+    const first = await scanner.refresh();
+    assert.equal(first.scan.source, "database");
+    assert.equal(first.scan.indexedFiles, 2);
+    assert.equal(first.scan.unreadFiles, 1);
+    assert.equal(first.tasks[0].title, "Private user title");
+    assert.equal(first.tasks[0].status, "working");
+    assert.equal(first.tasks[0].observed.lastTurnEvent, "inProgress");
+    assert.doesNotMatch(JSON.stringify(first), /item_json|transcript/);
+    history.prepare("INSERT INTO thread_turns VALUES (?, ?, ?)").run(id, 3, "failed");
+    now += 1000;
+    const next = await scanner.refresh();
+    assert.equal(next.tasks[0].status, null);
+    assert.equal(next.tasks[0].observed.lastTurnEvent, "failed");
+    assert.ok(next.revision > first.revision);
+    history.close(); state.close();
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test("falls back to rollout files when database schema is incompatible", async (t) => {
+  const sqlite = await import("node:sqlite").catch(() => null);
+  if (!sqlite?.DatabaseSync) return t.skip("node:sqlite is unavailable");
+  const home = await mkdtemp(join(tmpdir(), "taskchef-next-db-"));
+  try {
+    const state = new sqlite.DatabaseSync(join(home, "state_5.sqlite"));
+    state.exec("CREATE TABLE incompatible (id TEXT)");
+    state.close();
+    const sessions = join(home, "sessions");
+    await mkdir(sessions);
+    await writeFile(join(sessions, fileName), line("session_meta", { id, cwd: "/example/project" }));
+    const result = await new CodexSessionScanner({ codexHome: home }).refresh();
+    assert.equal(result.scan.source, "rollout files");
+    assert.equal(result.tasks[0].id, id);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 test("inventories local sessions, updates changed logs, and tracks archive moves without exposing message text", async () => {
   const home = await mkdtemp(join(tmpdir(), "taskchef-next-"));
   let now = Date.now();

@@ -10,6 +10,55 @@ const SCAN_INTERVAL_MS = 30_000;
 const FULL_INTERVAL_MS = 10 * 60_000;
 const ACTIVE_WINDOW_MS = 2 * 60_000;
 const SESSION_FILE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$/i;
+let sqliteModule;
+
+async function sqlite() {
+  if (sqliteModule === undefined) sqliteModule = import("node:sqlite").catch(() => null);
+  return sqliteModule;
+}
+
+function iso(ms) { return new Date(ms).toISOString(); }
+
+async function readDatabase(codexHome, fileLimit, now) {
+  const module = await sqlite();
+  if (!module?.DatabaseSync) return null;
+  let state;
+  let history;
+  try {
+    state = new module.DatabaseSync(join(codexHome, "state_5.sqlite"), { readOnly: true });
+    history = new module.DatabaseSync(join(codexHome, "thread_history_1.sqlite"), { readOnly: true });
+    const rows = state.prepare("SELECT id, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms FROM threads ORDER BY recency_at_ms DESC LIMIT ?").all(fileLimit);
+    const total = state.prepare("SELECT count(*) AS count FROM threads").get().count;
+    const latest = history.prepare("SELECT status FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1");
+    const tasks = rows.map((row) => {
+      const turnStatus = latest.get(row.id)?.status ?? null;
+      const updatedMs = row.updated_at_ms || row.recency_at_ms || row.created_at_ms;
+      const active = !row.archived && turnStatus === "inProgress" && now - updatedMs < ACTIVE_WINDOW_MS;
+      const summary = active ? "A turn is marked in progress and changed recently; live activity is unverified."
+        : turnStatus === "inProgress" ? "A turn is marked in progress, but recent activity is unverified."
+          : turnStatus ? `Latest turn is ${turnStatus}; task outcome is unknown.`
+            : "No turn status is available; task outcome is unknown.";
+      const cwd = row.cwd || "";
+      return {
+        id: row.id, title: row.title || `Codex chat ${row.id.slice(0, 8)}`,
+        instruction: "Chat title is local metadata and can contain user text.",
+        summary, status: active ? "working" : null,
+        createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
+        updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
+        threadId: row.id, turnRef: null, turnId: null, lastResult: null, latestTurn: null,
+        observed: { archive: Boolean(row.archived), lastTurnEvent: turnStatus, lastTurnEventAt: null, recentFileActivity: active },
+      };
+    });
+    return { tasks, scan: {
+      source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5,
+      visibleFiles: tasks.length, indexedFiles: total, unreadFiles: Math.max(0, total - tasks.length), fileLimit,
+      activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0,
+      sources: ["state_5.sqlite:threads", "thread_history_1.sqlite:thread_turns"],
+      fields: ["session ID", "title", "timestamps", "project directory", "archive flag", "latest turn status"],
+    } };
+  } catch { return null; }
+  finally { history?.close(); state?.close(); }
+}
 
 async function listFiles(root, archive) {
   const results = [];
@@ -143,9 +192,22 @@ export class CodexSessionScanner {
       return this.forcedPending;
     }
     const now = this.now();
-    if (!force && this.stats && now - this.lastScanMs < this.scanIntervalMs) return this.snapshot();
-    this.pending = this.scan(now).finally(() => { this.pending = null; });
+    this.pending = this.refreshSource(now, force).finally(() => { this.pending = null; });
     return this.pending;
+  }
+  async refreshSource(now, force) {
+    const database = await readDatabase(this.codexHome, this.fileLimit, now);
+    if (database) {
+      const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
+      const signature = (tasks) => [...tasks.values()].map((task) => `${task.id}:${task.title}:${task.project.path}:${task.updatedAt}:${task.status}:${task.observed.archive}:${task.observed.lastTurnEvent}`).join("|");
+      if (this.stats?.source !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
+      this.tasks = nextTasks;
+      this.stats = database.scan;
+      this.lastScanMs = now;
+      return this.snapshot();
+    }
+    if (!force && this.stats?.source === "rollout files" && now - this.lastScanMs < this.scanIntervalMs) return this.snapshot();
+    return this.scan(now);
   }
   async scan(now) {
     const full = !this.stats || now - this.lastFullMs >= this.fullIntervalMs;
@@ -195,7 +257,7 @@ export class CodexSessionScanner {
       this.lastScanMs = now;
       if (full) this.lastFullMs = now;
       this.stats = {
-        mode: full ? "full" : "incremental", checkedAt: new Date(now).toISOString(), intervalSeconds: this.scanIntervalMs / 1000,
+        source: "rollout files", mode: full ? "full" : "incremental", checkedAt: new Date(now).toISOString(), intervalSeconds: this.scanIntervalMs / 1000,
         fullIntervalSeconds: this.fullIntervalMs / 1000, indexedFiles: discovered.length, activeFiles: discovered.filter((item) => !item.archive).length,
         archivedFiles: discovered.filter((item) => item.archive).length, parsedFiles: parsed, changedFiles: changed,
         visibleFiles: nextTasks.size, fileLimit: this.fileLimit, unreadFiles: Math.max(0, discovered.length - selected.length), errors,

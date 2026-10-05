@@ -155,7 +155,20 @@ export function TaskDetail({
           <dt>Created</dt><dd><RelativeTime label="Created time" value={task.createdAt} /></dd>
           <dt>Updated</dt><dd><RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /></dd>
           <dt>Updated by</dt><dd>{task.updatedBy ?? "—"}</dd>
-          {task.observed && <><dt>Location</dt><dd>{task.observed.archive ? "Archived sessions" : "Active sessions"}</dd><dt>Latest turn event</dt><dd>{task.observed.lastTurnEvent ?? "Unknown"}</dd><dt>Observed messages</dt><dd>{task.observed.userMessages} user, {task.observed.assistantMessages} assistant</dd><dt>Log bytes sampled</dt><dd>{task.observed.sampledBytes} of {task.observed.fileBytes}</dd></>}
+          {task.observed && <>
+            {task.updatedBy === "Local Codex database" ? <>
+              <dt>Archive status</dt><dd>{task.observed.archive ? "Archived" : "Active"}</dd>
+            </> : <>
+              <dt>Location</dt><dd>{task.observed.archive ? "Archived sessions" : "Active sessions"}</dd>
+            </>}
+            <dt>Latest turn event</dt><dd>{task.observed.lastTurnEvent ?? "Unknown"}</dd>
+            {task.observed.userMessages !== undefined && task.observed.assistantMessages !== undefined && <>
+              <dt>Observed messages</dt><dd>{task.observed.userMessages} user, {task.observed.assistantMessages} assistant</dd>
+            </>}
+            {task.observed.sampledBytes !== undefined && task.observed.fileBytes !== undefined && <>
+              <dt>Log bytes sampled</dt><dd>{task.observed.sampledBytes} of {task.observed.fileBytes}</dd>
+            </>}
+          </>}
         </dl>
       </section>
     </Stack>
