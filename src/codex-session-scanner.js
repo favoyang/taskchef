@@ -1,19 +1,24 @@
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
-import { open, readdir, stat } from "node:fs/promises";
+import { basename, isAbsolute, join } from "node:path";
+import { open, stat } from "node:fs/promises";
 
 const FILE_LIMIT = 300;
 const HEAD_BYTES = 32 * 1024;
 const META_LINE_BYTES = 1024 * 1024;
 const TAIL_BYTES = 256 * 1024;
-const SCAN_INTERVAL_MS = 30_000;
-const FULL_INTERVAL_MS = 10 * 60_000;
 const ACTIVE_WINDOW_MS = 2 * 60_000;
-const SESSION_FILE = /^rollout-.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$/i;
 let sqliteModule;
+class UnsupportedNodeVersionError extends Error {}
+
+function supportsReadOnlySqlite(version) {
+  const match = /^(\d+)\.(\d+)\./.exec(version);
+  if (!match) return false;
+  const major = Number(match[1]);
+  return major > 22 || (major === 22 && Number(match[2]) >= 18);
+}
 
 async function sqlite() {
-  if (sqliteModule === undefined) sqliteModule = import("node:sqlite").catch(() => null);
+  if (sqliteModule === undefined) sqliteModule = import("node:sqlite");
   return sqliteModule;
 }
 
@@ -21,13 +26,13 @@ function iso(ms) { return new Date(ms).toISOString(); }
 
 async function readDatabase(codexHome, fileLimit, now) {
   const module = await sqlite();
-  if (!module?.DatabaseSync) return null;
+  if (!module?.DatabaseSync) throw new Error("node:sqlite is unavailable");
   let state;
   let history;
   try {
     state = new module.DatabaseSync(join(codexHome, "state_5.sqlite"), { readOnly: true });
     history = new module.DatabaseSync(join(codexHome, "thread_history_1.sqlite"), { readOnly: true });
-    const rows = state.prepare("SELECT id, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms FROM threads ORDER BY recency_at_ms DESC LIMIT ?").all(fileLimit);
+    const rows = state.prepare("SELECT id, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path FROM threads ORDER BY recency_at_ms DESC LIMIT ?").all(fileLimit);
     const total = state.prepare("SELECT count(*) AS count FROM threads").get().count;
     const latest = history.prepare("SELECT status FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1");
     const tasks = rows.map((row) => {
@@ -49,36 +54,14 @@ async function readDatabase(codexHome, fileLimit, now) {
         observed: { archive: Boolean(row.archived), lastTurnEvent: turnStatus, lastTurnEventAt: null, recentFileActivity: active },
       };
     });
-    return { tasks, scan: {
+    return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
       source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5,
       visibleFiles: tasks.length, indexedFiles: total, unreadFiles: Math.max(0, total - tasks.length), fileLimit,
       activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0,
       sources: ["state_5.sqlite:threads", "thread_history_1.sqlite:thread_turns"],
       fields: ["session ID", "title", "timestamps", "project directory", "archive flag", "latest turn status"],
     } };
-  } catch { return null; }
-  finally { history?.close(); state?.close(); }
-}
-
-async function listFiles(root, archive) {
-  const results = [];
-  async function walk(directory) {
-    let entries;
-    try { entries = await readdir(directory, { withFileTypes: true }); }
-    catch (error) { if (error.code === "ENOENT") return; throw error; }
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) await walk(path);
-      else if (entry.isFile() && SESSION_FILE.test(entry.name)) {
-        try {
-          const info = await stat(path);
-          results.push({ path, archive, size: info.size, mtimeMs: info.mtimeMs, id: entry.name.match(SESSION_FILE)[1] });
-        } catch (error) { if (error.code !== "ENOENT") throw error; }
-      }
-    }
-  }
-  await walk(root);
-  return results;
+  } finally { history?.close(); state?.close(); }
 }
 
 function parseLines(text, onRecord) {
@@ -165,16 +148,13 @@ async function readSession(file, now) {
 }
 
 export class CodexSessionScanner {
-  constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), fileLimit = FILE_LIMIT, scanIntervalMs = SCAN_INTERVAL_MS, fullIntervalMs = FULL_INTERVAL_MS } = {}) {
+  constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), fileLimit = FILE_LIMIT, nodeVersion = process.versions.node } = {}) {
     this.codexHome = codexHome;
     this.now = now;
     this.fileLimit = fileLimit;
-    this.scanIntervalMs = scanIntervalMs;
-    this.fullIntervalMs = fullIntervalMs;
-    this.files = new Map();
+    this.nodeVersion = nodeVersion;
     this.tasks = new Map();
-    this.lastScanMs = 0;
-    this.lastFullMs = 0;
+    this.rolloutPaths = new Map();
     this.revision = 0;
     this.stats = null;
     this.pending = null;
@@ -191,89 +171,48 @@ export class CodexSessionScanner {
       }
       return this.forcedPending;
     }
-    const now = this.now();
-    this.pending = this.refreshSource(now, force).finally(() => { this.pending = null; });
+    this.pending = this.refreshSource(this.now()).finally(() => { this.pending = null; });
     return this.pending;
   }
-  async refreshSource(now, force) {
-    const database = await readDatabase(this.codexHome, this.fileLimit, now);
-    if (database) {
+  async refreshSource(now) {
+    try {
+      if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18.0 or later for read-only SQLite (current: ${this.nodeVersion}).`);
+      const database = await readDatabase(this.codexHome, this.fileLimit, now);
       const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => [...tasks.values()].map((task) => `${task.id}:${task.title}:${task.project.path}:${task.updatedAt}:${task.status}:${task.observed.archive}:${task.observed.lastTurnEvent}`).join("|");
-      if (this.stats?.source !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
+      if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
       this.tasks = nextTasks;
+      this.rolloutPaths = database.rolloutPaths;
       this.stats = database.scan;
-      this.lastScanMs = now;
-      return this.snapshot();
-    }
-    if (!force && this.stats?.source === "rollout files" && now - this.lastScanMs < this.scanIntervalMs) return this.snapshot();
-    return this.scan(now);
-  }
-  async scan(now) {
-    const full = !this.stats || now - this.lastFullMs >= this.fullIntervalMs;
-    try {
-      const discovered = [
-        ...await listFiles(join(this.codexHome, "sessions"), false),
-        ...await listFiles(join(this.codexHome, "archived_sessions"), true),
-      ];
-      discovered.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
-      const selected = discovered.slice(0, this.fileLimit);
-      const previousFiles = this.files;
-      const nextFiles = new Map();
-      const nextTasks = new Map();
-      let parsed = 0;
-      let changed = 0;
-      let errors = 0;
-      for (const file of selected) {
-        const prior = previousFiles.get(file.path);
-        const reusable = !full && prior?.size === file.size && prior?.mtimeMs === file.mtimeMs && prior?.archive === file.archive;
-        let task = reusable ? this.tasks.get(file.path) : null;
-        let cachedFile = file;
-        let readFailed = false;
-        if (!task) {
-          try { task = await readSession(file, now); parsed += 1; changed += prior ? 1 : 0; }
-          catch { errors += 1; readFailed = true; task = this.tasks.get(file.path); cachedFile = prior; }
-        }
-        if (task) {
-          const recentFileActivity = !readFailed && !file.archive && now - file.mtimeMs < ACTIVE_WINDOW_MS;
-          const active = recentFileActivity && task.observed.lastTurnEvent === "task_started";
-          task = { ...task, status: active ? "working" : null, summary: active
-            ? "A turn started recently; live activity is unverified."
-            : task.observed.lastTurnEvent === "task_started" ? "A turn started earlier; current activity and task outcome are unknown."
-              : task.observed.lastTurnEvent === "task_complete" ? "Latest recorded turn ended; task outcome is unknown."
-                : task.observed.lastTurnEvent === "turn_aborted" ? "Latest recorded turn stopped; task outcome is unknown."
-                  : recentFileActivity ? "Recent log file activity observed; current turn and task outcome are unknown."
-                    : "Task outcome is unknown from the available log segment.",
-            observed: { ...task.observed, recentFileActivity } };
-          if (cachedFile) nextFiles.set(file.path, cachedFile);
-          nextTasks.set(file.path, task);
-        }
-      }
-      const previousIds = [...this.tasks.values()].map((task) => `${task.id}:${task.updatedAt}:${task.status}:${task.observed.archive}:${task.observed.lastTurnEvent}:${task.observed.recentFileActivity}`).join("|");
-      const currentIds = [...nextTasks.values()].map((task) => `${task.id}:${task.updatedAt}:${task.status}:${task.observed.archive}:${task.observed.lastTurnEvent}:${task.observed.recentFileActivity}`).join("|");
-      if (previousIds !== currentIds || !this.stats) this.revision += 1;
-      this.files = nextFiles;
-      this.tasks = nextTasks;
-      this.lastScanMs = now;
-      if (full) this.lastFullMs = now;
-      this.stats = {
-        source: "rollout files", mode: full ? "full" : "incremental", checkedAt: new Date(now).toISOString(), intervalSeconds: this.scanIntervalMs / 1000,
-        fullIntervalSeconds: this.fullIntervalMs / 1000, indexedFiles: discovered.length, activeFiles: discovered.filter((item) => !item.archive).length,
-        archivedFiles: discovered.filter((item) => item.archive).length, parsedFiles: parsed, changedFiles: changed,
-        visibleFiles: nextTasks.size, fileLimit: this.fileLimit, unreadFiles: Math.max(0, discovered.length - selected.length), errors,
-        sources: ["sessions/**/*.jsonl", "archived_sessions/**/*.jsonl"],
-        fields: ["session ID", "timestamps", "project directory", "archive location", "turn events", "message counts", "file size"],
-      };
       return this.snapshot();
     } catch (error) {
-      this.stats = { ...this.stats, mode: "error", checkedAt: new Date(now).toISOString(), error: String(error) };
-      this.lastScanMs = now;
-      return this.snapshot(false);
+      if (this.stats?.mode !== "error" || this.tasks.size) this.revision += 1;
+      this.tasks = new Map();
+      this.rolloutPaths = new Map();
+      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError ? error.message : "Codex databases are unavailable or incompatible." };
+      return this.snapshot();
     }
   }
-  snapshot(healthy = this.stats?.mode !== "error") {
-    return { healthy, revision: this.revision, tasks: [...this.tasks.values()], scan: this.stats };
+  snapshot() {
+    return { healthy: this.stats?.mode !== "error", revision: this.revision, tasks: [...this.tasks.values()], scan: this.stats };
   }
-  task(id) { return [...this.tasks.values()].find((task) => task.id === id); }
+  task(id) { return this.tasks.get(id); }
+  async taskDetail(id) {
+    const task = this.task(id);
+    if (!task) return null;
+    try {
+      const path = this.rolloutPaths.get(id);
+      if (typeof path !== "string" || !isAbsolute(path)) return task;
+      const info = await stat(path);
+      if (!info.isFile()) return task;
+      const log = await readSession({ path, id, archive: task.observed.archive, mtimeMs: info.mtimeMs }, this.now());
+      return { ...task, observed: { ...task.observed,
+        userMessages: log.observed.userMessages,
+        assistantMessages: log.observed.assistantMessages,
+        sampledBytes: log.observed.sampledBytes,
+        fileBytes: log.observed.fileBytes,
+      } };
+    } catch { return task; } // Optional log detail never changes database status or availability.
+  }
   close() {}
 }

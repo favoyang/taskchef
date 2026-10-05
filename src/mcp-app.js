@@ -4,7 +4,7 @@ import { z } from "zod";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex } from "./codex-app.js";
 
-export const TASKCHEF_APP_URI = "ui://taskchef/task-board/v2";
+export const TASKCHEF_APP_URI = "ui://taskchef/task-board/v3";
 const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
 const htmlPath = fileURLToPath(new URL("./mcp-app/dist/index.html", import.meta.url));
 const taskIdSchema = z.string().uuid();
@@ -26,6 +26,7 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {
     const snapshot = await scanner.refresh();
+    if (!snapshot.healthy) return { structuredContent: { taskCount: 0, error: snapshot.scan.error }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.scan.error}` }] };
     return { structuredContent: { taskCount: snapshot.tasks.length }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.tasks.length} recent chats.` }] };
   });
   server.registerTool("taskchef_app_snapshot", {
@@ -44,8 +45,9 @@ export function registerTaskChefApp(server, {
     inputSchema: { taskId: taskIdSchema }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId }) => {
-    await scanner.refresh();
-    const task = scanner.task(taskId);
+    const snapshot = await scanner.refresh();
+    if (!snapshot.healthy) throw new Error(snapshot.scan.error);
+    const task = await scanner.taskDetail(taskId);
     if (!task) throw new Error("Task not found.");
     return { structuredContent: { task }, content: [] };
   });
@@ -54,7 +56,8 @@ export function registerTaskChefApp(server, {
     inputSchema: { taskId: taskIdSchema }, _meta: appOnly,
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ taskId }) => {
-    await scanner.refresh();
+    const snapshot = await scanner.refresh();
+    if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const task = scanner.task(taskId);
     if (!task) throw new Error("Task not found.");
     if (!isCodexThreadDeepLinkId(task.threadId)) throw new Error("This chat cannot be opened directly.");

@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testi
 import { useState } from "react";
 import type { Task } from "../../dashboard/react/types";
 
-const server = vi.hoisted(() => ({ call: vi.fn() }));
+const server = vi.hoisted(() => ({ call: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void) }));
 vi.mock("@mantine/core", async () => {
   const React = await import("react");
   const wrap = (tag: string) => ({ children, component, ...props }: Record<string, unknown>) => React.createElement(component as string || tag, { "aria-label": props["aria-label"], role: props.role, id: props.id }, children as React.ReactNode);
@@ -20,7 +20,9 @@ vi.mock("@mantine/core", async () => {
 vi.mock("@modelcontextprotocol/ext-apps", () => ({
   App: class {
     connect() { return Promise.resolve(); }
+    getHostContext() { return { displayMode: server.displayMode }; }
     callServerTool(input: { name: string; arguments: Record<string, unknown> }) { return server.call(input); }
+    set onhostcontextchanged(handler: (context: { displayMode: string }) => void) { server.hostContextChanged = handler; }
   },
 }));
 vi.mock("../../dashboard/react/components/TaskCard", () => ({
@@ -52,6 +54,8 @@ let details: Map<string, Task>;
 let transition: () => Promise<unknown>;
 let detailFailure: string | null;
 beforeEach(() => {
+  server.displayMode = "unknown";
+  server.hostContextChanged = undefined;
   window.localStorage.clear();
   tasks = [task("one")];
   details = new Map(tasks.map((item) => [item.id, item]));
@@ -66,7 +70,7 @@ beforeEach(() => {
     throw new Error(`Unexpected tool: ${name}`);
   });
 });
-afterEach(() => { cleanup(); server.call.mockReset(); });
+afterEach(() => { cleanup(); server.call.mockReset(); vi.restoreAllMocks(); });
 function mount() { render(<TaskChefApp />); }
 
 test("switches list and board and filters by project, date, and status with contextual counts", async () => {
@@ -198,23 +202,6 @@ test("an older selection response cannot replace the current task", async () => 
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task two"));
 });
 
-test("shows scan cadence, coverage, and available fields without transcript text", async () => {
-  server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
-      tasks: [], healthy: true, revision: 1,
-      scan: { source: "rollout files", mode: "full", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 30, fullIntervalSeconds: 600,
-        indexedFiles: 8582, activeFiles: 3772, archivedFiles: 4810, parsedFiles: 300, visibleFiles: 300, unreadFiles: 8282, errors: 2 },
-    } } });
-    throw new Error(`Unexpected tool: ${name}`);
-  });
-  mount();
-  expect(await screen.findByText(/300 shown of 8582 logs/)).toBeVisible();
-  expect(screen.getByText(/every 30s/)).toBeVisible();
-  expect(screen.getByText(/Full reparse after 10 min when checked/)).toBeVisible();
-  expect(screen.getByText(/2 read\/parse errors/)).toBeVisible();
-  expect(screen.getByText(/Data: session IDs, timestamps, project directory/)).toBeVisible();
-});
-
 test("shows database source and five second coverage without a reparse claim", async () => {
   server.call.mockImplementation(({ name }) => {
     if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
@@ -227,7 +214,7 @@ test("shows database source and five second coverage without a reparse claim", a
   mount();
   expect(await screen.findByText(/300 shown of 8620 chats/)).toBeVisible();
   expect(screen.getByText(/Read-only database/)).toBeVisible();
-  expect(screen.getByText(/while open, checks every 5s/)).toBeVisible();
+  expect(screen.getByText(/checks every 5s when document is visible/)).toBeVisible();
   expect(screen.getByText(/title \(may contain user text\)/)).toBeVisible();
   expect(screen.queryByText(/Full reparse/)).not.toBeInTheDocument();
 });
@@ -241,8 +228,66 @@ test("shows an initial inventory failure without undefined scan counts", async (
     throw new Error(`Unexpected tool: ${name}`);
   });
   mount();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Codex session data is temporarily unavailable");
-  expect(screen.getByText(/Read-only session data · error/)).toBeVisible();
+  expect(await screen.findByRole("alert")).toHaveTextContent("cannot read the Codex databases");
+  expect(screen.getByText(/Read-only database · error/)).toBeVisible();
   expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
   expect(screen.queryByText(/shown of/)).not.toBeInTheDocument();
+});
+
+test("inline mode shows a compact recent-chat view", async () => {
+  server.displayMode = "inline";
+  tasks = [task("one"), task("two"), task("three"), task("four")];
+  mount();
+  expect(await screen.findByText("4 recent chats")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task four" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Task board" })).not.toBeInTheDocument();
+  expect(screen.getByText("View: inline · document: visible")).toBeVisible();
+});
+
+test("inline mode loads once and begins polling when expanded", async () => {
+  server.displayMode = "inline";
+  const setInterval = vi.spyOn(window, "setInterval");
+  const clearInterval = vi.spyOn(window, "clearInterval");
+  const snapshotCalls = () => server.call.mock.calls.filter(([input]) => input.name === "taskchef_app_snapshot").length;
+  mount();
+  expect(await screen.findByText("1 recent chats")).toBeVisible();
+  expect(snapshotCalls()).toBe(1);
+  expect(setInterval.mock.calls.filter(([, delay]) => delay === 5000)).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(snapshotCalls()).toBe(2));
+  server.displayMode = "fullscreen";
+  act(() => server.hostContextChanged?.({ displayMode: "fullscreen" }));
+  await waitFor(() => expect(snapshotCalls()).toBe(3));
+  const pollIndex = setInterval.mock.calls.findIndex(([, delay]) => delay === 5000);
+  expect(pollIndex).toBeGreaterThanOrEqual(0);
+  await act(async () => { (setInterval.mock.calls[pollIndex][0] as () => void)(); });
+  expect(snapshotCalls()).toBe(4);
+  server.displayMode = "inline";
+  act(() => server.hostContextChanged?.({ displayMode: "inline" }));
+  expect(clearInterval).toHaveBeenCalledWith(setInterval.mock.results[pollIndex].value);
+});
+
+test("shows the Node requirement when the scanner rejects its runtime", async () => {
+  server.call.mockResolvedValue({ structuredContent: { snapshot: {
+    tasks: [], healthy: false, revision: 0,
+    scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "TaskChef Next requires Node.js 22.18.0 or later for read-only SQLite (current: 22.17.9)." },
+  } } });
+  mount();
+  expect(await screen.findByRole("alert")).toHaveTextContent("TaskChef Next requires Node.js 22.18.0 or later");
+});
+
+test("a database failure after a healthy snapshot removes stale tasks", async () => {
+  mount();
+  expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
+  server.call.mockImplementation(({ name }) => {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
+      tasks: [], healthy: false, revision: 2,
+      scan: { source: "database", mode: "error", checkedAt: new Date().toISOString() },
+    } } });
+    throw new Error(`Unexpected tool: ${name}`);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("cannot read the Codex databases");
+  expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
 });

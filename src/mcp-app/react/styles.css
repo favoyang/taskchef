@@ -35,3 +35,7 @@ body { background: var(--taskchef-page); }
 }
 
 .taskchef-scan-info { margin-bottom: 10px; line-height: 1.35; }
+.taskchef-app-diagnostics { margin: 4px 12px; color: var(--taskchef-muted); }
+.taskchef-app-inline { min-height: 0; }
+.taskchef-inline-main { padding: 8px 12px 12px; }
+.taskchef-inline-main .mantine-Button-root { justify-content: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
