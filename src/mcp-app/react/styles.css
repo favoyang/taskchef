@@ -33,3 +33,5 @@ body { background: var(--taskchef-page); }
   .taskchef-app-filters .mantine-InputWrapper-root { flex-basis: 100%; max-width: none; }
   .taskchef-app-main .taskchef-board { grid-auto-columns: min(300px, calc(100% - 18px)); }
 }
+
+.taskchef-scan-info { margin-bottom: 10px; line-height: 1.35; }

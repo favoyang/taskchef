@@ -86,6 +86,7 @@ export interface Task {
   results?: TaskResult[];
   reportedWork?: ReportedWorkSummary;
   usage?: UsageProjection | null;
+  observed?: { archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; recentFileActivity: boolean; userMessages: number; assistantMessages: number; sampledBytes: number; fileBytes: number };
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;

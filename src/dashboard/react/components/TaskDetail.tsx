@@ -48,6 +48,7 @@ export function TaskDetail({
   task,
   notifications,
   notice,
+  readOnly = false,
 }: {
   busy: boolean;
   error: string | null;
@@ -60,6 +61,7 @@ export function TaskDetail({
   task: Task | null;
   notifications?: ReactNode;
   notice?: string | null;
+  readOnly?: boolean;
 }) {
   const mobile = useMediaQuery("(max-width: 48em)");
   const [confirmStatus, setConfirmStatus] = useState<TerminalStatus | null>(null);
@@ -94,7 +96,7 @@ export function TaskDetail({
         </Group>
         <Group gap="xs" mt="md">
           <OpenChatButton loading={busy} onClick={onOpenCodex} taskTitle={task.title} />
-          <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
+          {!readOnly && <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
             <Menu.Target>
               <Tooltip label="More task actions">
                 <ActionIcon aria-label="More task actions" className="taskchef-detail-more" disabled={busy} variant="default">
@@ -111,7 +113,7 @@ export function TaskDetail({
                 <Menu.Item color="red" leftSection={<IconX size={14} />} onClick={() => setConfirmStatus("failed")}>Mark failed</Menu.Item>
               )}
             </Menu.Dropdown>
-          </Menu>
+          </Menu>}
         </Group>
         <Box mt="sm">
           <GitHubLinks task={task} />
@@ -130,19 +132,19 @@ export function TaskDetail({
       {notice && <Alert color="teal" role="status">{notice}</Alert>}
       {error && <Alert color="red" role="alert">{error}</Alert>}
 
-      <section aria-labelledby="usage-heading">
+      {!readOnly && <section aria-labelledby="usage-heading">
         <Title id="usage-heading" mb="xs" order={3} size="h5">Usage</Title>
         <UsagePanel task={task} />
-      </section>
-      <Divider />
-      <section aria-labelledby="activity-heading">
+      </section>}
+      {!readOnly && <Divider />}
+      {!readOnly && <section aria-labelledby="activity-heading">
         <Title id="activity-heading" mb="sm" order={3} size="h5">Activity timeline</Title>
         <ActivityTimeline highlightTurnRef={highlightTurnRef} task={task} />
-      </section>
-      <section aria-labelledby="instruction-heading">
+      </section>}
+      {!readOnly && <section aria-labelledby="instruction-heading">
         <Title id="instruction-heading" mb="xs" order={3} size="h5">Original instruction</Title>
         <Box className="taskchef-code-panel" component="pre">{task.instruction}</Box>
-      </section>
+      </section>}
       <section aria-labelledby="metadata-heading">
         <Title id="metadata-heading" mb="xs" order={3} size="h5">Metadata</Title>
         <dl className="taskchef-metadata">
@@ -153,6 +155,7 @@ export function TaskDetail({
           <dt>Created</dt><dd><RelativeTime label="Created time" value={task.createdAt} /></dd>
           <dt>Updated</dt><dd><RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /></dd>
           <dt>Updated by</dt><dd>{task.updatedBy ?? "—"}</dd>
+          {task.observed && <><dt>Location</dt><dd>{task.observed.archive ? "Archived sessions" : "Active sessions"}</dd><dt>Latest turn event</dt><dd>{task.observed.lastTurnEvent ?? "Unknown"}</dd><dt>Observed messages</dt><dd>{task.observed.userMessages} user, {task.observed.assistantMessages} assistant</dd><dt>Log bytes sampled</dt><dd>{task.observed.sampledBytes} of {task.observed.fileBytes}</dd></>}
         </dl>
       </section>
     </Stack>

@@ -75,7 +75,7 @@ test("switches list and board and filters by project, date, and status with cont
   mount();
   expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
   expect(screen.getByText("Tasks: 3 of 3")).toBeVisible();
-  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "Alpha" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
   expect(screen.getByText("Tasks: 2 of 3")).toBeVisible();
   expect(screen.getByRole("radio", { name: "All 2" })).toBeVisible();
   fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "24h" } });
@@ -91,6 +91,33 @@ test("switches list and board and filters by project, date, and status with cont
   fireEvent.click(screen.getByRole("radio", { name: "List" }));
   expect(screen.getByRole("button", { name: "Task three" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+});
+
+test("offers an Unresolved filter with a contextual count", async () => {
+  tasks = [task("one", null, new Date().toISOString(), "Alpha"), task("two", null, new Date().toISOString(), "Beta")];
+  mount();
+  expect(await screen.findByRole("radio", { name: "Unresolved 2" })).toBeVisible();
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
+  fireEvent.click(screen.getByRole("radio", { name: "Unresolved 1" }));
+  expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+});
+
+test("filters projects with the same name by directory", async () => {
+  const first = task("one", null, new Date().toISOString(), "project");
+  const second = task("two", null, new Date().toISOString(), "project");
+  first.project.path = "/work/first/project";
+  second.project.path = "/work/second/project";
+  tasks = [first, second];
+  mount();
+  expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
+  const picker = screen.getByRole("combobox", { name: "Project" });
+  expect(within(picker).getByRole("option", { name: "project (/work/first/project)" })).toBeVisible();
+  expect(within(picker).getByRole("option", { name: "project (/work/second/project)" })).toBeVisible();
+  fireEvent.change(picker, { target: { value: "/work/second/project" } });
+  expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+  expect(screen.getByRole("radio", { name: "All 1" })).toBeVisible();
 });
 
 test("refresh updates detail and removes a disappeared selection", async () => {
@@ -119,7 +146,7 @@ test("refresh sends the last revision and keeps selection detail current on unch
   details.set("one", task("one", "needs_input"));
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("needs_input"));
-  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1 } });
+  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1, force: true } });
   tasks = [task("two")];
   revision = 2;
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -154,19 +181,6 @@ test("shows a card Open chat failure without opening detail", async () => {
   expect(screen.queryByRole("region", { name: "Task detail" })).not.toBeInTheDocument();
 });
 
-test("transition conflict refreshes the current task", async () => {
-  mount();
-  fireEvent.click(await screen.findByRole("button", { name: "Task one" }));
-  await screen.findByRole("region", { name: "Task detail" });
-  transition = async () => {
-    details.set("one", task("one", "failed", "2026-10-02T00:00:00Z"));
-    throw new Error("Task changed concurrently.");
-  };
-  fireEvent.click(screen.getByRole("button", { name: "Mark completed" }));
-  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-  await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("failed"));
-});
-
 test("an older selection response cannot replace the current task", async () => {
   tasks = [task("one"), task("two")];
   let release!: (value: unknown) => void;
@@ -182,4 +196,36 @@ test("an older selection response cannot replace the current task", async () => 
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task two"));
   release({ structuredContent: { task: task("one") } });
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task two"));
+});
+
+test("shows scan cadence, coverage, and available fields without transcript text", async () => {
+  server.call.mockImplementation(({ name }) => {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
+      tasks: [], healthy: true, revision: 1,
+      scan: { mode: "full", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 30, fullIntervalSeconds: 600,
+        indexedFiles: 8582, activeFiles: 3772, archivedFiles: 4810, parsedFiles: 300, visibleFiles: 300, unreadFiles: 8282, errors: 2 },
+    } } });
+    throw new Error(`Unexpected tool: ${name}`);
+  });
+  mount();
+  expect(await screen.findByText(/300 shown of 8582 logs/)).toBeVisible();
+  expect(screen.getByText(/every 30s/)).toBeVisible();
+  expect(screen.getByText(/Full reparse every 10 min/)).toBeVisible();
+  expect(screen.getByText(/2 read\/parse errors/)).toBeVisible();
+  expect(screen.getByText(/Data: session IDs, timestamps, project directory/)).toBeVisible();
+});
+
+test("shows an initial inventory failure without undefined scan counts", async () => {
+  server.call.mockImplementation(({ name }) => {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
+      tasks: [], healthy: false, revision: 0,
+      scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "EACCES" },
+    } } });
+    throw new Error(`Unexpected tool: ${name}`);
+  });
+  mount();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Task log is temporarily unavailable");
+  expect(screen.getByText(/Read-only scan · error/)).toBeVisible();
+  expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/shown of/)).not.toBeInTheDocument();
 });

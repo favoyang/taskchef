@@ -4,7 +4,7 @@ import { IconRefresh } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
-import { filterTasks, manualTransitionExpectedState, statusFilterCounts, STATUS_FILTERS, taskMatchesManualTransitionExpected } from "../../dashboard/state.js";
+import { filterTasks, statusFilterCounts, STATUS_FILTERS, taskStatusLabel } from "../../dashboard/state.js";
 import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
 import { TaskCard } from "../../dashboard/react/components/TaskCard";
 import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
@@ -14,7 +14,7 @@ import "@mantine/core/styles.css";
 import "../../dashboard/react/styles.css";
 import "./styles.css";
 
-const bridge = new App({ name: "TaskChef board", version: "1.0.0" });
+const bridge = new App({ name: "TaskChef Next", version: "1.0.0" });
 const connected = bridge.connect();
 
 async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -30,8 +30,11 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
+interface ScanStats { mode: string; checkedAt: string; intervalSeconds: number; fullIntervalSeconds: number; indexedFiles: number; activeFiles: number; archivedFiles: number; parsedFiles: number; visibleFiles: number; unreadFiles: number; errors: number; }
+
 export function TaskChefApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,18 +52,19 @@ export function TaskChefApp() {
   const detailRequestVersion = useRef(0);
   const refreshVersion = useRef(0);
   const revisionRef = useRef<number | null>(null);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number }; unchanged?: never } | { unchanged: true; revision: number; snapshot?: never }>(
-      "taskchef_app_snapshot", revisionRef.current === null ? {} : { revision: revisionRef.current },
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never }>(
+      "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
     if (data.snapshot) {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.tasks);
+      setScan(data.snapshot.scan);
       setError(data.snapshot.healthy === false ? "Task log is temporarily unavailable. Showing the last valid snapshot." : null);
-    } else setError(null);
+    } else { setScan(data.scan); setError(null); }
     setNow(Date.now());
     const selectedTask = selectedRef.current;
     if (!selectedTask || initialSelection !== selectionVersion.current) return;
@@ -96,13 +100,20 @@ export function TaskChefApp() {
   }, [refresh]);
   const projects = useMemo(() => [
     { label: "All projects", value: "" },
-    ...[...new Set(tasks.map((task) => task.project.name))].sort().map((value) => ({ label: value, value })),
+    ...[...new Map(tasks.map((task) => [task.project.path || task.project.name, task.project])).values()]
+      .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+      .map((item, _, items) => ({
+        label: items.some((other) => other !== item && other.name === item.name) ? `${item.name} (${item.path})` : item.name,
+        value: item.path || item.name,
+      })),
   ], [tasks]);
-  const visible: Task[] = useMemo(() => filterTasks(tasks, { project, date, status, now }), [tasks, project, date, status, now]);
-  const boardTasks: Task[] = useMemo(() => filterTasks(tasks, { project, date, now }), [tasks, project, date, now]);
-  const counts = useMemo(() => statusFilterCounts(tasks, { project, date, now }), [tasks, project, date, now]);
-  const statusOptions = STATUS_FILTERS.map(({ label, value }: { label: string; value: string }) => ({
-    label: counts[value] > 0 ? `${label} ${counts[value]}` : label,
+  const projectTasks = useMemo(() => tasks.filter((task) => !project || (task.project.path || task.project.name) === project), [tasks, project]);
+  const visible: Task[] = useMemo(() => filterTasks(projectTasks, { date, status, now }), [projectTasks, date, status, now]);
+  const boardTasks: Task[] = useMemo(() => filterTasks(projectTasks, { date, now }), [projectTasks, date, now]);
+  const counts = useMemo(() => statusFilterCounts(projectTasks, { date, now }), [projectTasks, date, now]);
+  const sidebarCounts: Record<string, number> = { ...counts, unresolved: boardTasks.filter((task) => taskStatusLabel(task) === "unresolved").length };
+  const statusOptions = [...STATUS_FILTERS, { label: "Unresolved", value: "unresolved" }].map(({ label, value }: { label: string; value: string }) => ({
+    label: sidebarCounts[value] > 0 ? `${label} ${sidebarCounts[value]}` : label,
     value,
   }));
 
@@ -139,32 +150,6 @@ export function TaskChefApp() {
     }
     finally { setBusy(false); }
   }
-  async function transition(targetStatus: "completed" | "failed", actionId: string) {
-    const requestTask = selectedRef.current;
-    if (!requestTask) return { ok: false };
-    const selection = selectionVersion.current;
-    const expected = manualTransitionExpectedState(requestTask);
-    setBusy(true);
-    setDetailError(null);
-    try {
-      const result = await call<{ task: Task }>("taskchef_app_transition", {
-        taskId: requestTask.id, actionId,
-        expected, targetStatus,
-      });
-      if (selection === selectionVersion.current && taskMatchesManualTransitionExpected(selectedRef.current, expected)) {
-        selectedRef.current = result.task;
-        setSelected(result.task);
-      }
-      setTasks((current) => current.map((task) => task.id === result.task.id && taskMatchesManualTransitionExpected(task, expected) ? { ...task, ...result.task } : task));
-      setNotice(`Marked ${result.task.status?.replace("_", " ")}.`);
-      void refresh().catch((cause) => setError(String(cause)));
-      return { ok: true };
-    } catch (cause) {
-      await refresh().catch(() => {});
-      setDetailError(`${String(cause)} The task has been refreshed; review its current state before trying again.`);
-      return { ok: false, rotateActionId: true };
-    } finally { setBusy(false); }
-  }
   function closeDetail() {
     if (busy) return;
     selectionVersion.current += 1;
@@ -177,8 +162,8 @@ export function TaskChefApp() {
     <RelativeTimeProvider now={now}>
       <Box className="taskchef-app-shell">
         <header className="taskchef-app-header">
-          <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef <span>Dashboard</span></Title></Group>
-          <ActionIcon aria-label="Refresh" onClick={() => void refresh().catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
+          <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
+          <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
         </header>
         <main className={`taskchef-app-main${view === "list" ? " taskchef-app-main-list" : ""}`}>
           <Paper className="taskchef-toolbar" radius={0}>
@@ -191,6 +176,7 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
+          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only scan · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · every ${scan.intervalSeconds}s` : ""}</Text>{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} logs ({scan.activeFiles} active, {scan.archivedFiles} archived); {scan.parsedFiles} parsed this scan, {scan.unreadFiles} outside recent limit{scan.errors > 0 ? `, ${scan.errors} read/parse error${scan.errors === 1 ? "" : "s"}` : ""}. Full reparse every {Math.round(scan.fullIntervalSeconds / 60)} min.</Text>}<Text c="dimmed" size="xs">Data: session IDs, timestamps, project directory, archive location, turn events, message counts, file size. Task outcome needs further evidence.</Text></Paper>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="yellow" role="alert" mt="sm">{error}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
@@ -204,7 +190,7 @@ export function TaskChefApp() {
       <TaskDetail busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
         void navigator.clipboard.writeText(selected.id).then(() => setNotice("Task ID copied."), () => setNotice("Clipboard unavailable. Copy the ID from metadata."));
-      }} onOpenCodex={() => selected && void openChat(selected)} onTransition={transition} opened={opened} task={selected} notice={notice} />
+      }} onOpenCodex={() => selected && void openChat(selected)} onTransition={async () => ({ ok: false })} opened={opened} task={selected} notice={notice} readOnly />
     </RelativeTimeProvider>
   </MantineProvider>;
 }
