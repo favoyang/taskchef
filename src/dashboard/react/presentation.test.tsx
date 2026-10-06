@@ -18,8 +18,25 @@ import { ShimmerText } from "./components/ShimmerText";
 import { GitHubLinks } from "./components/GitHubLinks";
 import { LinkedText } from "./components/LinkedText";
 import { UsagePanel } from "./components/UsagePanel";
+import { TaskCard } from "./components/TaskCard";
+import { TaskBoard } from "./components/TaskBoard";
 
 afterEach(cleanup);
+
+test("shows recorded direct subagent count on a working parent in list and board", () => {
+  const parent = fixtureTask({
+    updatedBy: "Local Codex database",
+    observed: { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: true, directChildCount: 2 },
+  });
+  const childless = fixtureTask({ id: "childless", title: "Childless", observed: { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: true, directChildCount: 0 } });
+  render(<MantineProvider>
+    <TaskCard task={parent} onOpenCodex={() => {}} onOpenDetail={() => {}} />
+    <TaskBoard tasks={[parent, childless]} completedLimit={5} onMoreCompleted={() => {}} onOpenCodex={() => {}} onOpenDetail={() => {}} />
+  </MantineProvider>);
+  expect(screen.getAllByText("2 direct subagent chats")).toHaveLength(2);
+  expect(screen.queryByText("0 direct subagent chats")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Working, 2 tasks" })).getByText("2 direct subagent chats")).toBeVisible();
+});
 
 describe("token and working presentation", () => {
   test("keeps pending, calculating, ready cost, and unavailable wording distinct", () => {

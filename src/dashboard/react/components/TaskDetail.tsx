@@ -155,6 +155,7 @@ export function TaskDetail({
           <dt>Created</dt><dd><RelativeTime label="Created time" value={task.createdAt} /></dd>
           <dt>Updated</dt><dd><RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /></dd>
           <dt>Updated by</dt><dd>{task.updatedBy ?? "—"}</dd>
+          {task.observed?.directChildCount !== undefined && <><dt>Direct subagent chats</dt><dd>{task.observed.directChildCount}</dd></>}
           {task.observed && <>
             {task.updatedBy === "Local Codex database" ? <>
               <dt>Archive status</dt><dd>{task.observed.archive ? "Archived" : "Active"}</dd>

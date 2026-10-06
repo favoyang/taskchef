@@ -33,6 +33,7 @@ export function TaskCard({
               </Stack>
             </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
+            {task.observed?.directChildCount ? <Text size="xs">{task.observed.directChildCount} direct subagent {task.observed.directChildCount === 1 ? "chat" : "chats"}</Text> : null}
           </Box>
 
           <Box className="taskchef-summary-grid">

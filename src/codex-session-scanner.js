@@ -14,7 +14,8 @@ function supportsReadOnlySqlite(version) {
   const match = /^(\d+)\.(\d+)\./.exec(version);
   if (!match) return false;
   const major = Number(match[1]);
-  return major > 22 || (major === 22 && Number(match[2]) >= 18);
+  const minor = Number(match[2]);
+  return major > 23 || (major === 23 && minor >= 2) || (major === 22 && minor >= 18);
 }
 
 async function sqlite() {
@@ -32,17 +33,22 @@ async function readDatabase(codexHome, fileLimit, now) {
   try {
     state = new module.DatabaseSync(join(codexHome, "state_5.sqlite"), { readOnly: true });
     history = new module.DatabaseSync(join(codexHome, "thread_history_1.sqlite"), { readOnly: true });
-    const rows = state.prepare("SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path FROM threads ORDER BY recency_at_ms DESC LIMIT ?").all(fileLimit);
-    const total = state.prepare("SELECT count(*) AS count FROM threads").get().count;
+    const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
+      AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
+    const rows = state.prepare(`SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path,
+      (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
+      FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC LIMIT ?`).all(fileLimit);
+    const total = state.prepare(`SELECT count(*) AS count FROM threads WHERE ${eligible}`).get().count;
     const latest = history.prepare("SELECT status FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1");
     const tasks = rows.map((row) => {
       const turnStatus = latest.get(row.id)?.status ?? null;
       const updatedMs = row.updated_at_ms || row.recency_at_ms || row.created_at_ms;
       const active = !row.archived && turnStatus === "inProgress" && now - updatedMs < ACTIVE_WINDOW_MS;
-      const summary = active ? "A turn is marked in progress and changed recently; live activity is unverified."
+      const activity = active ? "A turn is marked in progress and changed recently; live activity is unverified."
         : turnStatus === "inProgress" ? "A turn is marked in progress, but recent activity is unverified."
           : turnStatus ? `Latest turn is ${turnStatus}; task outcome is unknown.`
             : "No turn status is available; task outcome is unknown.";
+      const summary = row.child_count ? `${activity} Spawned ${row.child_count} direct subagent ${row.child_count === 1 ? "chat" : "chats"}.` : activity;
       const cwd = row.cwd || "";
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
@@ -51,15 +57,15 @@ async function readDatabase(codexHome, fileLimit, now) {
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: null, turnId: null, lastResult: null, latestTurn: null,
-        observed: { archive: Boolean(row.archived), lastTurnEvent: turnStatus, lastTurnEventAt: null, recentFileActivity: active },
+        observed: { archive: Boolean(row.archived), lastTurnEvent: turnStatus, lastTurnEventAt: null, recentFileActivity: active, directChildCount: row.child_count },
       };
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
       source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5,
       visibleFiles: tasks.length, indexedFiles: total, unreadFiles: Math.max(0, total - tasks.length), fileLimit,
       activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0,
-      sources: ["state_5.sqlite:threads", "thread_history_1.sqlite:thread_turns"],
-      fields: ["session ID", "name", "title", "timestamps", "project directory", "archive flag", "latest turn status"],
+      sources: ["state_5.sqlite:threads", "state_5.sqlite:thread_spawn_edges", "thread_history_1.sqlite:thread_turns"],
+      fields: ["session ID", "name", "title", "timestamps", "project directory", "archive flag", "thread source", "direct child count", "latest turn status"],
     } };
   } finally { history?.close(); state?.close(); }
 }
@@ -176,10 +182,10 @@ export class CodexSessionScanner {
   }
   async refreshSource(now) {
     try {
-      if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18.0 or later for read-only SQLite (current: ${this.nodeVersion}).`);
+      if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
       const database = await readDatabase(this.codexHome, this.fileLimit, now);
       const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
-      const signature = (tasks) => [...tasks.values()].map((task) => `${task.id}:${task.title}:${task.project.path}:${task.updatedAt}:${task.status}:${task.observed.archive}:${task.observed.lastTurnEvent}`).join("|");
+      const signature = (tasks) => [...tasks.values()].map((task) => `${task.id}:${task.title}:${task.project.path}:${task.updatedAt}:${task.status}:${task.summary}:${task.observed.archive}:${task.observed.lastTurnEvent}:${task.observed.directChildCount ?? ""}`).join("|");
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
       this.tasks = nextTasks;
       this.rolloutPaths = database.rolloutPaths;

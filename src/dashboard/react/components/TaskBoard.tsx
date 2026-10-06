@@ -131,6 +131,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
       </Title>
       <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
+      {task.observed?.directChildCount ? <Text size="xs">{task.observed.directChildCount} direct subagent {task.observed.directChildCount === 1 ? "chat" : "chats"}</Text> : null}
       <Text className="taskchef-board-excerpt taskchef-preserve-lines" size="sm">
         <LinkedText task={task} text={excerpt} />
       </Text>
