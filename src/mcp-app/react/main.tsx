@@ -109,28 +109,33 @@ export function TaskChefApp() {
     }
   }, []);
   useEffect(() => {
-    console.info("TaskChef Next: mounted", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+    console.warn("TaskChef Next lifecycle: mounted", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
     const onVisibility = () => {
       const next = document.visibilityState;
-      console.info("TaskChef Next: visibilitychange", { visibility: next });
+      console.warn("TaskChef Next lifecycle: visibilitychange", { visibility: next });
       setVisibility(next);
       if (next === "visible" && displayModeRef.current !== "inline") void refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
     };
+    const onPageHide = () => {
+      console.warn("TaskChef Next lifecycle: pagehide", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+    };
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
     bridge.onhostcontextchanged = (context) => {
       const next = context.displayMode ?? bridge.getHostContext?.()?.displayMode ?? "unknown";
-      console.info("TaskChef Next: host context changed", { displayMode: next, visibility: document.visibilityState });
+      console.warn("TaskChef Next lifecycle: host context changed", { displayMode: next, visibility: document.visibilityState });
       setDisplayMode(next);
     };
     bridge.onteardown = () => {
-      console.info("TaskChef Next: host teardown", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+      console.warn("TaskChef Next lifecycle: host teardown", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
       return {};
     };
     void connected.then(() => setDisplayMode(bridge.getHostContext?.()?.displayMode ?? "unknown"));
     void refresh().catch((cause) => { setTasks([]); setError(String(cause)); });
     return () => {
-      console.info("TaskChef Next: unmounted", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+      console.warn("TaskChef Next lifecycle: unmounted", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [refresh]);
   useEffect(() => {

@@ -73,6 +73,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); server.call.mockReset(); vi.restoreAllMocks(); });
 function mount() { render(<TaskChefApp />); }
 
+test("pagehide logs iframe navigation separately from React unmount", () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const { unmount } = render(<TaskChefApp />);
+  warn.mockClear();
+  fireEvent(window, new Event("pagehide"));
+  expect(warn).toHaveBeenCalledWith("TaskChef Next lifecycle: pagehide", { visibility: document.visibilityState, displayMode: "unknown" });
+  expect(warn).not.toHaveBeenCalledWith("TaskChef Next lifecycle: unmounted", expect.anything());
+  unmount();
+  expect(warn).toHaveBeenCalledWith("TaskChef Next lifecycle: unmounted", { visibility: document.visibilityState, displayMode: "unknown" });
+  warn.mockClear();
+  fireEvent(window, new Event("pagehide"));
+  expect(warn).not.toHaveBeenCalled();
+});
+
 test("switches list and board and filters by project, date, and status with contextual counts", async () => {
   tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("three", "failed", new Date().toISOString(), "Beta")];
   details = new Map(tasks.map((item) => [item.id, item]));
