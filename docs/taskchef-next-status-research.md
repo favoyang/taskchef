@@ -9,8 +9,7 @@
 TaskChef Next can read chat metadata from `state_5.sqlite:threads` and the
 latest turn from `thread_history_1.sqlite:thread_turns`. A turn's `completed`
 status means Codex ended that turn. It does not say whether the user's larger
-task is finished or whether the assistant asked for input. The current sidebar
-therefore leaves most chats unresolved.
+task is finished or whether the assistant asked for input. The sidebar now applies the workflow rules described in [the sidebar guide](mcp-app.md).
 
 The proposed board labels are workflow rules, not semantic judgments:
 
@@ -31,34 +30,28 @@ The archive flag takes precedence over an old turn status. A stale
 `inProgress` row in an **open** chat is not proof that the chat is Done or that
 it is still Running; it needs a separate unverified treatment until the live
 state is confirmed. Chats with no turn row should be omitted from this board
-rather than given a workflow label. **Known current limitation:** the sidebar
-filters `threads.thread_source` and `thread_spawn_edges`, but some review
-subagents are identified only in `threads.source`. Those can still appear in
-the current top-level inventory and count. Future source filtering must exclude
-them before applying the chat limit.
+rather than given a workflow label. The sidebar now also checks JSON subagent
+sources in `threads.source` before applying its chat limit.
 
 Counts from all unarchived database rows are not counts of current work. The
 board needs an explicit recency filter and should state the time window used.
 
 ## Scheduled work
 
-An active schedule is best represented as a **flag** on a chat, alongside its
-current workflow label. A scheduled run can be Running, Waiting after a normal
-turn, or Interrupted after a failure. The user may also talk or code in the
-same chat. A separate Scheduled state would hide that current condition.
-The board can offer a Scheduled filter or group idle scheduled chats together
-without discarding their underlying turn status. It should keep scheduled
-failures visible as Interrupted.
+An active schedule is a flag on a chat, alongside its current workflow label.
+The board has a Scheduled column for idle scheduled turns. Running and
+Interrupted take precedence; ordinary completed input returns to Waiting while
+the schedule badge remains.
 
-For local heartbeat automations, an `automation.toml` file has a
-`target_thread_id` and `status`. These fields can link an active schedule to
-its chat. A paused schedule should not get the active Scheduled flag. A cron
-automation may create a new chat for each run, so its schedule belongs to the
-automation rather than automatically to every historical run. This mapping
-still needs implementation and validation before the sidebar shows the flag.
-`thread_turns` does not record whether a turn was started by a person or by a
-schedule, so a completed turn in a scheduled chat cannot safely be called
-"waiting for human input" from that table alone.
+Local heartbeat configurations have `target_thread_id` and `status`. The latest
+turn points through `first_user_item_id` to `thread_items.item_json`. Observed
+heartbeat inputs contain a `<heartbeat>` wrapper with an `automation_id` and
+have no `clientId`; ordinary desktop inputs have a `clientId`. The sidebar
+matches the wrapper to a known automation on that chat rather than matching
+execution time. This is an observed internal format, not a supported stable API.
+It does not infer scheduled origin from a missing `clientId` alone. Paused
+schedules do not place idle chats in Scheduled. Cron runs are distinct from
+heartbeat chats and are not linked by this rule.
 
 ## Optional model judgment
 

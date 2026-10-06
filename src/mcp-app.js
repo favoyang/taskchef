@@ -41,7 +41,7 @@ export function registerTaskChefApp(server, {
     return { structuredContent: { snapshot }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
-    title: "Read Codex chat metadata", description: "Read one local chat's metadata without transcript text.",
+    title: "Read Codex chat metadata", description: "Read one local chat's metadata without returning transcript text.",
     inputSchema: { taskId: taskIdSchema }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId }) => {
@@ -49,6 +49,14 @@ export function registerTaskChefApp(server, {
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const task = await scanner.taskDetail(taskId);
     if (!task) throw new Error("Task not found.");
+    return { structuredContent: { task }, content: [] };
+  });
+  server.registerTool("taskchef_app_set_done", {
+    title: "Mark chat Done in TaskChef Next", description: "Save or remove a local Done mark. Codex databases are never modified.",
+    inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), done: z.boolean() }, _meta: appOnly,
+    annotations: { readOnlyHint: false, openWorldHint: false },
+  }, async ({ taskId, expectedTurnId, done }) => {
+    const task = await scanner.setDone(taskId, expectedTurnId, done);
     return { structuredContent: { task }, content: [] };
   });
   server.registerTool("taskchef_app_open_chat", {

@@ -4,7 +4,7 @@ import { IconRefresh } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
-import { filterTasks, statusFilterCounts, STATUS_FILTERS, taskStatusLabel } from "../../dashboard/state.js";
+import { filterTasks } from "../../dashboard/state.js";
 import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
 import { TaskCard } from "../../dashboard/react/components/TaskCard";
 import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
@@ -34,7 +34,9 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-interface ScanStats { source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
+const NEXT_LANES = [{ status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "scheduled", label: "Scheduled" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: null, label: "Unverified" }] as const;
+
+interface ScanStats { scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
@@ -163,14 +165,11 @@ export function TaskChefApp() {
       })),
   ], [tasks]);
   const projectTasks = useMemo(() => tasks.filter((task) => !project || (task.project.path || task.project.name) === project), [tasks, project]);
-  const visible: Task[] = useMemo(() => filterTasks(projectTasks, { date, status, now }), [projectTasks, date, status, now]);
   const boardTasks: Task[] = useMemo(() => filterTasks(projectTasks, { date, now }), [projectTasks, date, now]);
-  const counts = useMemo(() => statusFilterCounts(projectTasks, { date, now }), [projectTasks, date, now]);
-  const sidebarCounts: Record<string, number> = { ...counts, unresolved: boardTasks.filter((task) => taskStatusLabel(task) === "unresolved").length };
-  const statusOptions = [...STATUS_FILTERS, { label: "Unresolved", value: "unresolved" }].map(({ label, value }: { label: string; value: string }) => ({
-    label: sidebarCounts[value] > 0 ? `${label} ${sidebarCounts[value]}` : label,
-    value,
-  }));
+  const visible = useMemo(() => boardTasks.filter((task) => !status || (task.status ?? "unverified") === status), [boardTasks, status]);
+  const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...NEXT_LANES.map(({ label, status: value }) => ({
+    label: `${label} ${boardTasks.filter((task) => task.status === value).length}`, value: value ?? "unverified",
+  }))];
 
   function changeView(value: string) {
     if (value !== "board" && value !== "list") return;
@@ -203,6 +202,17 @@ export function TaskChefApp() {
       if (selectedRef.current?.id === task.id) setDetailError(String(cause));
       else setError(String(cause));
     }
+    finally { setBusy(false); }
+  }
+  async function markDone(task: Task) {
+    if (!task.turnId) return;
+    setBusy(true);
+    try {
+      const result = await call<{ task: Task }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: !task.manualDone });
+      if (selectedRef.current?.id === task.id) { selectedRef.current = result.task; setSelected(result.task); }
+      await refresh(true);
+      setNotice(task.manualDone ? "Done mark removed." : "Marked Done. A new turn will reset this mark.");
+    } catch (cause) { setDetailError(String(cause)); }
     finally { setBusy(false); }
   }
   function closeDetail() {
@@ -240,11 +250,11 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
-          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats; {scan.unreadFiles} outside recent limit.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Latest turn status does not establish task outcome.</Text></Paper>}
+          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats; {scan.unreadFiles} outside recent limit.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
-          {!error && (view === "board" ? <TaskBoard completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard lanes={[...NEXT_LANES]} completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}
@@ -252,7 +262,7 @@ export function TaskChefApp() {
         </main>
         </>}
       </Box>
-      <TaskDetail busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
+      <TaskDetail extraActions={selected && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>{selected.manualDone ? "Reopen" : "Mark Done"}</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
         void navigator.clipboard.writeText(selected.id).then(() => setNotice("Task ID copied."), () => setNotice("Clipboard unavailable. Copy the ID from metadata."));
       }} onOpenCodex={() => selected && void openChat(selected)} onTransition={async () => ({ ok: false })} opened={opened} task={selected} notice={notice} readOnly />

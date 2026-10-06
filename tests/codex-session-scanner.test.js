@@ -15,9 +15,10 @@ async function fixture(t) {
   t.after(async () => rm(home, { recursive: true, force: true }));
   const state = new sqlite.DatabaseSync(join(home, "state_5.sqlite"));
   const history = new sqlite.DatabaseSync(join(home, "thread_history_1.sqlite"));
-  state.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT, cwd TEXT, archived INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER, recency_at_ms INTEGER, rollout_path TEXT, thread_source TEXT)");
+  state.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT, cwd TEXT, archived INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER, recency_at_ms INTEGER, rollout_path TEXT, thread_source TEXT, source TEXT DEFAULT 'vscode')");
   state.exec("CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT, PRIMARY KEY (parent_thread_id, child_thread_id))");
-  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT)");
+  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT)");
+  history.exec("CREATE TABLE thread_items (thread_id TEXT, item_id TEXT, item_json TEXT)");
   t.after(() => { state.close(); history.close(); });
   return { home, state, history };
 }
@@ -27,8 +28,8 @@ test("database is the sole inventory and status source", async (t) => {
   const { home, state, history } = setup;
   const now = Date.now();
   const rolloutPath = join(home, "selected.jsonl");
-  state.prepare("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, null, "Private title", "/example/project", 0, now, now, now, rolloutPath, "user");
-  history.prepare("INSERT INTO thread_turns VALUES (?, ?, ?)").run(id, 1, "inProgress");
+  state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, null, "Private title", "/example/project", 0, now, now, now, rolloutPath, "user");
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, ?, ?)").run(id, 1, "inProgress");
   await writeFile(rolloutPath, line("session_meta", { id, cwd: "/different" }) + line("event_msg", { type: "task_complete" }));
   const sessions = join(home, "sessions");
   await mkdir(sessions);
@@ -48,17 +49,18 @@ test("database is the sole inventory and status source", async (t) => {
   state.prepare("UPDATE threads SET rollout_path = ? WHERE id = ?").run(join(home, "missing.jsonl"), id);
   await scanner.refresh();
   assert.equal((await scanner.taskDetail(id)).observed.sampledBytes, undefined);
-  history.prepare("INSERT INTO thread_turns VALUES (?, ?, ?)").run(id, 2, "failed");
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, ?, ?)").run(id, 2, "failed");
   const next = await scanner.refresh();
-  assert.equal(next.tasks[0].status, null);
+  assert.equal(next.tasks[0].status, "interrupted");
   assert.equal(next.tasks[0].observed.lastTurnEvent, "failed");
 });
 
 test("chat name takes precedence over title, with title and ID fallbacks", async (t) => {
   const setup = await fixture(t); if (!setup) return;
-  const { home, state } = setup;
+  const { home, state, history } = setup;
   const now = Date.now();
-  state.prepare("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, "TaskChef Next storage demo", "Old title", "/example/project", 0, now, now, now, null, "user");
+  state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, "TaskChef Next storage demo", "Old title", "/example/project", 0, now, now, now, null, "user");
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, ?, ?)").run(id, 1, "completed");
   const scanner = new CodexSessionScanner({ codexHome: home });
   assert.equal((await scanner.refresh()).tasks[0].title, "TaskChef Next storage demo");
   state.prepare("UPDATE threads SET name = ? WHERE id = ?").run("  ", id);
@@ -69,9 +71,9 @@ test("chat name takes precedence over title, with title and ID fallbacks", async
 
 test("inventory excludes child chats and Guardian reviews but shows direct child counts on parents", async (t) => {
   const setup = await fixture(t); if (!setup) return;
-  const { home, state } = setup;
+  const { home, state, history } = setup;
   const now = Date.now();
-  const insert = state.prepare("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const insert = state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const parent = "parent";
   insert.run(parent, "Parent", "", "/example/project", 0, now, now, now - 2, null, "user");
   insert.run("other", "Other", "", "/example/project", 0, now, now, now - 1, null, null);
@@ -81,6 +83,7 @@ test("inventory excludes child chats and Guardian reviews but shows direct child
   insert.run("guardian", "Guardian review", "", "/example/project", 0, now, now, now + 1, null, "guardian_review");
   state.prepare("INSERT INTO thread_spawn_edges VALUES (?, ?, ?)").run(parent, "child", "open");
   state.prepare("INSERT INTO thread_spawn_edges VALUES (?, ?, ?)").run(parent, "legacy-child", "open");
+  for (const chat of [parent, "other", "older"]) history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, ?, ?)").run(chat, 1, "completed");
   const scanner = new CodexSessionScanner({ codexHome: home, fileLimit: 2 });
   const first = await scanner.refresh();
   assert.deepEqual(first.tasks.map((task) => task.id), ["other", parent]);
@@ -104,8 +107,9 @@ test("missing or incompatible databases are fatal and clear prior inventory", as
   const setup = await fixture(t); if (!setup) return;
   const { home, state, history } = setup;
   const now = Date.now();
-  state.prepare("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, null, "Title", "/example/project", 0, now, now, now, null, "user");
+  state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, null, "Title", "/example/project", 0, now, now, now, null, "user");
   const scanner = new CodexSessionScanner({ codexHome: home });
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, ?, ?)").run(id, 1, "completed");
   assert.equal((await scanner.refresh()).tasks.length, 1);
   history.exec("DROP TABLE thread_turns");
   const failed = await scanner.refresh();
@@ -114,7 +118,7 @@ test("missing or incompatible databases are fatal and clear prior inventory", as
   assert.deepEqual(failed.tasks, []);
   assert.equal(scanner.task(id), undefined);
   assert.equal(await scanner.taskDetail(id), null);
-  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT)");
+  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT)");
   assert.equal((await scanner.refresh()).healthy, true);
 });
 
@@ -148,4 +152,85 @@ test("supported Node versions permit read-only database scans", async (t) => {
     const result = await new CodexSessionScanner({ codexHome: setup.home, nodeVersion }).refresh();
     assert.equal(result.healthy, true);
   }
+});
+
+test("workflow labels distinguish scheduled input, ordinary input, archives, and stale turns", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  const now = Date.now();
+  await mkdir(join(home, "automations", "routine"), { recursive: true });
+  await writeFile(join(home, "automations", "routine", "automation.toml"), 'id = "routine"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "mixed"\n');
+  const add = (chat, status, archived = 0, recent = true) => {
+    const updated = recent ? now : now - 600_000;
+    state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?,?,?, ?,?,?,?, ?,?,?)").run(chat, chat, "", "/project", archived, updated, updated, updated, null, "user");
+    history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,?,?,?,?)").run(chat, 1, status, `turn-${chat}`, `input-${chat}`);
+  };
+  add("running", "inProgress"); add("stale", "inProgress", 0, false);
+  add("archived", "inProgress", 1); add("failed", "failed"); add("stopped", "interrupted");
+  add("mixed", "completed"); add("ordinary", "completed");
+  history.prepare("INSERT INTO thread_items VALUES (?,?,?)").run("mixed", "input-mixed", JSON.stringify({ content: [{ type: "text", text: "<heartbeat>\n<automation_id>routine</automation_id>\n</heartbeat>" }], clientId: null }));
+  const scanner = new CodexSessionScanner({ codexHome: home, now: () => now, statePath: join(home, "done.json") });
+  await scanner.refresh();
+  assert.equal(scanner.task("running").status, "working");
+  assert.equal(scanner.task("stale").status, null);
+  assert.equal(scanner.task("archived").status, "completed");
+  assert.equal(scanner.task("failed").status, "interrupted");
+  assert.equal(scanner.task("stopped").status, "interrupted");
+  assert.equal(scanner.task("ordinary").status, "needs_input");
+  assert.equal(scanner.task("mixed").status, "scheduled");
+  assert.equal(scanner.task("mixed").scheduled, true);
+  // A real ordinary input moves the same scheduled chat back to Waiting.
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,?,?,?,?)").run("mixed", 2, "completed", "human-turn", "human-input");
+  history.prepare("INSERT INTO thread_items VALUES (?,?,?)").run("mixed", "human-input", JSON.stringify({ content: [{ type: "text", text: "Continue this discussion" }], clientId: "human-client" }));
+  await scanner.refresh();
+  assert.equal(scanner.task("mixed").status, "needs_input");
+  assert.equal(scanner.task("mixed").scheduled, true);
+  assert.equal(scanner.task("mixed").inputSource, "ordinary");
+  await writeFile(join(home, "automations", "routine", "automation.toml"), 'id = "routine"\nkind = "heartbeat"\nstatus = "PAUSED"\ntarget_thread_id = "mixed"\n');
+  await scanner.refresh();
+  assert.equal(scanner.task("mixed").scheduled, false);
+  // Another active schedule must not make this paused heartbeat Scheduled.
+  await mkdir(join(home, "automations", "other"));
+  await writeFile(join(home, "automations", "other", "automation.toml"), 'id = "other"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "mixed"\n');
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,?,?,?,?)").run("mixed", 3, "completed", "paused-turn", "input-mixed");
+  await scanner.refresh();
+  assert.equal(scanner.task("mixed").status, "needs_input");
+  assert.equal(scanner.task("mixed").scheduled, true);
+  assert.equal(scanner.task("mixed").inputSource, "scheduled");
+});
+
+test("empty chats and legacy JSON subagents are filtered before the limit", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  for (const [chat, recency] of [["empty", 4], ["review", 3], ["cli", 2], ["older", 1]]) {
+    state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms,source) VALUES (?,?,0,1,1,?,?)").run(chat, chat, recency, chat === "review" ? '{"subagent":"review"}' : "cli");
+    if (chat !== "empty") history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(chat);
+  }
+  const scanner = new CodexSessionScanner({ codexHome: home, fileLimit: 1, statePath: join(home, "done.json") });
+  const snapshot = await scanner.refresh();
+  assert.deepEqual(snapshot.tasks.map((task) => task.id), ["cli"]);
+  assert.equal(snapshot.scan.indexedFiles, 2);
+  assert.equal(snapshot.scan.unreadFiles, 1);
+});
+
+test("Done marks persist, can be removed, and reset on a new turn", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  const now = Date.now();
+  state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Chat',0,?,?,?)").run(id, now, now, now);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,1,'completed','turn-1')").run(id);
+  const options = { codexHome: home, statePath: join(home, "done.json") };
+  const scanner = new CodexSessionScanner(options);
+  await scanner.setDone(id, "turn-1", true);
+  assert.equal(scanner.task(id).status, "completed");
+  assert.equal((await new CodexSessionScanner(options).refresh()).tasks[0].manualDone, true);
+  await scanner.setDone(id, "turn-1", false);
+  assert.equal(scanner.task(id).status, "needs_input");
+  await scanner.setDone(id, "turn-1", true);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,2,'inProgress','turn-2')").run(id);
+  await scanner.refresh();
+  assert.equal(scanner.task(id).status, "working");
+  assert.equal(scanner.task(id).manualDone, false);
+  await assert.rejects(scanner.setDone(id, "turn-1", true), /Chat changed/);
+  await assert.rejects(scanner.setDone(id, "turn-2", true), /in-progress/);
 });

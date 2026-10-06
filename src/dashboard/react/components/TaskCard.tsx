@@ -29,10 +29,11 @@ export function TaskCard({
                 </button>
               </Title>
               <Stack align="flex-end" className="taskchef-card-metadata" gap={4}>
-                <StatusBadge status={task.status} />
+                <StatusBadge status={task.status} label={task.statusLabel} />
               </Stack>
             </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
+            {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
             {task.observed?.directChildCount ? <Text size="xs">{task.observed.directChildCount} direct subagent {task.observed.directChildCount === 1 ? "chat" : "chats"}</Text> : null}
           </Box>
 

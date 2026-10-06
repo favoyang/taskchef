@@ -10,7 +10,7 @@ vi.mock("@mantine/core", async () => {
   const wrap = (tag: string) => ({ children, component, ...props }: Record<string, unknown>) => React.createElement(component as string || tag, { "aria-label": props["aria-label"], role: props.role, id: props.id }, children as React.ReactNode);
   return {
     ActionIcon: ({ children, onClick, ...props }: Record<string, unknown>) => React.createElement("button", { "aria-label": props["aria-label"], onClick }, children as React.ReactNode),
-    Alert: wrap("div"), Box: wrap("div"), Button: wrap("button"), Group: wrap("div"),
+    Alert: wrap("div"), Box: wrap("div"), Button: ({ children, onClick, disabled }: {children: React.ReactNode; onClick?: () => void; disabled?: boolean}) => <button onClick={onClick} disabled={disabled}>{children}</button>, Group: wrap("div"),
     MantineProvider: ({ children }: { children: React.ReactNode }) => children,
     Paper: wrap("div"), Stack: wrap("div"), Text: wrap("p"), Title: wrap("h2"),
     SegmentedControl: ({ data, onChange, value, ...props }: { data: Array<{ label: string; value: string }>; onChange: (value: string) => void; value: string; "aria-label": string }) => React.createElement("div", { role: "radiogroup", "aria-label": props["aria-label"] }, data.map((item) => React.createElement("button", { key: item.value, role: "radio", "aria-checked": item.value === value, onClick: () => onChange(item.value) }, item.label))),
@@ -33,12 +33,12 @@ vi.mock("../../dashboard/react/components/TaskBoard", () => ({
   TaskBoard: ({ tasks, onOpenDetail }: { tasks: Task[]; onOpenDetail: (task: Task) => void }) => <section aria-label="Task board">{tasks.map((task) => <button key={task.id} onClick={() => onOpenDetail(task)}>{task.title}</button>)}</section>,
 }));
 vi.mock("../../dashboard/react/components/TaskDetail", () => ({
-  TaskDetail: ({ task, opened, onClose, onTransition }: {
-    task: Task | null; opened: boolean; onClose: () => void;
+  TaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
+    task: Task | null; opened: boolean; onClose: () => void; extraActions?: React.ReactNode;
     onTransition: (status: "completed" | "failed", actionId: string) => Promise<unknown>;
   }) => {
     const [confirm, setConfirm] = useState(false);
-    return opened && task ? <section aria-label="Task detail"><h2>{task.title}</h2><p>{task.status}</p><button onClick={onClose}>Close</button><button onClick={() => setConfirm(true)}>Mark completed</button>{confirm && <button onClick={() => { void onTransition("completed", crypto.randomUUID()); setConfirm(false); }}>Confirm</button>}</section> : null;
+    return opened && task ? <section aria-label="Task detail"><h2>{task.title}</h2><p>{task.status}</p>{extraActions}<button onClick={onClose}>Close</button><button onClick={() => setConfirm(true)}>Mark completed</button>{confirm && <button onClick={() => { void onTransition("completed", crypto.randomUUID()); setConfirm(false); }}>Confirm</button>}</section> : null;
   },
 }));
 
@@ -99,7 +99,7 @@ test("lifecycle events log readable single strings without suppressing repeats",
 });
 
 test("switches list and board and filters by project, date, and status with contextual counts", async () => {
-  tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("three", "failed", new Date().toISOString(), "Beta")];
+  tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("three", "interrupted", new Date().toISOString(), "Beta")];
   details = new Map(tasks.map((item) => [item.id, item]));
   mount();
   expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
@@ -111,7 +111,7 @@ test("switches list and board and filters by project, date, and status with cont
   expect(screen.getByText("Tasks: 1 of 3")).toBeVisible();
   fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "all" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "" } });
-  fireEvent.click(screen.getByRole("radio", { name: /Failed/ }));
+  fireEvent.click(screen.getByRole("radio", { name: /Interrupted/ }));
   expect(screen.getByText("Tasks: 1 of 3")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
@@ -122,12 +122,12 @@ test("switches list and board and filters by project, date, and status with cont
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
 });
 
-test("offers an Unresolved filter with a contextual count", async () => {
+test("offers an Unverified filter with a contextual count", async () => {
   tasks = [task("one", null, new Date().toISOString(), "Alpha"), task("two", null, new Date().toISOString(), "Beta")];
   mount();
-  expect(await screen.findByRole("radio", { name: "Unresolved 2" })).toBeVisible();
+  expect(await screen.findByRole("radio", { name: "Unverified 2" })).toBeVisible();
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
-  fireEvent.click(screen.getByRole("radio", { name: "Unresolved 1" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Unverified 1" }));
   expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
 });
@@ -315,4 +315,27 @@ test("a database failure after a healthy snapshot removes stale tasks", async ()
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("cannot read the Codex databases");
   expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
+});
+
+
+test("Done control calls the local mark tool with the displayed turn and refreshes", async () => {
+  const current = { ...task("one", "needs_input"), turnId: "turn-one", observed: { archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } };
+  tasks = [current]; details = new Map([[current.id, current]]);
+  server.call.mockImplementation(async ({ name, arguments: args }) => {
+    if (name === "taskchef_app_set_done") {
+      const next = { ...current, status: args.done ? "completed" : "needs_input", manualDone: args.done } as Task;
+      tasks = [next]; details.set(current.id, next);
+      return { structuredContent: { task: next } };
+    }
+    if (name === "taskchef_app_snapshot") return { structuredContent: { snapshot: { tasks, healthy: true } } };
+    if (name === "taskchef_app_task") return { structuredContent: { task: details.get(current.id) } };
+    throw new Error(name);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Task one" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Mark Done" }));
+  expect(await screen.findByRole("button", { name: "Reopen" })).toBeVisible();
+  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_set_done", arguments: { taskId: "one", expectedTurnId: "turn-one", done: true } });
+  fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+  expect(await screen.findByRole("button", { name: "Mark Done" })).toBeVisible();
 });

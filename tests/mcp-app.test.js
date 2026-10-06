@@ -7,7 +7,7 @@ import { registerTaskChefApp, TASKCHEF_APP_URI } from "../src/mcp-app.js";
 
 const task = { id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
-test("TaskChef Next sidebar exposes only read-only scan and chat navigation tools", async () => {
+test("TaskChef Next sidebar exposes database reads, local Done marks, and chat navigation", async () => {
   assert.equal(TASKCHEF_APP_URI, "ui://taskchef/task-board/v3");
   let revision = 1;
   let scans = 0;
@@ -20,6 +20,7 @@ test("TaskChef Next sidebar exposes only read-only scan and chat navigation tool
     },
     task: (id) => id === task.id ? task : null,
     taskDetail: async (id) => id === task.id ? task : null,
+    setDone: async (id, expectedTurnId, done) => { assert.equal(id, task.id); assert.equal(expectedTurnId, "turn-one"); return { ...task, manualDone: done }; },
     close: () => {},
   };
   const server = new McpServer({ name: "taskchef-next-test", version: "1" });
@@ -48,6 +49,8 @@ test("TaskChef Next sidebar exposes only read-only scan and chat navigation tool
     assert.equal(detail.structuredContent.task.title, task.title);
     await client.callTool({ name: "taskchef_app_open_chat", arguments: { taskId: task.id } });
     assert.equal(opened, task.id);
+    const done = await client.callTool({ name: "taskchef_app_set_done", arguments: { taskId: task.id, expectedTurnId: "turn-one", done: true } });
+    assert.equal(done.structuredContent.task.manualDone, true);
     assert.ok(scans >= 4);
   } finally { await client.close(); await server.close(); }
 });

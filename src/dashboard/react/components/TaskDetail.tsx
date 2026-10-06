@@ -49,6 +49,7 @@ export function TaskDetail({
   notifications,
   notice,
   readOnly = false,
+  extraActions,
 }: {
   busy: boolean;
   error: string | null;
@@ -62,6 +63,7 @@ export function TaskDetail({
   notifications?: ReactNode;
   notice?: string | null;
   readOnly?: boolean;
+  extraActions?: React.ReactNode;
 }) {
   const mobile = useMediaQuery("(max-width: 48em)");
   const [confirmStatus, setConfirmStatus] = useState<TerminalStatus | null>(null);
@@ -92,10 +94,11 @@ export function TaskDetail({
             <Text c="teal" fw={700} size="xs" tt="uppercase">{task.project.name}</Text>
             <Title id="task-detail-title" order={2} size="h3" tabIndex={-1}>{task.title}</Title>
           </Box>
-          <StatusBadge status={task.status} />
+          <StatusBadge status={task.status} label={task.statusLabel} />
         </Group>
         <Group gap="xs" mt="md">
           <OpenChatButton loading={busy} onClick={onOpenCodex} taskTitle={task.title} />
+          {extraActions}
           {!readOnly && <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
             <Menu.Target>
               <Tooltip label="More task actions">
@@ -162,6 +165,7 @@ export function TaskDetail({
             </> : <>
               <dt>Location</dt><dd>{task.observed.archive ? "Archived sessions" : "Active sessions"}</dd>
             </>}
+            {task.statusLabel && <><dt>Schedule</dt><dd>{task.scheduled ? "Active" : "None active"}</dd><dt>Latest input</dt><dd>{task.inputSource}</dd><dt>Done reason</dt><dd>{task.observed.archive ? "Archived" : task.manualDone ? "Manual mark" : "Not marked"}</dd></>}
             <dt>Latest turn event</dt><dd>{task.observed.lastTurnEvent ?? "Unknown"}</dd>
             {task.observed.userMessages !== undefined && task.observed.assistantMessages !== undefined && <>
               <dt>Observed messages</dt><dd>{task.observed.userMessages} user, {task.observed.assistantMessages} assistant</dd>

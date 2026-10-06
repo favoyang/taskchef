@@ -6,26 +6,22 @@ import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
 import { RelativeTime } from "./RelativeTime";
 
-const lanes: { status: TaskStatus; label: string }[] = [
+const defaultLanes: { status: TaskStatus; label: string }[] = [
   { status: "working", label: "Working" },
   { status: "needs_input", label: "Needs input" },
   { status: "completed", label: "Completed" },
   { status: "failed", label: "Failed" },
   { status: null, label: "Unresolved" },
 ];
-const knownStatuses = new Set<TaskStatus>(["working", "needs_input", "completed", "failed"]);
-
-function laneFor(task: Task): TaskStatus {
-  return knownStatuses.has(task.status) ? task.status : null;
-}
-
 export function TaskBoard({
+  lanes = defaultLanes,
   completedLimit,
   onMoreCompleted,
   onOpenCodex,
   onOpenDetail,
   tasks,
 }: {
+  lanes?: { status: TaskStatus; label: string }[];
   completedLimit: number;
   onMoreCompleted: () => void;
   onOpenCodex: (task: Task) => void;
@@ -73,6 +69,8 @@ export function TaskBoard({
     }
   }
 
+  const knownStatuses = new Set(lanes.map((lane) => lane.status));
+  const laneFor = (task: Task): TaskStatus => knownStatuses.has(task.status) ? task.status : null;
   const visibleLanes = lanes.filter((lane) => lane.status !== null || tasks.some((task) => laneFor(task) === null));
   return (
     <Box
@@ -131,6 +129,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
       </Title>
       <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
+      {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
       {task.observed?.directChildCount ? <Text size="xs">{task.observed.directChildCount} direct subagent {task.observed.directChildCount === 1 ? "chat" : "chats"}</Text> : null}
       <Text className="taskchef-board-excerpt taskchef-preserve-lines" size="sm">
         <LinkedText task={task} text={excerpt} />
