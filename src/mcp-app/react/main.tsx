@@ -17,6 +17,10 @@ import "./styles.css";
 const bridge = new App({ name: "TaskChef Next", version: "1.0.0" });
 const connected = bridge.connect();
 
+function logLifecycle(event: string, displayMode = bridge.getHostContext?.()?.displayMode ?? "unknown") {
+  console.warn(`TaskChef Next lifecycle: ${event} ${JSON.stringify({ visibility: document.visibilityState, displayMode })}`);
+}
+
 async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   await connected;
   const result = await bridge.callServerTool({ name, arguments: args });
@@ -109,31 +113,31 @@ export function TaskChefApp() {
     }
   }, []);
   useEffect(() => {
-    console.warn("TaskChef Next lifecycle: mounted", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+    logLifecycle("mounted");
     const onVisibility = () => {
       const next = document.visibilityState;
-      console.warn("TaskChef Next lifecycle: visibilitychange", { visibility: next });
+      logLifecycle("visibilitychange");
       setVisibility(next);
       if (next === "visible" && displayModeRef.current !== "inline") void refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
     };
     const onPageHide = () => {
-      console.warn("TaskChef Next lifecycle: pagehide", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+      logLifecycle("pagehide");
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     bridge.onhostcontextchanged = (context) => {
       const next = context.displayMode ?? bridge.getHostContext?.()?.displayMode ?? "unknown";
-      console.warn("TaskChef Next lifecycle: host context changed", { displayMode: next, visibility: document.visibilityState });
+      logLifecycle("host context changed", next);
       setDisplayMode(next);
     };
     bridge.onteardown = () => {
-      console.warn("TaskChef Next lifecycle: host teardown", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+      logLifecycle("host teardown");
       return {};
     };
     void connected.then(() => setDisplayMode(bridge.getHostContext?.()?.displayMode ?? "unknown"));
     void refresh().catch((cause) => { setTasks([]); setError(String(cause)); });
     return () => {
-      console.warn("TaskChef Next lifecycle: unmounted", { visibility: document.visibilityState, displayMode: bridge.getHostContext?.()?.displayMode ?? "unknown" });
+      logLifecycle("unmounted");
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
     };

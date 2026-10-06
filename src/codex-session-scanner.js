@@ -32,7 +32,7 @@ async function readDatabase(codexHome, fileLimit, now) {
   try {
     state = new module.DatabaseSync(join(codexHome, "state_5.sqlite"), { readOnly: true });
     history = new module.DatabaseSync(join(codexHome, "thread_history_1.sqlite"), { readOnly: true });
-    const rows = state.prepare("SELECT id, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path FROM threads ORDER BY recency_at_ms DESC LIMIT ?").all(fileLimit);
+    const rows = state.prepare("SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path FROM threads ORDER BY recency_at_ms DESC LIMIT ?").all(fileLimit);
     const total = state.prepare("SELECT count(*) AS count FROM threads").get().count;
     const latest = history.prepare("SELECT status FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1");
     const tasks = rows.map((row) => {
@@ -45,8 +45,8 @@ async function readDatabase(codexHome, fileLimit, now) {
             : "No turn status is available; task outcome is unknown.";
       const cwd = row.cwd || "";
       return {
-        id: row.id, title: row.title || `Codex chat ${row.id.slice(0, 8)}`,
-        instruction: "Chat title is local metadata and can contain user text.",
+        id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
+        instruction: "Chat name and title are local metadata and can contain user text.",
         summary, status: active ? "working" : null,
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
@@ -59,7 +59,7 @@ async function readDatabase(codexHome, fileLimit, now) {
       visibleFiles: tasks.length, indexedFiles: total, unreadFiles: Math.max(0, total - tasks.length), fileLimit,
       activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0,
       sources: ["state_5.sqlite:threads", "thread_history_1.sqlite:thread_turns"],
-      fields: ["session ID", "title", "timestamps", "project directory", "archive flag", "latest turn status"],
+      fields: ["session ID", "name", "title", "timestamps", "project directory", "archive flag", "latest turn status"],
     } };
   } finally { history?.close(); state?.close(); }
 }

@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testi
 import { useState } from "react";
 import type { Task } from "../../dashboard/react/types";
 
-const server = vi.hoisted(() => ({ call: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void) }));
+const server = vi.hoisted(() => ({ call: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void), teardown: undefined as undefined | (() => object) }));
 vi.mock("@mantine/core", async () => {
   const React = await import("react");
   const wrap = (tag: string) => ({ children, component, ...props }: Record<string, unknown>) => React.createElement(component as string || tag, { "aria-label": props["aria-label"], role: props.role, id: props.id }, children as React.ReactNode);
@@ -23,6 +23,7 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
     getHostContext() { return { displayMode: server.displayMode }; }
     callServerTool(input: { name: string; arguments: Record<string, unknown> }) { return server.call(input); }
     set onhostcontextchanged(handler: (context: { displayMode: string }) => void) { server.hostContextChanged = handler; }
+    set onteardown(handler: () => object) { server.teardown = handler; }
   },
 }));
 vi.mock("../../dashboard/react/components/TaskCard", () => ({
@@ -56,6 +57,7 @@ let detailFailure: string | null;
 beforeEach(() => {
   server.displayMode = "unknown";
   server.hostContextChanged = undefined;
+  server.teardown = undefined;
   window.localStorage.clear();
   tasks = [task("one")];
   details = new Map(tasks.map((item) => [item.id, item]));
@@ -73,15 +75,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); server.call.mockReset(); vi.restoreAllMocks(); });
 function mount() { render(<TaskChefApp />); }
 
-test("pagehide logs iframe navigation separately from React unmount", () => {
+test("lifecycle events log readable single strings without suppressing repeats", () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const { unmount } = render(<TaskChefApp />);
+  const details = JSON.stringify({ visibility: document.visibilityState, displayMode: "unknown" });
+  expect(warn).toHaveBeenCalledWith(`TaskChef Next lifecycle: mounted ${details}`);
   warn.mockClear();
+  fireEvent(document, new Event("visibilitychange"));
+  expect(warn).toHaveBeenCalledWith(`TaskChef Next lifecycle: visibilitychange ${details}`);
   fireEvent(window, new Event("pagehide"));
-  expect(warn).toHaveBeenCalledWith("TaskChef Next lifecycle: pagehide", { visibility: document.visibilityState, displayMode: "unknown" });
-  expect(warn).not.toHaveBeenCalledWith("TaskChef Next lifecycle: unmounted", expect.anything());
+  fireEvent(window, new Event("pagehide"));
+  expect(warn.mock.calls.filter(([message]) => message === `TaskChef Next lifecycle: pagehide ${details}`)).toHaveLength(2);
+  act(() => server.hostContextChanged?.({ displayMode: "fullscreen" }));
+  expect(warn).toHaveBeenCalledWith(`TaskChef Next lifecycle: host context changed ${JSON.stringify({ visibility: document.visibilityState, displayMode: "fullscreen" })}`);
+  act(() => server.teardown?.());
+  expect(warn).toHaveBeenCalledWith(`TaskChef Next lifecycle: host teardown ${details}`);
   unmount();
-  expect(warn).toHaveBeenCalledWith("TaskChef Next lifecycle: unmounted", { visibility: document.visibilityState, displayMode: "unknown" });
+  expect(warn).toHaveBeenCalledWith(`TaskChef Next lifecycle: unmounted ${details}`);
+  expect(warn.mock.calls.every((call) => call.length === 1 && typeof call[0] === "string" && !call[0].includes("[object Object]"))).toBe(true);
   warn.mockClear();
   fireEvent(window, new Event("pagehide"));
   expect(warn).not.toHaveBeenCalled();
