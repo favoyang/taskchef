@@ -6,13 +6,14 @@ import { writeDurableAtomic } from "./state-store.js";
 import { dirname } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-const FILE_LIMIT = 300;
 const HEAD_BYTES = 32 * 1024;
 const META_LINE_BYTES = 1024 * 1024;
 const TAIL_BYTES = 256 * 1024;
 const ACTIVE_WINDOW_MS = 2 * 60_000;
 let sqliteModule;
 class UnsupportedNodeVersionError extends Error {}
+class DoneStateError extends Error {}
+class InvalidRolloutMetadataError extends Error {}
 
 function supportsReadOnlySqlite(version) {
   const match = /^(\d+)\.(\d+)\./.exec(version);
@@ -54,18 +55,31 @@ async function readDoneMarks(path) {
     const marks = JSON.parse(await readFile(path, "utf8"));
     if (!marks || typeof marks !== "object" || Array.isArray(marks) || Object.values(marks).some((v) => typeof v !== "string")) throw new Error("Invalid TaskChef Done marks.");
     return marks;
-  } catch (error) { if (error.code === "ENOENT") return {}; throw error; }
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw new DoneStateError("TaskChef Next: the local Done state file is unavailable or invalid. Repair that file before changing Done marks.");
+  }
 }
 
 // Codex keeps a chat ID stable after revert, but selects a new rollout ID.
 // Turn and item rows use the rollout ID encoded in the selected filename.
 function historyId(row) {
-  const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-  const match = new RegExp(`^rollout-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-(${uuid})(?:_(${uuid}))?\\.jsonl(?:\\.zst)?$`, "i").exec(basename(row.rollout_path || ""));
-  return match ? match[2] || match[1] : row.id;
+  const uuid = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+  const name = basename(row.rollout_path || "");
+  const match = new RegExp(`^rollout-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-(${uuid})(?:_(${uuid}))?\\.jsonl(?:\\.zst)?$`).exec(name);
+  const timestamp = name.slice(8, 27).replace(/T(\d{2})-(\d{2})-(\d{2})$/, "T$1:$2:$3");
+  const date = new Date(`${timestamp}Z`);
+  const validTimestamp = Number.isFinite(date.getTime()) && date.toISOString().slice(0, 19) === timestamp;
+  if (match && validTimestamp) {
+    if (match[1].toLowerCase() !== row.id.toLowerCase()) throw new InvalidRolloutMetadataError("TaskChef Next: the selected rollout filename belongs to a different chat. Current turn lookup is unavailable.");
+    return (match[2] || match[1]).toLowerCase();
+  }
+  if (row.history_mode === "paginated") throw new InvalidRolloutMetadataError("TaskChef Next: a paginated chat has an invalid selected rollout filename. Current turn lookup is unavailable.");
+  // Codex explicitly supports noncanonical filenames for legacy histories.
+  return row.id;
 }
 
-async function readDatabase(codexHome, fileLimit, now, doneMarks) {
+async function readDatabase(codexHome, now, doneMarks) {
   const module = await sqlite();
   if (!module?.DatabaseSync) throw new Error("node:sqlite is unavailable");
   const { schedules, errors: scheduleErrors } = await readSchedules(codexHome);
@@ -77,16 +91,19 @@ async function readDatabase(codexHome, fileLimit, now, doneMarks) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
-    // Filter against actual turns before the display limit, so empty chats do not
-    // displace real work or inflate the outside-limit count.
-    const turns = new Map(history.prepare(`SELECT thread_id, turn_id, status, started_at, first_user_item_id
-      FROM (SELECT *, row_number() OVER (PARTITION BY thread_id ORDER BY rollout_ordinal DESC) AS latest FROM thread_turns)
-      WHERE latest = 1`).all().map((row) => [row.thread_id, row]));
-    const eligibleRows = state.prepare(`SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path,
+    const latestTurn = history.prepare(`SELECT turn_id, status, started_at, first_user_item_id
+      FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
+    const turns = new Map();
+    const rows = state.prepare(`SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
-      FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => turns.has(historyId(row)));
-    const rows = eligibleRows.slice(0, fileLimit);
-    const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND item_id = ?");
+      FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => {
+      const key = historyId(row);
+      const turn = latestTurn.get(key);
+      if (!turn) return false;
+      turns.set(key, turn);
+      return true;
+    });
+    const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_id = ?");
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
       const updatedMs = Math.max(row.updated_at_ms || row.recency_at_ms || row.created_at_ms, (turn.started_at || 0) * 1000);
@@ -96,7 +113,7 @@ async function readDatabase(codexHome, fileLimit, now, doneMarks) {
       let inputSource = "unverified";
       let inputScheduleActive = false;
       if (turn.first_user_item_id) {
-        const raw = input.get(historyId(row), turn.first_user_item_id)?.item_json;
+        const raw = input.get(historyId(row), turn.turn_id, turn.first_user_item_id)?.item_json;
         if (raw) {
           const item = JSON.parse(raw);
           const text = (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
@@ -131,7 +148,7 @@ async function readDatabase(codexHome, fileLimit, now, doneMarks) {
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
       source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5,
-      visibleFiles: tasks.length, indexedFiles: eligibleRows.length, unreadFiles: Math.max(0, eligibleRows.length - tasks.length), fileLimit,
+      visibleFiles: tasks.length, indexedFiles: tasks.length, unreadFiles: 0,
       activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0, scheduleErrors,
       sources: ["state_5.sqlite:threads", "state_5.sqlite:thread_spawn_edges", "thread_history_1.sqlite:thread_turns", "thread_history_1.sqlite:thread_items", "automations/*/automation.toml"],
       fields: ["session ID", "name", "title", "timestamps", "project directory", "archive flag", "thread source", "direct child count", "latest turn status", "heartbeat marker", "schedule flag"],
@@ -223,10 +240,9 @@ async function readSession(file, now) {
 }
 
 export class CodexSessionScanner {
-  constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), fileLimit = FILE_LIMIT, statePath = join(homedir(), ".agents", "taskchef-next", "done.json"), nodeVersion = process.versions.node } = {}) {
+  constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), statePath = join(homedir(), ".agents", "taskchef-next", "done.json"), nodeVersion = process.versions.node } = {}) {
     this.codexHome = codexHome;
     this.now = now;
-    this.fileLimit = fileLimit;
     this.nodeVersion = nodeVersion;
     this.statePath = statePath;
     this.mutation = Promise.resolve();
@@ -254,7 +270,7 @@ export class CodexSessionScanner {
   async refreshSource(now) {
     try {
       if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
-      const database = await readDatabase(this.codexHome, this.fileLimit, now, await readDoneMarks(this.statePath));
+      const database = await readDatabase(this.codexHome, now, await readDoneMarks(this.statePath));
       const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => [...tasks.values()].map((task) => `${task.id}:${task.title}:${task.project.path}:${task.updatedAt}:${task.status}:${task.summary}:${task.observed.archive}:${task.observed.lastTurnEvent}:${task.observed.directChildCount ?? ""}:${task.scheduled}:${task.inputSource}:${task.turnId}`).join("|");
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
@@ -266,7 +282,7 @@ export class CodexSessionScanner {
       if (this.stats?.mode !== "error" || this.tasks.size) this.revision += 1;
       this.tasks = new Map();
       this.rolloutPaths = new Map();
-      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError ? error.message : "Codex databases are unavailable or incompatible." };
+      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError || error instanceof DoneStateError || error instanceof InvalidRolloutMetadataError ? error.message : "Codex databases are unavailable or incompatible." };
       return this.snapshot();
     }
   }

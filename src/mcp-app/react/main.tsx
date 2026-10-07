@@ -34,7 +34,7 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-const NEXT_LANES = [{ status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "scheduled", label: "Scheduled" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: null, label: "Unverified" }] as const;
+const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: null, label: "Unverified" }] as const;
 
 interface ScanStats { scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
@@ -230,7 +230,7 @@ export function TaskChefApp() {
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
-            <Text size="sm">{tasks.length} recent top-level chats</Text>
+            <Text size="sm">{tasks.length} eligible top-level chats</Text>
             <Stack gap="xs" mt="xs">
               {tasks.slice(0, 3).map((task) => <Button key={task.id} onClick={() => void openChat(task)} variant="subtle">{task.title}</Button>)}
             </Stack>
@@ -247,7 +247,7 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
-          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats; {scan.unreadFiles} outside recent limit.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
+          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats{scan.unreadFiles ? `; ${scan.unreadFiles} outside recent limit` : "; no chat limit"}.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}

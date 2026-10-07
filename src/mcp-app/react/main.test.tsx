@@ -263,7 +263,7 @@ test("inline mode shows a compact recent-chat view", async () => {
   server.displayMode = "inline";
   tasks = [task("one"), task("two"), task("three"), task("four")];
   mount();
-  expect(await screen.findByText("4 recent top-level chats")).toBeVisible();
+  expect(await screen.findByText("4 eligible top-level chats")).toBeVisible();
   expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task four" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Task board" })).not.toBeInTheDocument();
@@ -276,7 +276,7 @@ test("inline mode loads once and begins polling when expanded", async () => {
   const clearInterval = vi.spyOn(window, "clearInterval");
   const snapshotCalls = () => server.call.mock.calls.filter(([input]) => input.name === "taskchef_app_snapshot").length;
   mount();
-  expect(await screen.findByText("1 recent top-level chats")).toBeVisible();
+  expect(await screen.findByText("1 eligible top-level chats")).toBeVisible();
   expect(snapshotCalls()).toBe(1);
   expect(setInterval.mock.calls.filter(([, delay]) => delay === 5000)).toHaveLength(0);
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));

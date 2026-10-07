@@ -27,7 +27,7 @@ export function registerTaskChefApp(server, {
   }, async () => {
     const snapshot = await scanner.refresh();
     if (!snapshot.healthy) return { structuredContent: { taskCount: 0, error: snapshot.scan.error }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.scan.error}` }] };
-    return { structuredContent: { taskCount: snapshot.tasks.length }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.tasks.length} recent chats.` }] };
+    return { structuredContent: { taskCount: snapshot.tasks.length }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.tasks.length} eligible chats.` }] };
   });
   server.registerTool("taskchef_app_snapshot", {
     title: "Refresh TaskChef Next", description: "Read local Codex session metadata.",

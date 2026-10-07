@@ -1,0 +1,53 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="Electron">
+  <diagram id="storage" name="Codex storage">
+    <mxGraphModel page="0" grid="1" background="#ffffff">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="threads" value="&lt;b&gt;state_5.sqlite · threads&lt;/b&gt;&lt;hr&gt;id = stable chat ID&lt;br&gt;rollout_path = selected history file&lt;br&gt;name, title, cwd, archive flag&lt;br&gt;source, thread_source, timestamps&lt;br&gt;model, reasoning_effort, tokens_used&lt;br&gt;is_pinned, project_id" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="40" width="360" height="245" />
+        </mxCell>
+        <mxCell id="rollout" value="&lt;b&gt;Derived rollout ID (not a table)&lt;/b&gt;&lt;hr&gt;Read selected filename only&lt;br&gt;Ordinary: …-C.jsonl → C&lt;br&gt;Reverted: …-C_R.jsonl → R&lt;br&gt;Also supports .jsonl.zst&lt;br&gt;C = chat ID; R = rollout ID" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#fff2cc;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="460" y="60" width="305" height="205" />
+        </mxCell>
+        <mxCell id="turns" value="&lt;b&gt;thread_history_1.sqlite · thread_turns&lt;/b&gt;&lt;hr&gt;thread_id = rollout ID&lt;br&gt;turn_id + rollout_ordinal&lt;br&gt;status: inProgress / completed /&lt;br&gt;interrupted / failed&lt;br&gt;started_at, completed_at, duration_ms&lt;br&gt;first_user_item_id, final_agent_item_id&lt;br&gt;error_json, rollout byte/ordinal offsets" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="825" y="40" width="390" height="265" />
+        </mxCell>
+        <mxCell id="edges" value="&lt;b&gt;state_5.sqlite · thread_spawn_edges&lt;/b&gt;&lt;hr&gt;parent_thread_id = parent chat ID&lt;br&gt;child_thread_id = child chat ID&lt;br&gt;status&lt;br&gt;Used to exclude children and count them" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="370" width="360" height="170" />
+        </mxCell>
+        <mxCell id="logs" value="&lt;b&gt;Selected rollout .jsonl file&lt;/b&gt;&lt;hr&gt;Records, not SQL tables&lt;br&gt;type, timestamp, payload&lt;br&gt;session_meta.payload.id = chat ID&lt;br&gt;event_msg.payload.type = task_started,&lt;br&gt;task_complete, etc.&lt;br&gt;response_item = message/tool records&lt;br&gt;Optional bounded detail; no status fallback" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#e1d5e7;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="440" y="365" width="335" height="265" />
+        </mxCell>
+        <mxCell id="items" value="&lt;b&gt;thread_history_1.sqlite · thread_items&lt;/b&gt;&lt;hr&gt;thread_id = rollout ID&lt;br&gt;turn_id links to a turn in that rollout&lt;br&gt;item_id, item_type, item_json&lt;br&gt;rollout_ordinal, updated_at_ordinal&lt;br&gt;created_at_ms, started_at_ms,&lt;br&gt;completed_at_ms" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="825" y="375" width="390" height="215" />
+        </mxCell>
+        <mxCell id="projection" value="&lt;b&gt;thread_history_1.sqlite · thread_history_projection_state&lt;/b&gt;&lt;hr&gt;thread_id = rollout ID&lt;br&gt;next_rollout_byte_offset&lt;br&gt;next_rollout_ordinal&lt;br&gt;Records projection progress; unused by board" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#d5e8d4;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="825" y="685" width="390" height="170" />
+        </mxCell>
+        <mxCell id="note" value="&lt;b&gt;Scope and ID example&lt;/b&gt;&lt;hr&gt;Selected fields shown, not a full schema dump.&lt;br&gt;Chat C selects rollout R after revert. Latest turn T belongs to R.&lt;br&gt;Old rows under C may remain; do not use them for current status.&lt;br&gt;Arrows show lookup relationships, not SQL foreign-key constraints.&lt;br&gt;Other tables are listed in docs/taskchef-next-storage.md." style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=15;fillColor=#f5f5f5;strokeColor=#6c8ebf;fontColor=#172b4d;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="710" width="735" height="145" />
+        </mxCell>
+        <mxCell id="a" value="rollout_path" edge="1" parent="1" source="threads" target="rollout" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=13;labelBackgroundColor=#ffffff;endArrow=classic;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="b" value="lookup ID" edge="1" parent="1" source="rollout" target="turns" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=13;labelBackgroundColor=#ffffff;endArrow=classic;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="c" value="chat IDs" edge="1" parent="1" source="threads" target="edges" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=13;labelBackgroundColor=#ffffff;endArrow=classic;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="d" value="selected file" edge="1" parent="1" source="threads" target="logs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=13;labelBackgroundColor=#ffffff;endArrow=classic;exitX=1;exitY=1;entryX=0;entryY=0.1;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e" value="rollout ID + turn/item ID" edge="1" parent="1" source="turns" target="items" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=13;labelBackgroundColor=#ffffff;endArrow=classic;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="f" value="same rollout ID" edge="1" parent="1" source="turns" target="projection" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=13;labelBackgroundColor=#ffffff;endArrow=classic;exitX=1;exitY=0.8;entryX=1;entryY=0.2;jettySize=40;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

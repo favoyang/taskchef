@@ -31,7 +31,7 @@ The archive flag takes precedence over an old turn status. A stale
 it is still Running; it needs a separate unverified treatment until the live
 state is confirmed. Chats with no turn row should be omitted from this board
 rather than given a workflow label. The sidebar now also checks JSON subagent
-sources in `threads.source` before applying its chat limit.
+sources in `threads.source`. It includes all eligible chats with a current-rollout turn.
 
 Counts from all unarchived database rows are not counts of current work. The
 board needs an explicit recency filter and should state the time window used.

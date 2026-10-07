@@ -47,9 +47,11 @@ every task.
 
 The screenshots in this walkthrough use illustrative demo data. Open the
 dashboard beside TaskChef master to see both tasks across your projects.
-In Codex, you can also call `open_taskchef_board` for a read-only [sidebar app](docs/mcp-app.md)
-that inventories recent local Codex chats, shows task details, and links to chats.
-Its **Working** label is a recent-turn hint; other task outcomes are unresolved.
+In Codex, call `open_taskchef_board` for the [TaskChef Next sidebar](docs/mcp-app.md).
+It reads local Codex data and groups chats as **Scheduled**, **Running**,
+**Waiting for input/review**, **Interrupted**, and **Done**. Ambiguous records stay
+**Unverified**. Running uses a recent-turn hint; these labels do not prove task
+outcomes. Mark Done and Reopen write only TaskChef's separate local state.
 The main dashboard's **Board** groups reported tasks by **Working**,
 **Needs input**, **Completed**, and **Failed** so you can see their status at a glance.
 
