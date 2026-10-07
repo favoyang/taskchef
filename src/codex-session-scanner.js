@@ -13,6 +13,7 @@ const TAIL_BYTES = 256 * 1024;
 const ACTIVE_WINDOW_MS = 2 * 60_000;
 let sqliteModule;
 class UnsupportedNodeVersionError extends Error {}
+class StaleProjectionError extends Error {}
 
 function supportsReadOnlySqlite(version) {
   const match = /^(\d+)\.(\d+)\./.exec(version);
@@ -71,13 +72,42 @@ async function readDatabase(codexHome, fileLimit, now, doneMarks) {
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
     // Filter against actual turns before the display limit, so empty chats do not
     // displace real work or inflate the outside-limit count.
-    const turns = new Map(history.prepare(`SELECT thread_id, turn_id, status, started_at, first_user_item_id
+    const turns = new Map(history.prepare(`SELECT thread_id, turn_id, status, started_at, first_user_item_id, rollout_byte_offset
       FROM (SELECT *, row_number() OVER (PARTITION BY thread_id ORDER BY rollout_ordinal DESC) AS latest FROM thread_turns)
       WHERE latest = 1`).all().map((row) => [row.thread_id, row]));
     const eligibleRows = state.prepare(`SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
       FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => turns.has(row.id));
     const rows = eligibleRows.slice(0, fileLimit);
+    // A replaced rollout can leave a valid but stale database projection. Check
+    // its saved turn anchor; never use the log to substitute another status.
+    let mismatches = 0;
+    let uncheckedAnchors = 0;
+    for (const row of rows.filter((row) => !row.archived)) {
+      const turn = turns.get(row.id);
+      if (!Number.isSafeInteger(turn.rollout_byte_offset) || turn.rollout_byte_offset < 0 || !row.rollout_path || !isAbsolute(row.rollout_path)) { uncheckedAnchors += 1; continue; }
+      let file;
+      try {
+        file = await open(row.rollout_path, "r");
+        if (turn.rollout_byte_offset > 0) {
+          const previous = Buffer.alloc(1);
+          const boundary = await file.read(previous, 0, 1, turn.rollout_byte_offset - 1);
+          if (!boundary.bytesRead || previous[0] !== 10) { mismatches += 1; continue; }
+        }
+        const buffer = Buffer.alloc(8191);
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, turn.rollout_byte_offset);
+        if (bytesRead === 0) { mismatches += 1; continue; }
+        const newline = buffer.subarray(0, bytesRead).indexOf(10);
+        if (newline === -1) { uncheckedAnchors += 1; continue; }
+        const record = JSON.parse(buffer.subarray(0, newline).toString("utf8"));
+        if (record?.type !== "event_msg" || record?.payload?.type !== "task_started" || record?.payload?.turn_id !== turn.turn_id) mismatches += 1;
+      } catch (error) {
+        if (error instanceof SyntaxError) mismatches += 1;
+        else uncheckedAnchors += 1;
+        // Missing/unreadable optional logs do not replace database metadata.
+      } finally { await file?.close(); }
+    }
+    if (mismatches) throw new StaleProjectionError(`TaskChef Next: the Codex turn index does not match the current saved history for ${mismatches} open chats. Board labels are unavailable until the index is current. Logs are not used as a status fallback.`);
     const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND item_id = ?");
     const tasks = rows.map((row) => {
       const turn = turns.get(row.id);
@@ -122,7 +152,7 @@ async function readDatabase(codexHome, fileLimit, now, doneMarks) {
       };
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
-      source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5,
+      source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5, uncheckedAnchors,
       visibleFiles: tasks.length, indexedFiles: eligibleRows.length, unreadFiles: Math.max(0, eligibleRows.length - tasks.length), fileLimit,
       activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0, scheduleErrors,
       sources: ["state_5.sqlite:threads", "state_5.sqlite:thread_spawn_edges", "thread_history_1.sqlite:thread_turns", "thread_history_1.sqlite:thread_items", "automations/*/automation.toml"],
@@ -258,7 +288,7 @@ export class CodexSessionScanner {
       if (this.stats?.mode !== "error" || this.tasks.size) this.revision += 1;
       this.tasks = new Map();
       this.rolloutPaths = new Map();
-      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError ? error.message : "Codex databases are unavailable or incompatible." };
+      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError || error instanceof StaleProjectionError ? error.message : "Codex databases are unavailable or incompatible." };
       return this.snapshot();
     }
   }

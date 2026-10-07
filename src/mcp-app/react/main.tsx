@@ -36,11 +36,10 @@ function initialView(): "board" | "list" {
 
 const NEXT_LANES = [{ status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "scheduled", label: "Scheduled" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: null, label: "Unverified" }] as const;
 
-interface ScanStats { scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
+interface ScanStats { uncheckedAnchors?: number; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
-  const [visibility, setVisibility] = useState(document.visibilityState);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
@@ -74,7 +73,7 @@ export function TaskChefApp() {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.healthy === false ? [] : data.snapshot.tasks);
       setScan(data.snapshot.scan);
-      setError(data.snapshot.healthy === false ? data.snapshot.scan.error?.startsWith("TaskChef Next requires Node.js")
+      setError(data.snapshot.healthy === false ? data.snapshot.scan.error?.startsWith("TaskChef Next")
         ? data.snapshot.scan.error
         : "TaskChef Next cannot read the Codex databases. Check that state_5.sqlite and thread_history_1.sqlite are available and compatible, then refresh." : null);
       if (data.snapshot.healthy === false) {
@@ -119,7 +118,6 @@ export function TaskChefApp() {
     const onVisibility = () => {
       const next = document.visibilityState;
       logLifecycle("visibilitychange");
-      setVisibility(next);
       if (next === "visible" && displayModeRef.current !== "inline") void refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
     };
     const onPageHide = () => {
@@ -230,7 +228,6 @@ export function TaskChefApp() {
           <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
         </header>
-        <Text className="taskchef-app-diagnostics" size="xs">View: {displayMode} · document: {visibility}</Text>
         {displayMode === "inline" ? <main className="taskchef-inline-main">
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
             <Text size="sm">{tasks.length} recent top-level chats</Text>
@@ -250,7 +247,7 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
-          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats; {scan.unreadFiles} outside recent limit.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
+          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.uncheckedAnchors && <Text c="yellow" size="xs">History freshness could not be checked for {scan.uncheckedAnchors} open chats because their saved offset or log is unavailable. Their labels use the database only.</Text>}{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats; {scan.unreadFiles} outside recent limit.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}

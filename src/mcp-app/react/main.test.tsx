@@ -267,7 +267,7 @@ test("inline mode shows a compact recent-chat view", async () => {
   expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task four" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Task board" })).not.toBeInTheDocument();
-  expect(screen.getByText("View: inline · document: visible")).toBeVisible();
+  expect(screen.queryByText(/View:.*document:/)).not.toBeInTheDocument();
 });
 
 test("inline mode loads once and begins polling when expanded", async () => {
