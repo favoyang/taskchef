@@ -27,5 +27,6 @@ In sidebar or fullscreen mode, the mounted app requests a fresh snapshot every f
 
 The UI is bundled as the `ui://taskchef/task-board/v3` MCP resource. Build it with `npm run build:mcp-app`; run `npm run check:mcp-app` and the relevant tests before release. Reopen the app after rebuilding the resource.
 
-When the stored offset and log are available, the scanner checks a visible open chat's saved turn byte offset against the current rollout start record (at most 8 KiB per chat). A mismatch makes the board fail visibly: the database projection is stale. It never substitutes rollout status. This check detects replaced histories; it does not prove that every database projection has caught up with every appended event.
-Missing offsets or unreadable optional logs are counted in a visible warning. Those chats retain database labels without a freshness claim.
+The selected rollout filename determines the history lookup ID. Ordinary chats use the chat ID. After a revert, Codex keeps the chat ID but selects a filename ending in `<chat-id>_<rollout-id>.jsonl`. `thread_history_1.sqlite.thread_turns.thread_id` and `thread_items.thread_id` then use the rollout ID. The scanner follows `state_5.sqlite.threads.rollout_path` to select that ID; it does not open logs to get board status.
+
+Old history rows can remain under the original chat ID. Reading those rows instead of the selected rollout can show an old interrupted turn. This was a TaskChef lookup bug, not evidence that Codex's database was stale.

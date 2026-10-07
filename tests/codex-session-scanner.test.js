@@ -235,36 +235,27 @@ test("Done marks persist, can be removed, and reset on a new turn", async (t) =>
   await assert.rejects(scanner.setDone(id, "turn-2", true), /in-progress/);
 });
 
-test("a replaced rollout invalidates the database projection without status fallback", async (t) => {
+test("selected rollout IDs supply current turns and inputs without reading logs", async (t) => {
   const setup = await fixture(t); if (!setup) return;
   const { home, state, history } = setup;
-  const path = join(home, "current.jsonl");
+  const rolloutId = "01a06613-2458-7372-a1af-5159b7e39b61";
+  const path = join(home, `rollout-2026-09-03T15-02-05-${id}_${rolloutId}.jsonl`);
+  // No log exists: status and input must come from the selected database rows.
   state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path) VALUES (?,?,0,1,1,1,?)").run(id, "Example", path);
-  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,rollout_byte_offset) VALUES (?,1,'interrupted','old-turn',0)").run(id);
-  await writeFile(path, line("event_msg", { type: "task_started", turn_id: "old-turn" }));
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,999,'interrupted','old-turn')").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,1,'completed','current-turn','current-input')").run(rolloutId);
+  history.prepare("INSERT INTO thread_items VALUES (?,?,?)").run(rolloutId, "current-input", JSON.stringify({ content: [{ type: "text", text: "Continue" }], clientId: "human" }));
   const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
-  assert.equal((await scanner.refresh()).tasks[0].status, "interrupted");
-  await writeFile(path, line("event_msg", { type: "task_started", turn_id: "old-turn", extra: "x".repeat(9000) }));
-  const large = await scanner.refresh();
-  assert.equal(large.healthy, true);
-  assert.equal(large.scan.uncheckedAnchors, 1);
-  history.prepare("UPDATE thread_turns SET rollout_byte_offset=1").run();
-  assert.equal((await scanner.refresh()).healthy, false);
-  history.prepare("UPDATE thread_turns SET rollout_byte_offset=20000").run();
-  assert.equal((await scanner.refresh()).healthy, false);
-  history.prepare("UPDATE thread_turns SET rollout_byte_offset=0").run();
-  await writeFile(path, "null\n");
-  assert.equal((await scanner.refresh()).healthy, false);
-  await rm(path);
-  const missing = await scanner.refresh();
-  assert.equal(missing.healthy, true);
-  assert.equal(missing.scan.uncheckedAnchors, 1);
-  await writeFile(path, line("event_msg", { type: "task_started", turn_id: "new-turn" }) + line("event_msg", { type: "task_complete", turn_id: "new-turn" }));
-  const stale = await scanner.refresh();
-  assert.equal(stale.healthy, false);
-  assert.deepEqual(stale.tasks, []);
-  assert.match(stale.scan.error, /turn index does not match/);
-  await assert.rejects(scanner.setDone(id, "old-turn", true), /turn index does not match/);
-  history.prepare("UPDATE thread_turns SET turn_id='new-turn',status='completed'").run();
-  assert.equal((await scanner.refresh()).tasks[0].status, "needs_input");
+  const snapshot = await scanner.refresh();
+  assert.equal(snapshot.healthy, true);
+  assert.equal(snapshot.tasks[0].id, id);
+  assert.equal(snapshot.tasks[0].turnId, "current-turn");
+  assert.equal(snapshot.tasks[0].status, "needs_input");
+  assert.equal(snapshot.tasks[0].inputSource, "ordinary");
+  await scanner.setDone(id, "current-turn", true);
+  assert.equal(scanner.task(id).manualDone, true);
+  state.prepare("UPDATE threads SET rollout_path=? WHERE id=?").run(`${path}.zst`, id);
+  assert.equal((await scanner.refresh()).tasks[0].turnId, "current-turn");
+  history.prepare("DELETE FROM thread_turns WHERE thread_id=?").run(rolloutId);
+  assert.deepEqual((await scanner.refresh()).tasks, []);
 });
