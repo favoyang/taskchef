@@ -6,6 +6,7 @@ import { GitHubLinks } from "./GitHubLinks";
 import { LinkedText } from "./LinkedText";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
+import { RelativeTime } from "./RelativeTime";
 import { TaskCardStats } from "./TaskCardStats";
 
 export function TaskCard({
@@ -34,10 +35,11 @@ export function TaskCard({
             </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
             {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
-            {task.observed?.directChildCount ? <Text size="xs">{task.observed.directChildCount} direct subagent {task.observed.directChildCount === 1 ? "chat" : "chats"}</Text> : null}
           </Box>
 
-          <Box className="taskchef-summary-grid">
+          {task.observed ? <Text className="taskchef-preserve-lines" lineClamp={2} size="sm">
+            <LinkedText task={task} text={(task.replyExcerpt || "No reply text to show for this turn.").replace(/\s+/g, " ")} />
+          </Text> : <Box className="taskchef-summary-grid">
             <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
             <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">
               <LinkedText task={task} text={latest.requestSummary} />
@@ -48,11 +50,11 @@ export function TaskCard({
                 ? <ShimmerText>{latest.resultSummary}</ShimmerText>
                 : <LinkedText task={task} text={latest.resultSummary} />}
             </Text>
-          </Box>
+          </Box>}
 
           <GitHubLinks task={task} />
           <Box className="taskchef-list-card-footer">
-            <TaskCardStats task={task} />
+            {task.observed ? <RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /> : <TaskCardStats task={task} />}
             <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
               <IconArrowUpRight aria-hidden size={19} stroke={1.6} />
             </button>

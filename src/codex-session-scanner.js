@@ -91,7 +91,7 @@ async function readDatabase(codexHome, now, doneMarks) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
-    const latestTurn = history.prepare(`SELECT turn_id, status, started_at, first_user_item_id
+    const latestTurn = history.prepare(`SELECT turn_id, status, started_at, first_user_item_id, final_agent_item_id
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
     const rows = state.prepare(`SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode,
@@ -104,6 +104,7 @@ async function readDatabase(codexHome, now, doneMarks) {
       return true;
     });
     const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_id = ?");
+    const latestReply = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'agentMessage' ORDER BY rollout_ordinal DESC LIMIT 1");
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
       const updatedMs = Math.max(row.updated_at_ms || row.recency_at_ms || row.created_at_ms, (turn.started_at || 0) * 1000);
@@ -123,6 +124,16 @@ async function readDatabase(codexHome, now, doneMarks) {
           else if (!marker && item.clientId) inputSource = "ordinary";
         }
       }
+      const replyRow = turn.final_agent_item_id
+        ? input.get(historyId(row), turn.turn_id, turn.final_agent_item_id)
+        : latestReply.get(historyId(row), turn.turn_id);
+      const reply = replyRow ? JSON.parse(replyRow.item_json) : null;
+      let replyText = reply?.type === "agentMessage" && typeof reply.text === "string" ? reply.text.trim() : "";
+      // Heartbeat replies wrap their user-facing text in a message block.
+      if (/^<heartbeat>[\s\S]*<\/heartbeat>$/.test(replyText)) {
+        replyText = /<message>([\s\S]*?)<\/message>/.exec(replyText)?.[1].trim() || "";
+      }
+      const replyExcerpt = replyText.slice(0, 2000) || null;
       const manualDone = doneMarks[row.id] === turn.turn_id;
       const status = row.archived || manualDone ? "completed" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
@@ -138,7 +149,7 @@ async function readDatabase(codexHome, now, doneMarks) {
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: row.child_count ? `${reason} Spawned ${row.child_count} direct subagent ${row.child_count === 1 ? "chat" : "chats"}.` : reason,
+        summary: reason, replyExcerpt,
         status, statusLabel, scheduled, manualDone, inputSource,
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
@@ -272,7 +283,11 @@ export class CodexSessionScanner {
       if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
       const database = await readDatabase(this.codexHome, now, await readDoneMarks(this.statePath));
       const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
-      const signature = (tasks) => [...tasks.values()].map((task) => `${task.id}:${task.title}:${task.project.path}:${task.updatedAt}:${task.status}:${task.summary}:${task.observed.archive}:${task.observed.lastTurnEvent}:${task.observed.directChildCount ?? ""}:${task.scheduled}:${task.inputSource}:${task.turnId}`).join("|");
+      const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
+        task.id, task.title, task.project.path, task.updatedAt, task.status, task.summary,
+        task.observed.archive, task.observed.lastTurnEvent, task.observed.directChildCount,
+        task.scheduled, task.inputSource, task.turnId, task.replyExcerpt,
+      ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
       this.tasks = nextTasks;
       this.rolloutPaths = database.rolloutPaths;

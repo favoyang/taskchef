@@ -89,6 +89,7 @@ export interface Task {
   statusLabel?: string;
   scheduled?: boolean;
   manualDone?: boolean;
+  replyExcerpt?: string | null;
   inputSource?: "scheduled" | "ordinary" | "unverified";
   observed?: { archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
   relatedGitHubLinks?: GitHubLink[];

@@ -148,6 +148,10 @@ export function TaskDetail({
         <Title id="instruction-heading" mb="xs" order={3} size="h5">Original instruction</Title>
         <Box className="taskchef-code-panel" component="pre">{task.instruction}</Box>
       </section>}
+      {task.observed && <section aria-labelledby="saved-reply-heading">
+        <Title id="saved-reply-heading" mb="xs" order={3} size="h5">Latest saved reply (excerpt)</Title>
+        <Text className="taskchef-preserve-lines" size="sm">{task.replyExcerpt || "No reply text to show for this turn."}</Text>
+      </section>}
       <section aria-labelledby="metadata-heading">
         <Title id="metadata-heading" mb="xs" order={3} size="h5">Metadata</Title>
         <dl className="taskchef-metadata">
@@ -158,8 +162,9 @@ export function TaskDetail({
           <dt>Created</dt><dd><RelativeTime label="Created time" value={task.createdAt} /></dd>
           <dt>Updated</dt><dd><RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /></dd>
           <dt>Updated by</dt><dd>{task.updatedBy ?? "—"}</dd>
-          {task.observed?.directChildCount !== undefined && <><dt>Direct subagent chats</dt><dd>{task.observed.directChildCount}</dd></>}
+          {task.observed?.directChildCount !== undefined && <><dt>Direct subagent chats (all history)</dt><dd>{task.observed.directChildCount}</dd></>}
           {task.observed && <>
+            <dt>Queue reason</dt><dd>{task.summary}</dd>
             {task.updatedBy === "Local Codex database" ? <>
               <dt>Archive status</dt><dd>{task.observed.archive ? "Archived" : "Active"}</dd>
             </> : <>

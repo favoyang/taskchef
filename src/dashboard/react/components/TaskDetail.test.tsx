@@ -26,6 +26,7 @@ test("shows only metadata available from a DB-backed observed task", () => {
   expect(within(metadata).getByText("inProgress")).toBeVisible();
   expect(within(metadata).queryByText("Observed messages")).not.toBeInTheDocument();
   expect(within(metadata).queryByText("Log bytes sampled")).not.toBeInTheDocument();
+  expect(within(metadata).getByText("Queue reason")).toBeVisible();
   expect(metadata).not.toHaveTextContent("undefined");
 });
 

@@ -1,10 +1,14 @@
 # TaskChef Next: Codex storage
 
-[Edit the Draw.io diagram](diagrams/taskchef-next-storage.drawio) · [Open the PNG](diagrams/taskchef-next-storage.drawio.png)
+[Edit the storage diagram](diagrams/taskchef-next-storage.drawio) · [Storage PNG](diagrams/taskchef-next-storage.drawio.png)
 
-![Codex storage and lookup IDs](diagrams/taskchef-next-storage.drawio.png)
+[Edit the reply lookup example](diagrams/taskchef-next-reply-lookup.drawio) · [Lookup PNG](diagrams/taskchef-next-reply-lookup.drawio.png)
 
-This diagram shows selected fields and logical lookup relationships. It does not show every column or claim that the databases enforce foreign keys. These internal schemas can change.
+![Files and their tables](diagrams/taskchef-next-storage.drawio.png)
+
+The storage diagram groups tables inside their database files. The separate example below shows current-reply lookup. Selected fields only; these internal schemas can change.
+
+![Current reply lookup after a revert](diagrams/taskchef-next-reply-lookup.drawio.png)
 
 ## One chat, two possible IDs
 
@@ -30,7 +34,7 @@ TaskChef reads the filename from SQLite. It does not open the log to determine t
 | `state_5.sqlite` | `threads` | Chat C, name “Fix login”, project, archived flag, selected rollout path. Also holds model, reasoning effort, token total, pin and project metadata. |
 | `state_5.sqlite` | `thread_spawn_edges` | Parent C → child D. Exclude D from the board; count it on C. |
 | `thread_history_1.sqlite` | `thread_turns` | Rollout R, turn T, `status = completed`, duration and start/end times. This means the turn ended; the task may still need input or review. |
-| `thread_history_1.sqlite` | `thread_items` | `(R, T, item I)` with `item_type = userMessage`, `agentMessage`, `commandExecution`, `mcpToolCall`, or `fileChange`. `item_json` contains the saved item body. The board reads the latest turn's first input to identify a heartbeat. It does not fetch every item. |
+| `thread_history_1.sqlite` | `thread_items` | `(R, T, item I)` with `item_type = userMessage`, `agentMessage`, `commandExecution`, `mcpToolCall`, or `fileChange`. `item_json` contains the saved item body. The board reads the latest turn's first input to identify a heartbeat. It also reads the linked final reply, or the latest saved agent message in that turn when no final reply is linked. It never uses a previous turn as the current reply. Card excerpts contain at most 2,000 characters; the UI displays two lines. |
 | `thread_history_1.sqlite` | `thread_history_projection_state` | R with the next byte offset and record ordinal. Tracks how far the saved history has been projected into SQLite. The board does not use it. |
 | Rollout `.jsonl` | One JSON record per line | `type = session_meta`, `event_msg`, `response_item`, etc. The inner `payload.type` gives the event or response kind, such as `task_started` or `task_complete`. There are no SQL tables in this file. |
 

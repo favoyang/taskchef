@@ -40,3 +40,11 @@ Each refresh reads the eligible chat metadata, then runs `WHERE thread_id = ? OR
 There is no 300-chat cap. All eligible chats with a current-rollout turn are included. Done cards still expand in small groups in Board view. This reduces the initial rendered board while keeping complete counts. List view includes all matching chats. If larger installations become slow, measure database time and rendering separately before adding pagination or a cache.
 
 See the [storage schema](taskchef-next-storage.md), including the editable diagram and PNG.
+
+### TaskChef Next card content
+
+Cards show the chat title, project, a two-line excerpt of the latest saved assistant reply in the selected rollout's latest turn, last activity time, and Open chat. An active schedule remains a badge. The final reply uses `final_agent_item_id` and the full item primary key. When no final reply is linked, an indexed query reads the latest `agentMessage` in that same turn. Excerpts are capped at 2,000 characters; an absent reply is stated explicitly. Heartbeat wrappers show only their `<message>` text; a quiet heartbeat without that block has no reply excerpt. No model summarizes or judges the text.
+
+Queue reasons and lifetime direct-subagent counts appear in Details, alongside the saved reply excerpt. They are not card summaries. The ordinary TaskChef dashboard keeps its Request/Result and usage layout.
+
+Caching and `data_version` change detection are separate follow-up work. This version still takes fresh database snapshots.

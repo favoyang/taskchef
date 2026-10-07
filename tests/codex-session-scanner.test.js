@@ -17,8 +17,8 @@ async function fixture(t) {
   const history = new sqlite.DatabaseSync(join(home, "thread_history_1.sqlite"));
   state.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT, cwd TEXT, archived INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER, recency_at_ms INTEGER, rollout_path TEXT, thread_source TEXT, source TEXT DEFAULT 'vscode', history_mode TEXT DEFAULT 'legacy')");
   state.exec("CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT, PRIMARY KEY (parent_thread_id, child_thread_id))");
-  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, rollout_byte_offset INTEGER)");
-  history.exec("CREATE TABLE thread_items (thread_id TEXT, turn_id TEXT, item_id TEXT, item_json TEXT, PRIMARY KEY (thread_id, turn_id, item_id))");
+  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
+  history.exec("CREATE TABLE thread_items (thread_id TEXT, turn_id TEXT, item_id TEXT, item_json TEXT, item_type TEXT, rollout_ordinal INTEGER, PRIMARY KEY (thread_id, turn_id, item_id))");
   t.after(() => { state.close(); history.close(); });
   return { home, state, history };
 }
@@ -90,7 +90,7 @@ test("inventory excludes child chats and Guardian reviews but shows direct child
   assert.equal(first.scan.indexedFiles, 3);
   assert.equal(first.scan.visibleFiles, 3);
   assert.equal(first.scan.unreadFiles, 0);
-  assert.match(first.tasks[1].summary, /Spawned 2 direct subagent chats\./);
+  assert.doesNotMatch(first.tasks[1].summary, /Spawned/);
   assert.equal(first.tasks[1].observed.directChildCount, 2);
   assert.equal(first.tasks[0].observed.directChildCount, 0);
   assert.equal(scanner.task("child"), undefined);
@@ -99,7 +99,7 @@ test("inventory excludes child chats and Guardian reviews but shows direct child
   state.prepare("INSERT INTO thread_spawn_edges VALUES (?, ?, ?)").run(parent, "another-child", "open");
   const next = await scanner.refresh();
   assert.ok(next.revision > first.revision);
-  assert.match(next.tasks[1].summary, /Spawned 3 direct subagent chats\./);
+  assert.equal(next.tasks[1].observed.directChildCount, 3);
   assert.equal(next.tasks[1].observed.directChildCount, 3);
 });
 
@@ -118,7 +118,7 @@ test("missing or incompatible databases are fatal and clear prior inventory", as
   assert.deepEqual(failed.tasks, []);
   assert.equal(scanner.task(id), undefined);
   assert.equal(await scanner.taskDetail(id), null);
-  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, rollout_byte_offset INTEGER)");
+  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
   assert.equal((await scanner.refresh()).healthy, true);
 });
 
@@ -168,7 +168,7 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   add("running", "inProgress"); add("stale", "inProgress", 0, false);
   add("archived", "inProgress", 1); add("failed", "failed"); add("stopped", "interrupted");
   add("mixed", "completed"); add("ordinary", "completed");
-  history.prepare("INSERT INTO thread_items VALUES (?,?,?,?)").run("mixed", "turn-mixed", "input-mixed", JSON.stringify({ content: [{ type: "text", text: "<heartbeat>\n<automation_id>routine</automation_id>\n</heartbeat>" }], clientId: null }));
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,?,?,?)").run("mixed", "turn-mixed", "input-mixed", JSON.stringify({ content: [{ type: "text", text: "<heartbeat>\n<automation_id>routine</automation_id>\n</heartbeat>" }], clientId: null }));
   const scanner = new CodexSessionScanner({ codexHome: home, now: () => now, statePath: join(home, "done.json") });
   await scanner.refresh();
   assert.equal(scanner.task("running").status, "working");
@@ -181,7 +181,7 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   assert.equal(scanner.task("mixed").scheduled, true);
   // A real ordinary input moves the same scheduled chat back to Waiting.
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,?,?,?,?)").run("mixed", 2, "completed", "human-turn", "human-input");
-  history.prepare("INSERT INTO thread_items VALUES (?,?,?,?)").run("mixed", "human-turn", "human-input", JSON.stringify({ content: [{ type: "text", text: "Continue this discussion" }], clientId: "human-client" }));
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,?,?,?)").run("mixed", "human-turn", "human-input", JSON.stringify({ content: [{ type: "text", text: "Continue this discussion" }], clientId: "human-client" }));
   await scanner.refresh();
   assert.equal(scanner.task("mixed").status, "needs_input");
   assert.equal(scanner.task("mixed").scheduled, true);
@@ -193,7 +193,7 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   await mkdir(join(home, "automations", "other"));
   await writeFile(join(home, "automations", "other", "automation.toml"), 'id = "other"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "mixed"\n');
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,?,?,?,?)").run("mixed", 3, "completed", "paused-turn", "input-mixed");
-  history.prepare("INSERT INTO thread_items SELECT thread_id, 'paused-turn', item_id, item_json FROM thread_items WHERE turn_id='turn-mixed'").run();
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) SELECT thread_id, 'paused-turn', item_id, item_json FROM thread_items WHERE turn_id='turn-mixed'").run();
   await scanner.refresh();
   assert.equal(scanner.task("mixed").status, "needs_input");
   assert.equal(scanner.task("mixed").scheduled, true);
@@ -246,8 +246,8 @@ test("selected rollout IDs supply current turns and inputs without reading logs"
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,999,'interrupted','old-turn')").run(id);
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,1,'completed','current-turn','current-input')").run(rolloutId);
   // Item IDs need not be unique across turns. Never read this older body.
-  history.prepare("INSERT INTO thread_items VALUES (?,?,?,?)").run(rolloutId, "another-turn", "current-input", "malformed");
-  history.prepare("INSERT INTO thread_items VALUES (?,?,?,?)").run(rolloutId, "current-turn", "current-input", JSON.stringify({ content: [{ type: "text", text: "Continue" }], clientId: "human" }));
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,?,?,?)").run(rolloutId, "another-turn", "current-input", "malformed");
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,?,?,?)").run(rolloutId, "current-turn", "current-input", JSON.stringify({ content: [{ type: "text", text: "Continue" }], clientId: "human" }));
   state.prepare("UPDATE threads SET history_mode='paginated' WHERE id=?").run(id);
   const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
   const snapshot = await scanner.refresh();
@@ -329,4 +329,37 @@ test("paginated history with an invalid selected filename never reads old chat-I
   // Legacy histories keep Codex's documented stable-ID lookup behavior.
   state.prepare("UPDATE threads SET history_mode='legacy' WHERE id=?").run(id);
   assert.equal((await scanner.refresh()).tasks[0].status, "interrupted");
+});
+
+test("reply excerpts belong to the selected rollout and latest turn", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  const now = Date.now();
+  const rolloutId = "0199aabb-ccdd-7eef-8abc-0123456789ac";
+  state.prepare("INSERT INTO threads (id,name,cwd,created_at_ms,updated_at_ms,rollout_path,history_mode) VALUES (?,?,?,?,?,?,?)")
+    .run(id, "Reply example", "/example", now, now, `rollout-2026-10-08T00-00-00-${id}_${rolloutId}.jsonl`, "paginated");
+  const turn = history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,final_agent_item_id) VALUES (?,?,?,?,?)");
+  turn.run(id, 99, "completed", "old", "reply");
+  turn.run(rolloutId, 1, "completed", "current", "reply");
+  const item = history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json,item_type,rollout_ordinal) VALUES (?,?,?,?,?,?)");
+  item.run(id, "old", "reply", JSON.stringify({type:"agentMessage",text:"Old rollout reply"}), "agentMessage", 99);
+  item.run(rolloutId, "old", "reply", JSON.stringify({type:"agentMessage",text:"Wrong turn reply"}), "agentMessage", 99);
+  item.run(rolloutId, "current", "reply", JSON.stringify({type:"agentMessage",text:"  PR is ready for review.  "}), "agentMessage", 1);
+  const scanner = new CodexSessionScanner({codexHome:home,now:()=>now});
+  assert.equal((await scanner.refresh()).tasks[0].replyExcerpt, "PR is ready for review.");
+  turn.run(rolloutId, 2, "inProgress", "running", null);
+  const beforeReply = await scanner.refresh();
+  assert.equal(beforeReply.tasks[0].replyExcerpt, null);
+  item.run(rolloutId, "running", "progress", JSON.stringify({type:"agentMessage",text:"Checking CI."}), "agentMessage", 3);
+  const afterReply = await scanner.refresh();
+  assert.equal(afterReply.tasks[0].replyExcerpt, "Checking CI.");
+  assert.ok(afterReply.revision > beforeReply.revision);
+  assert.equal(afterReply.tasks[0].updatedAt, beforeReply.tasks[0].updatedAt);
+  assert.equal(afterReply.tasks[0].turnId, beforeReply.tasks[0].turnId);
+  item.run(rolloutId, "running", "new-progress", JSON.stringify({type:"agentMessage",text:"x".repeat(5000)}), "agentMessage", 4);
+  assert.equal((await scanner.refresh()).tasks[0].replyExcerpt.length, 2000);
+  history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='new-progress'").run(JSON.stringify({type:"agentMessage",text:"<heartbeat><decision>NOTIFY</decision><message>Review the PR.</message></heartbeat>"}));
+  assert.equal((await scanner.refresh()).tasks[0].replyExcerpt, "Review the PR.");
+  history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='new-progress'").run(JSON.stringify({type:"agentMessage",text:"<heartbeat><decision>KEEP_QUIET</decision></heartbeat>"}));
+  assert.equal((await scanner.refresh()).tasks[0].replyExcerpt, null);
 });

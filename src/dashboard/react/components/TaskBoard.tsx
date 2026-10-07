@@ -121,7 +121,8 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
   onOpenDetail: (task: Task) => void;
 }) {
   const latest = latestTurnPresentation(task);
-  const excerpt = task.status === "working" ? latest.requestSummary : latest.resultSummary;
+  const excerpt = task.observed ? task.replyExcerpt || "No reply text to show for this turn."
+    : task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
   return (
     <Paper className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
@@ -130,9 +131,8 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
       </Title>
       <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
       {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
-      {task.observed?.directChildCount ? <Text size="xs">{task.observed.directChildCount} direct subagent {task.observed.directChildCount === 1 ? "chat" : "chats"}</Text> : null}
-      <Text className="taskchef-board-excerpt taskchef-preserve-lines" size="sm">
-        <LinkedText task={task} text={excerpt} />
+      <Text className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
+        <LinkedText task={task} text={task.observed ? excerpt.replace(/\s+/g, " ") : excerpt} />
       </Text>
       <Box className="taskchef-board-card-footer">
         <RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />

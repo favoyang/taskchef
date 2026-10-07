@@ -23,19 +23,23 @@ import { TaskBoard } from "./components/TaskBoard";
 
 afterEach(cleanup);
 
-test("shows recorded direct subagent count on a working parent in list and board", () => {
+test("Next cards show saved replies and keep diagnostics off the card", () => {
   const parent = fixtureTask({
-    updatedBy: "Local Codex database",
-    observed: { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: true, directChildCount: 2 },
+    updatedBy: "Local Codex database", replyExcerpt: "CI passed. The PR is ready for review.",
+    summary: "Latest turn ended. Chat remains open for input or review.",
+    observed: { archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false, directChildCount: 133 },
   });
-  const childless = fixtureTask({ id: "childless", title: "Childless", observed: { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: true, directChildCount: 0 } });
+  const empty = fixtureTask({ id: "empty", title: "Empty", replyExcerpt: null, observed: { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: true, directChildCount: 0 } });
   render(<MantineProvider>
     <TaskCard task={parent} onOpenCodex={() => {}} onOpenDetail={() => {}} />
-    <TaskBoard tasks={[parent, childless]} completedLimit={5} onMoreCompleted={() => {}} onOpenCodex={() => {}} onOpenDetail={() => {}} />
+    <TaskBoard tasks={[parent, empty]} completedLimit={5} onMoreCompleted={() => {}} onOpenCodex={() => {}} onOpenDetail={() => {}} />
   </MantineProvider>);
-  expect(screen.getAllByText("2 direct subagent chats")).toHaveLength(2);
-  expect(screen.queryByText("0 direct subagent chats")).not.toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "Working, 2 tasks" })).getByText("2 direct subagent chats")).toBeVisible();
+  expect(screen.getAllByText("CI passed. The PR is ready for review.")).toHaveLength(2);
+  expect(screen.queryByText(/direct subagent/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Latest turn ended/)).not.toBeInTheDocument();
+  expect(screen.getByText("No reply text to show for this turn.")).toBeVisible();
+  expect(screen.queryByText("Request")).not.toBeInTheDocument();
+  expect(screen.queryByText("Result")).not.toBeInTheDocument();
 });
 
 describe("token and working presentation", () => {
