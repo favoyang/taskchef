@@ -81,7 +81,8 @@ export function registerTaskChefApp(server, {
   const appOnly = { ui: { resourceUri: TASKCHEF_APP_URI, visibility: ["app"] } };
   server.registerResource("TaskChef Next task board", TASKCHEF_APP_URI, {
     description: "TaskChef Next read-only Codex session board", mimeType: RESOURCE_MIME_TYPE,
-  }, async () => ({ contents: [{ uri: TASKCHEF_APP_URI, mimeType: RESOURCE_MIME_TYPE, text: await readFile(htmlPath, "utf8") }] }));
+    _meta: { ui: { csp: { resourceDomains: ["https:"] } } },
+  }, async () => ({ contents: [{ uri: TASKCHEF_APP_URI, mimeType: RESOURCE_MIME_TYPE, text: await readFile(htmlPath, "utf8"), _meta: { ui: { csp: { resourceDomains: ["https:"] } } } }] }));
   server.registerTool("open_taskchef_board", {
     title: "TaskChef Next", description: "Show read-only local Codex session activity in the sidebar.", inputSchema: {},
     _meta: { ui: { resourceUri: TASKCHEF_APP_URI }, "openai/ui": { entrypoints: [{ type: "global" }] } },
@@ -115,6 +116,13 @@ export function registerTaskChefApp(server, {
     if (!task) throw new Error("Task not found.");
     return { structuredContent: { task }, content: [] };
   });
+  server.registerTool("taskchef_app_image", {
+    title: "Read reply cover image", description: "Read the local raster image referenced by the latest reply, up to 4 MiB.",
+    inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), expectedUrl: z.string().min(1) }, _meta: appOnly,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ taskId, expectedTurnId, expectedUrl }) => ({
+    structuredContent: { dataUrl: await scanner.taskImage(taskId, expectedTurnId, expectedUrl) }, content: [],
+  }));
   server.registerTool("taskchef_app_set_done", {
     title: "Mark chat Done in TaskChef Next", description: "Save or remove a local Done mark. Codex databases are never modified.",
     inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), done: z.boolean() }, _meta: appOnly,

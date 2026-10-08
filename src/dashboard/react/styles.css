@@ -239,3 +239,8 @@ body {
 .taskchef-markdown--compact :is(p,li,pre,blockquote,tr)::after { content: " "; }
 .taskchef-markdown--compact li::before { content: "• "; }
 .taskchef-markdown--compact :is(th,td)::after { content: " | "; }
+
+.taskchef-reply-cover { display: flex; align-items: center; justify-content: center; width: calc(100% + 24px); height: 150px; margin: -12px -12px 10px; padding: 0; border: 0; border-radius: var(--mantine-radius-default) var(--mantine-radius-default) 0 0; overflow: hidden; background: light-dark(#eef1ee, #151a17); color: var(--mantine-color-dimmed); cursor: pointer; flex-shrink: 0; }
+.taskchef-reply-cover img { width: 100%; height: 100%; object-fit: contain; }
+.taskchef-reply-cover span { font-size: var(--mantine-font-size-xs); padding: 12px; }
+.taskchef-reply-cover:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }

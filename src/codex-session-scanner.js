@@ -1,3 +1,4 @@
+import { replyImage, localReplyImage } from "./reply-image.js";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { open, stat, readFile, readdir, mkdir } from "node:fs/promises";
@@ -110,6 +111,7 @@ function readDatabaseRecords(state, history) {
 
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
     const { rows, turns, inputs, replies } = records;
+    const images = records.images ??= new Map();
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
       const updatedMs = Math.max(row.updated_at_ms || row.recency_at_ms || row.created_at_ms, (turn.started_at || 0) * 1000);
@@ -137,6 +139,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         replyText = /<message>([\s\S]*?)<\/message>/.exec(replyText)?.[1].trim() || "";
       }
       const replyExcerpt = replyText.slice(0, 2000) || null;
+      if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
       const manualDone = doneMarks[row.id] === turn.turn_id;
       const status = row.archived ? "archived" : manualDone ? "completed" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
@@ -151,7 +154,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: reason, replyExcerpt,
+        summary: reason, replyExcerpt, replyImage: images.get(row.id),
         status, statusLabel, scheduled, manualDone, inputSource,
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
@@ -333,7 +336,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.lastTurnEvent, task.observed.directChildCount,
-        task.scheduled, task.inputSource, task.turnId, task.replyExcerpt,
+        task.scheduled, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
       this.tasks = nextTasks;
@@ -353,6 +356,13 @@ export class CodexSessionScanner {
     return { healthy: this.stats?.mode !== "error", revision: this.revision, tasks: [...this.tasks.values()], scan: this.stats };
   }
   task(id) { return this.tasks.get(id); }
+  async taskImage(id, expectedTurnId, expectedUrl) {
+    const snapshot = await this.refresh();
+    if (!snapshot.healthy) throw new Error(snapshot.scan.error);
+    const task = this.task(id);
+    if (!task || task.turnId !== expectedTurnId || task.replyImage?.url !== expectedUrl) return null;
+    try { return await localReplyImage(task.replyImage.url); } catch { return null; }
+  }
   async taskDetail(id) {
     const task = this.task(id);
     if (!task) return null;

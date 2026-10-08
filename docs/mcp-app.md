@@ -92,3 +92,21 @@ the plugin browser. This desktop link was checked against the installed
 app's link parser; it is not part of the published MCP settings specification.
 Native host navigation still needs a manual check where host automation is
 unavailable.
+
+### Reply image covers
+
+Next board cards feature the first supported Markdown image in the latest
+selected assistant reply, above the title. The full saved reply is inspected,
+even when the image occurs after the 2,000-character text excerpt. Code examples
+and raw HTML do not count as images. No image is borrowed from an older turn.
+
+Covers load when near the visible area. HTTPS images load directly in the
+sidebar without a referrer. Local absolute paths load through an app-only MCP
+tool tied to the chat, turn and saved image URL. Local PNG, JPEG, GIF and WebP
+files up to 4 MiB are supported; no remote URL is fetched by the MCP server.
+Missing, oversized, unsupported or failed images show “Image unavailable.”
+Click a cover to open chat Details. Text and navigation remain available.
+The Markdown text renderer still shows image captions rather than inline images.
+
+This follows Trello’s image-above-title cover option:
+[Add a card cover](https://support.atlassian.com/trello/docs/what-is-a-card-cover).

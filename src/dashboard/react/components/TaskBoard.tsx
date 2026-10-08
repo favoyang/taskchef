@@ -5,6 +5,7 @@ import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
 import { ReplyMarkdown } from "./ReplyMarkdown";
+import { ReplyCover } from "./ReplyCover";
 import { RelativeTime } from "./RelativeTime";
 
 const defaultLanes: { status: TaskStatus; label: string; emptyMessage?: string }[] = [
@@ -17,6 +18,7 @@ const defaultLanes: { status: TaskStatus; label: string; emptyMessage?: string }
 export function TaskBoard({
   lanes = defaultLanes,
   groupInterruptedWithWaiting = false,
+  loadImage,
   completedLimit,
   archivedLimit = 5,
   onMoreArchived,
@@ -26,6 +28,7 @@ export function TaskBoard({
   tasks,
 }: {
   groupInterruptedWithWaiting?: boolean;
+  loadImage?: (task: Task) => Promise<string | null>;
   lanes?: { status: TaskStatus; label: string; emptyMessage?: string }[];
   completedLimit: number;
   archivedLimit?: number;
@@ -107,7 +110,7 @@ export function TaskBoard({
               <Text aria-label={`${matching.length} tasks`} c="dimmed" size="sm">{matching.length}</Text>
             </Box>
             <Stack gap="sm">
-              {shown.map((task) => <BoardCard key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
+              {shown.map((task) => <BoardCard loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
               {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{emptyMessage ?? "No tasks"}</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (
                 <Button className="taskchef-board-more" onClick={status === "archived" ? onMoreArchived : onMoreCompleted} size="compact-sm" variant="subtle">
@@ -122,7 +125,8 @@ export function TaskBoard({
   );
 }
 
-function BoardCard({ task, onOpenCodex, onOpenDetail }: {
+function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
+  loadImage?: (task: Task) => Promise<string | null>;
   task: Task;
   onOpenCodex: (task: Task) => void;
   onOpenDetail: (task: Task) => void;
@@ -133,6 +137,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
   const linked = hasLinkedCodexThread(task);
   return (
     <Paper className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
+      {task.observed && task.replyImage && <ReplyCover key={`${task.turnId}:${task.replyImage.url}`} task={task} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
       </Title>

@@ -39,6 +39,11 @@ function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, sh
   return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
 
+async function loadReplyImage(task: Task): Promise<string | null> {
+  const result = await call<{ dataUrl: string | null }>("taskchef_app_image", { taskId: task.id, expectedTurnId: task.turnId, expectedUrl: task.replyImage?.url });
+  return result.dataUrl;
+}
+
 const NEXT_LANES = [{ status: "scheduled", label: "Scheduled", emptyMessage: "No scheduled chats" }, { status: "working", label: "Running", emptyMessage: "No chats running" }, { status: "needs_input", label: "Waiting for input/review", emptyMessage: "No chats waiting for input or review" }, { status: "completed", label: "Done", emptyMessage: "No completed chats" }, { status: "archived", label: "Archived", emptyMessage: "No archived chats" }, { status: null, label: "Unverified", emptyMessage: "No unverified chats" }] as const;
 
 interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
@@ -287,7 +292,7 @@ export function TaskChefApp() {
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {navigationError && !opened && <Alert color="red" role="alert" mt="sm">{navigationError}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
-          {!error && (view === "board" ? <TaskBoard groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}

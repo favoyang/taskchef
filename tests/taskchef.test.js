@@ -651,6 +651,7 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
       "open_taskchef_board",
       "taskchef_app_snapshot",
       "taskchef_app_task",
+      "taskchef_app_image",
       "taskchef_app_set_done",
       "taskchef_app_open_chat",
     ]);
@@ -902,7 +903,7 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
   await client.connect(clientTransport);
   try {
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal((await client.listTools()).tools.length, 16);
+    assert.equal((await client.listTools()).tools.length, 17);
     assert.deepEqual(isolatedDiagnostics, [
       "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.",
     ]);
@@ -3779,6 +3780,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     "proper-lockfile",
     "smol-toml",
     "zod",
+    "mdast-util-from-markdown",
   ]);
   assert.equal(packageJson.optionalDependencies.ccusage, "20.0.24");
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));

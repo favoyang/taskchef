@@ -22,6 +22,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
       return { healthy: true, revision, tasks: [task], scan: { mode: force ? "incremental" : "full", indexedFiles: 1 } };
     },
     task: (id) => id === task.id ? task : null,
+    taskImage: async (id, turn, url) => { assert.equal(id, task.id); assert.equal(turn, "turn-one"); assert.equal(url, "/image.png"); return "data:image/png;base64,AAAA"; },
     taskDetail: async (id) => id === task.id ? task : null,
     setDone: async (id, expectedTurnId, done) => { assert.equal(id, task.id); assert.equal(expectedTurnId, "turn-one"); return { ...task, manualDone: done }; },
     close: () => {},
@@ -59,6 +60,9 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     for (const tool of tools.filter((item) => item.name.startsWith("taskchef_app_"))) assert.deepEqual(tool._meta.ui.visibility, ["app"]);
     const resource = await client.readResource({ uri: TASKCHEF_APP_URI });
     assert.match(resource.contents[0].text, /TaskChef Next/);
+    assert.deepEqual(resource.contents[0]._meta.ui.csp.resourceDomains, ["https:"]);
+    const image = await client.callTool({ name: "taskchef_app_image", arguments: { taskId: task.id, expectedTurnId: "turn-one", expectedUrl: "/image.png" } });
+    assert.equal(image.structuredContent.dataUrl, "data:image/png;base64,AAAA");
     const initial = await client.callTool({ name: "open_taskchef_board", arguments: {} });
     assert.equal(initial.structuredContent.taskCount, 1);
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });

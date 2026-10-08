@@ -457,3 +457,21 @@ test("Done-file cache notices rewrites, replacements, removal, and invalid conte
   const recovered=scanner.doneCache; await scanner.refresh({force:true}); assert.notEqual(scanner.doneCache,recovered);
   await scanner.setDone(id,"turn-1",true); assert.equal(scanner.task(id).manualDone,true);
 });
+
+ test("cover metadata uses full latest reply and local reads reject stale requests", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const {home,state,history} = setup;
+  const image = join(home,"cover.png");
+  await writeFile(image,Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/kcAAAAASUVORK5CYII=","base64"));
+  state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Cover', 0, 1, 1, 1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,final_agent_item_id) VALUES (?,1,'completed','cover-turn','reply')").run(id);
+  const text="x".repeat(2500)+`\n![Screenshot](<${image}>)`;
+  history.prepare("INSERT INTO thread_items VALUES (?,?,?,?,?,?)").run(id,"cover-turn","reply",JSON.stringify({type:"agentMessage",text}),"agentMessage",1);
+  const scanner=new CodexSessionScanner({codexHome:home});t.after(()=>scanner.close());
+  const first=await scanner.refresh();assert.equal(first.tasks[0].replyImage.url,image);
+  assert.match(await scanner.taskImage(id,"cover-turn",image),/^data:image\/png;base64,/);
+  assert.equal(await scanner.taskImage(id,"cover-turn",join(home,"other.png")),null);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,2,'inProgress','new-turn')").run(id);
+  const next=await scanner.refresh();assert.equal(next.tasks[0].replyImage,null);assert.notEqual(next.revision,first.revision);
+  assert.equal(await scanner.taskImage(id,"cover-turn",image),null);
+ });
