@@ -26,6 +26,25 @@ export function formatExactTime(value, { locale, timeZone } = {}) {
   }).format(parsed.date);
 }
 
+// Compare calendar days in the user's local timezone, independent of DST hours.
+export function formatCardTime(value, { now = Date.now() } = {}) {
+  const parsed = parsedTimestamp(value);
+  if (!parsed) return "—";
+  const date = parsed.date;
+  const current = new Date(now);
+  const dayKey = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = (dayKey(current) - dayKey(date)) / DAY_MS;
+  if (days === 0) return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+  }).format(date).replace(/\s/g, "");
+  if (days === 1) return "Yesterday";
+  const day = date.getDate();
+  const suffix = day % 100 >= 11 && day % 100 <= 13 ? "th"
+    : ({ 1: "st", 2: "nd", 3: "rd" }[day % 10] ?? "th");
+  const month = new Intl.DateTimeFormat("en-US", { month: "long" }).format(date);
+  return `${month} ${day}${suffix}${date.getFullYear() === current.getFullYear() ? "" : `, ${date.getFullYear()}`}`;
+}
+
 function hourPhrase(milliseconds, direction) {
   const hours = Math.floor(milliseconds / HOUR_MS);
   const hourText = hours === 1 ? "1 hour" : `${hours} hours`;

@@ -136,7 +136,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
       <Box className="taskchef-board-card-footer">
-        <RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />
+        <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />
         {linked ? (
           <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
             <IconArrowUpRight aria-hidden size={19} stroke={1.6} />

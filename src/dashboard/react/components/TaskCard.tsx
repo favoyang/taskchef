@@ -55,7 +55,7 @@ export function TaskCard({
 
           <GitHubLinks task={task} />
           <Box className="taskchef-list-card-footer">
-            {task.observed ? <RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /> : <TaskCardStats task={task} />}
+            {task.observed ? <RelativeTime calendar icon={false} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /> : <TaskCardStats task={task} />}
             <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
               <IconArrowUpRight aria-hidden size={19} stroke={1.6} />
             </button>
