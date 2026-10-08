@@ -201,16 +201,19 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   assert.equal(scanner.task("mixed").inputSource, "scheduled");
 });
 
-test("empty chats and legacy JSON subagents are excluded", async (t) => {
+test("empty chats, exec sessions and legacy JSON subagents are excluded while CLI stays visible", async (t) => {
   const setup = await fixture(t); if (!setup) return;
   const { home, state, history } = setup;
-  for (const [chat, recency] of [["empty", 4], ["review", 3], ["cli", 2], ["older", 1]]) {
-    state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms,source) VALUES (?,?,0,1,1,?,?)").run(chat, chat, recency, chat === "review" ? '{"subagent":"review"}' : "cli");
+  for (const [chat, recency] of [["exec", 6], ["exec-archived", 5], ["empty", 4], ["review", 3], ["cli", 2], ["older", 1]]) {
+    state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms,source) VALUES (?,?,0,1,1,?,?)").run(chat, chat, recency, chat === "review" ? '{"subagent":"review"}' : chat.startsWith("exec") ? "exec" : "cli");
+    if (chat === "exec-archived") state.prepare("UPDATE threads SET archived=1 WHERE id=?").run(chat);
     if (chat !== "empty") history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(chat);
   }
   const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
   const snapshot = await scanner.refresh();
   assert.deepEqual(snapshot.tasks.map((task) => task.id), ["cli", "older"]);
+  assert.equal(await scanner.taskDetail("exec"), null);
+  assert.equal(await scanner.taskDetail("exec-archived"), null);
   assert.equal(snapshot.scan.indexedFiles, 2);
   assert.equal(snapshot.scan.unreadFiles, 0);
 });

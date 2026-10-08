@@ -81,6 +81,7 @@ function historyId(row) {
 
 function readDatabaseRecords(state, history) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
+      AND coalesce(source, '') != 'exec'
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
     const latestTurn = history.prepare(`SELECT turn_id, status, started_at, first_user_item_id, final_agent_item_id
