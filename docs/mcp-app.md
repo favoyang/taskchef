@@ -82,9 +82,9 @@ TaskChef Next exposes only Board. The List implementation remains in the
 source, but the Board/List selector is hidden and saved List choices are
 ignored. Interrupted chats appear in Waiting for input/review with an
 Interrupted tag; their recorded status remains available in Details.
-Scheduled is hidden when no scheduled cards match the current visibility,
-project, and date filters. Running, Waiting, and Done remain visible when
-empty, to keep their positions steady. Archived remains an optional column.
+Scheduled, Running, Waiting, and Done remain visible when empty, with a short
+message specific to each column. This keeps their positions steady when chats
+change state or filters change. Archived remains an optional column.
 
 The header Settings icon opens the installed local plugin details page using
 its configured marketplace root. If that root cannot be resolved, it opens

@@ -49,7 +49,7 @@ The screenshots in this walkthrough use illustrative demo data. Open the
 dashboard beside TaskChef master to see both tasks across your projects.
 In Codex, call `open_taskchef_board` for the [TaskChef Next sidebar](docs/mcp-app.md).
 It reads local Codex data and groups chats as **Scheduled**, **Running**,
-**Waiting for input/review**, and **Done**. Interrupted chats stay in Waiting with an **Interrupted** tag. Empty Scheduled columns are hidden. Ambiguous records stay
+**Waiting for input/review**, and **Done**. Interrupted chats stay in Waiting with an **Interrupted** tag. Empty board columns remain visible with a short message. Ambiguous records stay
 **Unverified**. Running follows the latest selected turn
 state; these labels do not prove task outcomes. Mark Done writes only TaskChef's separate local state. A new Codex turn
 resets that mark.

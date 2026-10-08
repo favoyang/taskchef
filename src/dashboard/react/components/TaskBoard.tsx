@@ -7,7 +7,7 @@ import { LinkedText } from "./LinkedText";
 import { ReplyMarkdown } from "./ReplyMarkdown";
 import { RelativeTime } from "./RelativeTime";
 
-const defaultLanes: { status: TaskStatus; label: string }[] = [
+const defaultLanes: { status: TaskStatus; label: string; emptyMessage?: string }[] = [
   { status: "working", label: "Working" },
   { status: "needs_input", label: "Needs input" },
   { status: "completed", label: "Completed" },
@@ -17,7 +17,6 @@ const defaultLanes: { status: TaskStatus; label: string }[] = [
 export function TaskBoard({
   lanes = defaultLanes,
   groupInterruptedWithWaiting = false,
-  hideEmptyScheduled = false,
   completedLimit,
   archivedLimit = 5,
   onMoreArchived,
@@ -27,8 +26,7 @@ export function TaskBoard({
   tasks,
 }: {
   groupInterruptedWithWaiting?: boolean;
-  hideEmptyScheduled?: boolean;
-  lanes?: { status: TaskStatus; label: string }[];
+  lanes?: { status: TaskStatus; label: string; emptyMessage?: string }[];
   completedLimit: number;
   archivedLimit?: number;
   onMoreArchived?: () => void;
@@ -80,7 +78,7 @@ export function TaskBoard({
 
   const knownStatuses = new Set(lanes.map((lane) => lane.status));
   const laneFor = (task: Task): TaskStatus => groupInterruptedWithWaiting && task.status === "interrupted" ? "needs_input" : knownStatuses.has(task.status) ? task.status : null;
-  const visibleLanes = lanes.filter((lane) => (lane.status !== null || tasks.some((task) => laneFor(task) === null)) && (!hideEmptyScheduled || lane.status !== "scheduled" || tasks.some((task) => laneFor(task) === "scheduled")));
+  const visibleLanes = lanes.filter((lane) => (lane.status !== null || tasks.some((task) => laneFor(task) === null)));
   return (
     <Box
       aria-label="Task board"
@@ -99,7 +97,7 @@ export function TaskBoard({
       ref={boardRef}
       tabIndex={0}
     >
-      {visibleLanes.map(({ status, label }) => {
+      {visibleLanes.map(({ status, label, emptyMessage }) => {
         const matching = tasks.filter((task) => laneFor(task) === status);
         const shown = (status === "completed" || status === "archived") ? matching.slice(0, status === "archived" ? archivedLimit : completedLimit) : matching;
         return (
@@ -110,7 +108,7 @@ export function TaskBoard({
             </Box>
             <Stack gap="sm">
               {shown.map((task) => <BoardCard key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
-              {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">No tasks</Text>}
+              {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{emptyMessage ?? "No tasks"}</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (
                 <Button className="taskchef-board-more" onClick={status === "archived" ? onMoreArchived : onMoreCompleted} size="compact-sm" variant="subtle">
                   Show {Math.min(5, matching.length - shown.length)} more · {shown.length} of {matching.length}

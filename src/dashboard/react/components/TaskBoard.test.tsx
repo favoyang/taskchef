@@ -149,13 +149,13 @@ test("Done and Archived expand independently", () => {
 });
 
 
-test("Next groups interrupted cards under Waiting with a tag and hides empty Scheduled", () => {
-  const lanes = [{ status: "scheduled" as const, label: "Scheduled" }, { status: "needs_input" as const, label: "Waiting for input/review" }, { status: "completed" as const, label: "Done" }];
+test("Next groups interrupted cards under Waiting with a tag and keeps empty Scheduled", () => {
+  const lanes = [{ status: "scheduled" as const, label: "Scheduled", emptyMessage: "No scheduled chats" }, { status: "needs_input" as const, label: "Waiting for input/review" }, { status: "completed" as const, label: "Done" }];
   const interrupted = task(1, "interrupted");
-  const { rerender } = render(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted]} groupInterruptedWithWaiting hideEmptyScheduled completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
-  expect(screen.queryByRole("region", { name: /Scheduled/ })).not.toBeInTheDocument();
+  const { rerender } = render(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted]} groupInterruptedWithWaiting completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  expect(within(screen.getByRole("region", { name: "Scheduled, 0 tasks" })).getByText("No scheduled chats")).toBeVisible();
   expect(within(screen.getByRole("region", { name: "Waiting for input/review, 1 tasks" })).getByText("Interrupted")).toBeVisible();
   expect(screen.queryByRole("region", { name: /Unverified/ })).not.toBeInTheDocument();
-  rerender(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted, task(2, "scheduled")]} groupInterruptedWithWaiting hideEmptyScheduled completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  rerender(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted, task(2, "scheduled")]} groupInterruptedWithWaiting completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
   expect(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).toBeVisible();
 });
