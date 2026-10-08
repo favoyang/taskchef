@@ -11,11 +11,11 @@ The board uses these queue labels:
 | Column | Rule |
 | --- | --- |
 | Scheduled | Latest completed input has a heartbeat marker matching a known automation, has no `clientId`, and that matching schedule is active. |
-| Running | Latest turn is `inProgress` with activity within two minutes. Live activity remains unverified. |
+| Running | Latest selected turn is `inProgress`. There is no age cutoff. |
 | Waiting for input/review | Latest turn completed and the chat remains open. This does not prove Codex asked a question. |
 | Interrupted | Latest turn is `interrupted` or `failed`. |
 | Done | Chat is archived or marked Done in TaskChef Next. This does not prove the work succeeded. |
-| Unverified | Old `inProgress` or an unrecognized turn state. |
+| Unverified | An unrecognized turn state. |
 
 Archived and manual Done marks take precedence. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
 
@@ -53,6 +53,6 @@ Queue reasons and lifetime direct-subagent counts appear in Details, alongside t
 
 Every visible five-second poll reads `PRAGMA data_version` on the same two read-only connections. The first poll, manual Refresh, or a changed counter runs the indexed database queries and replaces the cached records. An unchanged poll reuses those records; it does not query chat, turn, or item tables. Counters are captured before queries so commits during a read cause another read on the next poll. Neither connection holds a transaction between polls.
 
-Every poll separately reads and parses `automations/*/automation.toml` and the local Done file. Added, removed, paused, or changed schedules and Done marks therefore apply on the next poll, including when the databases are unchanged. Queue labels are rebuilt from cached records and the current clock: an `inProgress` record with no newer activity becomes Unverified at two minutes. Time passing alone never makes it Interrupted or Done.
+Every poll separately reads and parses `automations/*/automation.toml` and the local Done file. Added, removed, paused, or changed schedules and Done marks therefore apply on the next poll, including when the databases are unchanged. Queue labels are rebuilt from cached records and current schedules/Done marks. An open chat whose latest selected turn is `inProgress` remains Running regardless of timestamp age. Time passing alone never changes its queue label.
 
 Each poll checks both database file identities. Replacement reconnects and reloads; missing files or database/query errors discard the cache and clear the board with a fatal error. A later poll retries. Server shutdown closes the connections. The scan readout reports whether database records were queried or reused. This skips unchanged snapshots; it does not fetch only changed rows.

@@ -50,8 +50,8 @@ dashboard beside TaskChef master to see both tasks across your projects.
 In Codex, call `open_taskchef_board` for the [TaskChef Next sidebar](docs/mcp-app.md).
 It reads local Codex data and groups chats as **Scheduled**, **Running**,
 **Waiting for input/review**, **Interrupted**, and **Done**. Ambiguous records stay
-**Unverified**. Running uses a recent-turn hint; these labels do not prove task
-outcomes. Mark Done writes only TaskChef's separate local state. A new Codex turn
+**Unverified**. Running follows the latest selected turn
+state; these labels do not prove task outcomes. Mark Done writes only TaskChef's separate local state. A new Codex turn
 resets that mark.
 The main dashboard's **Board** groups reported tasks by **Working**,
 **Needs input**, **Completed**, and **Failed** so you can see their status at a glance.

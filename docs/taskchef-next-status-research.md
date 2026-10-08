@@ -15,7 +15,7 @@ The proposed board labels are workflow rules, not semantic judgments:
 
 | Label | Proposed rule |
 | --- | --- |
-| Running | Open chat; latest turn is `inProgress` with recent activity. |
+| Running | Open chat; latest selected turn is `inProgress`, regardless of timestamp age. |
 | Waiting for input/review | Open chat; latest turn is `completed`. This includes ordinary idle chats, even when no question or review was requested. |
 | Done | Chat is archived, or the user explicitly marks it done. A new turn should clear a manual Done mark. |
 | Interrupted | Open chat; latest turn is `interrupted` or `failed`. Show the recorded error when available. |
@@ -26,15 +26,15 @@ input or review. Done means the user closed or archived the chat for this board;
 archiving does not prove that the underlying work succeeded. Keep the archive
 reason visible so a reader can tell it from an explicit Done mark.
 
-The archive flag takes precedence over an old turn status. A stale
-`inProgress` row in an **open** chat is not proof that the chat is Done or that
-it is still Running; it needs a separate unverified treatment until the live
-state is confirmed. Chats with no turn row should be omitted from this board
-rather than given a workflow label. The sidebar now also checks JSON subagent
-sources in `threads.source`. It includes all eligible chats with a current-rollout turn.
+The archive flag takes precedence over an old turn status. The earlier proposal
+used a two-minute activity cutoff for Running. That proposal is superseded:
+the sidebar follows the latest selected turn status and does not infer a stop
+from timestamp age. Unrecognized turn states remain Unverified. Chats with no
+turn row are omitted. The sidebar excludes JSON subagent sources in
+`threads.source` and includes all eligible chats with a current-rollout turn.
 
 Counts from all unarchived database rows are not counts of current work. The
-board needs an explicit recency filter and should state the time window used.
+optional Updated filter narrows the view; it does not change queue labels.
 
 ## Scheduled work
 

@@ -154,7 +154,7 @@ test("supported Node versions permit read-only database scans", async (t) => {
   }
 });
 
-test("workflow labels distinguish scheduled input, ordinary input, archives, and stale turns", async (t) => {
+test("workflow labels distinguish scheduled input, ordinary input, archives, and old in-progress turns", async (t) => {
   const setup = await fixture(t); if (!setup) return;
   const { home, state, history } = setup;
   const now = Date.now();
@@ -172,7 +172,8 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   const scanner = new CodexSessionScanner({ codexHome: home, now: () => now, statePath: join(home, "done.json") });
   await scanner.refresh();
   assert.equal(scanner.task("running").status, "working");
-  assert.equal(scanner.task("stale").status, null);
+  assert.equal(scanner.task("stale").status, "working");
+  assert.equal(scanner.task("stale").observed.recentFileActivity, false);
   assert.equal(scanner.task("archived").status, "completed");
   assert.equal(scanner.task("failed").status, "interrupted");
   assert.equal(scanner.task("stopped").status, "interrupted");
@@ -381,7 +382,7 @@ test("persistent WAL readers skip unchanged queries and detect either database's
   const renamed = await scanner.refresh(); assert.equal(renamed.scan.cacheHit, false); assert.equal(renamed.tasks[0].title, "Renamed");
   assert.equal((await scanner.refresh()).scan.cacheHit, true);
   now += 120_000;
-  const stale = await scanner.refresh(); assert.equal(stale.scan.cacheHit, true); assert.equal(stale.tasks[0].status, null); assert.ok(stale.revision > renamed.revision);
+  const stale = await scanner.refresh(); assert.equal(stale.scan.cacheHit, true); assert.equal(stale.tasks[0].status, "working"); assert.equal(stale.revision, renamed.revision);
   history.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(id);
   const ended = await scanner.refresh(); assert.equal(ended.scan.cacheHit, false); assert.equal(ended.tasks[0].status, "needs_input");
   assert.equal((await scanner.refresh({ force: true })).scan.cacheHit, false);

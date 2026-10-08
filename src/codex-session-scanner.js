@@ -113,7 +113,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
       const updatedMs = Math.max(row.updated_at_ms || row.recency_at_ms || row.created_at_ms, (turn.started_at || 0) * 1000);
-      const active = !row.archived && turn.status === "inProgress" && now - updatedMs < ACTIVE_WINDOW_MS;
+      const active = !row.archived && turn.status === "inProgress";
       const chatSchedules = schedules.get(row.id) ?? [];
       const scheduled = chatSchedules.some((schedule) => schedule.active);
       let inputSource = "unverified";
@@ -143,11 +143,10 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
           : turn.status === "completed" ? inputScheduleActive ? "scheduled" : "needs_input" : null;
       const statusLabel = status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
       const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef Next. A new turn resets this mark."
-        : active ? "Latest turn is in progress; recent activity is recorded."
-          : turn.status === "inProgress" ? "Old inProgress record; current activity cannot be confirmed."
-            : status === "scheduled" ? "Latest turn was a scheduled heartbeat; an active schedule remains."
-              : status === "needs_input" ? "Latest turn ended. Chat remains open for input or review."
-                : status === "interrupted" ? `Latest turn is ${turn.status}.` : "Latest turn state is unrecognized.";
+        : active ? "Latest selected turn is in progress."
+          : status === "scheduled" ? "Latest turn was a scheduled heartbeat; an active schedule remains."
+            : status === "needs_input" ? "Latest turn ended. Chat remains open for input or review."
+              : status === "interrupted" ? `Latest turn is ${turn.status}.` : "Latest turn state is unrecognized.";
       const cwd = row.cwd || "";
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
@@ -157,7 +156,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: turn.turn_id, turnId: turn.turn_id, lastResult: null, latestTurn: null,
-        observed: { archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, recentFileActivity: active, directChildCount: row.child_count },
+        observed: { archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, recentFileActivity: !row.archived && now - updatedMs < ACTIVE_WINDOW_MS, directChildCount: row.child_count },
       };
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
