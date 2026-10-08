@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexSessionScanner } from "../src/codex-session-scanner.js";
@@ -362,4 +362,65 @@ test("reply excerpts belong to the selected rollout and latest turn", async (t) 
   assert.equal((await scanner.refresh()).tasks[0].replyExcerpt, "Review the PR.");
   history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='new-progress'").run(JSON.stringify({type:"agentMessage",text:"<heartbeat><decision>KEEP_QUIET</decision></heartbeat>"}));
   assert.equal((await scanner.refresh()).tasks[0].replyExcerpt, null);
+});
+
+
+test("persistent WAL readers skip unchanged queries and detect either database's commits", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.exec("PRAGMA journal_mode=WAL"); history.exec("PRAGMA journal_mode=WAL");
+  let now = Date.now();
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?,?,?,0,?,?,?)").run(id, "First", "/project", now, now, now);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'inProgress')").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home, now: () => now, statePath: join(home, "done.json") }); t.after(() => scanner.close());
+  assert.equal((await scanner.refresh()).scan.cacheHit, false);
+  const idle = await scanner.refresh(); assert.equal(idle.scan.cacheHit, true);
+  assert.equal((await scanner.refresh()).revision, idle.revision);
+  // The writer can commit while the reader connection remains open.
+  state.prepare("UPDATE threads SET name='Renamed' WHERE id=?").run(id);
+  const renamed = await scanner.refresh(); assert.equal(renamed.scan.cacheHit, false); assert.equal(renamed.tasks[0].title, "Renamed");
+  assert.equal((await scanner.refresh()).scan.cacheHit, true);
+  now += 120_000;
+  const stale = await scanner.refresh(); assert.equal(stale.scan.cacheHit, true); assert.equal(stale.tasks[0].status, null); assert.ok(stale.revision > renamed.revision);
+  history.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(id);
+  const ended = await scanner.refresh(); assert.equal(ended.scan.cacheHit, false); assert.equal(ended.tasks[0].status, "needs_input");
+  assert.equal((await scanner.refresh({ force: true })).scan.cacheHit, false);
+  state.prepare("DELETE FROM threads WHERE id=?").run(id);
+  assert.deepEqual((await scanner.refresh()).tasks, []);
+  scanner.close(); assert.equal((await scanner.refresh()).scan.cacheHit, false);
+});
+
+test("cached database records still observe schedules and local Done state on each poll", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  const now = Date.now(); const donePath = join(home, "done.json");
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?,?,?,0,?,?,?)").run(id, "Routine", "/project", now, now, now);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,first_user_item_id) VALUES (?,1,'completed','input')").run(id);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,'turn-1','input',?)").run(id, JSON.stringify({content:[{type:"text",text:"<heartbeat><automation_id>routine</automation_id></heartbeat>"}]}));
+  const scanner = new CodexSessionScanner({ codexHome: home, statePath: donePath }); t.after(() => scanner.close());
+  assert.equal((await scanner.refresh()).tasks[0].status, "needs_input");
+  const dir = join(home, "automations", "routine"); await mkdir(dir, {recursive:true});
+  const config = 'id="routine"\nkind="heartbeat"\nstatus="ACTIVE"\ntarget_thread_id="'+id+'"\n';
+  await writeFile(join(dir,"automation.toml"), config);
+  const scheduled = await scanner.refresh(); assert.equal(scheduled.scan.cacheHit,true); assert.equal(scheduled.tasks[0].status,"scheduled");
+  await writeFile(join(dir,"automation.toml"),config.replace('ACTIVE','PAUSED'));
+  assert.equal((await scanner.refresh()).tasks[0].status,"needs_input");
+  await writeFile(donePath, JSON.stringify({[id]:"turn-1"}));
+  const done = await scanner.refresh(); assert.equal(done.scan.cacheHit,true); assert.equal(done.tasks[0].status,"completed");
+  await writeFile(donePath, "broken"); assert.equal((await scanner.refresh()).healthy,false);
+  await rm(donePath); assert.equal((await scanner.refresh()).scan.cacheHit,false);
+});
+
+test("replaced or missing databases invalidate persistent connections and recover", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup; const now = Date.now();
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?,?,?,0,?,?,?)").run(id,"Before","/project",now,now,now);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const scanner = new CodexSessionScanner({codexHome:home,statePath:join(home,"done.json")}); t.after(()=>scanner.close());
+  await scanner.refresh(); const path=join(home,"state_5.sqlite"); const replacement=join(home,"replacement.sqlite");
+  state.exec("UPDATE threads SET name='After'; VACUUM INTO '"+replacement+"'");
+  await rename(replacement,path);
+  const next=await scanner.refresh(); assert.equal(next.scan.cacheHit,false); assert.equal(next.tasks[0].title,"After");
+  await rename(path,replacement); const failed=await scanner.refresh(); assert.equal(failed.healthy,false); assert.deepEqual(failed.tasks,[]);
+  await rename(replacement,path); assert.equal((await scanner.refresh()).healthy,true);
 });

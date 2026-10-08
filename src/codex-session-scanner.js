@@ -79,15 +79,7 @@ function historyId(row) {
   return row.id;
 }
 
-async function readDatabase(codexHome, now, doneMarks) {
-  const module = await sqlite();
-  if (!module?.DatabaseSync) throw new Error("node:sqlite is unavailable");
-  const { schedules, errors: scheduleErrors } = await readSchedules(codexHome);
-  let state;
-  let history;
-  try {
-    state = new module.DatabaseSync(join(codexHome, "state_5.sqlite"), { readOnly: true });
-    history = new module.DatabaseSync(join(codexHome, "thread_history_1.sqlite"), { readOnly: true });
+function readDatabaseRecords(state, history) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
@@ -105,6 +97,19 @@ async function readDatabase(codexHome, now, doneMarks) {
     });
     const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_id = ?");
     const latestReply = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'agentMessage' ORDER BY rollout_ordinal DESC LIMIT 1");
+    const inputs = new Map();
+    const replies = new Map();
+    for (const row of rows) {
+      const key = historyId(row);
+      const turn = turns.get(key);
+      inputs.set(key, turn.first_user_item_id ? input.get(key, turn.turn_id, turn.first_user_item_id)?.item_json : null);
+      replies.set(key, (turn.final_agent_item_id ? input.get(key, turn.turn_id, turn.final_agent_item_id) : latestReply.get(key, turn.turn_id))?.item_json);
+    }
+    return { rows, turns, inputs, replies };
+}
+
+function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
+    const { rows, turns, inputs, replies } = records;
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
       const updatedMs = Math.max(row.updated_at_ms || row.recency_at_ms || row.created_at_ms, (turn.started_at || 0) * 1000);
@@ -114,7 +119,7 @@ async function readDatabase(codexHome, now, doneMarks) {
       let inputSource = "unverified";
       let inputScheduleActive = false;
       if (turn.first_user_item_id) {
-        const raw = input.get(historyId(row), turn.turn_id, turn.first_user_item_id)?.item_json;
+        const raw = inputs.get(historyId(row));
         if (raw) {
           const item = JSON.parse(raw);
           const text = (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
@@ -124,10 +129,8 @@ async function readDatabase(codexHome, now, doneMarks) {
           else if (!marker && item.clientId) inputSource = "ordinary";
         }
       }
-      const replyRow = turn.final_agent_item_id
-        ? input.get(historyId(row), turn.turn_id, turn.final_agent_item_id)
-        : latestReply.get(historyId(row), turn.turn_id);
-      const reply = replyRow ? JSON.parse(replyRow.item_json) : null;
+      const rawReply = replies.get(historyId(row));
+      const reply = rawReply ? JSON.parse(rawReply) : null;
       let replyText = reply?.type === "agentMessage" && typeof reply.text === "string" ? reply.text.trim() : "";
       // Heartbeat replies wrap their user-facing text in a message block.
       if (/^<heartbeat>[\s\S]*<\/heartbeat>$/.test(replyText)) {
@@ -158,13 +161,12 @@ async function readDatabase(codexHome, now, doneMarks) {
       };
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
-      source: "database", mode: "database", checkedAt: iso(now), intervalSeconds: 5,
+      source: "database", mode: "database", cacheHit, checkedAt: iso(now), intervalSeconds: 5,
       visibleFiles: tasks.length, indexedFiles: tasks.length, unreadFiles: 0,
       activeFiles: null, archivedFiles: null, parsedFiles: null, errors: 0, scheduleErrors,
       sources: ["state_5.sqlite:threads", "state_5.sqlite:thread_spawn_edges", "thread_history_1.sqlite:thread_turns", "thread_history_1.sqlite:thread_items", "automations/*/automation.toml"],
       fields: ["session ID", "name", "title", "timestamps", "project directory", "archive flag", "thread source", "direct child count", "latest turn status", "heartbeat marker", "schedule flag"],
     } };
-  } finally { history?.close(); state?.close(); }
 }
 
 function parseLines(text, onRecord) {
@@ -263,6 +265,8 @@ export class CodexSessionScanner {
     this.stats = null;
     this.pending = null;
     this.forcedPending = null;
+    this.connections = null;
+    this.databaseCache = null;
   }
   async refresh({ force = false } = {}) {
     if (this.pending) {
@@ -275,13 +279,40 @@ export class CodexSessionScanner {
       }
       return this.forcedPending;
     }
-    this.pending = this.refreshSource(this.now()).finally(() => { this.pending = null; });
+    this.pending = this.refreshSource(this.now(), force).finally(() => { this.pending = null; });
     return this.pending;
   }
-  async refreshSource(now) {
+  async databaseRecords(force) {
+    const paths = [join(this.codexHome, "state_5.sqlite"), join(this.codexHome, "thread_history_1.sqlite")];
+    const identities = await Promise.all(paths.map(async (path) => {
+      const info = await stat(path, { bigint: true });
+      return `${info.dev}:${info.ino}`;
+    }));
+    if (!this.connections || JSON.stringify(identities) !== JSON.stringify(this.connections.identities)) {
+      this.close();
+      const module = await sqlite();
+      let state;
+      try {
+        state = new module.DatabaseSync(paths[0], { readOnly: true });
+        const history = new module.DatabaseSync(paths[1], { readOnly: true });
+        this.connections = { state, history, identities };
+      } catch (error) { state?.close(); throw error; }
+    }
+    const { state, history } = this.connections;
+    // Compare versions only on these same connections. Capture before querying:
+    // a commit during a snapshot must trigger another read on the next poll.
+    const versions = [state.prepare("PRAGMA data_version").get().data_version, history.prepare("PRAGMA data_version").get().data_version];
+    const cacheHit = !force && this.databaseCache && JSON.stringify(versions) === JSON.stringify(this.databaseCache.versions);
+    if (!cacheHit) this.databaseCache = { versions, records: readDatabaseRecords(state, history) };
+    return { records: this.databaseCache.records, cacheHit: Boolean(cacheHit) };
+  }
+  async refreshSource(now, force) {
     try {
       if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
-      const database = await readDatabase(this.codexHome, now, await readDoneMarks(this.statePath));
+      const doneMarks = await readDoneMarks(this.statePath);
+      const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
+      const { records, cacheHit } = await this.databaseRecords(force);
+      const database = buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit);
       const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.updatedAt, task.status, task.summary,
@@ -294,6 +325,7 @@ export class CodexSessionScanner {
       this.stats = database.scan;
       return this.snapshot();
     } catch (error) {
+      this.close();
       if (this.stats?.mode !== "error" || this.tasks.size) this.revision += 1;
       this.tasks = new Map();
       this.rolloutPaths = new Map();
@@ -343,5 +375,10 @@ export class CodexSessionScanner {
     this.mutation = action.catch(() => {});
     return action;
   }
-  close() {}
+  close() {
+    this.connections?.history.close();
+    this.connections?.state.close();
+    this.connections = null;
+    this.databaseCache = null;
+  }
 }

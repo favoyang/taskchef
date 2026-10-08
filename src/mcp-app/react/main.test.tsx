@@ -334,8 +334,9 @@ test("Done control calls the local mark tool with the displayed turn and refresh
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "Task one" }));
   fireEvent.click(await screen.findByRole("button", { name: "Mark Done" }));
-  expect(await screen.findByRole("button", { name: "Reopen" })).toBeVisible();
+  await waitFor(() => expect(within(screen.getByRole("region", { name: "Task detail" })).getByText("completed")).toBeVisible());
+  expect(screen.queryByRole("button", { name: "Reopen" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Mark Done" })).not.toBeInTheDocument();
   expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_set_done", arguments: { taskId: "one", expectedTurnId: "turn-one", done: true } });
-  fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
-  expect(await screen.findByRole("button", { name: "Mark Done" })).toBeVisible();
+
 });

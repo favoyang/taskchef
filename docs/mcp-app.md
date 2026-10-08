@@ -4,7 +4,7 @@ TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connec
 
 Call `open_taskchef_board` in Codex to open **TaskChef Next**. In a sidebar or fullscreen host view, it shows the read-only List and Board views, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
 
-The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, and chats with no turn record. Regular CLI chats remain eligible. The parent summary shows its recorded direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
+The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, and chats with no turn record. Regular CLI chats remain eligible. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
 
 The board uses these queue labels:
 
@@ -19,7 +19,7 @@ The board uses these queue labels:
 
 Archived and manual Done marks take precedence. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
 
-**Mark Done** and **Reopen** change only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. Archived and in-progress chats cannot be marked from this app. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
+**Mark Done** changes only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. There is no Reopen button; send a new prompt in Codex to start another turn. Archived and in-progress chats cannot be marked from this app. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
 
 Both databases and the expected tables must be available. Missing or incompatible databases, or failed queries, produce a fatal app error and clear the visible inventory. Rollout files never replace database inventory or status. The selected-chat detail may optionally read a bounded head and tail of the JSONL file at its database `rollout_path` for message counts and byte coverage. The path stays server-side. This detail never changes the database-derived status. If the path or file is absent or cannot be parsed, database metadata remains available. No raw transcript content is returned. All reads are local and read-only.
 
@@ -33,11 +33,11 @@ Old history rows can remain under the original chat ID. Reading those rows inste
 
 ## Query and refresh rules
 
-Every visible-document poll requests a fresh database snapshot, at five-second intervals. There is no timestamp cursor or incremental cache. Concurrent requests share an in-flight refresh. Showing the document again or clicking Refresh requests an immediate refresh.
+Every visible-document poll checks for database changes, at five-second intervals. Unchanged database records are cached; there is no timestamp cursor or changed-row query. Concurrent requests share an in-flight refresh. Showing the document again or clicking Refresh requests an immediate refresh.
 
-Each refresh reads the eligible chat metadata, then runs `WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1` for each selected rollout ID. Codex's existing `idx_thread_turns_page` index supports this lookup. It no longer ranks every turn in the history table. Only the latest first input item is read by its full primary key: rollout ID, turn ID, and item ID; it never scans all message bodies. This server creates no indexes and writes nothing to Codex.
+Each database reload reads the eligible chat metadata, then runs `WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1` for each selected rollout ID. Codex's existing `idx_thread_turns_page` index supports this lookup. It no longer ranks every turn in the history table. The latest first input and linked final reply are read by their full primary keys: rollout ID, turn ID, and item ID; it never scans all message bodies. This server creates no indexes and writes nothing to Codex.
 
-There is no 300-chat cap. All eligible chats with a current-rollout turn are included. Done cards still expand in small groups in Board view. This reduces the initial rendered board while keeping complete counts. List view includes all matching chats. If larger installations become slow, measure database time and rendering separately before adding pagination or a cache.
+There is no 300-chat cap. All eligible chats with a current-rollout turn are included. Done cards still expand in small groups in Board view. This reduces the initial rendered board while keeping complete counts. List view includes all matching chats. If larger installations become slow, measure database time and rendering separately before adding pagination.
 
 See the [storage schema](taskchef-next-storage.md), including the editable diagram and PNG.
 
@@ -47,4 +47,12 @@ Cards show the chat title, project, a two-line excerpt of the latest saved assis
 
 Queue reasons and lifetime direct-subagent counts appear in Details, alongside the saved reply excerpt. They are not card summaries. The ordinary TaskChef dashboard keeps its Request/Result and usage layout.
 
-Caching and `data_version` change detection are separate follow-up work. This version still takes fresh database snapshots.
+
+
+### Database change checks
+
+Every visible five-second poll reads `PRAGMA data_version` on the same two read-only connections. The first poll, manual Refresh, or a changed counter runs the indexed database queries and replaces the cached records. An unchanged poll reuses those records; it does not query chat, turn, or item tables. Counters are captured before queries so commits during a read cause another read on the next poll. Neither connection holds a transaction between polls.
+
+Every poll separately reads and parses `automations/*/automation.toml` and the local Done file. Added, removed, paused, or changed schedules and Done marks therefore apply on the next poll, including when the databases are unchanged. Queue labels are rebuilt from cached records and the current clock: an `inProgress` record with no newer activity becomes Unverified at two minutes. Time passing alone never makes it Interrupted or Done.
+
+Each poll checks both database file identities. Replacement reconnects and reloads; missing files or database/query errors discard the cache and clear the board with a fatal error. A later poll retries. Server shutdown closes the connections. The scan readout reports whether database records were queried or reused. This skips unchanged snapshots; it does not fetch only changed rows.

@@ -36,7 +36,7 @@ function initialView(): "board" | "list" {
 
 const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: null, label: "Unverified" }] as const;
 
-interface ScanStats { scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
+interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
@@ -206,10 +206,10 @@ export function TaskChefApp() {
     if (!task.turnId) return;
     setBusy(true);
     try {
-      const result = await call<{ task: Task }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: !task.manualDone });
+      const result = await call<{ task: Task }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: true });
       if (selectedRef.current?.id === task.id) { selectedRef.current = result.task; setSelected(result.task); }
       await refresh(true);
-      setNotice(task.manualDone ? "Done mark removed." : "Marked Done. A new turn will reset this mark.");
+      setNotice("Marked Done. A new turn will reset this mark.");
     } catch (cause) { setDetailError(String(cause)); }
     finally { setBusy(false); }
   }
@@ -247,7 +247,7 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
-          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats{scan.unreadFiles ? `; ${scan.unreadFiles} outside recent limit` : "; no chat limit"}.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
+          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode}{scan.mode === "database" ? (scan.cacheHit ? " (cached records)" : " (fresh queries)") : ""} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats{scan.unreadFiles ? `; ${scan.unreadFiles} outside recent limit` : "; no chat limit"}.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
@@ -259,7 +259,7 @@ export function TaskChefApp() {
         </main>
         </>}
       </Box>
-      <TaskDetail extraActions={selected && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>{selected.manualDone ? "Reopen" : "Mark Done"}</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
+      <TaskDetail extraActions={selected && !selected.manualDone && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
         void navigator.clipboard.writeText(selected.id).then(() => setNotice("Task ID copied."), () => setNotice("Clipboard unavailable. Copy the ID from metadata."));
       }} onOpenCodex={() => selected && void openChat(selected)} onTransition={async () => ({ ok: false })} opened={opened} task={selected} notice={notice} readOnly />
