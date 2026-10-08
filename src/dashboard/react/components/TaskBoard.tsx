@@ -1,4 +1,4 @@
-import { Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
@@ -16,6 +16,8 @@ const defaultLanes: { status: TaskStatus; label: string }[] = [
 ];
 export function TaskBoard({
   lanes = defaultLanes,
+  groupInterruptedWithWaiting = false,
+  hideEmptyScheduled = false,
   completedLimit,
   archivedLimit = 5,
   onMoreArchived,
@@ -24,6 +26,8 @@ export function TaskBoard({
   onOpenDetail,
   tasks,
 }: {
+  groupInterruptedWithWaiting?: boolean;
+  hideEmptyScheduled?: boolean;
   lanes?: { status: TaskStatus; label: string }[];
   completedLimit: number;
   archivedLimit?: number;
@@ -75,8 +79,8 @@ export function TaskBoard({
   }
 
   const knownStatuses = new Set(lanes.map((lane) => lane.status));
-  const laneFor = (task: Task): TaskStatus => knownStatuses.has(task.status) ? task.status : null;
-  const visibleLanes = lanes.filter((lane) => lane.status !== null || tasks.some((task) => laneFor(task) === null));
+  const laneFor = (task: Task): TaskStatus => groupInterruptedWithWaiting && task.status === "interrupted" ? "needs_input" : knownStatuses.has(task.status) ? task.status : null;
+  const visibleLanes = lanes.filter((lane) => (lane.status !== null || tasks.some((task) => laneFor(task) === null)) && (!hideEmptyScheduled || lane.status !== "scheduled" || tasks.some((task) => laneFor(task) === "scheduled")));
   return (
     <Box
       aria-label="Task board"
@@ -135,6 +139,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
       </Title>
       <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
+      {task.status === "interrupted" && <Badge color="orange" size="xs" variant="light">Interrupted</Badge>}
       {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
       <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}

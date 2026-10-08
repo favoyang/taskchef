@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testi
 import { useState } from "react";
 import type { Task } from "../../dashboard/react/types";
 
-const server = vi.hoisted(() => ({ call: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void), teardown: undefined as undefined | (() => object) }));
+const server = vi.hoisted(() => ({ call: vi.fn(), openLink: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void), teardown: undefined as undefined | (() => object) }));
 vi.mock("@mantine/core", async () => {
   const React = await import("react");
   const wrap = (tag: string) => ({ children, component, ...props }: Record<string, unknown>) => React.createElement(component as string || tag, { "aria-label": props["aria-label"], role: props.role, id: props.id }, children as React.ReactNode);
@@ -20,6 +20,7 @@ vi.mock("@mantine/core", async () => {
 });
 vi.mock("@modelcontextprotocol/ext-apps", () => ({
   App: class {
+    openLink(input: { url: string }) { return server.openLink(input); }
     connect() { return Promise.resolve(); }
     getHostContext() { return { displayMode: server.displayMode }; }
     callServerTool(input: { name: string; arguments: Record<string, unknown> }) { return server.call(input); }
@@ -31,7 +32,7 @@ vi.mock("../../dashboard/react/components/TaskCard", () => ({
   TaskCard: ({ task, onOpenCodex, onOpenDetail }: { task: Task; onOpenCodex: (task: Task) => void; onOpenDetail: (task: Task) => void }) => <article><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>,
 }));
 vi.mock("../../dashboard/react/components/TaskBoard", () => ({
-  TaskBoard: ({ tasks, onOpenDetail }: { tasks: Task[]; onOpenDetail: (task: Task) => void }) => <section aria-label="Task board">{tasks.map((task) => <button key={task.id} onClick={() => onOpenDetail(task)}>{task.title}</button>)}</section>,
+  TaskBoard: ({ tasks, onOpenDetail, onOpenCodex }: { tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board">{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
 vi.mock("../../dashboard/react/components/TaskDetail", () => ({
   TaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
@@ -61,13 +62,14 @@ beforeEach(() => {
   server.hostContextChanged = undefined;
   server.teardown = undefined;
   window.localStorage.clear();
+  server.openLink.mockResolvedValue({ isError: false });
   visibility = { showExec: false, showCli: false, showArchived: false };
   tasks = [task("one")];
   details = new Map(tasks.map((item) => [item.id, item]));
   transition = async () => ({ structuredContent: { task: task("one", "completed") } });
   detailFailure = null;
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
     if (name === "taskchef_app_task" && detailFailure) return Promise.resolve({ isError: true, content: [{ type: "text", text: detailFailure }] });
     if (name === "taskchef_app_task") return Promise.resolve({ structuredContent: { task: details.get(args.taskId as string) } });
     if (name === "taskchef_app_transition") return transition();
@@ -101,38 +103,27 @@ test("lifecycle events log readable single strings without suppressing repeats",
   expect(warn).not.toHaveBeenCalled();
 });
 
-test("switches list and board and filters by project, date, and status with contextual counts", async () => {
+test("shows only Board, ignores a saved List choice, and filters project and date", async () => {
+  window.localStorage.setItem("taskchef.app.view", "list");
   tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("three", "interrupted", new Date().toISOString(), "Beta")];
-  details = new Map(tasks.map((item) => [item.id, item]));
   mount();
-  expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
-  expect(screen.getByText("Tasks: 3 of 3")).toBeVisible();
-  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
-  expect(screen.getByText("Tasks: 2 of 3")).toBeVisible();
-  expect(screen.getByRole("radio", { name: "All 2" })).toBeVisible();
-  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "24h" } });
-  expect(screen.getByText("Tasks: 1 of 3")).toBeVisible();
-  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "all" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "" } });
-  fireEvent.click(screen.getByRole("radio", { name: /Interrupted/ }));
-  expect(screen.getByText("Tasks: 1 of 3")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
-  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button")).toHaveLength(3);
+  await screen.findByRole("button", { name: "Task one" });
+  expect(screen.getByRole("region", { name: "Task board" })).toBeVisible();
+  expect(screen.queryByRole("radiogroup", { name: "View" })).not.toBeInTheDocument();
   expect(screen.queryByRole("radiogroup", { name: "Status" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("radio", { name: "List" }));
-  expect(screen.getByRole("button", { name: "Task three" })).toBeVisible();
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
+  expect(screen.queryByRole("button", { name: "Task three" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "24h" } });
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
 });
 
-test("offers an Unverified filter with a contextual count", async () => {
-  tasks = [task("one", null, new Date().toISOString(), "Alpha"), task("two", null, new Date().toISOString(), "Beta")];
-  mount();
-  expect(await screen.findByRole("radio", { name: "Unverified 2" })).toBeVisible();
-  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
-  fireEvent.click(screen.getByRole("radio", { name: "Unverified 1" }));
-  expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+test("Settings opens the installed plugin details link and reports failure", async () => {
+  mount(); await screen.findByRole("button", { name: "Task one" });
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await waitFor(() => expect(server.openLink).toHaveBeenCalledWith({ url: "codex://plugins/taskchef-next?marketplacePath=%2Fexample" }));
+  server.openLink.mockResolvedValue({ isError: true });
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not open plugin settings");
 });
 
 test("filters projects with the same name by directory", async () => {
@@ -149,7 +140,7 @@ test("filters projects with the same name by directory", async () => {
   fireEvent.change(picker, { target: { value: "/work/second/project" } });
   expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
-  expect(screen.getByRole("radio", { name: "All 1" })).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button", { name: /^Task / })).toHaveLength(1);
 });
 
 test("refresh updates detail and removes a disappeared selection", async () => {
@@ -191,7 +182,7 @@ test("an older selection detail cannot replace a newer refresh detail", async ()
   const first = new Promise((resolve) => { releaseFirst = resolve; });
   let detailCalls = 0;
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
     if (name === "taskchef_app_task") return ++detailCalls === 1
       ? first
       : Promise.resolve({ structuredContent: { task: task("one", "needs_input") } });
@@ -220,7 +211,7 @@ test("an older selection response cannot replace the current task", async () => 
   let release!: (value: unknown) => void;
   const first = new Promise((resolve) => { release = resolve; });
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
     if (name === "taskchef_app_task") return args.taskId === "one" ? first : Promise.resolve({ structuredContent: { task: task("two") } });
     throw new Error(`Unexpected tool: ${name}`);
   });
@@ -234,7 +225,7 @@ test("an older selection response cannot replace the current task", async () => 
 
 test("keeps scan diagnostics out of the board", async () => {
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: true, revision: 1,
       scan: { source: "database", mode: "database", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 5,
         indexedFiles: 8620, visibleFiles: 300, unreadFiles: 8320, errors: 0 },
@@ -242,7 +233,6 @@ test("keeps scan diagnostics out of the board", async () => {
     throw new Error(`Unexpected tool: ${name}`);
   });
   mount();
-  fireEvent.click(screen.getByText("Board", { exact: true }));
   await screen.findByRole("region", { name: "Task board" });
   expect(screen.queryByText(/Read-only database/)).not.toBeInTheDocument();
   expect(screen.queryByText(/shown of.*top-level chats/)).not.toBeInTheDocument();
@@ -252,7 +242,7 @@ test("keeps scan diagnostics out of the board", async () => {
 
 test("shows an initial inventory failure without undefined scan counts", async () => {
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: false, revision: 0,
       scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "EACCES" },
     } } });
@@ -300,7 +290,7 @@ test("inline mode loads once and begins polling when expanded", async () => {
 });
 
 test("shows the Node requirement when the scanner rejects its runtime", async () => {
-  server.call.mockResolvedValue({ structuredContent: { settings: visibility, snapshot: {
+  server.call.mockResolvedValue({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
     tasks: [], healthy: false, revision: 0,
     scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "TaskChef Next requires Node.js 22.18.0 or later for read-only SQLite (current: 22.17.9)." },
   } } });
@@ -312,7 +302,7 @@ test("a database failure after a healthy snapshot removes stale tasks", async ()
   mount();
   expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: false, revision: 2,
       scan: { source: "database", mode: "error", checkedAt: new Date().toISOString() },
     } } });
@@ -333,7 +323,7 @@ test("Done control calls the local mark tool with the displayed turn and refresh
       tasks = [next]; details.set(current.id, next);
       return { structuredContent: { task: next } };
     }
-    if (name === "taskchef_app_snapshot") return { structuredContent: { settings: visibility, snapshot: { tasks, healthy: true } } };
+    if (name === "taskchef_app_snapshot") return { structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } };
     if (name === "taskchef_app_task") return { structuredContent: { task: details.get(current.id) } };
     throw new Error(name);
   });
@@ -352,15 +342,12 @@ test("native visibility settings update counts and survive view reloads", async 
   tasks = [task("desktop"), ...["exec", "cli"].map((source) => ({ ...task(source), observed: { source, archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } })), { ...task("archive", "archived"), observed: { source: "vscode", archive: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }];
   details = new Map(tasks.map((item) => [item.id, item]));
   const first = render(<TaskChefApp />);
-  expect(await screen.findByText("Tasks: 1 of 1")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Task desktop" })).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button", { name: /^Task / })).toHaveLength(1);
   visibility = { showExec: true, showCli: true, showArchived: true };
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-  expect(await screen.findByText("Tasks: 4 of 4")).toBeVisible();
-  fireEvent.click(screen.getByRole("radio", { name: "Archived 1" }));
-  expect(screen.getByRole("button", { name: "Task archive" })).toBeVisible();
-  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
-  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button")).toHaveLength(4);
+  expect(await screen.findByRole("button", { name: "Task archive" })).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button", { name: /^Task / })).toHaveLength(4);
   first.unmount(); mount();
   expect(await screen.findByRole("button", { name: "Task exec" })).toBeVisible();
   visibility = { showExec: false, showCli: false, showArchived: false };

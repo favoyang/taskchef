@@ -1,6 +1,6 @@
 import { App } from "@modelcontextprotocol/ext-apps";
 import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
-import { IconRefresh } from "@tabler/icons-react";
+import { IconRefresh, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
@@ -39,7 +39,7 @@ function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, sh
   return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
 
-const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: "archived", label: "Archived" }, { status: null, label: "Unverified" }] as const;
+const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "completed", label: "Done" }, { status: "archived", label: "Archived" }, { status: null, label: "Unverified" }] as const;
 
 interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
@@ -52,13 +52,15 @@ export function TaskChefApp() {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsUrl, setSettingsUrl] = useState("codex://plugins");
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [project, setProject] = useState("");
   const [date, setDate] = useState("all");
   const [status, setStatus] = useState("");
-  const [view, setView] = useState(initialView);
+  // Keep the list implementation for later, but expose only Board. Ignore old saved List choices.
+  const [view, setView] = useState<"board" | "list">("board");
   const [completedLimit, setCompletedLimit] = useState(5);
   const [archivedLimit, setArchivedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
@@ -73,11 +75,12 @@ export function TaskChefApp() {
   const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never; settings: VisibilitySettings } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings }>(
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string }>(
       "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
     setVisibility(data.settings);
+    setSettingsUrl(data.settingsUrl ?? "codex://plugins");
     if (data.snapshot) {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.healthy === false ? [] : data.snapshot.tasks);
@@ -254,6 +257,10 @@ export function TaskChefApp() {
         <header className="taskchef-app-header">
           <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
           <Group gap="xs">
+          <ActionIcon aria-label="Settings" title="Plugin settings" onClick={() => void (async () => {
+            try { await connected; const result = await bridge.openLink({ url: settingsUrl }); if (result.isError) throw new Error("Could not open plugin settings."); }
+            catch (cause) { setNavigationError(String(cause)); }
+          })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">
@@ -268,7 +275,6 @@ export function TaskChefApp() {
         <main className={`taskchef-app-main${view === "list" ? " taskchef-app-main-list" : ""}`}>
           <Paper className="taskchef-toolbar" radius={0}>
             <Stack gap="sm">
-              <SegmentedControl aria-label="View" className="taskchef-app-view" data={[{ label: "Board", value: "board" }, { label: "List", value: "list" }]} onChange={changeView} size="xs" value={view} withItemsBorders={false} />
               <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
                 <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} value={project} size="xs" />
                 <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
@@ -281,7 +287,7 @@ export function TaskChefApp() {
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {navigationError && !opened && <Alert color="red" role="alert" mt="sm">{navigationError}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
-          {!error && (view === "board" ? <TaskBoard lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard groupInterruptedWithWaiting hideEmptyScheduled lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}

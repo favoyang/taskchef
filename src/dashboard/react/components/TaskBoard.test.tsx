@@ -147,3 +147,15 @@ test("Done and Archived expand independently", () => {
   expect(within(screen.getByRole("region", { name: "Done, 8 tasks" })).getAllByRole("article")).toHaveLength(5);
   expect(within(screen.getByRole("region", { name: "Archived, 8 tasks" })).getAllByRole("article")).toHaveLength(8);
 });
+
+
+test("Next groups interrupted cards under Waiting with a tag and hides empty Scheduled", () => {
+  const lanes = [{ status: "scheduled" as const, label: "Scheduled" }, { status: "needs_input" as const, label: "Waiting for input/review" }, { status: "completed" as const, label: "Done" }];
+  const interrupted = task(1, "interrupted");
+  const { rerender } = render(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted]} groupInterruptedWithWaiting hideEmptyScheduled completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  expect(screen.queryByRole("region", { name: /Scheduled/ })).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Waiting for input/review, 1 tasks" })).getByText("Interrupted")).toBeVisible();
+  expect(screen.queryByRole("region", { name: /Unverified/ })).not.toBeInTheDocument();
+  rerender(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted, task(2, "scheduled")]} groupInterruptedWithWaiting hideEmptyScheduled completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  expect(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).toBeVisible();
+});

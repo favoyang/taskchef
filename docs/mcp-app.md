@@ -2,9 +2,9 @@
 
 TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connections. The rest of TaskChef continues to support the package's Node.js 18 minimum. An unsupported Node runtime produces a fatal version error before TaskChef Next opens a database.
 
-Call `open_taskchef_board` in Codex to open **TaskChef Next**. In a sidebar or fullscreen host view, it shows the read-only List and Board views, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
+Call `open_taskchef_board` in Codex to open **TaskChef Next**. In a sidebar or fullscreen host view, it shows the read-only board, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
 
-The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. The plugin details page has native switches for Show exec sessions, Show CLI sessions, and Show archived chats. The MCP server stores these choices in `~/.agents/taskchef-next/settings.json`, shared by all TaskChef Next views. Each visible poll reads the current settings, even when the database snapshot is unchanged. These choices apply to Board, List, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
+The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. The plugin details page has native switches for Show exec sessions, Show CLI sessions, and Show archived chats. The MCP server stores these choices in `~/.agents/taskchef-next/settings.json`, shared by all TaskChef Next views. Each visible poll reads the current settings, even when the database snapshot is unchanged. These choices apply to the board, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
 
 The board uses these queue labels:
 
@@ -12,8 +12,7 @@ The board uses these queue labels:
 | --- | --- |
 | Scheduled | Latest completed input has a heartbeat marker matching a known automation, has no `clientId`, and that matching schedule is active. |
 | Running | Latest selected turn is `inProgress`. There is no age cutoff. |
-| Waiting for input/review | Latest turn completed and the chat remains open. This does not prove Codex asked a question. |
-| Interrupted | Latest turn is `interrupted` or `failed`. |
+| Waiting for input/review | Latest turn completed, interrupted, or failed and the chat remains open. Interrupted or failed turns have an Interrupted tag. This does not prove Codex asked a question. |
 | Done | Chat is marked Done in TaskChef Next. This does not prove the work succeeded. |
 | Archived | Chat is archived in Codex. Hidden by default; separate from Done. |
 | Unverified | An unrecognized turn state. |
@@ -76,3 +75,20 @@ when Refresh is clicked. Settings persist across sidebar and embedded views.
 The old browser-local visibility keys are no longer used; configure the native
 switches once after upgrading. The Board/List choice stays browser-local.
 See the [OpenAI structured settings specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#structured-settings).
+
+### Board presentation
+
+TaskChef Next exposes only Board. The List implementation remains in the
+source, but the Board/List selector is hidden and saved List choices are
+ignored. Interrupted chats appear in Waiting for input/review with an
+Interrupted tag; their recorded status remains available in Details.
+Scheduled is hidden when no scheduled cards match the current visibility,
+project, and date filters. Running, Waiting, and Done remain visible when
+empty, to keep their positions steady. Archived remains an optional column.
+
+The header Settings icon opens the installed local plugin details page using
+its configured marketplace root. If that root cannot be resolved, it opens
+the plugin browser. This desktop link was checked against the installed
+app's link parser; it is not part of the published MCP settings specification.
+Native host navigation still needs a manual check where host automation is
+unavailable.

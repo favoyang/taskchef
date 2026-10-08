@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { registerTaskChefApp, TASKCHEF_APP_URI } from "../src/mcp-app.js";
+import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI } from "../src/mcp-app.js";
 
 const task = { id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
@@ -64,7 +64,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.scan.indexedFiles, 1);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins" });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);
@@ -79,4 +79,14 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     assert.equal(done.structuredContent.task.manualDone, true);
     assert.ok(scans >= 4);
   } finally { await client.close(); await server.close(); }
+});
+
+
+test("plugin settings link resolves the installed local marketplace", async (t) => {
+  const temp = await mkdtemp(join(tmpdir(), "taskchef-plugin-link-"));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  await writeFile(join(temp, "config.toml"), '[marketplaces.preview]\nsource = "/example/marketplace"\n');
+  const url = await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" });
+  assert.equal(url, "codex://plugins/taskchef-next?marketplacePath=%2Fexample%2Fmarketplace");
+  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/unknown/" }), "codex://plugins");
 });

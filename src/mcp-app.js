@@ -1,9 +1,10 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { acquireWorkspaceLock } from "./workspace.js";
 import { writeDurableAtomic } from "./state-store.js";
 import { fileURLToPath } from "node:url";
+import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex } from "./codex-app.js";
@@ -22,9 +23,24 @@ const settingsProperties = {
   showArchived: { type: "boolean", title: "Show archived chats", description: "Show archived chats in their own column and list filter." },
 };
 
+export async function pluginSettingsUrl({ pluginRoot = fileURLToPath(new URL("../", import.meta.url)), codexHome = process.env.CODEX_HOME || join(homedir(), ".codex") } = {}) {
+  // Local plugin detail links need the marketplace root, not the installed cache.
+  const plugin = basename(dirname(pluginRoot));
+  const marketplace = basename(dirname(dirname(pluginRoot)));
+  try {
+    const config = parseToml(await readFile(join(codexHome, "config.toml"), "utf8"));
+    const source = config.marketplaces?.[marketplace]?.source;
+    if (typeof source === "string" && isAbsolute(source)) {
+      return `codex://plugins/${encodeURIComponent(plugin)}?${new URLSearchParams({ marketplacePath: source })}`;
+    }
+  } catch { /* The plugin browser remains available if the local source cannot be resolved. */ }
+  return "codex://plugins";
+}
+
 export function registerTaskChefApp(server, {
   createScanner = () => new CodexSessionScanner(),
   openThread = openThreadInCodex,
+  getSettingsUrl = pluginSettingsUrl,
   settingsPath = join(homedir(), ".agents", "taskchef-next", "settings.json"),
 } = {}) {
   const scanner = createScanner();
@@ -81,11 +97,12 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ revision, force }) => {
     const settings = await readSettings();
+    const settingsUrl = await getSettingsUrl();
     const snapshot = await scanner.refresh({ force });
     if (!force && revision !== undefined && revision === snapshot.revision && snapshot.healthy !== false) {
-      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings }, content: [] };
+      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings, settingsUrl }, content: [] };
     }
-    return { structuredContent: { snapshot, settings }, content: [] };
+    return { structuredContent: { snapshot, settings, settingsUrl }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata without returning transcript text.",
