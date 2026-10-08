@@ -46,6 +46,7 @@ export function TaskChefApp() {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [project, setProject] = useState("");
@@ -193,12 +194,14 @@ export function TaskChefApp() {
   }
   async function openChat(task: Task) {
     setBusy(true);
+    setNavigationError(null);
+    setNotice(null);
     try {
       const result = await call<{ message: string }>("taskchef_app_open_chat", { taskId: task.id });
       setNotice(result.message);
     } catch (cause) {
       if (selectedRef.current?.id === task.id) setDetailError(String(cause));
-      else setError(String(cause));
+      else setNavigationError(String(cause));
     }
     finally { setBusy(false); }
   }
@@ -229,6 +232,7 @@ export function TaskChefApp() {
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">
+          {navigationError && <Alert color="red" role="alert">{navigationError}</Alert>}
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
             <Text size="sm">{tasks.length} eligible top-level chats</Text>
             <Stack gap="xs" mt="xs">
@@ -247,9 +251,10 @@ export function TaskChefApp() {
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
             </Stack>
           </Paper>
-          {scan && <Paper className="taskchef-scan-info" p="xs" withBorder><Text size="xs">Read-only database · {scan.mode}{scan.mode === "database" ? (scan.cacheHit ? " (cached records)" : " (fresh queries)") : ""} · checked {new Date(scan.checkedAt).toLocaleTimeString()}{scan.intervalSeconds != null ? ` · checks every ${scan.intervalSeconds}s when document is visible` : ""}</Text>{!!scan.scheduleErrors && <Text c="yellow" size="xs">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Text>}{scan.indexedFiles != null && <Text c="dimmed" size="xs">{scan.visibleFiles} shown of {scan.indexedFiles} top-level chats{scan.unreadFiles ? `; ${scan.unreadFiles} outside recent limit` : "; no chat limit"}.</Text>}<Text c="dimmed" size="xs">Data: chat ID, title (may contain user text), timestamps, project directory, archive flag, direct child count, latest turn status. Labels show the board queue, not verified task outcomes. Done includes archived chats.</Text></Paper>}
+          {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
+          {navigationError && !opened && <Alert color="red" role="alert" mt="sm">{navigationError}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
           {!error && (view === "board" ? <TaskBoard lanes={[...NEXT_LANES]} completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">

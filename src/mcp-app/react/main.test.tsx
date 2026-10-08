@@ -203,10 +203,12 @@ test("an older selection detail cannot replace a newer refresh detail", async ()
   expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("needs_input");
 });
 
-test("shows a card Open chat failure without opening detail", async () => {
+test("shows a card Open chat failure without hiding cards or opening detail", async () => {
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "Open chat for Task one" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Codex could not be opened.");
+  expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Open chat for Task one" })).toBeVisible();
   expect(screen.queryByRole("region", { name: "Task detail" })).not.toBeInTheDocument();
 });
 
@@ -227,7 +229,7 @@ test("an older selection response cannot replace the current task", async () => 
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task two"));
 });
 
-test("shows database source and five second coverage without a reparse claim", async () => {
+test("keeps scan diagnostics out of the board", async () => {
   server.call.mockImplementation(({ name }) => {
     if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { snapshot: {
       tasks: [], healthy: true, revision: 1,
@@ -237,11 +239,12 @@ test("shows database source and five second coverage without a reparse claim", a
     throw new Error(`Unexpected tool: ${name}`);
   });
   mount();
-  expect(await screen.findByText(/300 shown of 8620 top-level chats/)).toBeVisible();
-  expect(screen.getByText(/Read-only database/)).toBeVisible();
-  expect(screen.getByText(/checks every 5s when document is visible/)).toBeVisible();
-  expect(screen.getByText(/title \(may contain user text\)/)).toBeVisible();
-  expect(screen.queryByText(/Full reparse/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("Board", { exact: true }));
+  await screen.findByRole("region", { name: "Task board" });
+  expect(screen.queryByText(/Read-only database/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/shown of.*top-level chats/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/checks every 5s/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/title \(may contain user text\)/)).not.toBeInTheDocument();
 });
 
 test("shows an initial inventory failure without undefined scan counts", async () => {
@@ -254,7 +257,7 @@ test("shows an initial inventory failure without undefined scan counts", async (
   });
   mount();
   expect(await screen.findByRole("alert")).toHaveTextContent("cannot read the Codex databases");
-  expect(screen.getByText(/Read-only database · error/)).toBeVisible();
+  expect(screen.queryByText(/Read-only database/)).not.toBeInTheDocument();
   expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
   expect(screen.queryByText(/shown of/)).not.toBeInTheDocument();
 });
