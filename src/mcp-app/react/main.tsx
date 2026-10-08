@@ -1,6 +1,6 @@
 import { App } from "@modelcontextprotocol/ext-apps";
-import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Switch, Text, Title } from "@mantine/core";
-import { IconRefresh, IconSettings } from "@tabler/icons-react";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
+import { IconRefresh } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
@@ -34,13 +34,7 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-const EXEC_KEY = "taskchef.next.show-exec";
-const CLI_KEY = "taskchef.next.show-cli";
-const ARCHIVE_KEY = "taskchef.next.show-archived";
-function savedToggle(key: string) {
-  try { return window.localStorage.getItem(key) === "true"; }
-  catch { return false; }
-}
+interface VisibilitySettings { showExec: boolean; showCli: boolean; showArchived: boolean; }
 function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, showExec: boolean) {
   return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
@@ -52,10 +46,7 @@ interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "dat
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [settings, setSettings] = useState(false);
-  const [showExec, setShowExec] = useState(() => savedToggle(EXEC_KEY));
-  const [showCli, setShowCli] = useState(() => savedToggle(CLI_KEY));
-  const [showArchived, setShowArchived] = useState(() => savedToggle(ARCHIVE_KEY));
+  const [{ showExec, showCli, showArchived }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
@@ -69,6 +60,7 @@ export function TaskChefApp() {
   const [status, setStatus] = useState("");
   const [view, setView] = useState(initialView);
   const [completedLimit, setCompletedLimit] = useState(5);
+  const [archivedLimit, setArchivedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
   const selectedRef = useRef<Task | null>(null);
   const selectionVersion = useRef(0);
@@ -81,10 +73,11 @@ export function TaskChefApp() {
   const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never }>(
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never; settings: VisibilitySettings } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings }>(
       "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
+    setVisibility(data.settings);
     if (data.snapshot) {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.healthy === false ? [] : data.snapshot.tasks);
@@ -170,6 +163,12 @@ export function TaskChefApp() {
     return () => window.clearInterval(timer);
   }, [displayMode, refresh]);
   const eligibleTasks = useMemo(() => tasks.filter((task) => eligibleForView(task, showCli, showArchived, showExec)), [tasks, showCli, showArchived, showExec]);
+  useEffect(() => {
+    setProject("");
+    setCompletedLimit(5);
+    setArchivedLimit(5);
+    if (!showArchived) setStatus((current) => current === "archived" ? "" : current);
+  }, [showExec, showCli, showArchived]);
   const lanes = NEXT_LANES.filter((lane) => lane.status !== "archived" || showArchived);
   useEffect(() => {
     if (!selected || eligibleForView(selected, showCli, showArchived, showExec)) return;
@@ -194,15 +193,6 @@ export function TaskChefApp() {
   const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...lanes.map(({ label, status: value }) => ({
     label: `${label} ${boardTasks.filter((task) => task.status === value).length}`, value: value ?? "unverified",
   }))];
-
-  function changeToggle(key: string, value: boolean) {
-    if (key === EXEC_KEY) setShowExec(value);
-    else if (key === CLI_KEY) setShowCli(value);
-    else { setShowArchived(value); if (!value && status === "archived") setStatus(""); }
-    setProject("");
-    setCompletedLimit(5);
-    try { window.localStorage.setItem(key, String(value)); } catch { /* Keep the preference in memory. */ }
-  }
 
   function changeView(value: string) {
     if (value !== "board" && value !== "list") return;
@@ -263,17 +253,10 @@ export function TaskChefApp() {
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
-          <Group gap="xs"><ActionIcon aria-label="Settings" aria-pressed={settings} onClick={() => setSettings((value) => !value)} variant="subtle"><IconSettings size={17} /></ActionIcon>
+          <Group gap="xs">
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
         </header>
-        {settings ? <main className="taskchef-app-main taskchef-app-main-list"><Stack gap="md" mt="sm">
-          <Button onClick={() => setSettings(false)} variant="subtle" size="xs" style={{ alignSelf: "flex-start" }}>Back to tasks</Button>
-          <Title order={2} size="h4">Settings</Title>
-          {error && <Alert color="red" role="alert">{error}</Alert>}
-          <Switch label="Show exec sessions" description="Include standalone codex exec runs. Subagents stay hidden." checked={showExec} onChange={(event) => changeToggle(EXEC_KEY, event.currentTarget.checked)} />
-          <Switch label="Show CLI sessions" description="Include chats started from the Codex CLI." checked={showCli} onChange={(event) => changeToggle(CLI_KEY, event.currentTarget.checked)} />
-          <Switch label="Show archived chats" description="Show archived chats in their own column and list filter." checked={showArchived} onChange={(event) => changeToggle(ARCHIVE_KEY, event.currentTarget.checked)} />
-        </Stack></main> : displayMode === "inline" ? <main className="taskchef-inline-main">
+        {displayMode === "inline" ? <main className="taskchef-inline-main">
           {navigationError && <Alert color="red" role="alert">{navigationError}</Alert>}
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
             <Text size="sm">{eligibleTasks.length} eligible top-level chats</Text>
@@ -298,7 +281,7 @@ export function TaskChefApp() {
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {navigationError && !opened && <Alert color="red" role="alert" mt="sm">{navigationError}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
-          {!error && (view === "board" ? <TaskBoard lanes={[...lanes]} completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}

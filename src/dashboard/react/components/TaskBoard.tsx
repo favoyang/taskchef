@@ -17,6 +17,8 @@ const defaultLanes: { status: TaskStatus; label: string }[] = [
 export function TaskBoard({
   lanes = defaultLanes,
   completedLimit,
+  archivedLimit = 5,
+  onMoreArchived,
   onMoreCompleted,
   onOpenCodex,
   onOpenDetail,
@@ -24,6 +26,8 @@ export function TaskBoard({
 }: {
   lanes?: { status: TaskStatus; label: string }[];
   completedLimit: number;
+  archivedLimit?: number;
+  onMoreArchived?: () => void;
   onMoreCompleted: () => void;
   onOpenCodex: (task: Task) => void;
   onOpenDetail: (task: Task) => void;
@@ -93,7 +97,7 @@ export function TaskBoard({
     >
       {visibleLanes.map(({ status, label }) => {
         const matching = tasks.filter((task) => laneFor(task) === status);
-        const shown = (status === "completed" || status === "archived") ? matching.slice(0, completedLimit) : matching;
+        const shown = (status === "completed" || status === "archived") ? matching.slice(0, status === "archived" ? archivedLimit : completedLimit) : matching;
         return (
           <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}>
             <Box className="taskchef-board-lane-heading">
@@ -104,7 +108,7 @@ export function TaskBoard({
               {shown.map((task) => <BoardCard key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
               {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">No tasks</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (
-                <Button className="taskchef-board-more" onClick={onMoreCompleted} size="compact-sm" variant="subtle">
+                <Button className="taskchef-board-more" onClick={status === "archived" ? onMoreArchived : onMoreCompleted} size="compact-sm" variant="subtle">
                   Show {Math.min(5, matching.length - shown.length)} more · {shown.length} of {matching.length}
                 </Button>
               )}

@@ -4,7 +4,7 @@ TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connec
 
 Call `open_taskchef_board` in Codex to open **TaskChef Next**. In a sidebar or fullscreen host view, it shows the read-only List and Board views, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
 
-The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. Settings has separate, locally saved switches for Show exec sessions, Show CLI sessions, and Show archived chats. These choices apply to Board, List, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
+The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. The plugin details page has native switches for Show exec sessions, Show CLI sessions, and Show archived chats. The MCP server stores these choices in `~/.agents/taskchef-next/settings.json`, shared by all TaskChef Next views. Each visible poll reads the current settings, even when the database snapshot is unchanged. These choices apply to Board, List, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
 
 The board uses these queue labels:
 
@@ -62,4 +62,17 @@ PR-based Done labels are planned, not implemented. For completed chats, the inte
 
 ### Native plugin settings
 
-Codex provides native plugin enable and tool-permission controls. No supported custom native form was found for these visibility switches. OpenAI does not run Claude `userConfig` prompts; it recommends a config file or MCP workflow for Codex-local settings. The Next Settings page therefore owns these saved visibility choices. See [OpenAI configuration guidance](https://developers.openai.com/plugins/guides/submit-claude-plugin#replace-claude-userconfig).
+TaskChef Next advertises `openai/settings` with `taskchef_settings_read` and
+`taskchef_settings_update`. The read tool returns the schema, current values,
+and a Chat visibility group. The update tool accepts only changed Boolean
+properties and preserves the others. All three switches default to false.
+Updates use the existing local workspace lock and atomic file writer. Codex
+SQLite files remain read-only. Invalid settings fail visibly rather than
+silently resetting preferences.
+
+Open the installed TaskChef Next plugin details page to edit its native
+settings. The sidebar receives them at its next visible refresh, or immediately
+when Refresh is clicked. Settings persist across sidebar and embedded views.
+The old browser-local visibility keys are no longer used; configure the native
+switches once after upgrading. The Board/List choice stays browser-local.
+See the [OpenAI structured settings specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#structured-settings).

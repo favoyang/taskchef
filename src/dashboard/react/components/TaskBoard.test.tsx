@@ -125,10 +125,25 @@ test("card controls and touch gestures do not start mouse panning", () => {
 test("keeps Archived separate from Done and limits archived cards", () => {
   const archived = Array.from({ length: 8 }, (_, index) => task(index + 10, "archived"));
   const more = vi.fn();
-  render(<MantineProvider><TaskBoard lanes={[{ status: "completed", label: "Done" }, { status: "archived", label: "Archived" }]} tasks={[task(1, "completed"), ...archived]} completedLimit={5} onMoreCompleted={more} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  render(<MantineProvider><TaskBoard lanes={[{ status: "completed", label: "Done" }, { status: "archived", label: "Archived" }]} tasks={[task(1, "completed"), ...archived]} completedLimit={5} onMoreArchived={more} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
   expect(within(screen.getByRole("region", { name: "Done, 1 tasks" })).getAllByRole("article")).toHaveLength(1);
   const archive = screen.getByRole("region", { name: "Archived, 8 tasks" });
   expect(within(archive).getAllByRole("article")).toHaveLength(5);
   fireEvent.click(within(archive).getByRole("button", { name: "Show 3 more · 5 of 8" }));
   expect(more).toHaveBeenCalledOnce();
+});
+
+
+test("Done and Archived expand independently", () => {
+  const done = Array.from({ length: 8 }, (_, i) => task(i, "completed"));
+  const archived = Array.from({ length: 8 }, (_, i) => task(i + 20, "archived"));
+  const moreDone = vi.fn(); const moreArchived = vi.fn();
+  const props = { lanes: [{ status: "completed" as const, label: "Done" }, { status: "archived" as const, label: "Archived" }], tasks: [...done, ...archived], completedLimit: 5, onMoreCompleted: moreDone, onMoreArchived: moreArchived, onOpenCodex: vi.fn(), onOpenDetail: vi.fn() };
+  const { rerender } = render(<MantineProvider><TaskBoard {...props} archivedLimit={5} /></MantineProvider>);
+  const archiveLane = screen.getByRole("region", { name: "Archived, 8 tasks" });
+  fireEvent.click(within(archiveLane).getByRole("button", { name: /Show 3 more/ }));
+  expect(moreArchived).toHaveBeenCalledOnce(); expect(moreDone).not.toHaveBeenCalled();
+  rerender(<MantineProvider><TaskBoard {...props} archivedLimit={10} /></MantineProvider>);
+  expect(within(screen.getByRole("region", { name: "Done, 8 tasks" })).getAllByRole("article")).toHaveLength(5);
+  expect(within(screen.getByRole("region", { name: "Archived, 8 tasks" })).getAllByRole("article")).toHaveLength(8);
 });
