@@ -1,4 +1,4 @@
-export type TaskStatus = "working" | "needs_input" | "completed" | "failed" | "scheduled" | "interrupted" | null;
+export type TaskStatus = "working" | "needs_input" | "completed" | "failed" | "scheduled" | "interrupted" | "archived" | null;
 
 export interface Project {
   name: string;
@@ -91,7 +91,7 @@ export interface Task {
   manualDone?: boolean;
   replyExcerpt?: string | null;
   inputSource?: "scheduled" | "ordinary" | "unverified";
-  observed?: { archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
+  observed?: { source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;

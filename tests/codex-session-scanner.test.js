@@ -174,7 +174,7 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   assert.equal(scanner.task("running").status, "working");
   assert.equal(scanner.task("stale").status, "working");
   assert.equal(scanner.task("stale").observed.recentFileActivity, false);
-  assert.equal(scanner.task("archived").status, "completed");
+  assert.equal(scanner.task("archived").status, "archived");
   assert.equal(scanner.task("failed").status, "interrupted");
   assert.equal(scanner.task("stopped").status, "interrupted");
   assert.equal(scanner.task("ordinary").status, "needs_input");
@@ -212,6 +212,7 @@ test("empty chats, exec sessions and legacy JSON subagents are excluded while CL
   const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
   const snapshot = await scanner.refresh();
   assert.deepEqual(snapshot.tasks.map((task) => task.id), ["cli", "older"]);
+  assert.equal(scanner.task("cli").observed.source, "cli");
   assert.equal(await scanner.taskDetail("exec"), null);
   assert.equal(await scanner.taskDetail("exec-archived"), null);
   assert.equal(snapshot.scan.indexedFiles, 2);

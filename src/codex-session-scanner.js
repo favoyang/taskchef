@@ -87,7 +87,7 @@ function readDatabaseRecords(state, history) {
     const latestTurn = history.prepare(`SELECT turn_id, status, started_at, first_user_item_id, final_agent_item_id
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
-    const rows = state.prepare(`SELECT id, name, title, cwd, archived, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode,
+    const rows = state.prepare(`SELECT id, name, title, cwd, archived, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
       FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => {
       const key = historyId(row);
@@ -139,10 +139,10 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       }
       const replyExcerpt = replyText.slice(0, 2000) || null;
       const manualDone = doneMarks[row.id] === turn.turn_id;
-      const status = row.archived || manualDone ? "completed" : active ? "working"
+      const status = row.archived ? "archived" : manualDone ? "completed" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
           : turn.status === "completed" ? inputScheduleActive ? "scheduled" : "needs_input" : null;
-      const statusLabel = status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
+      const statusLabel = status === "archived" ? "Archived" : status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
       const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef Next. A new turn resets this mark."
         : active ? "Latest selected turn is in progress."
           : status === "scheduled" ? "Latest turn was a scheduled heartbeat; an active schedule remains."
@@ -157,7 +157,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: turn.turn_id, turnId: turn.turn_id, lastResult: null, latestTurn: null,
-        observed: { archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, recentFileActivity: !row.archived && now - updatedMs < ACTIVE_WINDOW_MS, directChildCount: row.child_count },
+        observed: { source: row.source, archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, recentFileActivity: !row.archived && now - updatedMs < ACTIVE_WINDOW_MS, directChildCount: row.child_count },
       };
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {

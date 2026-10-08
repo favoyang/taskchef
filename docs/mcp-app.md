@@ -4,7 +4,7 @@ TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connec
 
 Call `open_taskchef_board` in Codex to open **TaskChef Next**. In a sidebar or fullscreen host view, it shows the read-only List and Board views, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
 
-The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record, and `source=exec` sessions (including archived exec sessions). Regular `source=cli` chats remain eligible. Settings toggles for exec and CLI visibility are deferred to the workspace TaskChef Next backlog. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
+The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record, and `source=exec` sessions (including archived exec sessions). Regular `source=cli` chats remain eligible in the collector, but the view hides them by default. Settings has separate, locally saved switches for Show CLI sessions and Show archived chats. These choices apply to Board, List, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. The exec visibility toggle remains in the workspace TaskChef Next backlog. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
 
 The board uses these queue labels:
 
@@ -14,7 +14,8 @@ The board uses these queue labels:
 | Running | Latest selected turn is `inProgress`. There is no age cutoff. |
 | Waiting for input/review | Latest turn completed and the chat remains open. This does not prove Codex asked a question. |
 | Interrupted | Latest turn is `interrupted` or `failed`. |
-| Done | Chat is archived or marked Done in TaskChef Next. This does not prove the work succeeded. |
+| Done | Chat is marked Done in TaskChef Next. This does not prove the work succeeded. |
+| Archived | Chat is archived in Codex. Hidden by default; separate from Done. |
 | Unverified | An unrecognized turn state. |
 
 Archived and manual Done marks take precedence. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
@@ -56,3 +57,5 @@ Every visible five-second poll reads `PRAGMA data_version` on the same two read-
 Every poll separately reads and parses `automations/*/automation.toml`. For the Done file, each poll checks file identity, modification/change timestamps, and size; it reads and parses contents only when those metadata change. Manual Refresh also rereads the contents. A missing file means no manual marks. Added, removed, paused, or changed schedules and Done marks therefore apply on the next poll, including when the databases are unchanged. Queue labels are rebuilt from cached records and current schedules/Done marks. An open chat whose latest selected turn is `inProgress` remains Running regardless of timestamp age. Time passing alone never changes its queue label.
 
 Each poll checks both database file identities. Replacement reconnects and reloads; missing files or database/query errors discard the cache and clear the board with a fatal error. A later poll retries. Server shutdown closes the connections. The scan readout reports whether database records were queried or reused. This skips unchanged snapshots; it does not fetch only changed rows.
+
+PR-based Done labels are planned, not implemented. For completed chats, the intended rule is all attached PRs merged → Done; an unmerged attached PR → Waiting for review. GitHub status must come from an authenticated source before these labels can be applied.

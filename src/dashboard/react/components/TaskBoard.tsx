@@ -93,7 +93,7 @@ export function TaskBoard({
     >
       {visibleLanes.map(({ status, label }) => {
         const matching = tasks.filter((task) => laneFor(task) === status);
-        const shown = status === "completed" ? matching.slice(0, completedLimit) : matching;
+        const shown = (status === "completed" || status === "archived") ? matching.slice(0, completedLimit) : matching;
         return (
           <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}>
             <Box className="taskchef-board-lane-heading">
@@ -103,7 +103,7 @@ export function TaskBoard({
             <Stack gap="sm">
               {shown.map((task) => <BoardCard key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
               {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">No tasks</Text>}
-              {status === "completed" && matching.length > shown.length && (
+              {(status === "completed" || status === "archived") && matching.length > shown.length && (
                 <Button className="taskchef-board-more" onClick={onMoreCompleted} size="compact-sm" variant="subtle">
                   Show {Math.min(5, matching.length - shown.length)} more · {shown.length} of {matching.length}
                 </Button>

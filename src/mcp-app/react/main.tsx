@@ -1,6 +1,6 @@
 import { App } from "@modelcontextprotocol/ext-apps";
-import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
-import { IconRefresh } from "@tabler/icons-react";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Switch, Text, Title } from "@mantine/core";
+import { IconRefresh, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
@@ -34,13 +34,26 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: null, label: "Unverified" }] as const;
+const CLI_KEY = "taskchef.next.show-cli";
+const ARCHIVE_KEY = "taskchef.next.show-archived";
+function savedToggle(key: string) {
+  try { return window.localStorage.getItem(key) === "true"; }
+  catch { return false; }
+}
+function eligibleForView(task: Task, showCli: boolean, showArchived: boolean) {
+  return (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
+}
+
+const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: "archived", label: "Archived" }, { status: null, label: "Unverified" }] as const;
 
 interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [settings, setSettings] = useState(false);
+  const [showCli, setShowCli] = useState(() => savedToggle(CLI_KEY));
+  const [showArchived, setShowArchived] = useState(() => savedToggle(ARCHIVE_KEY));
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
@@ -154,21 +167,39 @@ export function TaskChefApp() {
     }, 5000);
     return () => window.clearInterval(timer);
   }, [displayMode, refresh]);
+  const eligibleTasks = useMemo(() => tasks.filter((task) => eligibleForView(task, showCli, showArchived)), [tasks, showCli, showArchived]);
+  const lanes = NEXT_LANES.filter((lane) => lane.status !== "archived" || showArchived);
+  useEffect(() => {
+    if (!selected || eligibleForView(selected, showCli, showArchived)) return;
+    selectionVersion.current += 1;
+    selectedRef.current = null;
+    setSelected(null);
+    setOpened(false);
+    setDetailError(null);
+  }, [selected, showCli, showArchived]);
   const projects = useMemo(() => [
     { label: "All projects", value: "" },
-    ...[...new Map(tasks.map((task) => [task.project.path || task.project.name, task.project])).values()]
+    ...[...new Map(eligibleTasks.map((task) => [task.project.path || task.project.name, task.project])).values()]
       .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
       .map((item, _, items) => ({
         label: items.some((other) => other !== item && other.name === item.name) ? `${item.name} (${item.path})` : item.name,
         value: item.path || item.name,
       })),
-  ], [tasks]);
-  const projectTasks = useMemo(() => tasks.filter((task) => !project || (task.project.path || task.project.name) === project), [tasks, project]);
+  ], [eligibleTasks]);
+  const projectTasks = useMemo(() => eligibleTasks.filter((task) => !project || (task.project.path || task.project.name) === project), [eligibleTasks, project]);
   const boardTasks: Task[] = useMemo(() => filterTasks(projectTasks, { date, now }), [projectTasks, date, now]);
   const visible = useMemo(() => boardTasks.filter((task) => !status || (task.status ?? "unverified") === status), [boardTasks, status]);
-  const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...NEXT_LANES.map(({ label, status: value }) => ({
+  const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...lanes.map(({ label, status: value }) => ({
     label: `${label} ${boardTasks.filter((task) => task.status === value).length}`, value: value ?? "unverified",
   }))];
+
+  function changeToggle(key: string, value: boolean) {
+    if (key === CLI_KEY) setShowCli(value);
+    else { setShowArchived(value); if (!value && status === "archived") setStatus(""); }
+    setProject("");
+    setCompletedLimit(5);
+    try { window.localStorage.setItem(key, String(value)); } catch { /* Keep the preference in memory. */ }
+  }
 
   function changeView(value: string) {
     if (value !== "board" && value !== "list") return;
@@ -229,14 +260,21 @@ export function TaskChefApp() {
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
-          <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
+          <Group gap="xs"><ActionIcon aria-label="Settings" aria-pressed={settings} onClick={() => setSettings((value) => !value)} variant="subtle"><IconSettings size={17} /></ActionIcon>
+          <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
         </header>
-        {displayMode === "inline" ? <main className="taskchef-inline-main">
+        {settings ? <main className="taskchef-app-main taskchef-app-main-list"><Stack gap="md" mt="sm">
+          <Button onClick={() => setSettings(false)} variant="subtle" size="xs" style={{ alignSelf: "flex-start" }}>Back to tasks</Button>
+          <Title order={2} size="h4">Settings</Title>
+          {error && <Alert color="red" role="alert">{error}</Alert>}
+          <Switch label="Show CLI sessions" description="Include chats started from the Codex CLI." checked={showCli} onChange={(event) => changeToggle(CLI_KEY, event.currentTarget.checked)} />
+          <Switch label="Show archived chats" description="Show archived chats in their own column and list filter." checked={showArchived} onChange={(event) => changeToggle(ARCHIVE_KEY, event.currentTarget.checked)} />
+        </Stack></main> : displayMode === "inline" ? <main className="taskchef-inline-main">
           {navigationError && <Alert color="red" role="alert">{navigationError}</Alert>}
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
-            <Text size="sm">{tasks.length} eligible top-level chats</Text>
+            <Text size="sm">{eligibleTasks.length} eligible top-level chats</Text>
             <Stack gap="xs" mt="xs">
-              {tasks.slice(0, 3).map((task) => <Button key={task.id} onClick={() => void openChat(task)} variant="subtle">{task.title}</Button>)}
+              {eligibleTasks.slice(0, 3).map((task) => <Button key={task.id} onClick={() => void openChat(task)} variant="subtle">{task.title}</Button>)}
             </Stack>
           </>}
         </main> : <>
@@ -252,11 +290,11 @@ export function TaskChefApp() {
             </Stack>
           </Paper>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
-          {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {tasks.length}</Text>}
+          {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
           {navigationError && !opened && <Alert color="red" role="alert" mt="sm">{navigationError}</Alert>}
           {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
-          {!error && (view === "board" ? <TaskBoard lanes={[...NEXT_LANES]} completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard lanes={[...lanes]} completedLimit={completedLimit} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}

@@ -14,6 +14,7 @@ vi.mock("@mantine/core", async () => {
     MantineProvider: ({ children }: { children: React.ReactNode }) => children,
     Paper: wrap("div"), Stack: wrap("div"), Text: wrap("p"), Title: wrap("h2"),
     SegmentedControl: ({ data, onChange, value, ...props }: { data: Array<{ label: string; value: string }>; onChange: (value: string) => void; value: string; "aria-label": string }) => React.createElement("div", { role: "radiogroup", "aria-label": props["aria-label"] }, data.map((item) => React.createElement("button", { key: item.value, role: "radio", "aria-checked": item.value === value, onClick: () => onChange(item.value) }, item.label))),
+    Switch: ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (event: React.ChangeEvent<HTMLInputElement>) => void }) => <label>{label}<input type="checkbox" checked={checked} onChange={onChange} /></label>,
     Select: ({ data, onChange, value, ...props }: { data: Array<{ label: string; value: string }>; onChange: (value: string) => void; value: string; "aria-label": string }) => React.createElement("select", { "aria-label": props["aria-label"], value, onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value) }, data.map((item) => React.createElement("option", { key: item.value, value: item.value }, item.label))),
   };
 });
@@ -342,4 +343,65 @@ test("Done control calls the local mark tool with the displayed turn and refresh
   expect(screen.queryByRole("button", { name: "Mark Done" })).not.toBeInTheDocument();
   expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_set_done", arguments: { taskId: "one", expectedTurnId: "turn-one", done: true } });
 
+});
+
+
+test("CLI and archive settings default hidden, update counts, and persist across views and reloads", async () => {
+  tasks = [task("desktop", "needs_input"), {
+    ...task("cli", "needs_input"), observed: { source: "cli", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false },
+  }, {
+    ...task("archive", "archived"), observed: { source: "vscode", archive: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false },
+  }, task("done", "completed")];
+  details = new Map(tasks.map((item) => [item.id, item]));
+  const first = render(<TaskChefApp />);
+  expect(await screen.findByText("Tasks: 2 of 2")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("radio", { name: /Archived/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(screen.getByRole("checkbox", { name: "Show CLI sessions" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Show archived chats" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show CLI sessions" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show archived chats" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }));
+  expect(screen.getByText("Tasks: 4 of 4")).toBeVisible();
+  fireEvent.click(screen.getByRole("radio", { name: "Archived 1" }));
+  expect(screen.getByRole("button", { name: "Task archive" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task done" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Board" }));
+  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button")).toHaveLength(4);
+  first.unmount();
+  mount();
+  expect(await screen.findByRole("button", { name: "Task cli" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Task archive" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(screen.getByRole("checkbox", { name: "Show CLI sessions" })).toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show CLI sessions" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show archived chats" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }));
+  expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Task archive" })).not.toBeInTheDocument();
+});
+
+test("a selected CLI chat closes when its source becomes hidden during refresh", async () => {
+  window.localStorage.setItem("taskchef.next.show-cli", "true");
+  const cli = { ...task("cli"), observed: { source: "cli", archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: false } };
+  tasks = [cli]; details = new Map([[cli.id, cli]]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Task cli" }));
+  expect(await screen.findByRole("region", { name: "Task detail" })).toBeVisible();
+  // Another visible client, or updated metadata, can make this chat archived.
+  const archived = { ...cli, status: "archived" as const, observed: { ...cli.observed, archive: true } };
+  tasks = [archived]; details.set(cli.id, archived);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Task detail" })).not.toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
+});
+
+test("inline mode follows the CLI and archive visibility settings", async () => {
+  server.displayMode = "inline";
+  tasks = [task("desktop"), { ...task("cli"), observed: { source: "cli", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }, { ...task("archive", "archived"), observed: { archive: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }];
+  mount();
+  expect(await screen.findByText("1 eligible top-level chats")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Task archive" })).not.toBeInTheDocument();
 });

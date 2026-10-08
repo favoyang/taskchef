@@ -120,3 +120,15 @@ test("card controls and touch gestures do not start mouse panning", () => {
   fireEvent.click(title);
   expect(onOpenDetail).toHaveBeenCalledOnce();
 });
+
+
+test("keeps Archived separate from Done and limits archived cards", () => {
+  const archived = Array.from({ length: 8 }, (_, index) => task(index + 10, "archived"));
+  const more = vi.fn();
+  render(<MantineProvider><TaskBoard lanes={[{ status: "completed", label: "Done" }, { status: "archived", label: "Archived" }]} tasks={[task(1, "completed"), ...archived]} completedLimit={5} onMoreCompleted={more} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  expect(within(screen.getByRole("region", { name: "Done, 1 tasks" })).getAllByRole("article")).toHaveLength(1);
+  const archive = screen.getByRole("region", { name: "Archived, 8 tasks" });
+  expect(within(archive).getAllByRole("article")).toHaveLength(5);
+  fireEvent.click(within(archive).getByRole("button", { name: "Show 3 more · 5 of 8" }));
+  expect(more).toHaveBeenCalledOnce();
+});

@@ -17,14 +17,16 @@ The proposed board labels are workflow rules, not semantic judgments:
 | --- | --- |
 | Running | Open chat; latest selected turn is `inProgress`, regardless of timestamp age. |
 | Waiting for input/review | Open chat; latest turn is `completed`. This includes ordinary idle chats, even when no question or review was requested. |
-| Done | Chat is archived, or the user explicitly marks it done. A new turn should clear a manual Done mark. |
+| Done | User explicitly marks the chat done. A new turn clears a manual Done mark. |
+| Archived | Chat is archived. Hidden by default and shown in a separate column when enabled. |
 | Interrupted | Open chat; latest turn is `interrupted` or `failed`. Show the recorded error when available. |
 
 These labels describe the **board queue**, not verified task outcomes. Waiting
 means the chat is open and Codex is idle; it does not prove that Codex requested
-input or review. Done means the user closed or archived the chat for this board;
-archiving does not prove that the underlying work succeeded. Keep the archive
-reason visible so a reader can tell it from an explicit Done mark.
+input or review. Done currently means the user marked the chat Done in TaskChef Next.
+Archived is separate; archiving does not prove that the underlying work succeeded.
+A future GitHub integration can use merged PRs for Done, and unmerged PRs for
+Waiting after a completed turn. This policy is not yet implemented.
 
 The archive flag takes precedence over an old turn status. The earlier proposal
 used a two-minute activity cutoff for Running. That proposal is superseded:
