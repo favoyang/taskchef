@@ -201,7 +201,7 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   assert.equal(scanner.task("mixed").inputSource, "scheduled");
 });
 
-test("empty chats, exec sessions and legacy JSON subagents are excluded while CLI stays visible", async (t) => {
+test("empty chats and subagents are excluded while standalone exec and CLI records stay eligible", async (t) => {
   const setup = await fixture(t); if (!setup) return;
   const { home, state, history } = setup;
   for (const [chat, recency] of [["exec", 6], ["exec-archived", 5], ["empty", 4], ["review", 3], ["cli", 2], ["older", 1]]) {
@@ -211,11 +211,11 @@ test("empty chats, exec sessions and legacy JSON subagents are excluded while CL
   }
   const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
   const snapshot = await scanner.refresh();
-  assert.deepEqual(snapshot.tasks.map((task) => task.id), ["cli", "older"]);
+  assert.deepEqual(snapshot.tasks.map((task) => task.id), ["exec", "exec-archived", "cli", "older"]);
   assert.equal(scanner.task("cli").observed.source, "cli");
-  assert.equal(await scanner.taskDetail("exec"), null);
-  assert.equal(await scanner.taskDetail("exec-archived"), null);
-  assert.equal(snapshot.scan.indexedFiles, 2);
+  assert.equal((await scanner.taskDetail("exec")).observed.source, "exec");
+  assert.equal((await scanner.taskDetail("exec-archived")).status, "archived");
+  assert.equal(snapshot.scan.indexedFiles, 4);
   assert.equal(snapshot.scan.unreadFiles, 0);
 });
 

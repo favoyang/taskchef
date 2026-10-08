@@ -74,3 +74,34 @@ also returned a typed decision, but it needs separate TypeSafe credentials.
 If semantic judgment is later added, compare it with independent human labels
 and retain the evidence used for each decision. Do not silently convert a
 model's guess into a database fact.
+
+## Cloud and GitHub prerequisites
+
+The local scanner does not contain durable-host cloud chats. A read-only test
+of `codex cloud list --json --limit 20` returned an empty task list, while the
+desktop thread tools had returned five durable-host chats. This does not prove
+that all cloud accounts behave the same way. It does show that this command
+cannot supply the missing chats in the tested account. Do not replace the
+missing cloud list with an empty list presented as complete. A supported
+code-driven source for these desktop cloud chats is still needed.
+
+No PR association table was found in the inspected local `state_5.sqlite` or
+`thread_history_1.sqlite` schema. Do not infer an attached PR from every GitHub
+URL in a chat: an example or dependency can belong to another task. A verified
+chat-to-PR attachment source is needed before PR merge state can label a chat.
+
+For a local product, GitHub's device authorization flow is a possible OAuth
+route. It requires a registered app's public client ID and device flow enabled
+on that app. No TaskChef client ID has been supplied for this experiment.
+Do not bundle a client secret, use the developer's private CLI credentials, or
+borrow Codex's GitHub plugin credentials. Keep granted tokens in the local OS
+credential store and out of the sidebar and ordinary settings files. See
+[GitHub device flow documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
+
+Once the attachment source and authentication are available, apply PR rules
+only after a turn completes. Require a nonempty attachment list and confirmed
+merged status for every attached PR before assigning Done. An open, draft, or
+closed-without-merge PR stays Waiting. An unreadable or unavailable PR status
+must not count as merged. Running, Interrupted, Archived, and manual Done
+retain their existing rules. These PR rules are a proposed contract, not a
+working integration.

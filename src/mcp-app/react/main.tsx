@@ -34,14 +34,15 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
+const EXEC_KEY = "taskchef.next.show-exec";
 const CLI_KEY = "taskchef.next.show-cli";
 const ARCHIVE_KEY = "taskchef.next.show-archived";
 function savedToggle(key: string) {
   try { return window.localStorage.getItem(key) === "true"; }
   catch { return false; }
 }
-function eligibleForView(task: Task, showCli: boolean, showArchived: boolean) {
-  return (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
+function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, showExec: boolean) {
+  return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
 
 const NEXT_LANES = [{ status: "scheduled", label: "Scheduled" }, { status: "working", label: "Running" }, { status: "needs_input", label: "Waiting for input/review" }, { status: "interrupted", label: "Interrupted" }, { status: "completed", label: "Done" }, { status: "archived", label: "Archived" }, { status: null, label: "Unverified" }] as const;
@@ -52,6 +53,7 @@ export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState(false);
+  const [showExec, setShowExec] = useState(() => savedToggle(EXEC_KEY));
   const [showCli, setShowCli] = useState(() => savedToggle(CLI_KEY));
   const [showArchived, setShowArchived] = useState(() => savedToggle(ARCHIVE_KEY));
   const [scan, setScan] = useState<ScanStats | null>(null);
@@ -167,16 +169,16 @@ export function TaskChefApp() {
     }, 5000);
     return () => window.clearInterval(timer);
   }, [displayMode, refresh]);
-  const eligibleTasks = useMemo(() => tasks.filter((task) => eligibleForView(task, showCli, showArchived)), [tasks, showCli, showArchived]);
+  const eligibleTasks = useMemo(() => tasks.filter((task) => eligibleForView(task, showCli, showArchived, showExec)), [tasks, showCli, showArchived, showExec]);
   const lanes = NEXT_LANES.filter((lane) => lane.status !== "archived" || showArchived);
   useEffect(() => {
-    if (!selected || eligibleForView(selected, showCli, showArchived)) return;
+    if (!selected || eligibleForView(selected, showCli, showArchived, showExec)) return;
     selectionVersion.current += 1;
     selectedRef.current = null;
     setSelected(null);
     setOpened(false);
     setDetailError(null);
-  }, [selected, showCli, showArchived]);
+  }, [selected, showCli, showArchived, showExec]);
   const projects = useMemo(() => [
     { label: "All projects", value: "" },
     ...[...new Map(eligibleTasks.map((task) => [task.project.path || task.project.name, task.project])).values()]
@@ -194,7 +196,8 @@ export function TaskChefApp() {
   }))];
 
   function changeToggle(key: string, value: boolean) {
-    if (key === CLI_KEY) setShowCli(value);
+    if (key === EXEC_KEY) setShowExec(value);
+    else if (key === CLI_KEY) setShowCli(value);
     else { setShowArchived(value); if (!value && status === "archived") setStatus(""); }
     setProject("");
     setCompletedLimit(5);
@@ -267,6 +270,7 @@ export function TaskChefApp() {
           <Button onClick={() => setSettings(false)} variant="subtle" size="xs" style={{ alignSelf: "flex-start" }}>Back to tasks</Button>
           <Title order={2} size="h4">Settings</Title>
           {error && <Alert color="red" role="alert">{error}</Alert>}
+          <Switch label="Show exec sessions" description="Include standalone codex exec runs. Subagents stay hidden." checked={showExec} onChange={(event) => changeToggle(EXEC_KEY, event.currentTarget.checked)} />
           <Switch label="Show CLI sessions" description="Include chats started from the Codex CLI." checked={showCli} onChange={(event) => changeToggle(CLI_KEY, event.currentTarget.checked)} />
           <Switch label="Show archived chats" description="Show archived chats in their own column and list filter." checked={showArchived} onChange={(event) => changeToggle(ARCHIVE_KEY, event.currentTarget.checked)} />
         </Stack></main> : displayMode === "inline" ? <main className="taskchef-inline-main">

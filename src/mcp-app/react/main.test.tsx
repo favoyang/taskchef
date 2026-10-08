@@ -346,40 +346,45 @@ test("Done control calls the local mark tool with the displayed turn and refresh
 });
 
 
-test("CLI and archive settings default hidden, update counts, and persist across views and reloads", async () => {
+test("Exec, CLI and archive settings default hidden, update counts, and persist across views and reloads", async () => {
   tasks = [task("desktop", "needs_input"), {
     ...task("cli", "needs_input"), observed: { source: "cli", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false },
   }, {
     ...task("archive", "archived"), observed: { source: "vscode", archive: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false },
-  }, task("done", "completed")];
+  }, { ...task("exec"), observed: { source: "exec", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }, task("done", "completed")];
   details = new Map(tasks.map((item) => [item.id, item]));
   const first = render(<TaskChefApp />);
   expect(await screen.findByText("Tasks: 2 of 2")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
   expect(screen.queryByRole("radio", { name: /Archived/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect(screen.getByRole("checkbox", { name: "Show exec sessions" })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Show CLI sessions" })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Show archived chats" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show exec sessions" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Show CLI sessions" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Show archived chats" }));
   fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }));
-  expect(screen.getByText("Tasks: 4 of 4")).toBeVisible();
+  expect(screen.getByText("Tasks: 5 of 5")).toBeVisible();
   fireEvent.click(screen.getByRole("radio", { name: "Archived 1" }));
   expect(screen.getByRole("button", { name: "Task archive" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task done" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("radio", { name: "Board" }));
-  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button")).toHaveLength(4);
+  expect(within(screen.getByRole("region", { name: "Task board" })).getAllByRole("button")).toHaveLength(5);
   first.unmount();
   mount();
   expect(await screen.findByRole("button", { name: "Task cli" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Task archive" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Task exec" })).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   expect(screen.getByRole("checkbox", { name: "Show CLI sessions" })).toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show exec sessions" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Show CLI sessions" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Show archived chats" }));
   fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }));
   expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Task archive" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Task exec" })).not.toBeInTheDocument();
 });
 
 test("a selected CLI chat closes when its source becomes hidden during refresh", async () => {
@@ -397,9 +402,9 @@ test("a selected CLI chat closes when its source becomes hidden during refresh",
   expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
 });
 
-test("inline mode follows the CLI and archive visibility settings", async () => {
+test("inline mode follows the exec, CLI and archive visibility settings", async () => {
   server.displayMode = "inline";
-  tasks = [task("desktop"), { ...task("cli"), observed: { source: "cli", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }, { ...task("archive", "archived"), observed: { archive: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }];
+  tasks = [task("desktop"), { ...task("exec"), observed: { source: "exec", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }, { ...task("cli"), observed: { source: "cli", archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }, { ...task("archive", "archived"), observed: { archive: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } }];
   mount();
   expect(await screen.findByText("1 eligible top-level chats")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
