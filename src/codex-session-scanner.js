@@ -266,6 +266,7 @@ export class CodexSessionScanner {
     this.forcedPending = null;
     this.connections = null;
     this.databaseCache = null;
+    this.doneCache = null;
   }
   async refresh({ force = false } = {}) {
     if (this.pending) {
@@ -280,6 +281,22 @@ export class CodexSessionScanner {
     }
     this.pending = this.refreshSource(this.now(), force).finally(() => { this.pending = null; });
     return this.pending;
+  }
+  async doneMarks(force) {
+    let stamp;
+    try {
+      const info = await stat(this.statePath, { bigint: true });
+      stamp = `${info.dev}:${info.ino}:${info.mtimeNs}:${info.ctimeNs}:${info.size}`;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw new DoneStateError("TaskChef Next: the local Done state file is unavailable or invalid. Repair that file before changing Done marks.");
+      stamp = "missing";
+    }
+    if (!force && this.doneCache?.stamp === stamp) return this.doneCache.marks;
+    // Capture the stamp before reading. A concurrent rewrite is checked again
+    // on the next poll; mutation paths always read the file under their lock.
+    const marks = stamp === "missing" ? {} : await readDoneMarks(this.statePath);
+    this.doneCache = { stamp, marks };
+    return marks;
   }
   async databaseRecords(force) {
     const paths = [join(this.codexHome, "state_5.sqlite"), join(this.codexHome, "thread_history_1.sqlite")];
@@ -308,9 +325,9 @@ export class CodexSessionScanner {
   async refreshSource(now, force) {
     try {
       if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
-      const doneMarks = await readDoneMarks(this.statePath);
-      const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
       const { records, cacheHit } = await this.databaseRecords(force);
+      const doneMarks = await this.doneMarks(force);
+      const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
       const database = buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit);
       const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
@@ -379,5 +396,6 @@ export class CodexSessionScanner {
     this.connections?.state.close();
     this.connections = null;
     this.databaseCache = null;
+    this.doneCache = null;
   }
 }

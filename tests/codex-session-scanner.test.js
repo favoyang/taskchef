@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, readdir, readFile, writeFile, rm, rename } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm, rename, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexSessionScanner } from "../src/codex-session-scanner.js";
@@ -424,4 +424,32 @@ test("replaced or missing databases invalidate persistent connections and recove
   const next=await scanner.refresh(); assert.equal(next.scan.cacheHit,false); assert.equal(next.tasks[0].title,"After");
   await rename(path,replacement); const failed=await scanner.refresh(); assert.equal(failed.healthy,false); assert.deepEqual(failed.tasks,[]);
   await rename(replacement,path); assert.equal((await scanner.refresh()).healthy,true);
+});
+
+
+test("Done-file cache notices rewrites, replacements, removal, and invalid content", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup; const now = Date.now(); const path = join(home,"done.json");
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?,?,?,0,?,?,?)").run(id,"Example","/project",now,now,now);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const scanner = new CodexSessionScanner({codexHome:home,statePath:path}); t.after(()=>scanner.close());
+  await writeFile(path,"{}");
+  await scanner.refresh();
+  const initialCache = scanner.doneCache; await scanner.refresh(); assert.equal(scanner.doneCache,initialCache);
+  await writeFile(path,JSON.stringify({[id]:"turn-1"}));
+  assert.equal((await scanner.refresh()).tasks[0].manualDone,true);
+  const cached = scanner.doneCache;
+  await scanner.refresh(); assert.equal(scanner.doneCache,cached);
+  const info = await stat(path);
+  // Same-size rewrite with restored mtime must still invalidate via ctime.
+  await writeFile(path,JSON.stringify({[id]:"turn-2"})); await utimes(path,info.atime,info.mtime);
+  assert.equal((await scanner.refresh()).tasks[0].manualDone,false);
+  const replacement=join(home,"replacement.json"); await writeFile(replacement,JSON.stringify({[id]:"turn-1"}));
+  await utimes(replacement,info.atime,info.mtime); await rename(replacement,path);
+  assert.equal((await scanner.refresh()).tasks[0].manualDone,true);
+  await rm(path); assert.equal((await scanner.refresh()).tasks[0].manualDone,false);
+  await writeFile(path,"broken"); assert.equal((await scanner.refresh()).healthy,false);
+  await writeFile(path,"{}"); assert.equal((await scanner.refresh()).healthy,true);
+  const recovered=scanner.doneCache; await scanner.refresh({force:true}); assert.notEqual(scanner.doneCache,recovered);
+  await scanner.setDone(id,"turn-1",true); assert.equal(scanner.task(id).manualDone,true);
 });
