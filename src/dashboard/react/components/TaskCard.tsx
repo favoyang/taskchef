@@ -6,6 +6,7 @@ import { GitHubLinks } from "./GitHubLinks";
 import { LinkedText } from "./LinkedText";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
+import { ReplyMarkdown } from "./ReplyMarkdown";
 import { RelativeTime } from "./RelativeTime";
 import { TaskCardStats } from "./TaskCardStats";
 
@@ -37,8 +38,8 @@ export function TaskCard({
             {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
           </Box>
 
-          {task.observed ? <Text className="taskchef-preserve-lines" lineClamp={2} size="sm">
-            <LinkedText task={task} text={(task.replyExcerpt || "No reply text to show for this turn.").replace(/\s+/g, " ")} />
+          {task.observed ? <Text component="div" className="taskchef-preserve-lines" lineClamp={2} size="sm">
+            <ReplyMarkdown compact text={task.replyExcerpt || "No reply text to show for this turn."} />
           </Text> : <Box className="taskchef-summary-grid">
             <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
             <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">

@@ -25,7 +25,7 @@ afterEach(cleanup);
 
 test("Next cards show saved replies and keep diagnostics off the card", () => {
   const parent = fixtureTask({
-    updatedBy: "Local Codex database", replyExcerpt: "CI passed. The PR is ready for review.",
+    updatedBy: "Local Codex database", replyExcerpt: "**CI passed.** The PR is ready for review.",
     summary: "Latest turn ended. Chat remains open for input or review.",
     observed: { archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false, directChildCount: 133 },
   });
@@ -34,7 +34,7 @@ test("Next cards show saved replies and keep diagnostics off the card", () => {
     <TaskCard task={parent} onOpenCodex={() => {}} onOpenDetail={() => {}} />
     <TaskBoard tasks={[parent, empty]} completedLimit={5} onMoreCompleted={() => {}} onOpenCodex={() => {}} onOpenDetail={() => {}} />
   </MantineProvider>);
-  expect(screen.getAllByText("CI passed. The PR is ready for review.")).toHaveLength(2);
+  expect(screen.getAllByText("CI passed.")).toHaveLength(2);
   expect(screen.queryByText(/direct subagent/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Latest turn ended/)).not.toBeInTheDocument();
   expect(screen.getByText("No reply text to show for this turn.")).toBeVisible();

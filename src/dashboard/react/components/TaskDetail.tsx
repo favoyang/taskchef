@@ -26,6 +26,7 @@ import type { Task } from "../types";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { GitHubLinks } from "./GitHubLinks";
 import { OpenChatButton } from "./OpenChatButton";
+import { ReplyMarkdown } from "./ReplyMarkdown";
 import { RelativeTime } from "./RelativeTime";
 import { StatusBadge } from "./StatusBadge";
 import { UsagePanel } from "./UsagePanel";
@@ -150,7 +151,7 @@ export function TaskDetail({
       </section>}
       {task.observed && <section aria-labelledby="saved-reply-heading">
         <Title id="saved-reply-heading" mb="xs" order={3} size="h5">Latest saved reply (excerpt)</Title>
-        <Text className="taskchef-preserve-lines" size="sm">{task.replyExcerpt || "No reply text to show for this turn."}</Text>
+        <Text component="div" size="sm"><ReplyMarkdown text={task.replyExcerpt || "No reply text to show for this turn."} /></Text>
       </section>}
       <section aria-labelledby="metadata-heading">
         <Title id="metadata-heading" mb="xs" order={3} size="h5">Metadata</Title>

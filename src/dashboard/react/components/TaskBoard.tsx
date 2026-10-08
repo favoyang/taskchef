@@ -4,6 +4,7 @@ import { IconArrowUpRight } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
+import { ReplyMarkdown } from "./ReplyMarkdown";
 import { RelativeTime } from "./RelativeTime";
 
 const defaultLanes: { status: TaskStatus; label: string }[] = [
@@ -131,8 +132,8 @@ function BoardCard({ task, onOpenCodex, onOpenDetail }: {
       </Title>
       <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
       {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
-      <Text className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
-        <LinkedText task={task} text={task.observed ? excerpt.replace(/\s+/g, " ") : excerpt} />
+      <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
+        {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
       <Box className="taskchef-board-card-footer">
         <RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />

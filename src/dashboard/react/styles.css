@@ -218,3 +218,24 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .taskchef-refresh-spinning { animation: none; }
 }
+
+/* Markdown replies share the same renderer in the board and Details. */
+.taskchef-markdown { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+.taskchef-markdown > :first-child { margin-top: 0; }
+.taskchef-markdown > :last-child { margin-bottom: 0; }
+.taskchef-markdown p, .taskchef-markdown ul, .taskchef-markdown ol, .taskchef-markdown blockquote { margin: 0.6em 0; }
+.taskchef-markdown h1, .taskchef-markdown h2, .taskchef-markdown h3, .taskchef-markdown h4, .taskchef-markdown h5, .taskchef-markdown h6 { font-size: 1.05em; margin: 1em 0 0.4em; }
+.taskchef-markdown ul, .taskchef-markdown ol { padding-left: 1.5em; }
+.taskchef-markdown a { color: var(--mantine-color-anchor); }
+.taskchef-markdown code { background: var(--mantine-color-default-hover); border-radius: 3px; padding: 0.1em 0.25em; font-size: 0.9em; }
+.taskchef-markdown pre { overflow-x: auto; max-width: 100%; padding: 0.75em; background: var(--mantine-color-default-hover); border-radius: 6px; white-space: pre; }
+.taskchef-markdown pre code { padding: 0; background: none; }
+.taskchef-markdown blockquote { border-left: 3px solid var(--mantine-color-default-border); padding-left: 0.75em; }
+.taskchef-markdown-table { overflow-x: auto; max-width: 100%; }
+.taskchef-markdown table { border-collapse: collapse; }
+.taskchef-markdown th, .taskchef-markdown td { border: 1px solid var(--mantine-color-default-border); padding: 0.35em 0.6em; text-align: left; overflow-wrap: normal; }
+.taskchef-markdown--compact { display: inline; }
+.taskchef-markdown--compact :is(p,h1,h2,h3,h4,h5,h6,ul,ol,li,blockquote,pre,table,thead,tbody,tr,th,td,.taskchef-markdown-table) { display: inline; margin: 0; padding: 0; border: 0; font-size: inherit; white-space: normal; }
+.taskchef-markdown--compact :is(p,li,pre,blockquote,tr)::after { content: " "; }
+.taskchef-markdown--compact li::before { content: "• "; }
+.taskchef-markdown--compact :is(th,td)::after { content: " | "; }
