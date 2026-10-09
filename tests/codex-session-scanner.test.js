@@ -215,6 +215,8 @@ test("empty chats and subagents are excluded while standalone exec and CLI recor
   const snapshot = await scanner.refresh();
   assert.deepEqual(snapshot.tasks.map((task) => task.id), ["exec", "exec-archived", "cli", "older"]);
   assert.equal(scanner.task("cli").observed.source, "cli");
+  assert.equal(scanner.task("exec").updatedAt, new Date(6).toISOString());
+  assert.equal(scanner.task("cli").updatedAt, new Date(2).toISOString());
   assert.equal((await scanner.taskDetail("exec")).observed.source, "exec");
   assert.equal((await scanner.taskDetail("exec-archived")).status, "archived");
   assert.equal(snapshot.scan.indexedFiles, 4);

@@ -228,10 +228,16 @@ export function TaskChefApp() {
     const items = registeredProjects.length ? registeredProjects : [...new Map(eligibleTasks
       .filter((task) => task.project.id !== "projectless")
       .map((task) => [task.project.id || task.project.path || task.project.name, task.project])).values()];
+    const recent = new Map<string, number>();
+    for (const task of eligibleTasks) {
+      const key = task.project.id || task.project.path || task.project.name;
+      const timestamp = Date.parse(task.updatedAt);
+      if (Number.isFinite(timestamp)) recent.set(key, Math.max(recent.get(key) ?? 0, timestamp));
+    }
     return [
       { label: "All projects", value: "" },
       ...items.map((item) => ({ label: items.some((other) => other !== item && other.name === item.name)
-        ? `${item.name} (${item.path})` : item.name, value: item.id || item.path || item.name, path: item.path })),
+        ? `${item.name} (${item.path})` : item.name, value: item.id || item.path || item.name, path: item.path, updatedAt: recent.get(item.id || item.path || item.name) })),
       { label: "No project", value: "projectless" },
     ];
   }, [eligibleTasks, registeredProjects]);

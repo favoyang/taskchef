@@ -119,7 +119,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
     const images = records.images ??= new Map();
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
-      const updatedMs = Math.max(row.updated_at_ms || row.recency_at_ms || row.created_at_ms, (turn.started_at || 0) * 1000);
+      const updatedMs = Math.max(row.updated_at_ms || 0, row.recency_at_ms || 0, row.created_at_ms || 0, (turn.started_at || 0) * 1000);
       const active = !row.archived && turn.status === "inProgress";
       const chatSchedules = schedules.get(row.id) ?? [];
       const scheduled = chatSchedules.some((schedule) => schedule.active);

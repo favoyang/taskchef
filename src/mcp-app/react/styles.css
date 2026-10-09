@@ -73,3 +73,5 @@ body { background: var(--taskchef-page); }
 .next-project-dropdown .mantine-Combobox-option { border-radius: 8px; padding: 7px 9px; }
 
 .next-project-options { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+
+.next-project-sort { display: flex; align-items: center; padding-left: 5px; border-left: 1px solid var(--taskchef-border); }

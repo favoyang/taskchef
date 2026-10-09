@@ -50,3 +50,7 @@ The board does not query these tables. This list records table names seen during
 | `thread_history_1.sqlite` | `_sqlx_migrations`, `thread_realtime_items` |
 
 TaskChef also reads heartbeat links from `automations/*/automation.toml`. Manual Done marks are saved in TaskChef's separate state file. Neither source modifies Codex's databases.
+
+## Project picker sorting
+
+The button beside Search projects cycles Most recent → A–Z → Z–A. Most recent is the default each time the view mounts. It uses the latest chat update time per project among chats allowed by the source and archive settings. Projects without matching chats follow those with activity, ordered by name. All projects stays first and No project stays last. Sorting preserves the search and selected project.
