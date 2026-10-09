@@ -1,4 +1,4 @@
-# GitHub PR status in TaskChef Next
+# GitHub PR status in TaskChef
 
 TaskChef reads PR attachments from `state_5.sqlite:thread_attachments`.
 Only records with `attachment_type = pull_request` count. The `payload.url`

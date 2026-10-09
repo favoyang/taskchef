@@ -74,14 +74,14 @@ export function registerTaskChefApp(server, {
     try { return settingsSchema.parse({ githubClientId: "", ...JSON.parse(await readFile(settingsPath, "utf8")) }); }
     catch (error) {
       if (error.code === "ENOENT") return { ...settingsDefaults };
-      throw new Error("TaskChef Next cannot read settings.json. Repair the file and refresh.");
+      throw new Error("TaskChef cannot read settings.json. Repair the file and refresh.");
     }
   }
   server.server.registerCapabilities({ experimental: { "openai/settings": {
     readTool: "taskchef_settings_read", updateTool: "taskchef_settings_update",
   } } });
   server.registerTool("taskchef_settings_read", {
-    title: "Read TaskChef Next settings", inputSchema: {},
+    title: "Read TaskChef settings", inputSchema: {},
     outputSchema: { schema: z.record(z.string(), z.unknown()), values: settingsSchema, layout: z.array(z.record(z.string(), z.unknown())) },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => ({ content: [], structuredContent: {
@@ -89,7 +89,7 @@ export function registerTaskChefApp(server, {
     layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(settingsFields).filter((property) => property !== "githubClientId").map((property) => ({ kind: "property", property })) }, { kind: "group", title: "GitHub", items: [{ kind: "property", property: "githubClientId" }] }],
   } }));
   server.registerTool("taskchef_settings_update", {
-    title: "Update TaskChef Next settings",
+    title: "Update TaskChef settings",
     inputSchema: { set: settingsSchema.partial().refine((values) => Object.keys(values).length > 0, "Set at least one setting.") },
     outputSchema: { values: settingsSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: true },
@@ -105,21 +105,21 @@ export function registerTaskChefApp(server, {
   const originalClose = server.close.bind(server);
   server.close = async () => { scanner.close(); await originalClose(); };
   const appOnly = { ui: { resourceUri: TASKCHEF_APP_URI, visibility: ["app"] } };
-  server.registerResource("TaskChef Next task board", TASKCHEF_APP_URI, {
-    description: "TaskChef Next read-only Codex session board", mimeType: RESOURCE_MIME_TYPE,
+  server.registerResource("TaskChef task board", TASKCHEF_APP_URI, {
+    description: "TaskChef read-only Codex session board", mimeType: RESOURCE_MIME_TYPE,
     _meta: { ui: { csp: { resourceDomains: ["https:"] } } },
   }, async () => ({ contents: [{ uri: TASKCHEF_APP_URI, mimeType: RESOURCE_MIME_TYPE, text: await readFile(htmlPath, "utf8"), _meta: { ui: { csp: { resourceDomains: ["https:"] } } } }] }));
   server.registerTool("open_taskchef_board", {
-    title: "TaskChef Next", description: "Show read-only local Codex session activity in the sidebar.", inputSchema: {},
+    title: "TaskChef", description: "Show read-only local Codex session activity in the sidebar.", inputSchema: {},
     _meta: { ui: { resourceUri: TASKCHEF_APP_URI }, "openai/ui": { entrypoints: [{ type: "global" }] } },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {
     const snapshot = await scanner.refresh();
-    if (!snapshot.healthy) return { structuredContent: { taskCount: 0, error: snapshot.scan.error }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.scan.error}` }] };
-    return { structuredContent: { taskCount: snapshot.tasks.length }, content: [{ type: "text", text: `TaskChef Next: ${snapshot.tasks.length} indexed chats. Visibility settings control which chats appear.` }] };
+    if (!snapshot.healthy) return { structuredContent: { taskCount: 0, error: snapshot.scan.error }, content: [{ type: "text", text: `TaskChef: ${snapshot.scan.error}` }] };
+    return { structuredContent: { taskCount: snapshot.tasks.length }, content: [{ type: "text", text: `TaskChef: ${snapshot.tasks.length} indexed chats. Visibility settings control which chats appear.` }] };
   });
   server.registerTool("taskchef_app_snapshot", {
-    title: "Refresh TaskChef Next", description: "Read local Codex session metadata.",
+    title: "Refresh TaskChef", description: "Read local Codex session metadata.",
     inputSchema: { revision: z.number().int().nonnegative().optional(), force: z.boolean().optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ revision, force }) => {
@@ -150,7 +150,7 @@ export function registerTaskChefApp(server, {
     structuredContent: { dataUrl: await scanner.taskImage(taskId, expectedTurnId, expectedUrl) }, content: [],
   }));
   server.registerTool("taskchef_app_set_done", {
-    title: "Mark chat Done in TaskChef Next", description: "Save or remove a local Done mark. Codex databases are never modified.",
+    title: "Mark chat Done in TaskChef", description: "Save or remove a local Done mark. Codex databases are never modified.",
     inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), done: z.boolean() }, _meta: appOnly,
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ taskId, expectedTurnId, done }) => {
@@ -163,7 +163,7 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ action }) => ({ structuredContent: { github: await github.auth((await readSettings()).githubClientId, action) }, content: [] }));
   server.registerTool("taskchef_app_notifications", {
-    title: "Update TaskChef Next notifications",
+    title: "Update TaskChef notifications",
     inputSchema: { action: z.enum(["read", "read_all", "clear", "error"]), id: z.string().optional(), taskId: taskIdSchema.optional(), operation: z.enum(["open", "done", "copy", "settings"]).optional(), error: z.string().max(1000).optional() },
     _meta: appOnly, annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ action, id, taskId, operation, error }) => {
@@ -174,7 +174,7 @@ export function registerTaskChefApp(server, {
     return { structuredContent: { notifications }, content: [] };
   });
   server.registerTool("taskchef_app_open_settings", {
-    title: "Open TaskChef Next settings", description: "Open this installed plugin's native settings page in Codex.",
+    title: "Open TaskChef settings", description: "Open this installed plugin's native settings page in Codex.",
     inputSchema: {}, _meta: appOnly,
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async () => {

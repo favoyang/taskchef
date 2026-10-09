@@ -80,10 +80,10 @@ test("chat name takes precedence over title, with title and ID fallbacks", async
   const setup = await fixture(t); if (!setup) return;
   const { home, state, history } = setup;
   const now = Date.now();
-  state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, "TaskChef Next storage demo", "Old title", "/example/project", 0, now, now, now, null, "user");
+  state.prepare("INSERT INTO threads (id,name,title,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms,rollout_path,thread_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(id, "TaskChef storage demo", "Old title", "/example/project", 0, now, now, now, null, "user");
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, ?, ?)").run(id, 1, "completed");
   const scanner = new CodexSessionScanner({ codexHome: home });
-  assert.equal((await scanner.refresh()).tasks[0].title, "TaskChef Next storage demo");
+  assert.equal((await scanner.refresh()).tasks[0].title, "TaskChef storage demo");
   state.prepare("UPDATE threads SET name = ? WHERE id = ?").run("  ", id);
   assert.equal((await scanner.refresh()).tasks[0].title, "Old title");
   state.prepare("UPDATE threads SET title = ? WHERE id = ?").run("", id);
@@ -161,7 +161,7 @@ test("unsupported Node versions fail before opening a database", async (t) => {
     const result = await new CodexSessionScanner({ codexHome: home, nodeVersion }).refresh();
     assert.equal(result.healthy, false);
     assert.deepEqual(result.tasks, []);
-    assert.match(result.scan.error, /TaskChef Next requires Node\.js 22\.18\+, 23\.2\+, or 24\+ for read-only SQLite/);
+    assert.match(result.scan.error, /TaskChef requires Node\.js 22\.18\+, 23\.2\+, or 24\+ for read-only SQLite/);
     assert.ok(result.scan.error.includes(nodeVersion));
   }
   assert.deepEqual(await readdir(home), []);

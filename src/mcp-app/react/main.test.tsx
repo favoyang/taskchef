@@ -99,19 +99,19 @@ test("lifecycle events log readable single strings without suppressing repeats",
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const { unmount } = render(<TaskChefApp />);
   const details = JSON.stringify({ visibility: document.visibilityState, displayMode: "unknown" });
-  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef Next lifecycle: mounted ${details}`);
+  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef lifecycle: mounted ${details}`);
   warn.mockClear();
   fireEvent(document, new Event("visibilitychange"));
-  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef Next lifecycle: visibilitychange ${details}`);
+  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef lifecycle: visibilitychange ${details}`);
   fireEvent(window, new Event("pagehide"));
   fireEvent(window, new Event("pagehide"));
-  expect(warn.mock.calls.filter(([message]) => message === `[TaskChef] TaskChef Next lifecycle: pagehide ${details}`)).toHaveLength(2);
+  expect(warn.mock.calls.filter(([message]) => message === `[TaskChef] TaskChef lifecycle: pagehide ${details}`)).toHaveLength(2);
   act(() => server.hostContextChanged?.({ displayMode: "fullscreen" }));
-  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef Next lifecycle: host context changed ${JSON.stringify({ visibility: document.visibilityState, displayMode: "fullscreen" })}`);
+  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef lifecycle: host context changed ${JSON.stringify({ visibility: document.visibilityState, displayMode: "fullscreen" })}`);
   act(() => server.teardown?.());
-  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef Next lifecycle: host teardown ${details}`);
+  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef lifecycle: host teardown ${details}`);
   unmount();
-  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef Next lifecycle: unmounted ${details}`);
+  expect(warn).toHaveBeenCalledWith(`[TaskChef] TaskChef lifecycle: unmounted ${details}`);
   expect(warn.mock.calls.every((call) => call.length === 1 && typeof call[0] === "string" && !call[0].includes("[object Object]"))).toBe(true);
   warn.mockClear();
   fireEvent(window, new Event("pagehide"));
@@ -339,10 +339,10 @@ test("inline mode loads once and begins polling when expanded", async () => {
 test("shows the Node requirement when the scanner rejects its runtime", async () => {
   server.call.mockResolvedValue({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
     tasks: [], healthy: false, revision: 0,
-    scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "TaskChef Next requires Node.js 22.18.0 or later for read-only SQLite (current: 22.17.9)." },
+    scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "TaskChef requires Node.js 22.18.0 or later for read-only SQLite (current: 22.17.9)." },
   } } });
   mount();
-  expect(await screen.findByRole("alert")).toHaveTextContent("TaskChef Next requires Node.js 22.18.0 or later");
+  expect(await screen.findByRole("alert")).toHaveTextContent("TaskChef requires Node.js 22.18.0 or later");
 });
 
 test("a database failure after a healthy snapshot removes stale tasks", async () => {

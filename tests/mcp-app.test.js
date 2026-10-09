@@ -10,7 +10,7 @@ import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI } from "../src
 
 const task = { observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
-test("TaskChef Next sidebar exposes database reads, local Done marks, and chat navigation", async (t) => {
+test("TaskChef sidebar exposes database reads, local Done marks, and chat navigation", async (t) => {
   assert.equal(TASKCHEF_APP_URI, "ui://taskchef/task-board/v3");
   let revision = 1;
   let scans = 0;
@@ -55,12 +55,12 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCli: false } } });
     const { tools } = await client.listTools();
     assert.ok(tools.find((tool) => tool.name === "taskchef_settings_read").outputSchema);
-    assert.equal(tools.find((item) => item.name === "open_taskchef_board").title, "TaskChef Next");
+    assert.equal(tools.find((item) => item.name === "open_taskchef_board").title, "TaskChef");
     assert.equal(tools.find((item) => item.name === "open_taskchef_board")._meta.ui.resourceUri, TASKCHEF_APP_URI);
     assert.equal(tools.find((item) => item.name === "taskchef_app_transition"), undefined);
     for (const tool of tools.filter((item) => item.name.startsWith("taskchef_app_"))) assert.deepEqual(tool._meta.ui.visibility, ["app"]);
     const resource = await client.readResource({ uri: TASKCHEF_APP_URI });
-    assert.match(resource.contents[0].text, /TaskChef Next/);
+    assert.match(resource.contents[0].text, /TaskChef/);
     assert.deepEqual(resource.contents[0]._meta.ui.csp.resourceDomains, ["https:"]);
     const image = await client.callTool({ name: "taskchef_app_image", arguments: { taskId: task.id, expectedTurnId: "turn-one", expectedUrl: "/image.png" } });
     assert.equal(image.structuredContent.dataUrl, "data:image/png;base64,AAAA");

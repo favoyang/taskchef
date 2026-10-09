@@ -1,4 +1,4 @@
-# TaskChef Next: Codex storage
+# TaskChef: Codex storage
 
 [Edit the storage diagram](diagrams/taskchef-next-storage.drawio) · [Storage PNG](diagrams/taskchef-next-storage.drawio.png)
 

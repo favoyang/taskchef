@@ -36,7 +36,7 @@ test("wrong plugin, invalid build and missing running HTML fail without replacin
   const { root, target, source, manifest } = await fixture(t);
   const original = await readFile(target, "utf8");
   await writeFile(join(root, ".codex-plugin/plugin.json"), '{"name":"another-plugin"}');
-  await assert.rejects(updateMcpAppPreview(root, source), /TaskChef Next preview/);
+  await assert.rejects(updateMcpAppPreview(root, source), /TaskChef preview/);
   await writeFile(join(root, ".codex-plugin/plugin.json"), manifest);
   await writeFile(source, "not a built UI");
   await assert.rejects(updateMcpAppPreview(root, source), /Build the MCP app/);

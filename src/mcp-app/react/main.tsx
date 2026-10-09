@@ -23,11 +23,11 @@ const theme = createTheme({
   colors: { dark: ["#dcdcdc", "#cdcdcd", "#afafaf", "#808080", "#414141", "#353535", "#282828", "#212121", "#181818", "#131313"] },
 });
 
-const bridge = new App({ name: "TaskChef Next", version: "1.0.0" });
+const bridge = new App({ name: "TaskChef", version: "1.0.0" });
 const connected = bridge.connect();
 
 function logLifecycle(event: string, displayMode = bridge.getHostContext?.()?.displayMode ?? "unknown") {
-  console.warn(`[TaskChef] TaskChef Next lifecycle: ${event} ${JSON.stringify({ visibility: document.visibilityState, displayMode })}`);
+  console.warn(`[TaskChef] TaskChef lifecycle: ${event} ${JSON.stringify({ visibility: document.visibilityState, displayMode })}`);
 }
 
 async function call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -138,9 +138,9 @@ export function TaskChefApp() {
       setTasks(data.snapshot.healthy === false ? [] : data.snapshot.tasks);
       setRegisteredProjects(data.snapshot.healthy === false ? [] : data.snapshot.projects ?? []);
       setScan(data.snapshot.scan);
-      setError(data.snapshot.healthy === false ? data.snapshot.scan.error?.startsWith("TaskChef Next")
+      setError(data.snapshot.healthy === false ? data.snapshot.scan.error?.startsWith("TaskChef")
         ? data.snapshot.scan.error
-        : "TaskChef Next cannot read the Codex databases. Check that state_5.sqlite and thread_history_1.sqlite are available and compatible, then refresh." : null);
+        : "TaskChef cannot read the Codex databases. Check that state_5.sqlite and thread_history_1.sqlite are available and compatible, then refresh." : null);
       if (data.snapshot.healthy === false) {
         selectedRef.current = null;
         selectionVersion.current += 1;
@@ -323,7 +323,7 @@ export function TaskChefApp() {
     <RelativeTimeProvider now={now}>
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
-          <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
+          <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef</Title></Group>
           {displayMode !== "inline" && <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />

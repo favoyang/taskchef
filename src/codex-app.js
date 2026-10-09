@@ -159,14 +159,14 @@ export async function openThreadInCodex(threadId, options = {}) {
 }
 
 export async function openPluginSettingsInCodex(url, options = {}) {
-  if (typeof url !== "string") throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef Next from Plugins.");
+  if (typeof url !== "string") throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef from Plugins.");
   const link = new URL(url);
   if (link.protocol !== "codex:" || link.hostname !== "plugins" || !/^\/[^/]+$/.test(link.pathname)
     || link.username || link.password || link.port || link.hash
     || [...link.searchParams.keys()].some((key) => key !== "marketplacePath")
     || link.searchParams.getAll("marketplacePath").length !== 1
     || !path.isAbsolute(link.searchParams.get("marketplacePath"))) {
-    throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef Next from Plugins.");
+    throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef from Plugins.");
   }
   await openDesktopLink(url, options);
   return { status: "requested", mechanism: "codex-deep-link", url };

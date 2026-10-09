@@ -9,10 +9,10 @@ const builtHtml = fileURLToPath(new URL("../src/mcp-app/dist/index.html", import
 
 // UI-only development update: keep the plugin version and running MCP process.
 export async function updateMcpAppPreview(pluginRoot, sourceHtml = builtHtml) {
-  if (!pluginRoot) throw new Error("Pass the installed TaskChef Next plugin folder used by the running app.");
+  if (!pluginRoot) throw new Error("Pass the installed TaskChef plugin folder used by the running app.");
   const root = await realpath(resolve(pluginRoot));
   const manifest = JSON.parse(await readFile(join(root, ".codex-plugin", "plugin.json"), "utf8"));
-  if (manifest.name !== "taskchef-next") throw new Error("The target must be an installed TaskChef Next preview.");
+  if (manifest.name !== "taskchef-next") throw new Error("The target must be an installed TaskChef preview.");
   const target = join(root, "src", "mcp-app", "dist", "index.html");
   let metadata;
   try { metadata = await lstat(target); }
@@ -34,8 +34,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     if (process.argv.length !== 3) throw new Error("Usage: npm run update:mcp-app-preview -- <installed-plugin-folder>");
     const result = await updateMcpAppPreview(process.argv[2]);
-    console.log(`${result.changed ? "Updated" : "Already current"}: TaskChef Next ${result.version}`);
-    console.log("Right-click TaskChef Next in the Codex sidebar and choose Refresh to reload the UI.");
+    console.log(`${result.changed ? "Updated" : "Already current"}: TaskChef ${result.version}`);
+    console.log("Right-click TaskChef in the Codex sidebar and choose Refresh to reload the UI.");
     console.log("The app's own Refresh button updates data only. Server changes still need a plugin/runtime update.");
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

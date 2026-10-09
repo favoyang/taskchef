@@ -60,7 +60,7 @@ async function readDoneMarks(path) {
     return marks;
   } catch (error) {
     if (error.code === "ENOENT") return {};
-    throw new DoneStateError("TaskChef Next: the local Done state file is unavailable or invalid. Repair that file before changing Done marks.");
+    throw new DoneStateError("TaskChef: the local Done state file is unavailable or invalid. Repair that file before changing Done marks.");
   }
 }
 
@@ -74,10 +74,10 @@ function historyId(row) {
   const date = new Date(`${timestamp}Z`);
   const validTimestamp = Number.isFinite(date.getTime()) && date.toISOString().slice(0, 19) === timestamp;
   if (match && validTimestamp) {
-    if (match[1].toLowerCase() !== row.id.toLowerCase()) throw new InvalidRolloutMetadataError("TaskChef Next: the selected rollout filename belongs to a different chat. Current turn lookup is unavailable.");
+    if (match[1].toLowerCase() !== row.id.toLowerCase()) throw new InvalidRolloutMetadataError("TaskChef: the selected rollout filename belongs to a different chat. Current turn lookup is unavailable.");
     return (match[2] || match[1]).toLowerCase();
   }
-  if (row.history_mode === "paginated") throw new InvalidRolloutMetadataError("TaskChef Next: a paginated chat has an invalid selected rollout filename. Current turn lookup is unavailable.");
+  if (row.history_mode === "paginated") throw new InvalidRolloutMetadataError("TaskChef: a paginated chat has an invalid selected rollout filename. Current turn lookup is unavailable.");
   // Codex explicitly supports noncanonical filenames for legacy histories.
   return row.id;
 }
@@ -161,7 +161,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
           : turn.status === "completed" ? inputScheduleActive ? "scheduled" : "needs_input" : null;
       const statusLabel = status === "archived" ? "Archived" : status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
-      const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef Next. A new turn resets this mark."
+      const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef. A new turn resets this mark."
         : active ? "Latest selected turn is in progress."
           : status === "scheduled" ? "Latest turn was a scheduled heartbeat; an active schedule remains."
             : status === "needs_input" ? "Latest turn ended. Chat remains open for input or review."
@@ -310,7 +310,7 @@ export class CodexSessionScanner {
       const info = await stat(this.statePath, { bigint: true });
       stamp = `${info.dev}:${info.ino}:${info.mtimeNs}:${info.ctimeNs}:${info.size}`;
     } catch (error) {
-      if (error.code !== "ENOENT") throw new DoneStateError("TaskChef Next: the local Done state file is unavailable or invalid. Repair that file before changing Done marks.");
+      if (error.code !== "ENOENT") throw new DoneStateError("TaskChef: the local Done state file is unavailable or invalid. Repair that file before changing Done marks.");
       stamp = "missing";
     }
     if (!force && this.doneCache?.stamp === stamp) return this.doneCache.marks;
@@ -346,14 +346,14 @@ export class CodexSessionScanner {
   }
   async refreshSource(now, force) {
     try {
-      if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
+      if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
       const { records, cacheHit } = await this.databaseRecords(force);
       const doneMarks = await this.doneMarks(force);
       const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
       const database = buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit);
       let grouped;
       try { grouped = await this.projectCatalog.group(database.tasks, records.projects); }
-      catch { throw new ProjectMetadataError("TaskChef Next cannot read Codex project metadata. Check .codex-global-state.json and the project worktree metadata, then refresh."); }
+      catch { throw new ProjectMetadataError("TaskChef cannot read Codex project metadata. Check .codex-global-state.json and the project worktree metadata, then refresh."); }
       const nextTasks = new Map(grouped.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
@@ -412,7 +412,7 @@ export class CodexSessionScanner {
       if (!task || task.turnId !== expectedTurnId) throw new Error("Chat changed. Refresh and try again.");
       if (done && task.scheduled) throw new Error("Pause all active schedules before marking this chat Done.");
       if (done && task.pullRequests?.length) throw new Error("Chats with attached PRs use GitHub merge status. Mark Done is only available without PR attachments.");
-      if (task.observed.archive || task.observed.lastTurnEvent === "inProgress") throw new Error("Archived or in-progress chats cannot be marked from TaskChef Next.");
+      if (task.observed.archive || task.observed.lastTurnEvent === "inProgress") throw new Error("Archived or in-progress chats cannot be marked from TaskChef.");
       await mkdir(dirname(this.statePath), { recursive: true, mode: 0o700 });
       const release = await acquireWorkspaceLock(dirname(this.statePath));
       try {

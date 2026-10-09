@@ -47,7 +47,7 @@ every task.
 
 The screenshots in this walkthrough use illustrative demo data. Open the
 dashboard beside TaskChef master to see both tasks across your projects.
-In Codex, call `open_taskchef_board` for the [TaskChef Next sidebar](docs/mcp-app.md).
+In Codex, call `open_taskchef_board` for the [TaskChef sidebar](docs/mcp-app.md).
 It reads local Codex data and groups chats as **Scheduled**, **Running**,
 **Waiting for input/review**, and **Done**. Interrupted chats stay in Waiting with an **Interrupted** tag. Empty board columns remain visible with a short message. Ambiguous records stay
 **Unverified**. Running follows the latest selected turn

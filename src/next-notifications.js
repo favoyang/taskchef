@@ -20,7 +20,7 @@ export class NextNotifications {
       let state;
       try { state = schema.parse(JSON.parse(await readFile(this.path, "utf8"))); }
       catch (error) {
-        if (error.code !== "ENOENT") throw new Error("TaskChef Next cannot read notifications.json. Repair the file and refresh.");
+        if (error.code !== "ENOENT") throw new Error("TaskChef cannot read notifications.json. Repair the file and refresh.");
         state = empty();
       }
       const before = JSON.stringify(state);

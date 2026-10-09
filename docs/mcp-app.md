@@ -1,10 +1,12 @@
-# TaskChef Next sidebar
+# TaskChef sidebar
 
-TaskChef Next requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connections. The rest of TaskChef continues to support the package's Node.js 18 minimum. An unsupported Node runtime produces a fatal version error before TaskChef Next opens a database.
+The public app name is **TaskChef**. “TaskChef Next” remains the internal project name.
 
-Call `open_taskchef_board` in Codex to open **TaskChef Next**. In a sidebar or fullscreen host view, it shows the read-only board, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
+TaskChef requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connections. The rest of TaskChef continues to support the package's Node.js 18 minimum. An unsupported Node runtime produces a fatal version error before TaskChef opens a database.
 
-The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. The plugin details page has native switches for Show exec sessions, Show CLI sessions, and Show archived chats. The MCP server stores these choices in `~/.agents/taskchef-next/settings.json`, shared by all TaskChef Next views. Each visible poll reads the current settings, even when the database snapshot is unchanged. These choices apply to the board, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
+Call `open_taskchef_board` in Codex to open **TaskChef**. In a sidebar or fullscreen host view, it shows the read-only board, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
+
+The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. The plugin details page has native switches for Show exec sessions, Show CLI sessions, and Show archived chats. The MCP server stores these choices in `~/.agents/taskchef-next/settings.json`, shared by all TaskChef views. Each visible poll reads the current settings, even when the database snapshot is unchanged. These choices apply to the board, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
 
 The board uses these queue labels:
 
@@ -13,7 +15,7 @@ The board uses these queue labels:
 | Scheduled | Latest completed input has a heartbeat marker matching a known automation, has no `clientId`, and that matching schedule is active. |
 | Running | Latest selected turn is `inProgress`. There is no age cutoff. |
 | Waiting for input/review | Latest turn completed, interrupted, or failed and the chat remains open. Interrupted or failed turns have an Interrupted tag. This does not prove Codex asked a question. |
-| Done | A chat without PRs is marked Done in TaskChef Next, or its latest turn completed and all attached PRs are confirmed merged. Both require no active schedule. This does not prove the larger task succeeded. |
+| Done | A chat without PRs is marked Done in TaskChef, or its latest turn completed and all attached PRs are confirmed merged. Both require no active schedule. This does not prove the larger task succeeded. |
 | Archived | Chat is archived in Codex. Hidden by default; separate from Done. |
 | Unverified | An unrecognized turn state. |
 
@@ -21,9 +23,9 @@ Archived takes precedence. Manual Done marks apply only to chats without PR atta
 
 **Mark Done** changes only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. There is no Reopen button; send a new prompt in Codex to start another turn. Archived, in-progress, actively scheduled, and PR-linked chats cannot be marked from this app. PR-linked chats use confirmed merge status. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
 
-Both databases and the expected tables must be available. Missing or incompatible databases, or failed queries, produce a fatal app error and clear the visible inventory. Rollout files never replace database inventory or status. The selected-chat detail may optionally read a bounded head and tail of the JSONL file at its database `rollout_path` for message counts and byte coverage. The path stays server-side. This detail never changes the database-derived status. If the path or file is absent or cannot be parsed, database metadata remains available. No raw transcript content is returned. All reads are local and read-only.
+Both databases and the expected tables must be available. Missing or incompatible databases, or failed queries, produce a fatal app error and clear the visible inventory. Rollout files never replace database inventory or status. The selected-chat detail may optionally read a bounded head and tail of the JSONL file at its database `rollout_path` for message counts and byte coverage. The path stays server-side. This detail never changes the database-derived status. If the path or file is absent or cannot be parsed, database metadata remains available. The board returns a bounded excerpt of the latest saved assistant reply for cards and Details; it does not return the whole transcript. All reads are local and read-only.
 
-In sidebar or fullscreen mode, the mounted app requests a fresh snapshot every five seconds while `document.visibilityState` is `visible`. It pauses polling when the document becomes hidden and refreshes immediately when visible again. If Codex only hides a mounted iframe with CSS, the document may remain visible and polling may continue. Inline mode loads once and does not poll; manual **Refresh** remains available. Switching from inline to a full view starts polling and requests a fresh snapshot. Whether the host hides or unmounts the app is host-dependent. Mount, React unmount, document `visibilitychange`, window `pagehide`, display-mode, and host-teardown events are logged as single-string browser console warnings with the `[TaskChef] TaskChef Next lifecycle:` prefix, followed by JSON with only `visibility` and `displayMode`. For browser debugging, right-click the sidebar app and select **Dev Tools** in Codex. The console shows these lifecycle events. Repeated events are logged individually. `pagehide` can indicate iframe navigation or disposal even when React cleanup does not run. It does not prove that a sidebar switch disposed the iframe: the host may keep the iframe mounted, and a destroyed iframe may not deliver a final event.
+In sidebar or fullscreen mode, the mounted app requests a fresh snapshot every five seconds while `document.visibilityState` is `visible`. It pauses polling when the document becomes hidden and refreshes immediately when visible again. If Codex only hides a mounted iframe with CSS, the document may remain visible and polling may continue. Inline mode loads once and does not poll; manual **Refresh** remains available. Switching from inline to a full view starts polling and requests a fresh snapshot. Whether the host hides or unmounts the app is host-dependent. Mount, React unmount, document `visibilitychange`, window `pagehide`, display-mode, and host-teardown events are logged as single-string browser console warnings with the `[TaskChef] TaskChef lifecycle:` prefix, followed by JSON with only `visibility` and `displayMode`. For browser debugging, right-click the sidebar app and select **Dev Tools** in Codex. The console shows these lifecycle events. Repeated events are logged individually. `pagehide` can indicate iframe navigation or disposal even when React cleanup does not run. It does not prove that a sidebar switch disposed the iframe: the host may keep the iframe mounted, and a destroyed iframe may not deliver a final event.
 
 The UI is bundled as the `ui://taskchef/task-board/v3` MCP resource. Build it with `npm run build:mcp-app`; run `npm run check:mcp-app` and the relevant tests before release. Use Codex’s sidebar context-menu **Refresh** to reload its HTML and restart the widget. The app’s own Refresh button updates board data only.
 
@@ -41,9 +43,9 @@ There is no 300-chat cap. All eligible chats with a current-rollout turn are inc
 
 See the [storage schema](taskchef-next-storage.md), including the editable diagram and PNG.
 
-### TaskChef Next card content
+### TaskChef card content
 
-Cards show the chat title, project, a two-line excerpt of the latest saved assistant reply in the selected rollout's latest turn, last activity time, and Open chat. Next cards omit the clock icon and use local calendar dates: today shows only a time such as `2:30PM`, yesterday shows `Yesterday`, older dates show `July 7th`, with the year added for previous years. The tooltip retains the exact timestamp; clicking the date switches between compact and exact text. An active schedule remains a badge. The final reply uses `final_agent_item_id` and the full item primary key. When no final reply is linked, an indexed query reads the latest `agentMessage` in that same turn. Excerpts are capped at 2,000 characters; an absent reply is stated explicitly. Heartbeat wrappers show only their `<message>` text; a quiet heartbeat without that block has no reply excerpt. No model summarizes or judges the text. Saved replies render as Markdown: compact formatting on cards, and headings, lists, code blocks, and tables in Details. Links open in a new tab. Raw HTML is ignored; images appear as caption links without automatic image requests. Relative file links appear as text. Details still shows the bounded excerpt, not the whole conversation.
+Cards show the chat title, project, a two-line excerpt of the latest saved assistant reply in the selected rollout's latest turn, last activity time, and Open chat. TaskChef cards omit the clock icon and use local calendar dates: today shows only a time such as `2:30PM`, yesterday shows `Yesterday`, older dates show `July 7th`, with the year added for previous years. The tooltip retains the exact timestamp; clicking the date switches between compact and exact text. An active schedule remains a badge. The final reply uses `final_agent_item_id` and the full item primary key. When no final reply is linked, an indexed query reads the latest `agentMessage` in that same turn. Excerpts are capped at 2,000 characters; an absent reply is stated explicitly. Heartbeat wrappers show only their `<message>` text; a quiet heartbeat without that block has no reply excerpt. No model summarizes or judges the text. Saved replies render as Markdown: compact formatting on cards, and headings, lists, code blocks, and tables in Details. Links open in a new tab. Raw HTML is ignored; images appear as caption links without automatic image requests. Relative file links appear as text. Details still shows the bounded excerpt, not the whole conversation.
 
 Queue reasons and lifetime direct-subagent counts appear in Details, alongside the saved reply excerpt. They are not card summaries. The ordinary TaskChef dashboard keeps its Request/Result and usage layout.
 
@@ -61,7 +63,7 @@ PR-based Done labels use saved Codex attachments and authenticated GitHub status
 
 ### Native plugin settings
 
-TaskChef Next advertises `openai/settings` with `taskchef_settings_read` and
+TaskChef advertises `openai/settings` with `taskchef_settings_read` and
 `taskchef_settings_update`. The read tool returns the schema, current values,
 and Chat visibility and GitHub groups. The update tool accepts changed
 Boolean visibility properties and a public GitHub App client ID string. It
@@ -71,7 +73,7 @@ Updates use the existing local workspace lock and atomic file writer. Codex
 SQLite files remain read-only. Invalid settings fail visibly rather than
 silently resetting preferences.
 
-Open the installed TaskChef Next plugin details page to edit its native
+Open the installed TaskChef plugin details page to edit its native
 settings. The sidebar receives them at its next visible refresh, or immediately
 when Refresh is clicked. Settings persist across sidebar and embedded views.
 The old browser-local visibility keys are no longer used; configure the native
@@ -80,7 +82,7 @@ See the [OpenAI structured settings specification](https://github.com/openai/mcp
 
 ### Board presentation
 
-TaskChef Next exposes only Board. The List implementation remains in the
+TaskChef exposes only Board. The List implementation remains in the
 source, but the Board/List selector is hidden and saved List choices are
 ignored. Interrupted chats appear in Waiting for input/review with an
 Interrupted tag; their recorded status remains available in Details.
@@ -120,7 +122,7 @@ error; it does not silently replace the saved inventory.
 
 ### Reply image covers
 
-Next board cards feature the first supported Markdown image in the latest
+TaskChef board cards feature the first supported Markdown image in the latest
 selected assistant reply, above the title. The full saved reply is inspected,
 even when the image occurs after the 2,000-character text excerpt. Code examples
 and raw HTML do not count as images. No image is borrowed from an older turn.
@@ -137,7 +139,7 @@ This follows Trello’s image-above-title cover option:
 [Add a card cover](https://support.atlassian.com/trello/docs/what-is-a-card-cover).
 
 
-### Next notifications
+### TaskChef notifications
 
 The bell beside Settings opens the notification center. It has All and Unread
 filters, Mark all read, and Clear all. Click a chat message to open Details and
@@ -183,10 +185,10 @@ From the source checkout, run:
 npm run update:mcp-app-preview -- /path/to/the/running/taskchef-next/version
 ```
 
-The helper builds the UI, checks the target is TaskChef Next, and replaces only
+The helper builds the UI, checks the target is TaskChef, and replaces only
 `src/mcp-app/dist/index.html` atomically. It preserves the plugin version, server
 code, dependencies, and local data. It refuses missing or redirected HTML paths.
-Then right-click **TaskChef Next** in the Codex sidebar and choose **Refresh**.
+Then right-click **TaskChef** in the Codex sidebar and choose **Refresh**.
 Switching sidebar apps only hides the loaded view; it does not reload its HTML.
 
 Use the current installation’s version folder. If Refresh reports a missing
@@ -197,5 +199,5 @@ preview review, not production plugin distribution.
 
 ## GitHub PR status
 
-TaskChef Next reads saved PR attachments and can connect to GitHub with device
+TaskChef reads saved PR attachments and can connect to GitHub with device
 sign-in. See [GitHub setup and board rules](taskchef-next-github.md).
