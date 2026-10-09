@@ -14,6 +14,7 @@ vi.mock("@mantine/core", async () => {
     ActionIcon: ({ children, onClick, ...props }: Record<string, unknown>) => React.createElement("button", { "aria-label": props["aria-label"], onClick }, children as React.ReactNode),
     Alert: wrap("div"), Box: wrap("div"), Button: ({ children, onClick, disabled }: {children: React.ReactNode; onClick?: () => void; disabled?: boolean}) => <button onClick={onClick} disabled={disabled}>{children}</button>, Group: wrap("div"),
     MantineProvider: ({ children }: { children: React.ReactNode }) => children,
+    TextInput: ({ value, onChange, ...props }: { value: string; onChange: React.ChangeEventHandler<HTMLInputElement>; "aria-label": string }) => <input aria-label={props["aria-label"]} value={value} onChange={onChange} />,
     Paper: wrap("div"), Stack: wrap("div"), Text: wrap("p"), Title: wrap("h2"),
     SegmentedControl: ({ data, onChange, value, ...props }: { data: Array<{ label: string; value: string }>; onChange: (value: string) => void; value: string; "aria-label": string }) => React.createElement("div", { role: "radiogroup", "aria-label": props["aria-label"] }, data.map((item) => React.createElement("button", { key: item.value, role: "radio", "aria-checked": item.value === value, onClick: () => onChange(item.value) }, item.label))),
     Switch: ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (event: React.ChangeEvent<HTMLInputElement>) => void }) => <label>{label}<input type="checkbox" checked={checked} onChange={onChange} /></label>,
@@ -128,6 +129,34 @@ test("shows only Board, ignores a saved List choice, and filters project and dat
   expect(screen.queryByRole("button", { name: "Task three" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "24h" } });
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+});
+
+test("search finds titles and full card excerpts, combines filters, and keeps the query after refresh", async () => {
+  tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "needs_input", new Date().toISOString(), "Beta"), task("old", "completed", "2026-01-01T00:00:00Z", "Alpha")];
+  tasks[0].title = "Fix login";
+  tasks[0].replyExcerpt = "First line\nSecond line\n**Database** migration passed";
+  tasks[1].replyExcerpt = "Database migration passed";
+  tasks[2].replyExcerpt = "Database migration passed";
+  mount();
+  await screen.findByRole("button", { name: "Fix login" });
+  const input = screen.getByLabelText("Search cards");
+  const callsBeforeTyping = server.call.mock.calls.length;
+  fireEvent.change(input, { target: { value: "  LOGIN database  " } });
+  expect(screen.getByRole("button", { name: "Fix login" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+  expect(server.call.mock.calls.length).toBe(callsBeforeTyping);
+  fireEvent.change(input, { target: { value: "migration" } });
+  expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
+  expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "24h" } });
+  expect(screen.queryByRole("button", { name: "Task old" })).not.toBeInTheDocument();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+  expect(input).toHaveValue("migration");
+  fireEvent.change(input, { target: { value: "not-a-match" } });
+  expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("article")).toHaveLength(0);
+  fireEvent.change(input, { target: { value: "" } });
+  expect(screen.getByRole("button", { name: "Fix login" })).toBeVisible();
 });
 
 test("Settings opens the installed plugin details link and reports failure", async () => {

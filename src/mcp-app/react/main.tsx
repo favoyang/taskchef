@@ -1,6 +1,6 @@
 import { App } from "@modelcontextprotocol/ext-apps";
-import { ActionIcon, Alert, Box, Button, Group, MantineProvider, createTheme, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
-import { IconRefresh, IconSettings } from "@tabler/icons-react";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task, Project } from "../../dashboard/react/types";
@@ -104,6 +104,7 @@ export function TaskChefApp() {
     } catch (notificationError) { setError(`${String(cause)}. ${String(notificationError)}`); }
   }
   const [project, setProject] = useState("");
+  const [search, setSearch] = useState("");
   const [date, setDate] = useState("all");
   const [status, setStatus] = useState("");
   // Keep the list implementation for later, but expose only Board. Ignore old saved List choices.
@@ -249,7 +250,13 @@ export function TaskChefApp() {
   }, [eligibleTasks, registeredProjects]);
   useEffect(() => { if (project && !projects.some((item) => item.value === project)) setProject(""); }, [project, projects]);
   const projectTasks = useMemo(() => eligibleTasks.filter((task) => !project || (task.project.id || task.project.path || task.project.name) === project), [eligibleTasks, project]);
-  const boardTasks: Task[] = useMemo(() => filterTasks(projectTasks, { date, now }), [projectTasks, date, now]);
+  const boardTasks: Task[] = useMemo(() => {
+    const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    return filterTasks(projectTasks, { date, now }).filter((task: Task) => {
+      const content = `${task.title}\n${task.replyExcerpt ?? ""}`.toLocaleLowerCase();
+      return terms.every((term) => content.includes(term));
+    });
+  }, [projectTasks, date, now, search]);
   const visible = useMemo(() => boardTasks.filter((task) => !status || (task.status ?? "unverified") === status), [boardTasks, status]);
   const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...lanes.map(({ label, status: value }) => ({
     label: `${label} ${boardTasks.filter((task) => task.status === value).length}`, value: value ?? "unverified",
@@ -313,6 +320,7 @@ export function TaskChefApp() {
           {displayMode !== "inline" && <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
+            <TextInput className="taskchef-app-search" aria-label="Search cards" placeholder="Search cards" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <NextNotificationCenter state={notifications} toasts={toasts} onAction={notificationAction} onDismiss={dismissToast} onOpen={(item) => { const task = tasks.find((task) => task.id === item.taskId); if (task) void select(task, true); else void actionError("open", new Error("This chat is no longer available.")); }} />
