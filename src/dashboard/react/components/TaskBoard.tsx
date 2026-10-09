@@ -107,7 +107,7 @@ export function TaskBoard({
           <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}>
             <Box className="taskchef-board-lane-heading">
               <Title order={2} size="h5">{label}</Title>
-              <Text aria-label={`${matching.length} tasks`} c="dimmed" size="sm">{matching.length}</Text>
+              {matching.length > 0 && <Text aria-label={`${matching.length} tasks`} c="dimmed" size="sm">{matching.length}</Text>}
             </Box>
             <Stack gap="sm">
               {shown.map((task) => <BoardCard loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
