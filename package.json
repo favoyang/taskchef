@@ -87,6 +87,7 @@
     "benchmark:e2e": "node scripts/e2e-benchmark.js",
     "build:dashboard": "vite build --config vite.config.ts",
     "build:mcp-app": "vite build --config vite.mcp-app.config.ts",
+    "update:mcp-app-preview": "npm run build:mcp-app && node scripts/update-mcp-app-preview.js",
     "check:dashboard": "tsc --noEmit -p tsconfig.dashboard.json",
     "check:mcp-app": "tsc --noEmit -p tsconfig.mcp-app.json",
     "preview:dashboard": "node scripts/preview-dashboard.js",

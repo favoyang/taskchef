@@ -25,7 +25,7 @@ Both databases and the expected tables must be available. Missing or incompatibl
 
 In sidebar or fullscreen mode, the mounted app requests a fresh snapshot every five seconds while `document.visibilityState` is `visible`. It pauses polling when the document becomes hidden and refreshes immediately when visible again. If Codex only hides a mounted iframe with CSS, the document may remain visible and polling may continue. Inline mode loads once and does not poll; manual **Refresh** remains available. Switching from inline to a full view starts polling and requests a fresh snapshot. Whether the host hides or unmounts the app is host-dependent. Mount, React unmount, document `visibilitychange`, window `pagehide`, display-mode, and host-teardown events are logged as single-string browser console warnings with the `[TaskChef] TaskChef Next lifecycle:` prefix, followed by JSON with only `visibility` and `displayMode`. For browser debugging, right-click the sidebar app and select **Dev Tools** in Codex. The console shows these lifecycle events. Repeated events are logged individually. `pagehide` can indicate iframe navigation or disposal even when React cleanup does not run. It does not prove that a sidebar switch disposed the iframe: the host may keep the iframe mounted, and a destroyed iframe may not deliver a final event.
 
-The UI is bundled as the `ui://taskchef/task-board/v3` MCP resource. Build it with `npm run build:mcp-app`; run `npm run check:mcp-app` and the relevant tests before release. Reopen the app after rebuilding the resource.
+The UI is bundled as the `ui://taskchef/task-board/v3` MCP resource. Build it with `npm run build:mcp-app`; run `npm run check:mcp-app` and the relevant tests before release. Use Codex’s sidebar context-menu **Refresh** to reload its HTML and restart the widget. The app’s own Refresh button updates board data only.
 
 The selected rollout filename determines the history lookup ID. Ordinary chats use the chat ID. After a revert, Codex keeps the chat ID but selects a filename ending in `<chat-id>_<rollout-id>.jsonl`. `thread_history_1.sqlite.thread_turns.thread_id` and `thread_items.thread_id` then use the rollout ID. The scanner follows `state_5.sqlite.threads.rollout_path` to select that ID; it does not open logs to get board status. For paginated history, a missing or unrecognized selected filename or invalid timestamp produces an explicit metadata error; old chat-ID rows are never substituted. A canonical filename must also identify the same stable chat. Legacy histories may use noncanonical filenames and retain Codex's stable-ID lookup rule.
 
@@ -87,7 +87,7 @@ message specific to each column. This keeps their positions steady when chats
 change state or filters change. Archived remains an optional column.
 
 The header Settings icon calls the app-only `taskchef_app_open_settings` tool.
-The server resolves this installed plugin's marketplace root and requests its
+The server resolves this installed plugin's marketplace catalog file and requests its
 native details page through the operating system's Codex URL handler, using the
 same method as Open chat. It does not depend on the MCP view's link handler.
 An unresolved plugin location or failed desktop opener produces a notification.
@@ -165,3 +165,30 @@ notice the latest saved turn change. It cannot reconstruct intermediate turns
 that finished while no view was checking. Notifications are local app messages;
 this feature does not send OS notifications. A damaged notification file fails
 visibly and is preserved for repair.
+
+
+## Local UI review without restarting Codex
+
+For UI-only changes, update the HTML in the installation that the running MCP
+server uses. Do not install a new preview version for each style change. Codex
+can keep the old MCP process running while a plugin update removes its old
+folder. Its next resource read then fails with `ENOENT`, and the sidebar shows
+“Couldn't refresh app”.
+
+From the source checkout, run:
+
+```sh
+npm run update:mcp-app-preview -- /path/to/the/running/taskchef-next/version
+```
+
+The helper builds the UI, checks the target is TaskChef Next, and replaces only
+`src/mcp-app/dist/index.html` atomically. It preserves the plugin version, server
+code, dependencies, and local data. It refuses missing or redirected HTML paths.
+Then right-click **TaskChef Next** in the Codex sidebar and choose **Refresh**.
+Switching sidebar apps only hides the loaded view; it does not reload its HTML.
+
+Use the current installation’s version folder. If Refresh reports a missing
+older version in the desktop logs, the MCP process still uses that old folder;
+updating a different folder will not repair it. A full plugin/runtime update is
+still needed for server code or dependency changes. This helper is for local
+preview review, not production plugin distribution.
