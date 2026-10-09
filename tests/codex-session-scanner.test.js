@@ -555,3 +555,26 @@ test("a newly attached PR rejects manual Done and suppresses an older manual mar
   assert.equal(scanner.task(id).manualDone, false);
   assert.equal(scanner.task(id).status, "needs_input");
 });
+
+test("active schedules block new and existing Done marks until every schedule is paused", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Chat',0,1,1,1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,1,'completed','turn-1')").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
+  t.after(() => scanner.close());
+  await scanner.setDone(id, "turn-1", true);
+  for (const name of ["one", "two"]) {
+    await mkdir(join(home, "automations", name), { recursive: true });
+    await writeFile(join(home, "automations", name, "automation.toml"), `id = "${name}"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "${id}"\n`);
+  }
+  await scanner.refresh();
+  assert.equal(scanner.task(id).manualDone, false);
+  assert.equal(scanner.task(id).status, "needs_input");
+  await assert.rejects(scanner.setDone(id, "turn-1", true), /Pause all active schedules/);
+  await writeFile(join(home, "automations", "one", "automation.toml"), `id = "one"\nkind = "heartbeat"\nstatus = "PAUSED"\ntarget_thread_id = "${id}"\n`);
+  await assert.rejects(scanner.setDone(id, "turn-1", true), /Pause all active schedules/);
+  await writeFile(join(home, "automations", "two", "automation.toml"), `id = "two"\nkind = "heartbeat"\nstatus = "PAUSED"\ntarget_thread_id = "${id}"\n`);
+  await scanner.setDone(id, "turn-1", true);
+  assert.equal(scanner.task(id).status, "completed");
+});

@@ -126,3 +126,16 @@ test("unauthorized tokens are removed instead of retried every poll", async (t) 
   assert.equal(first.auth.connected, false); assert.deepEqual(c.read(), {});
   await c.github.enrich(snapshot, settings); assert.equal(c.requests.length, 1);
 });
+
+test("active scheduled chats return to Scheduled after PR merge and ordinary chats become Done after pause", async (t) => {
+  const c = await setup(t, [response(true, "MERGED"), response(false)], signedIn);
+  const snapshot = { healthy: true, tasks: [task({ scheduled: true, inputSource: "ordinary" })] };
+  let result = await c.github.enrich(snapshot, settings);
+  assert.equal(result.snapshot.tasks[0].status, "scheduled");
+  assert.equal(result.snapshot.tasks[0].statusLabel, "Scheduled");
+  result = await c.github.enrich({ healthy: true, tasks: [task({ scheduled: false })] }, settings);
+  assert.equal(result.snapshot.tasks[0].status, "completed");
+  c.advance(60_001);
+  result = await c.github.enrich(snapshot, settings);
+  assert.equal(result.snapshot.tasks[0].status, "needs_input");
+});

@@ -361,7 +361,7 @@ export function TaskChefApp() {
         </main>
         </>}
       </Box>
-      <TaskDetail extraActions={selected && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
+      <TaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
         const task = selected;
         void (async () => { try { await navigator.clipboard.writeText(task.id); } catch (cause) { await actionError("copy", cause, task); } })();

@@ -509,3 +509,12 @@ test("saved project selection groups original and worktree chats and includes em
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "empty" } });
   expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("button")).toHaveLength(0);
 });
+
+test("active scheduled chat hides Mark Done in Details", async () => {
+  const current = { ...task("one", "needs_input"), scheduled: true, turnId: "turn-one", observed: { archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false } };
+  tasks = [current]; details = new Map([[current.id, current]]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Task one" }));
+  expect(await screen.findByRole("region", { name: "Task detail" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Mark Done" })).not.toBeInTheDocument();
+});

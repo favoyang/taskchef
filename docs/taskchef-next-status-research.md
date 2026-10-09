@@ -17,7 +17,7 @@ The proposed board labels are workflow rules, not semantic judgments:
 | --- | --- |
 | Running | Open chat; latest selected turn is `inProgress`, regardless of timestamp age. |
 | Waiting for input/review | Open chat; latest turn is `completed`. This includes ordinary idle chats, even when no question or review was requested. |
-| Done | User marks a chat without PRs done, or its latest turn completed and all attached PRs are confirmed merged. A new turn clears a manual Done mark. |
+| Done | User marks a chat without PRs done, or its latest turn completed and all attached PRs are confirmed merged. Both require no active schedule. A new turn clears a manual Done mark. |
 | Archived | Chat is archived. Hidden by default and shown in a separate column when enabled. |
 | Interrupted | Open chat; latest turn is `interrupted` or `failed`. Show the recorded error when available. |
 
@@ -25,7 +25,7 @@ These labels describe the **board queue**, not verified task outcomes. Waiting
 means the chat is open and Codex is idle; it does not prove that Codex requested
 input or review. Done means a manual mark for a chat without PRs, or confirmed merged status for all attached PRs.
 Archived is separate; archiving does not prove that the underlying work succeeded.
-The GitHub integration uses merged PRs for Done and unmerged or unavailable PRs
+The GitHub integration uses merged PRs for Scheduled when a schedule is active, otherwise Done, and unmerged or unavailable PRs
 for Waiting after a completed turn. Real sign-in needs a registered GitHub App.
 
 The archive flag takes precedence over an old turn status. The earlier proposal

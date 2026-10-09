@@ -53,11 +53,13 @@ status. Do not enter an OAuth App ID or a personal access token in the setting.
 | Archived | Archived, if enabled |
 | Latest turn in progress | Running |
 | Failed or interrupted turn | Waiting, with Interrupted tag |
-| Completed turn; every attached PR confirmed merged | Done |
+| Completed turn; every attached PR confirmed merged; active schedule | Scheduled |
+| Completed turn; every attached PR confirmed merged; no active schedule | Done |
 | Completed turn; any open, draft, closed without merge, or unavailable PR | Waiting for input/review |
 | No attached PR | Existing schedule and manual Done rules |
 
-Mark Done is available for chats without attached PRs. A new turn resets that
+Mark Done is available for chats without attached PRs or active schedules.
+Pause all schedules to restore ordinary Done rules. A new turn resets that
 mark. A passing CI badge means the reported checks passed; it does not guarantee
 merge approval or that every branch-protection requirement is met.
 

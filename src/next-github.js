@@ -167,7 +167,7 @@ export class NextGitHub {
     const tasks = snapshot.tasks.map((task) => {
       const pullRequests = (task.pullRequests ?? []).map((pr) => this.cache.get(pr.url)?.pr ?? { ...pr, state: "unknown", checks: "unknown", error: pullRequestIdentity(pr.url) ? auth.connected ? "Waiting for the next GitHub check." : "Connect GitHub to read PR status." : "This GitHub host or PR URL is not supported." });
       const prDone = task.observed.lastTurnEvent === "completed" && !task.observed.archive && pullRequests.length > 0 && pullRequests.every((pr) => pr.state === "merged");
-      return { ...task, pullRequests, ...(task.observed.lastTurnEvent === "completed" && !task.observed.archive && pullRequests.length > 0 ? prDone ? { status: "completed", statusLabel: "Done", summary: "All attached pull requests are merged." } : { status: "needs_input", statusLabel: "Waiting for input/review", summary: "Attached pull requests need review or confirmed merge status." } : {}) };
+      return { ...task, pullRequests, ...(task.observed.lastTurnEvent === "completed" && !task.observed.archive && pullRequests.length > 0 ? prDone ? task.scheduled ? { status: "scheduled", statusLabel: "Scheduled", summary: "All attached pull requests are merged; an active schedule remains." } : { status: "completed", statusLabel: "Done", summary: "All attached pull requests are merged." } : { status: "needs_input", statusLabel: "Waiting for input/review", summary: "Attached pull requests need review or confirmed merge status." } : {}) };
     });
     return { snapshot: { ...snapshot, tasks }, auth };
   }

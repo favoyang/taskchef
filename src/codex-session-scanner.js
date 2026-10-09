@@ -156,7 +156,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       }
       const replyExcerpt = replyText.slice(0, 2000) || null;
       if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
-      const manualDone = doneMarks[row.id] === turn.turn_id && !(records.attachments.get(row.id)?.length);
+      const manualDone = !scheduled && doneMarks[row.id] === turn.turn_id && !(records.attachments.get(row.id)?.length);
       const status = row.archived ? "archived" : manualDone ? "completed" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
           : turn.status === "completed" ? inputScheduleActive ? "scheduled" : "needs_input" : null;
@@ -410,6 +410,7 @@ export class CodexSessionScanner {
       if (!snapshot.healthy) throw new Error(snapshot.scan.error);
       const task = this.task(id);
       if (!task || task.turnId !== expectedTurnId) throw new Error("Chat changed. Refresh and try again.");
+      if (done && task.scheduled) throw new Error("Pause all active schedules before marking this chat Done.");
       if (done && task.pullRequests?.length) throw new Error("Chats with attached PRs use GitHub merge status. Mark Done is only available without PR attachments.");
       if (task.observed.archive || task.observed.lastTurnEvent === "inProgress") throw new Error("Archived or in-progress chats cannot be marked from TaskChef Next.");
       await mkdir(dirname(this.statePath), { recursive: true, mode: 0o700 });
