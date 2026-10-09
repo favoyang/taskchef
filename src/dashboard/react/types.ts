@@ -70,6 +70,12 @@ export interface PullRequestStatus {
   url: string;
   state: "unknown" | "open" | "draft" | "closed" | "merged";
   checks: "unknown" | "none" | "passed" | "failed" | "pending";
+  title?: string;
+  headRevision?: string;
+  canMerge?: boolean;
+  hasMergeConflicts?: boolean;
+  mergeState?: string | null;
+  mergeable?: string;
   checkedAt?: string;
   error?: string;
 }
@@ -97,6 +103,7 @@ export interface Task {
   usage?: UsageProjection | null;
   statusLabel?: string;
   scheduled?: boolean;
+  nextRunAt?: string | null;
   manualDone?: boolean;
   replyExcerpt?: string | null;
   replyImage?: { url: string; alt: string } | null;

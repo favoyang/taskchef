@@ -1,7 +1,7 @@
-import { PullRequestBadges } from "./PullRequestBadges";
+import { PullRequestIcons, ScheduleIcon } from "./CardStatusIcons";
 import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
 import { useLayoutEffect, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
-import { IconArrowUpRight } from "@tabler/icons-react";
+import { IconArrowUpRight, IconFolder } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
@@ -168,17 +168,19 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
       </Title>
-      <Text className="taskchef-board-project" size="xs">{task.project.name}</Text>
+      <Text className="taskchef-board-project" size="xs"><IconFolder size={14} stroke={1.5} aria-hidden /><span>{task.project.name}</span></Text>
       {task.status === "interrupted" && <Badge color="orange" size="xs" variant="light">Interrupted</Badge>}
-      {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
       <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
-      <PullRequestBadges pullRequests={task.pullRequests} />
       <Box className="taskchef-board-card-footer">
+        <Box className="taskchef-card-stats">
         {task.observed && task.status === "working"
           ? <ElapsedTime startedAt={task.observed.lastTurnEventAt} />
           : <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} durationMs={task.observed ? task.observed.latestTurnDurationMs ?? null : undefined} />}
+          {task.scheduled && <ScheduleIcon nextRunAt={task.nextRunAt} />}
+          <PullRequestIcons pullRequests={task.pullRequests} />
+        </Box>
         {linked ? (
           <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
             <IconArrowUpRight aria-hidden size={19} stroke={1.6} />

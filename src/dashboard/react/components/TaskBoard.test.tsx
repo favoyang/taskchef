@@ -208,3 +208,18 @@ test("reports only intersecting cards and does not observe unrendered Done cards
     expect(disconnect).toHaveBeenCalled();
   } finally { vi.unstubAllGlobals(); }
 });
+
+test("card footer orders time, schedule clock and PR icon; project has a folder",()=>{
+  const scheduled=task(1,"needs_input"); scheduled.scheduled=true;
+  scheduled.nextRunAt=new Date(Date.now()+3600000).toISOString();
+  scheduled.pullRequests=[{url:"https://github.com/example/repo/pull/12",state:"merged",checks:"passed",title:"Improve search"}];
+  render(<MantineProvider><TaskBoard tasks={[scheduled]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()}/></MantineProvider>);
+  const card=screen.getByRole("article");
+  expect(card.querySelector(".taskchef-board-project svg")).toBeInTheDocument();
+  expect(screen.queryByText("Active schedule")).not.toBeInTheDocument();
+  const stats=card.querySelector(".taskchef-card-stats")!;
+  expect(stats.children[0]).toHaveClass("taskchef-time");
+  expect(stats.children[1]).toHaveAttribute("aria-label",expect.stringMatching(/^Next run:/));
+  expect(stats.children[2]).toHaveClass("taskchef-card-pr-icons");
+  expect(within(card).getByRole("button",{name:"Improve search: Merged"})).toBeInTheDocument();
+});

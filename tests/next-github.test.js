@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextGitHub, pullRequestIdentity } from "../src/next-github.js";
@@ -23,10 +23,10 @@ async function setup(t, replies, initial = {}) {
     assert.ok(next, `Unexpected request: ${url}`);
     return { ok: !next.httpError, status: next.httpError ?? 200, json: async () => next };
   } });
-  return { github, requests, credentials, read: () => credential, advance: (ms) => { time += ms; } };
+  return { github, requests, credentials, dir, read: () => credential, advance: (ms) => { time += ms; } };
 }
 const signedIn = { token: "private-token", login: "tester" };
-const response = (merged = false, state = "OPEN", checks = "SUCCESS", extra = {}) => ({ data: { p0: { pullRequest: { merged, state, isDraft: false, commits: { nodes: [{ commit: { statusCheckRollup: checks === null ? null : { state: checks } } }] }, ...extra } } } });
+const response = (merged = false, state = "OPEN", checks = "SUCCESS", extra = {}) => ({ data: { p0: { pullRequest: { merged, state, isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", commits: { nodes: [{ commit: { statusCheckRollup: checks === null ? null : { state: checks } } }] }, ...extra } } } });
 
 test("only exact GitHub PR URLs become query identities", () => {
   assert.equal(pullRequestIdentity("https://evil.test/repo/pull/12"), null);
@@ -60,7 +60,8 @@ test("all merged means Done; caching avoids repeated network checks", async (t) 
   assert.equal(first.snapshot.tasks[0].status, "needs_input");
   await c.github.enrich(snapshot, settings); assert.equal(c.requests.length, 1);
   c.advance(60_001);
-  const updated = await c.github.enrich(snapshot, settings);
+  await c.github.enrich(snapshot, settings); assert.equal(c.requests.length, 1, "settled status has no short TTL");
+  const updated = await c.github.enrich(snapshot, settings, { force: true });
   assert.equal(updated.snapshot.tasks[0].status, "completed");
   assert.equal(updated.snapshot.tasks[0].pullRequests[0].checks, "passed");
   assert.ok(!c.requests[0].options.body.includes('chat'));
@@ -188,4 +189,86 @@ test("only cards in view start GitHub queries, including old chats in All time",
   await c.github.enrich({healthy:true,tasks},settings,{scope:{date:"all",taskIds:["offscreen"]}});
   assert.match(c.requests[1].options.body,/number:13/);
   assert.doesNotMatch(c.requests[1].options.body,/number:12/);
+});
+
+
+test("saved cache survives another MCP process; new turns refresh it without repeated scans", async t => {
+  const c = await setup(t, [response(false, "OPEN", "SUCCESS", {title:"Improve search",headRefOid:"abc",mergeable:"MERGEABLE",mergeStateStatus:"CLEAN"}), response(true, "MERGED")], signedIn);
+  const snapshot = {healthy:true,tasks:[task()]};
+  const first = await c.github.enrich(snapshot,settings);
+  assert.equal(first.snapshot.tasks[0].pullRequests[0].canMerge,true);
+  assert.equal(first.snapshot.tasks[0].pullRequests[0].title,"Improve search");
+  const saved = await readFile(c.github.cachePath,"utf8");
+  assert.ok(!saved.includes("private-token"));
+  if (process.platform !== "win32") assert.equal((await stat(c.github.cachePath)).mode & 0o777,0o600);
+  const other = new NextGitHub({stateDir:c.dir,credentials:c.credentials,now:c.github.now,fetch:c.github.fetch});
+  c.advance(24*60*60*1000);
+  await other.enrich(snapshot,settings);
+  assert.equal(c.requests.length,1);
+  const updated = await other.enrich({healthy:true,tasks:[task({turnId:"turn-2"})]},settings);
+  assert.equal(updated.snapshot.tasks[0].status,"completed");
+  await c.github.enrich({healthy:true,tasks:[task({turnId:"turn-2"})]},settings);
+  assert.equal(c.requests.length,2);
+  await c.github.auth(client,"disconnect");
+  await assert.rejects(()=>readFile(c.github.cachePath),{code:"ENOENT"});
+});
+
+test("pending CI refreshes only in view; completed CI then stays cached", async t => {
+  const c = await setup(t,[response(false,"OPEN","PENDING"),response(false)],signedIn);
+  const snapshot={healthy:true,tasks:[task()]};
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:["chat"]}});
+  c.advance(60_001);
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:[]}});
+  assert.equal(c.requests.length,1);
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:["chat"]}});
+  assert.equal(c.requests.length,2);
+  c.advance(60_001); await c.github.enrich(snapshot,settings);
+  assert.equal(c.requests.length,2);
+});
+
+test("cache errors are explicit and account changes cannot reuse saved results", async t => {
+  const c=await setup(t,[response(true,"MERGED"),response(false)],signedIn);
+  const snapshot={healthy:true,tasks:[task()]};
+  await c.github.enrich(snapshot,settings);
+  await c.credentials.write(client,{token:"other-token",login:"other-user"});
+  const changed=await c.github.enrich(snapshot,settings);
+  assert.equal(changed.snapshot.tasks[0].status,"needs_input");
+  assert.equal(c.requests.length,2);
+  await writeFile(c.github.cachePath,"broken");
+  const broken=await c.github.enrich(snapshot,settings);
+  assert.match(broken.auth.error,/saved PR cache/);
+  assert.equal(c.requests.length,2);
+  assert.equal(broken.snapshot.tasks[0].pullRequests[0].state,"unknown");
+});
+
+test("same PR on two cards keeps separate turn keys without repeated checks", async t => {
+  const c=await setup(t,[response(),response()],signedIn);
+  const snapshot={healthy:true,tasks:[task(),task({id:"other",turnId:"other-turn"})]};
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:["chat"]}});
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:["other"]}});
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:["chat"]}});
+  assert.equal(c.requests.length,2);
+});
+
+
+test("unknown CI retries while visible even when merge state is settled", async t => {
+  const c=await setup(t,[response(false,"OPEN","UNRECOGNIZED",{mergeStateStatus:"BLOCKED"}),response(false)],signedIn);
+  const snapshot={healthy:true,tasks:[task()]};
+  const first=await c.github.enrich(snapshot,settings);
+  assert.equal(first.snapshot.tasks[0].pullRequests[0].checks,"unknown");
+  c.advance(60_001);
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:[]}}); assert.equal(c.requests.length,1);
+  await c.github.enrich(snapshot,settings,{scope:{taskIds:["chat"]}}); assert.equal(c.requests.length,2);
+});
+
+
+test("GitHub calculating mergeability retries even with settled CI and CLEAN merge state", async t => {
+  const c=await setup(t,[response(false,"OPEN","SUCCESS",{mergeStateStatus:"CLEAN",mergeable:"UNKNOWN"}),response(false,"OPEN","SUCCESS",{mergeStateStatus:"CLEAN",mergeable:"MERGEABLE"})],signedIn);
+  const snapshot={healthy:true,tasks:[task()]};
+  const first=await c.github.enrich(snapshot,settings);
+  assert.equal(first.snapshot.tasks[0].pullRequests[0].canMerge,false);
+  c.advance(60_001);
+  const second=await c.github.enrich(snapshot,settings);
+  assert.equal(second.snapshot.tasks[0].pullRequests[0].canMerge,true);
+  assert.equal(c.requests.length,2);
 });

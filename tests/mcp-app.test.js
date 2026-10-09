@@ -35,9 +35,10 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
   const server = new McpServer({ name: "taskchef-next-test", version: "1" });
   let credential = {};
   const scopes = [];
+  const forces = [];
   const github = new NextGitHub({ stateDir: temp, credentials: { read: async () => credential, write: async (_, value) => { credential = value; }, remove: async () => { credential = {}; } }, fetch: async () => { throw new Error("Unexpected GitHub request"); } });
   const enrich = github.enrich.bind(github);
-  github.enrich = async (snapshot, settings, options) => { scopes.push(options?.scope); return enrich(snapshot, settings, options); };
+  github.enrich = async (snapshot, settings, options) => { scopes.push(options?.scope); forces.push(options?.force); return enrich(snapshot, settings, options); };
   registerTaskChefApp(server, { createGitHub: () => github, settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; }, getSettingsUrl: async () => "codex://plugins/taskchef-next?marketplacePath=%2Fexample", openSettings: async (url) => { settingsOpened = url; } });
   const client = new Client({ name: "taskchef-next-client", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -97,7 +98,11 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     assert.equal(settingsOnly.structuredContent.settings.showExec, true);
     const forced = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision, force: true } });
     assert.equal(forced.structuredContent.snapshot.revision, 2);
+    assert.equal(forces.at(-1), true);
     const detail = await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id } });
+    assert.equal(forces.at(-1), false);
+    await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id, refreshGithub: true } });
+    assert.equal(forces.at(-1), true);
     assert.equal(detail.structuredContent.task.title, task.title);
     await client.callTool({ name: "taskchef_app_open_settings", arguments: {} });
     assert.equal(settingsOpened, "codex://plugins/taskchef-next?marketplacePath=%2Fexample");

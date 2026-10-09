@@ -81,9 +81,9 @@ A new turn resets a manual Done mark. Passing CI does not guarantee merge
 approval or that every branch-protection requirement is met. A closed PR
 without merge remains Waiting for a human.
 
-Badges show Merged (purple), Draft (gray), Checks passed (green), No checks or
-Checks pending (yellow), Checks failed or Closed without merge (red), and
-Unavailable (gray). Hover shows the PR URL, check time, and any access error.
+Cards show compact PR icons beside their time. Hover or focus opens a popup
+with a clickable PR title, CI status, check time, and any access error. Unknown
+status uses a neutral icon without an Unavailable label on the card.
 
 ## Codex sidebar icon research
 
@@ -104,9 +104,11 @@ on 10 October 2026. It is an implementation observation, not a documented API.
 The implementation selects `successful` when CI passes but `canMerge` is false,
 and `ready` when `canMerge` is true. Both use the same green dot. Yellow does
 not specifically mean no CI, and green alone does not prove merge readiness.
-TaskChef currently reads PR state, draft state, and the latest commit's combined
-check status. It does not yet read merge blockers or review requirements, so its
-current green badge means **Checks passed** only.
+TaskChef reads PR state, title, draft state, head revision, merge conflicts,
+merge state, and the latest commit's combined check status. It treats CLEAN or
+HAS_HOOKS with MERGEABLE as ready to merge. The popup distinguishes Checks
+passed from Ready to merge. GitHub can report an unknown merge state briefly;
+TaskChef checks that state again while the card is visible.
 
 ## Refresh and failure behavior
 
@@ -119,13 +121,22 @@ and loading more cards update this set. Offscreen cards do not start requests.
 Opening one chat's Details checks that chat on demand. New chats follow the same
 rule when their latest turn has an owned PR.
 
-PR status is cached in memory for 60 seconds per MCP server. Merged PRs stay
-cached until the process restarts, sign-in changes, or the user disconnects.
-Queries combine up to 25 PRs in one request per five-second poll. Additional PRs
-are checked on later polls, oldest cache entries first. Hidden CLI/exec chats
-and archived history do not start GitHub requests. A board refresh refreshes
-local data while respecting the GitHub cache and rate limits. The cache is not
-shared between separate MCP server processes and is not saved to disk.
+PR results are saved in `github-auth/pr-cache.json` beside TaskChef settings,
+with restricted file permissions. This file contains no tokens. A shared local
+lock protects reads and writes across MCP processes. Results are tied to the
+GitHub account and client ID; disconnect and sign-in clear them.
+
+Settled results have no short expiry. A new turn, a changed turn state, a new
+PR, opening Details, or manual Refresh triggers a check. Pending or unknown CI, an unknown
+merge state, and failed checks of GitHub availability retry after 60 seconds
+while the card is visible. Offscreen cards do not trigger these retries.
+Passing or failed CI stays cached until another trigger. A merge made on GitHub
+after a settled result is saved needs Refresh or opening Details to be detected.
+
+Queries combine up to 25 PRs per request. Hidden CLI/exec chats and archived
+history do not start requests. Automatic Details polling does not force a check.
+Rate limits still apply to explicit refreshes. A malformed or unwritable cache
+reports an error instead of silently fetching the entire board.
 
 Without GitHub sign-in, automatic Done from PR merge cannot be verified. Manual
 Done for chats with no latest-turn PR still works. The Done column shows a
@@ -150,3 +161,13 @@ Refresh tokens are rotated under a local lock shared by MCP processes.
 - [GitHub App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)
 
 - [OpenAI changelog: PR status badges](https://learn.chatgpt.com/docs/changelog)
+
+## Schedule clock
+
+An active schedule appears as a clock before the PR icons, rather than text.
+Its tooltip uses the desktop scheduler's `automations` table in
+`sqlite/codex-dev.db`. When `next_run_at` is set, TaskChef shows
+`next_run_nominal_at` if present, otherwise `next_run_at`. It uses the earliest
+known time across active schedules for that chat. Reads are short and read-only.
+Missing next-run metadata does not change the schedule flag or guess a time;
+the tooltip says the next run time is unavailable.

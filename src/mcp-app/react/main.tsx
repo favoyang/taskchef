@@ -201,7 +201,7 @@ export function TaskChefApp() {
     const onVisibility = () => {
       const next = document.visibilityState;
       logLifecycle("visibilitychange");
-      if (next === "visible" && displayModeRef.current !== "inline") void refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
+      if (next === "visible" && displayModeRef.current !== "inline") void refresh().catch((cause) => { setTasks([]); setError(String(cause)); });
     };
     const onPageHide = () => {
       logLifecycle("pagehide");
@@ -227,7 +227,7 @@ export function TaskChefApp() {
   }, [refresh]);
   useEffect(() => {
     if (previousDisplayMode.current === "inline" && displayMode !== "inline" && document.visibilityState === "visible") {
-      void refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
+      void refresh().catch((cause) => { setTasks([]); setError(String(cause)); });
     }
     previousDisplayMode.current = displayMode;
     if (displayMode === "inline") return;
@@ -297,7 +297,7 @@ export function TaskChefApp() {
     setOpened(true);
     setDetailError(null);
     try {
-      const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id });
+      const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id, refreshGithub: true });
       if (selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
       selectedRef.current = result.task;
       setSelected(result.task);
@@ -321,7 +321,7 @@ export function TaskChefApp() {
       const result = await call<{ task: Task; notifications?: NextNotificationState; github?: GitHubAuth }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: true });
       if (selectedRef.current?.id === task.id) { selectedRef.current = result.task; setSelected(result.task); }
       receiveNotifications(result.notifications);
-      await refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
+      await refresh().catch((cause) => { setTasks([]); setError(String(cause)); });
     } catch (cause) { await actionError("done", cause, task); }
     finally { setBusy(false); }
   }

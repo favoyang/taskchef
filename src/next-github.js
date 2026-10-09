@@ -1,7 +1,8 @@
 import { filterTasks } from "./dashboard/state.js";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { acquireWorkspaceLock } from "./workspace.js";
+import { writeDurableAtomic } from "./state-store.js";
 
 const DEVICE_URL = "https://github.com/login/device";
 const CACHE_MS = 60_000;
@@ -26,12 +27,39 @@ export class GitHubCredentials {
 export class NextGitHub {
   constructor({ stateDir, credentials = new GitHubCredentials(), fetch = globalThis.fetch, now = Date.now } = {}) {
     this.stateDir = stateDir; this.credentials = credentials; this.fetch = fetch; this.now = now;
-    this.cache = new Map(); this.lastClient = null; this.lastLogin = null; this.retryUntil = 0;
+    this.cache = new Map(); this.retryUntil = 0;
   }
   async locked(operation) {
     await mkdir(join(this.stateDir, "github-auth"), { recursive: true, mode: 0o700 });
     const release = await acquireWorkspaceLock(join(this.stateDir, "github-auth"));
     try { return await operation(); } finally { await release(); }
+  }
+  get cachePath() { return join(this.stateDir, "github-auth", "pr-cache.json"); }
+  async clearCache() {
+    this.cache.clear();
+    await rm(this.cachePath, { force: true });
+  }
+  async loadCache(clientId, login) {
+    this.cache.clear();
+    try {
+      const saved = JSON.parse(await readFile(this.cachePath, "utf8"));
+      if (saved.version !== 1 || typeof saved.entries !== "object" || !saved.entries || Array.isArray(saved.entries)) throw new Error();
+      if (saved.clientId !== clientId || saved.login !== login) return;
+      for (const [url, entry] of Object.entries(saved.entries)) {
+        if (!pullRequestIdentity(url) || entry?.pr?.url !== url || !Number.isFinite(entry.expiresAt)
+          || !["unknown", "open", "draft", "closed", "merged"].includes(entry.pr.state)
+          || !["unknown", "none", "passed", "failed", "pending"].includes(entry.pr.checks)
+          || !entry.turns || typeof entry.turns !== "object" || Array.isArray(entry.turns)
+          || Object.values(entry.turns).some(value => typeof value !== "string")) throw new Error();
+        this.cache.set(url, entry);
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw new Error("TaskChef cannot read its saved PR cache. Remove pr-cache.json and refresh.");
+    }
+  }
+  async saveCache(clientId, login) {
+    try { await writeDurableAtomic(this.cachePath, JSON.stringify({ version: 1, clientId, login, entries: Object.fromEntries(this.cache) })); }
+    catch { throw new Error("TaskChef cannot save its PR cache. Check local file access and refresh."); }
   }
   async request(url, { token, form, query } = {}) {
     if (this.retryUntil > this.now()) throw new Error("GitHub is rate limited. Try again later.");
@@ -91,7 +119,7 @@ export class NextGitHub {
       let value = await this.readCredential(clientId);
       if (action === "disconnect") {
         try { await this.credentials.remove(clientId); } catch { throw new Error("Cannot remove GitHub sign-in from the system credential store."); }
-        this.cache.clear();
+        await this.clearCache();
         return this.publicAuth({});
       }
       if (action === "start") {
@@ -99,7 +127,7 @@ export class NextGitHub {
         if (result.error || typeof result.device_code !== "string" || typeof result.user_code !== "string" || !Number.isFinite(result.expires_in) || !Number.isFinite(result.interval)) throw new Error("GitHub device sign-in is unavailable. Check the app's client ID and enable device flow.");
         value = { pending: { deviceCode: result.device_code, userCode: result.user_code, expiresAt: this.now() + result.expires_in * 1000, interval: Math.max(5, result.interval) * 1000, nextPoll: this.now() + Math.max(5, result.interval) * 1000 } };
         await this.save(clientId, value);
-        this.cache.clear();
+        await this.clearCache();
       } else if (action === "poll" && value.pending) {
         const pending = value.pending;
         if (pending.expiresAt <= this.now()) { await this.save(clientId, {}); throw new Error("GitHub sign-in code expired. Start again."); }
@@ -116,7 +144,7 @@ export class NextGitHub {
             if (typeof user.login !== "string") throw new Error("GitHub could not verify your account.");
             value = { token: result.access_token, refreshToken: result.refresh_token, expiresAt: result.expires_in ? this.now() + result.expires_in * 1000 : null, login: user.login };
             await this.save(clientId, value);
-            this.cache.clear();
+            await this.clearCache();
           }
         }
       }
@@ -127,31 +155,36 @@ export class NextGitHub {
     if (!snapshot.healthy) return { snapshot, auth: { configured: Boolean(settings.githubClientId), connected: false, login: null } };
     const clientId = settings.githubClientId;
     const requestedIds = scope.taskIds === undefined ? null : new Set(scope.taskIds);
-    const urls = [...new Set(filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!requestedIds || requestedIds.has(task.id)) && (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")).flatMap((task) => (task.pullRequests ?? []).map((pr) => pr.url)))];
+    const scopedTasks = filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!requestedIds || requestedIds.has(task.id)) && (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec"));
+    const urls = [...new Set(scopedTasks.flatMap(task => (task.pullRequests ?? []).map(pr => pr.url)))];
+    const turnsFor = url => Object.fromEntries(scopedTasks.filter(task => task.pullRequests?.some(pr => pr.url === url)).map(task => [task.id, JSON.stringify([task.turnId ?? task.turnRef, task.observed.lastTurnEvent])]));
     let auth = { configured: Boolean(clientId), connected: false, login: null };
     if (clientId) {
       try {
         await this.locked(async () => {
           let value = await this.readCredential(clientId);
-          if (clientId !== this.lastClient || value.login !== this.lastLogin) this.cache.clear();
-          this.lastClient = clientId; this.lastLogin = value.login;
+          await this.loadCache(clientId, value.login);
           auth = this.publicAuth(value);
-          if (!value.token) { this.cache.clear(); return; }
+          if (!value.token) { await this.clearCache(); return; }
           value = await this.tokenBundle(clientId, value);
-          const needed = urls.filter((url) => pullRequestIdentity(url) && (force || !this.cache.has(url) || (this.cache.get(url).pr.state !== "merged" && this.cache.get(url).expiresAt <= this.now())))
+          const needed = urls.filter((url) => pullRequestIdentity(url) && (() => {
+            const entry = this.cache.get(url);
+            return force || !entry || Object.entries(turnsFor(url)).some(([id, turn]) => entry.turns[id] !== turn)
+              || (entry.pr.state !== "merged" && (entry.pr.state === "unknown" || entry.pr.checks === "pending" || entry.pr.checks === "unknown" || entry.pr.mergeState === "UNKNOWN" || entry.pr.mergeState == null || entry.pr.mergeable === "UNKNOWN") && entry.expiresAt <= this.now());
+          })())
             .sort((a, b) => (this.cache.get(a)?.expiresAt ?? 0) - (this.cache.get(b)?.expiresAt ?? 0)).slice(0, 25);
           for (let start = 0; start < needed.length; start += 25) {
             const batch = needed.slice(start, start + 25);
             const query = `query { ${batch.map((url, i) => {
               const p = pullRequestIdentity(url);
-              return `p${i}: repository(owner:${JSON.stringify(p.owner)},name:${JSON.stringify(p.repo)}) { pullRequest(number:${p.number}) { state merged isDraft headRefOid commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } }`;
+              return `p${i}: repository(owner:${JSON.stringify(p.owner)},name:${JSON.stringify(p.repo)}) { pullRequest(number:${p.number}) { title state merged isDraft headRefOid mergeable mergeStateStatus commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } }`;
             }).join(" ")} }`;
             let result;
             try { result = await this.request("https://api.github.com/graphql", { token: value.token, query }); }
             catch (error) {
-              for (const url of batch) this.cache.set(url, { expiresAt: this.now() + CACHE_MS, pr: { url, state: "unknown", checks: "unknown", error: error.message } });
+              for (const url of batch) this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state: "unknown", checks: "unknown", error: error.message } });
               auth = { ...auth, error: error.message };
-              if (error.status === 401) { await this.save(clientId, {}); auth.connected = false; this.cache.clear(); break; }
+              if (error.status === 401) { await this.save(clientId, {}); auth.connected = false; await this.clearCache(); break; }
               continue;
             }
             for (const [i, url] of batch.entries()) {
@@ -160,9 +193,10 @@ export class NextGitHub {
               const state = failed || !p ? "unknown" : p.merged === true ? "merged" : p.state === "CLOSED" ? "closed" : p.state === "OPEN" ? p.isDraft ? "draft" : "open" : "unknown";
               const rollup = p?.commits?.nodes?.[0]?.commit?.statusCheckRollup;
               const checks = failed || !p ? "unknown" : rollup === null ? "none" : rollup?.state === "SUCCESS" ? "passed" : ["ERROR", "FAILURE"].includes(rollup?.state) ? "failed" : ["PENDING", "EXPECTED"].includes(rollup?.state) ? "pending" : "unknown";
-              this.cache.set(url, { expiresAt: this.now() + CACHE_MS, pr: { url, state, checks, checkedAt: new Date(this.now()).toISOString(), ...(state === "unknown" ? { error: "PR status unavailable. Check the app's repository access." } : {}) } });
+              this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state, checks, ...(typeof p?.title === "string" ? { title: p.title } : {}), ...(typeof p?.headRefOid === "string" ? { headRevision: p.headRefOid } : {}), mergeState: p?.mergeStateStatus ?? null, mergeable: p?.mergeable ?? "UNKNOWN", hasMergeConflicts: p?.mergeable === "CONFLICTING" || p?.mergeStateStatus === "DIRTY", canMerge: p?.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(p?.mergeStateStatus) && !p?.isDraft, checkedAt: new Date(this.now()).toISOString(), ...(state === "unknown" ? { error: "PR status unavailable. Check the app's repository access." } : {}) } });
             }
           }
+          if (needed.length && auth.connected) await this.saveCache(clientId, value.login);
         });
       } catch (error) { auth = { ...auth, connected: false, error: error.message }; this.cache.clear(); }
     } else this.cache.clear();

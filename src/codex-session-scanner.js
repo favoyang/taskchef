@@ -50,6 +50,24 @@ async function readSchedules(codexHome) {
       schedules.set(config.target_thread_id, list);
     } catch (error) { if (error.code !== "ENOENT") errors += 1; }
   }
+  // The desktop scheduler stores its actual/nominal next run here, outside TOML.
+  let runtime;
+  try {
+    const path = join(codexHome, "sqlite", "codex-dev.db");
+    await stat(path);
+    const { DatabaseSync } = await sqlite();
+    runtime = new DatabaseSync(path, { readOnly: true });
+    const fields = runtime.prepare("PRAGMA table_info(automations)").all().map(row => row.name);
+    if (fields.includes("next_run_at")) {
+      const nominal = fields.includes("next_run_nominal_at") ? "next_run_nominal_at" : "NULL";
+      for (const row of runtime.prepare(`SELECT id, target_thread_id, next_run_at, ${nominal} AS nominal FROM automations WHERE kind = 'heartbeat' AND status = 'ACTIVE'`).all()) {
+        const schedule = schedules.get(row.target_thread_id)?.find(schedule => schedule.id === row.id && schedule.active);
+        const ms = row.next_run_at == null ? null : row.nominal ?? row.next_run_at;
+        if (schedule && Number.isFinite(ms) && Number.isFinite(new Date(ms).getTime())) schedule.nextRunAt = iso(ms);
+      }
+    }
+  } catch (error) { if (error.code !== "ENOENT") errors += 1; }
+  finally { runtime?.close(); }
   return { schedules, errors };
 }
 
@@ -140,6 +158,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       const active = !row.archived && turn.status === "inProgress";
       const chatSchedules = schedules.get(row.id) ?? [];
       const scheduled = chatSchedules.some((schedule) => schedule.active);
+      const nextRunAt = chatSchedules.filter(schedule => schedule.active && schedule.nextRunAt).map(schedule => schedule.nextRunAt).sort()[0] ?? null;
       let inputSource = "unverified";
       let inputText = "";
       if (turn.first_user_item_id) {
@@ -181,7 +200,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
         summary: reason, replyExcerpt, replyImage: images.get(row.id),
-        status, statusLabel, scheduled, manualDone, inputSource,
+        status, statusLabel, scheduled, nextRunAt, manualDone, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { id: row.project_id, name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
@@ -368,7 +387,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage, task.pullRequests,
+        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;

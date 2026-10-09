@@ -537,3 +537,16 @@ test("All time loads local records first and passes visible card IDs on the next
   fireEvent.click(screen.getByRole("button", { name: "Report card in view" }));
   await waitFor(() => expect(server.call).toHaveBeenCalledWith({name:"taskchef_app_snapshot",arguments:{project:"",date:"all",visibleTaskIds:["one"]}}));
 });
+
+
+test("returning to a visible panel reuses PR cache; manual Refresh forces a check",async()=>{
+  vi.spyOn(document,"visibilityState","get").mockReturnValue("visible");
+  mount(); await screen.findByRole("button",{name:"Task one"});
+  server.call.mockClear();
+  fireEvent(document,new Event("visibilitychange"));
+  await waitFor(()=>expect(server.call).toHaveBeenCalledWith(expect.objectContaining({name:"taskchef_app_snapshot"})));
+  expect(server.call.mock.calls.filter(([input])=>input.name==="taskchef_app_snapshot").every(([input])=>input.arguments.force !== true)).toBe(true);
+  server.call.mockClear();
+  fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
+  await waitFor(()=>expect(server.call).toHaveBeenCalledWith(expect.objectContaining({name:"taskchef_app_snapshot",arguments:expect.objectContaining({force:true})})));
+});

@@ -64,15 +64,15 @@ export function registerTaskChefApp(server, {
   let boardSignature;
   let githubAuth;
   async function boardSnapshot(settings, force = false, scope = { date: "all", taskIds: [] }) {
-    const result = await github.enrich(await scanner.refresh({ force }), settings, { scope });
+    const result = await github.enrich(await scanner.refresh({ force }), settings, { force, scope });
     githubAuth = result.auth;
     const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests])]);
     if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
     return { ...result.snapshot, revision: boardRevision };
   }
-  async function decoratedTask(task) {
+  async function decoratedTask(task, force = false) {
     if (!task) return task;
-    const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, await readSettings());
+    const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, await readSettings(), { force });
     return snapshot.tasks[0];
   }
   async function readSettings() {
@@ -155,12 +155,12 @@ export function registerTaskChefApp(server, {
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata without returning transcript text.",
-    inputSchema: { taskId: taskIdSchema }, _meta: appOnly,
+    inputSchema: { taskId: taskIdSchema, refreshGithub: z.boolean().optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, async ({ taskId }) => {
+  }, async ({ taskId, refreshGithub }) => {
     const snapshot = await scanner.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
-    const task = await decoratedTask(await scanner.taskDetail(taskId));
+    const task = await decoratedTask(await scanner.taskDetail(taskId), refreshGithub === true);
     if (!task) throw new Error("Task not found.");
     return { structuredContent: { task }, content: [] };
   });

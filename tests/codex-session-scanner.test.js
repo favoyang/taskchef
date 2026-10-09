@@ -613,3 +613,27 @@ test("Running overrides a saved Done mark when the selected turn resumes", async
   const running=(await scanner.refresh()).tasks[0];
   assert.equal(running.status,'working');assert.equal(running.manualDone,false);
 });
+
+test("schedule clock reads nominal next run and notices scheduler changes without chat writes", async t => {
+  const f=await fixture(t); if(!f)return;
+  f.state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Scheduled demo', '/repo', 0, 1, 1, 1)").run(id);
+  f.history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  await mkdir(join(f.home,"automations","demo"),{recursive:true});
+  await writeFile(join(f.home,"automations","demo","automation.toml"),`id = "demo"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "${id}"\n`);
+  const scanner=new CodexSessionScanner({codexHome:f.home}); t.after(()=>scanner.close());
+  const missing=await scanner.refresh();
+  assert.equal(missing.tasks[0].scheduled,true); assert.equal(missing.tasks[0].nextRunAt,null);
+  await mkdir(join(f.home,"sqlite"));
+  const {DatabaseSync}=await import("node:sqlite");
+  const runtime=new DatabaseSync(join(f.home,"sqlite","codex-dev.db")); t.after(()=>runtime.close());
+  runtime.exec("CREATE TABLE automations (id TEXT, target_thread_id TEXT, kind TEXT, status TEXT, next_run_at INTEGER, next_run_nominal_at INTEGER)");
+  runtime.prepare("INSERT INTO automations VALUES ('demo',?,'heartbeat','ACTIVE',200000,180000)").run(id);
+  const first=await scanner.refresh(); assert.equal(first.tasks[0].nextRunAt,new Date(180000).toISOString());
+  runtime.exec("UPDATE automations SET next_run_nominal_at=240000");
+  const updated=await scanner.refresh(); assert.ok(updated.revision>first.revision);
+  assert.equal(updated.tasks[0].nextRunAt,new Date(240000).toISOString());
+  runtime.exec("UPDATE automations SET next_run_at=NULL");
+  assert.equal((await scanner.refresh()).tasks[0].nextRunAt,null);
+  runtime.exec("UPDATE automations SET next_run_at=300000, next_run_nominal_at=NULL");
+  assert.equal((await scanner.refresh()).tasks[0].nextRunAt,new Date(300000).toISOString());
+});
