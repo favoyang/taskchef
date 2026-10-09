@@ -1,8 +1,25 @@
 import { MantineProvider } from "@mantine/core";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { nextRunLabel, prPresentation, PullRequestIcons, PullRequestInfo, CardStatusLine } from "./CardStatusIcons";
 import type { PullRequestStatus } from "../types";
+// Test TaskChef's rows and keyboard handlers without jsdom layout work.
+// Browser QA separately exercises Mantine's real popup and positioning.
+vi.mock("@mantine/core", async () => {
+  const actual = await vi.importActual<typeof import("@mantine/core")>("@mantine/core");
+  const React = await import("react");
+  const Open = React.createContext(false);
+  const Popover = Object.assign(
+    ({opened, children}: {opened: boolean; children: React.ReactNode}) => <Open value={opened}>{children}</Open>,
+    {
+      Target: ({children}: {children: React.ReactNode}) => children,
+      Dropdown: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>((props, ref) =>
+        React.useContext(Open) ? <div {...props} ref={ref} /> : null),
+    },
+  );
+  return {...actual, Popover};
+});
+
 afterEach(cleanup);
 const url="https://github.com/example/repo/pull/12";
 const pr:PullRequestStatus={url,state:"open",checks:"passed",title:"Improve search"};
