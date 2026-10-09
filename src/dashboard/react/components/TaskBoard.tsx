@@ -1,4 +1,4 @@
-import { PullRequestIcons, ScheduleIcon } from "./CardStatusIcons";
+import { CardStatusLine } from "./CardStatusIcons";
 import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
 import { useLayoutEffect, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight, IconFolder } from "@tabler/icons-react";
@@ -174,13 +174,11 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
       <Box className="taskchef-board-card-footer">
-        <Box className="taskchef-card-stats">
+        <CardStatusLine pullRequests={task.pullRequests} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
         {task.observed && task.status === "working"
-          ? <ElapsedTime startedAt={task.observed.lastTurnEventAt} />
-          : <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} durationMs={task.observed ? task.observed.latestTurnDurationMs ?? null : undefined} />}
-          {task.scheduled && <ScheduleIcon nextRunAt={task.nextRunAt} />}
-          <PullRequestIcons pullRequests={task.pullRequests} />
-        </Box>
+          ? <ElapsedTime tooltipEnabled={false} startedAt={task.observed.lastTurnEventAt} />
+          : <RelativeTime tooltipEnabled={false} calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} durationMs={task.observed ? task.observed.latestTurnDurationMs ?? null : undefined} />}
+        </CardStatusLine>
         {linked ? (
           <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
             <IconArrowUpRight aria-hidden size={19} stroke={1.6} />

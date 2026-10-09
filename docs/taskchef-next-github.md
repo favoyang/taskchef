@@ -81,9 +81,14 @@ A new turn resets a manual Done mark. Passing CI does not guarantee merge
 approval or that every branch-protection requirement is met. A closed PR
 without merge remains Waiting for a human.
 
-Cards show compact PR icons beside their time. Hover or focus opens a popup
-with a clickable PR title, CI status, check time, and any access error. Unknown
-status uses a neutral icon without an Unavailable label on the card.
+Cards show compact PR icons beside their time. The whole status line shares
+one popup on hover or focus. It shows work duration, each linked PR title with
+its number, known CI status, and the next scheduled run, each on a separate
+line. Missing information is omitted. Mergeability and check time are not shown.
+Unknown PR status uses a neutral icon without an Unavailable label on the card.
+Tab moves from the status line to its PR link; Escape closes the popup.
+
+![Shared card status popup](images/taskchef-unified-status-popup.jpg)
 
 ## Codex sidebar icon research
 
@@ -106,8 +111,8 @@ and `ready` when `canMerge` is true. Both use the same green dot. Yellow does
 not specifically mean no CI, and green alone does not prove merge readiness.
 TaskChef reads PR state, title, draft state, head revision, merge conflicts,
 merge state, and the latest commit's combined check status. It treats CLEAN or
-HAS_HOOKS with MERGEABLE as ready to merge. The popup distinguishes Checks
-passed from Ready to merge. GitHub can report an unknown merge state briefly;
+HAS_HOOKS with MERGEABLE as ready to merge. The icon distinguishes Checks
+passed from Ready to merge; the shared popup shows CI without mergeability. GitHub can report an unknown merge state briefly;
 TaskChef checks that state again while the card is visible.
 
 ## Refresh and failure behavior
@@ -128,7 +133,7 @@ GitHub account and client ID; disconnect and sign-in clear them.
 
 Settled results have no short expiry. A new turn, a changed turn state, a new
 PR, opening Details, or manual Refresh triggers a check. Pending or unknown CI, an unknown
-merge state, and failed checks of GitHub availability retry after 60 seconds
+merge state on an open or draft PR, and failed checks of GitHub availability retry after 60 seconds
 while the card is visible. Offscreen cards do not trigger these retries.
 Passing or failed CI stays cached until another trigger. A merge made on GitHub
 after a settled result is saved needs Refresh or opening Details to be detected.
@@ -165,12 +170,12 @@ Refresh tokens are rotated under a local lock shared by MCP processes.
 ## Schedule clock
 
 An active schedule appears as a clock before the PR icons, rather than text.
-Its tooltip uses the desktop scheduler's `automations` table in
+The shared status popup uses the desktop scheduler's `automations` table in
 `sqlite/codex-dev.db`. When `next_run_at` is set, TaskChef shows
 `next_run_nominal_at` if present, otherwise `next_run_at`. It uses the earliest
 known time across active schedules for that chat. Reads are short and read-only.
 Missing next-run metadata does not change the schedule flag or guess a time;
-the tooltip says the next run time is unavailable.
+the popup omits the next-run line.
 
 ## Private repository CI reads
 

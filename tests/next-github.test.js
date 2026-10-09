@@ -307,3 +307,35 @@ test("CI access failure preserves PR merge status, and an empty legacy-status re
  denied=false;c.advance(60001);
  assert.equal((await c.github.checks(identity,"a".repeat(40),"token")).checks,"passed");
 });
+
+
+for (const checks of ["PENDING", "UNRECOGNIZED"]) {
+  test(`merged PR with ${checks} CI retries only while visible and keeps merged state`, async t => {
+    const c = await setup(t, [response(true, "MERGED", checks), response(true, "MERGED", "SUCCESS")], signedIn);
+    const snapshot = { healthy: true, tasks: [task()] };
+    const first = await c.github.enrich(snapshot, settings, { scope: { taskIds: ["chat"] } });
+    assert.equal(first.snapshot.tasks[0].pullRequests[0].state, "merged");
+    assert.equal(first.snapshot.tasks[0].pullRequests[0].checks, checks === "PENDING" ? "pending" : "unknown");
+    c.advance(60001);
+    await c.github.enrich(snapshot, settings, { scope: { taskIds: [] } });
+    assert.equal(c.requests.length, 1);
+    const refreshed = await c.github.enrich(snapshot, settings, { scope: { taskIds: ["chat"] } });
+    assert.equal(c.requests.length, 2);
+    assert.equal(refreshed.snapshot.tasks[0].pullRequests[0].state, "merged");
+    assert.equal(refreshed.snapshot.tasks[0].pullRequests[0].checks, "passed");
+    c.advance(60001);
+    await c.github.enrich(snapshot, settings, { scope: { taskIds: ["chat"] } });
+    assert.equal(c.requests.length, 2);
+  });
+}
+
+
+test("closed PR with settled CI ignores irrelevant unknown mergeability", async t => {
+  const c = await setup(t, [response(false, "CLOSED", "SUCCESS", {mergeStateStatus:"UNKNOWN",mergeable:"UNKNOWN"})], signedIn);
+  const snapshot = {healthy:true,tasks:[task()]};
+  await c.github.enrich(snapshot,settings);
+  c.advance(60001);
+  const cached = await c.github.enrich(snapshot,settings);
+  assert.equal(cached.snapshot.tasks[0].pullRequests[0].state,"closed");
+  assert.equal(c.requests.length,1);
+});

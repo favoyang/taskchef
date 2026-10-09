@@ -9,7 +9,7 @@ export function RelativeTimeProvider({ children, now }: { children: ReactNode; n
   return <RelativeTimeClock value={now}>{children}</RelativeTimeClock>;
 }
 
-export function ElapsedTime({ startedAt }: { startedAt: string | null | undefined }) {
+export function ElapsedTime({ startedAt, tooltipEnabled = true }: { startedAt: string | null | undefined; tooltipEnabled?: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   const start = startedAt ? Date.parse(startedAt) : NaN;
   const available = Number.isFinite(start);
@@ -22,7 +22,7 @@ export function ElapsedTime({ startedAt }: { startedAt: string | null | undefine
   }, [available, startedAt]);
   const text = available ? formatWorkedDuration(Math.max(0, now - start)) : "—";
   const tooltip = available ? `Worked for ${text} · Started ${formatExactTime(startedAt)}` : "Turn start time unavailable";
-  return <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
+  return <Tooltip disabled={!tooltipEnabled} events={{ focus: true, hover: true, touch: false }} label={tooltip}>
     <span aria-label={`Elapsed time: ${text}. ${tooltip}`} className="taskchef-time" tabIndex={0}>
       <IconHourglass aria-hidden size={12} style={{ transform: "translateY(-1px)" }} />
       <bdi className="taskchef-time-label">{text}</bdi>
@@ -36,12 +36,14 @@ export function RelativeTime({
   label,
   value,
   durationMs,
+  tooltipEnabled = true,
 }: {
   icon?: ReactNode;
   calendar?: boolean;
   label: string;
   value: string | null | undefined;
   durationMs?: number | null;
+  tooltipEnabled?: boolean;
 }) {
   const [exact, setExact] = useState(false);
   const now = useContext(RelativeTimeClock) ?? Date.now();
@@ -54,7 +56,7 @@ export function RelativeTime({
     ? duration === "—" ? "Run duration unavailable" : `Worked for ${duration}`
     : unavailable ? "Updated time unavailable" : exact ? shortText : exactText;
   return (
-    <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
+    <Tooltip disabled={!tooltipEnabled} events={{ focus: true, hover: true, touch: false }} label={tooltip}>
       <UnstyledButton
         aria-label={unavailable
           ? `${label}: unavailable.`

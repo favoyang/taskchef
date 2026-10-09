@@ -219,7 +219,7 @@ test("card footer orders time, schedule clock and PR icon; project has a folder"
   expect(screen.queryByText("Active schedule")).not.toBeInTheDocument();
   const stats=card.querySelector(".taskchef-card-stats")!;
   expect(stats.children[0]).toHaveClass("taskchef-time");
-  expect(stats.children[1]).toHaveAttribute("aria-label",expect.stringMatching(/^Next run:/));
+  expect(stats.children[1]).toHaveAttribute("aria-label","Active schedule");
   expect(stats.children[2]).toHaveClass("taskchef-card-pr-icons");
-  expect(within(card).getByRole("button",{name:"Improve search: Merged"})).toBeInTheDocument();
+  expect(within(card).getByLabelText("Improve search #12: Merged")).toBeInTheDocument();
 });
