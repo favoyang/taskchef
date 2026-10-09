@@ -6,7 +6,7 @@ import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
 import { ReplyMarkdown } from "./ReplyMarkdown";
 import { ReplyCover } from "./ReplyCover";
-import { RelativeTime } from "./RelativeTime";
+import { ElapsedTime, RelativeTime } from "./RelativeTime";
 
 const defaultLanes: { status: TaskStatus; label: string; emptyMessage?: string }[] = [
   { status: "working", label: "Working" },
@@ -148,7 +148,9 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
       <Box className="taskchef-board-card-footer">
-        <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />
+        {task.observed && task.status === "working"
+          ? <ElapsedTime startedAt={task.observed.lastTurnEventAt} />
+          : <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />}
         {linked ? (
           <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
             <IconArrowUpRight aria-hidden size={19} stroke={1.6} />

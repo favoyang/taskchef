@@ -1,11 +1,40 @@
 import { MantineProvider } from "@mantine/core";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 import { formatCardTime } from "../../time.js";
-import { RelativeTime, RelativeTimeProvider } from "./RelativeTime";
+import { ElapsedTime, RelativeTime, RelativeTimeProvider } from "./RelativeTime";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 const local = (year: number, month: number, day: number, hour = 0, minute = 0) => new Date(year, month - 1, day, hour, minute).toISOString();
+
+test("elapsed time ticks from the turn start, resets for a new turn, and cleans up", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-09T07:12:34Z"));
+  const { rerender, unmount } = render(<MantineProvider><ElapsedTime startedAt="2026-10-09T07:00:00Z" /></MantineProvider>);
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent("12m");
+  expect(screen.getByLabelText(/^Elapsed time:/).querySelector("svg")).not.toBeNull();
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveAccessibleName(/Started/);
+  act(() => { vi.advanceTimersByTime(1000); });
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent(/^12m$/);
+  act(() => { vi.advanceTimersByTime(25000); });
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent(/^13m$/);
+  rerender(<MantineProvider><ElapsedTime startedAt="2026-10-09T06:00:00Z" /></MantineProvider>);
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent("1h 13m");
+  rerender(<MantineProvider><ElapsedTime startedAt="2026-10-09T07:13:00Z" /></MantineProvider>);
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent("<1m");
+  unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("elapsed time does not invent a start time and clamps clock skew", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-09T07:00:00Z"));
+  const { rerender } = render(<MantineProvider><ElapsedTime startedAt="invalid" /></MantineProvider>);
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent("—");
+  expect(vi.getTimerCount()).toBe(0);
+  rerender(<MantineProvider><ElapsedTime startedAt="2026-10-09T07:00:01Z" /></MantineProvider>);
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent("<1m");
+});
 
 test("card dates use local calendar days across midnight and year boundaries", () => {
   const now = new Date(2026, 9, 8, 14, 35).getTime();

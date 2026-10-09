@@ -1,12 +1,36 @@
 import { Tooltip, UnstyledButton } from "@mantine/core";
-import { IconClock } from "@tabler/icons-react";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { IconClock, IconHourglass } from "@tabler/icons-react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { formatCardTime, formatExactTime, formatRelativeTime } from "../../time.js";
 
 const RelativeTimeClock = createContext<number | null>(null);
 
 export function RelativeTimeProvider({ children, now }: { children: ReactNode; now: number }) {
   return <RelativeTimeClock value={now}>{children}</RelativeTimeClock>;
+}
+
+export function ElapsedTime({ startedAt }: { startedAt: string | null | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
+  const start = startedAt ? Date.parse(startedAt) : NaN;
+  const available = Number.isFinite(start);
+  useEffect(() => {
+    if (!available) return;
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [available, startedAt]);
+  const elapsedMinutes = Math.max(0, Math.floor((now - start) / 60000));
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = elapsedMinutes % 60;
+  const text = available ? elapsedMinutes < 1 ? "<1m" : `${hours ? `${hours}h ` : ""}${minutes}m` : "—";
+  const tooltip = available ? `Started ${formatExactTime(startedAt)}` : "Turn start time unavailable";
+  return <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
+    <span aria-label={`Elapsed time: ${text}. ${tooltip}`} className="taskchef-time" tabIndex={0}>
+      <IconHourglass aria-hidden size={12} style={{ transform: "translateY(-1px)" }} />
+      <bdi className="taskchef-time-label">{text}</bdi>
+    </span>
+  </Tooltip>;
 }
 
 export function RelativeTime({

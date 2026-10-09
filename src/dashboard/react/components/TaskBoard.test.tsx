@@ -14,6 +14,18 @@ function task(id: number, status: ReturnType<typeof fixtureTask>["status"], titl
   });
 }
 
+test("observed running cards show elapsed time and return to a date when the turn ends", () => {
+  const running = task(1, "working");
+  running.observed = { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: new Date(Date.now() - 754000).toISOString(), recentFileActivity: true };
+  const props = { completedLimit: 5, onMoreCompleted: vi.fn(), onOpenCodex: vi.fn(), onOpenDetail: vi.fn() };
+  const { rerender } = render(<MantineProvider><TaskBoard {...props} tasks={[running]} /></MantineProvider>);
+  expect(screen.getByLabelText(/^Elapsed time:/)).toHaveTextContent(/^12m$/);
+  expect(screen.queryByRole("button", { name: /^Updated time:/ })).not.toBeInTheDocument();
+  rerender(<MantineProvider><TaskBoard {...props} tasks={[{ ...running, status: "needs_input" }]} /></MantineProvider>);
+  expect(screen.queryByLabelText(/^Elapsed time:/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Updated time:/ })).toBeInTheDocument();
+});
+
 function pointer(target: Element, type: string, pointerType: string, clientX: number, pointerId = 1) {
   const event = new MouseEvent(type, { bubbles: true, button: 0, clientX });
   Object.assign(event, { pointerType, pointerId, isPrimary: true });
