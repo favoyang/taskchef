@@ -49,7 +49,7 @@ export class NextNotifications {
         const announced = previous?.turn === turn ? previous.announced : [];
         const current = { turn, status: task.status ?? null, announced: [...announced] };
         // Archiving changes the board label, but must still consume the saved terminal event.
-        const terminal = task.observed?.archive || task.manualDone ? task.observed?.lastTurnEvent : null;
+        const terminal = task.observed?.lastTurnEvent;
         const event = (task.status === "needs_input" || terminal === "completed") && task.inputSource === "ordinary"
           ? "ready" : task.status === "interrupted" || terminal === "interrupted" || terminal === "failed" ? "interrupted" : null;
         const eligible = !task.observed?.archive && !task.manualDone
@@ -58,7 +58,7 @@ export class NextNotifications {
         // Consume the baseline and hidden events too; enabling a setting must not replay old turns.
         if (event && turn && !current.announced.includes(event)) {
           current.announced.push(event);
-          if (state.initialized && eligible && (!previous || previous.turn !== turn || previous.status !== task.status)) {
+          if (state.initialized && eligible && (event !== "ready" || task.status === "needs_input") && (!previous || previous.turn !== turn || previous.status !== task.status)) {
             this.add(state, { taskId: task.id, kind: event, title: event === "ready" ? `${task.title} is ready for input or review` : `${task.title} was interrupted` });
           }
         }

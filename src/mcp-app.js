@@ -6,6 +6,7 @@ import { writeDurableAtomic } from "./state-store.js";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
+import { NextGitHub } from "./next-github.js";
 import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
@@ -15,10 +16,11 @@ const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
 const htmlPath = fileURLToPath(new URL("./mcp-app/dist/index.html", import.meta.url));
 const taskIdSchema = z.string().uuid();
 
-const settingsFields = { showExec: z.boolean(), showCli: z.boolean(), showArchived: z.boolean() };
+const settingsFields = { showExec: z.boolean(), showCli: z.boolean(), showArchived: z.boolean(), githubClientId: z.string().trim().max(80).regex(/^(?:Iv(?:1\.[A-Za-z0-9]+|[A-Za-z0-9]{10,}))?$/, "Use the public client ID of a GitHub App.") };
 const settingsSchema = z.strictObject(settingsFields);
-const settingsDefaults = { showExec: false, showCli: false, showArchived: false };
+const settingsDefaults = { showExec: false, showCli: false, showArchived: false, githubClientId: "" };
 const settingsProperties = {
+  githubClientId: { type: "string", title: "GitHub App client ID", description: "Public GitHub App client ID (starts with Iv). Enable device flow and read-only Pull requests, Checks, and Commit statuses. This is not a token or client secret." },
   showExec: { type: "boolean", title: "Show exec sessions", description: "Include standalone codex exec runs. Subagents stay hidden." },
   showCli: { type: "boolean", title: "Show CLI sessions", description: "Include chats started from the Codex CLI." },
   showArchived: { type: "boolean", title: "Show archived chats", description: "Show archived chats in their own column and list filter." },
@@ -48,11 +50,28 @@ export function registerTaskChefApp(server, {
   openSettings = openPluginSettingsInCodex,
   settingsPath = join(homedir(), ".agents", "taskchef-next", "settings.json"),
   notificationsPath = join(dirname(settingsPath), "notifications.json"),
+  createGitHub = (options) => new NextGitHub(options),
 } = {}) {
   const scanner = createScanner();
   const notificationStore = new NextNotifications(notificationsPath);
+  const github = createGitHub({ stateDir: dirname(settingsPath) });
+  let boardRevision = 0;
+  let boardSignature;
+  let githubAuth;
+  async function boardSnapshot(settings, force = false) {
+    const result = await github.enrich(await scanner.refresh({ force }), settings, { force });
+    githubAuth = result.auth;
+    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests])]);
+    if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
+    return { ...result.snapshot, revision: boardRevision };
+  }
+  async function decoratedTask(task) {
+    if (!task) return task;
+    const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, await readSettings());
+    return snapshot.tasks[0];
+  }
   async function readSettings() {
-    try { return settingsSchema.parse(JSON.parse(await readFile(settingsPath, "utf8"))); }
+    try { return settingsSchema.parse({ githubClientId: "", ...JSON.parse(await readFile(settingsPath, "utf8")) }); }
     catch (error) {
       if (error.code === "ENOENT") return { ...settingsDefaults };
       throw new Error("TaskChef Next cannot read settings.json. Repair the file and refresh.");
@@ -67,7 +86,7 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => ({ content: [], structuredContent: {
     schema: { type: "object", properties: settingsProperties }, values: await readSettings(),
-    layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(settingsFields).map((property) => ({ kind: "property", property })) }],
+    layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(settingsFields).filter((property) => property !== "githubClientId").map((property) => ({ kind: "property", property })) }, { kind: "group", title: "GitHub", items: [{ kind: "property", property: "githubClientId" }] }],
   } }));
   server.registerTool("taskchef_settings_update", {
     title: "Update TaskChef Next settings",
@@ -106,11 +125,11 @@ export function registerTaskChefApp(server, {
   }, async ({ revision, force }) => {
     const settings = await readSettings();
     const settingsUrl = await getSettingsUrl();
-    const { snapshot, notifications } = await notificationStore.reconcile(() => scanner.refresh({ force }), settings);
+    const { snapshot, notifications } = await notificationStore.reconcile(() => boardSnapshot(settings, force), settings);
     if (!force && revision !== undefined && revision === snapshot.revision && snapshot.healthy !== false) {
-      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings, settingsUrl, notifications }, content: [] };
+      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings, settingsUrl, notifications, github: githubAuth }, content: [] };
     }
-    return { structuredContent: { snapshot, settings, settingsUrl, notifications }, content: [] };
+    return { structuredContent: { snapshot, settings, settingsUrl, notifications, github: githubAuth }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata without returning transcript text.",
@@ -119,7 +138,7 @@ export function registerTaskChefApp(server, {
   }, async ({ taskId }) => {
     const snapshot = await scanner.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
-    const task = await scanner.taskDetail(taskId);
+    const task = await decoratedTask(await scanner.taskDetail(taskId));
     if (!task) throw new Error("Task not found.");
     return { structuredContent: { task }, content: [] };
   });
@@ -135,9 +154,14 @@ export function registerTaskChefApp(server, {
     inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), done: z.boolean() }, _meta: appOnly,
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ taskId, expectedTurnId, done }) => {
-    const task = await scanner.setDone(taskId, expectedTurnId, done);
+    const task = await decoratedTask(await scanner.setDone(taskId, expectedTurnId, done));
     return { structuredContent: { task, notifications: done ? await notificationStore.confirmation(task) : undefined }, content: [] };
   });
+  server.registerTool("taskchef_app_github", {
+    title: "Connect GitHub for PR status", description: "Start device sign-in, check approval, or remove local credentials. Tokens stay in the system credential store.",
+    inputSchema: { action: z.enum(["status", "start", "poll", "disconnect"]) }, _meta: appOnly,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async ({ action }) => ({ structuredContent: { github: await github.auth((await readSettings()).githubClientId, action) }, content: [] }));
   server.registerTool("taskchef_app_notifications", {
     title: "Update TaskChef Next notifications",
     inputSchema: { action: z.enum(["read", "read_all", "clear", "error"]), id: z.string().optional(), taskId: taskIdSchema.optional(), operation: z.enum(["open", "done", "copy", "settings"]).optional(), error: z.string().max(1000).optional() },

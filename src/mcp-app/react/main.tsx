@@ -10,6 +10,7 @@ import { TaskCard } from "../../dashboard/react/components/TaskCard";
 import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
 import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
 import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
+import { GitHubConnection, type GitHubAuth } from "./GitHubConnection";
 import { ProjectPicker } from "./ProjectPicker";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
@@ -58,6 +59,7 @@ interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "dat
 
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
+  const [githubAuth, setGitHubAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
   const [{ showExec, showCli, showArchived }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
@@ -124,11 +126,12 @@ export function TaskChefApp() {
   const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats; projects?: Project[] }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState }>(
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats; projects?: Project[] }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth }>(
       "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
     receiveNotifications(data.notifications);
+    if (data.github) setGitHubAuth(data.github);
     setVisibility(data.settings);
     if (data.snapshot) {
       revisionRef.current = data.snapshot.revision;
@@ -175,6 +178,10 @@ export function TaskChefApp() {
       else setDetailError(String(cause));
     }
   }, [receiveNotifications]);
+  const githubRequest = useCallback(async (action: "status" | "start" | "poll" | "disconnect") => (await call<{ github: GitHubAuth }>("taskchef_app_github", { action })).github, []);
+  const githubOpenLink = useCallback((url: string) => bridge.openLink({ url }), []);
+  const githubRefresh = useCallback(() => refresh(true), [refresh]);
+  const githubOpenSettings = useCallback(() => call("taskchef_app_open_settings"), []);
   useEffect(() => {
     logLifecycle("mounted");
     const onVisibility = () => {
@@ -297,7 +304,7 @@ export function TaskChefApp() {
     if (!task.turnId) return;
     setBusy(true);
     try {
-      const result = await call<{ task: Task; notifications?: NextNotificationState }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: true });
+      const result = await call<{ task: Task; notifications?: NextNotificationState; github?: GitHubAuth }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: true });
       if (selectedRef.current?.id === task.id) { selectedRef.current = result.task; setSelected(result.task); }
       receiveNotifications(result.notifications);
       await refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
@@ -323,6 +330,7 @@ export function TaskChefApp() {
             <TextInput className="taskchef-app-search" aria-label="Search cards" placeholder="Search cards" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
+          <GitHubConnection auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />
           <NextNotificationCenter state={notifications} toasts={toasts} onAction={notificationAction} onDismiss={dismissToast} onOpen={(item) => { const task = tasks.find((task) => task.id === item.taskId); if (task) void select(task, true); else void actionError("open", new Error("This chat is no longer available.")); }} />
           <ActionIcon aria-label="Settings" title="Plugin settings" onClick={() => void (async () => {
             try { await call("taskchef_app_open_settings", {}); }
@@ -353,7 +361,7 @@ export function TaskChefApp() {
         </main>
         </>}
       </Box>
-      <TaskDetail extraActions={selected && !selected.manualDone && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
+      <TaskDetail extraActions={selected && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
         const task = selected;
         void (async () => { try { await navigator.clipboard.writeText(task.id); } catch (cause) { await actionError("copy", cause, task); } })();

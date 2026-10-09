@@ -17,16 +17,16 @@ The proposed board labels are workflow rules, not semantic judgments:
 | --- | --- |
 | Running | Open chat; latest selected turn is `inProgress`, regardless of timestamp age. |
 | Waiting for input/review | Open chat; latest turn is `completed`. This includes ordinary idle chats, even when no question or review was requested. |
-| Done | User explicitly marks the chat done. A new turn clears a manual Done mark. |
+| Done | User marks a chat without PRs done, or its latest turn completed and all attached PRs are confirmed merged. A new turn clears a manual Done mark. |
 | Archived | Chat is archived. Hidden by default and shown in a separate column when enabled. |
 | Interrupted | Open chat; latest turn is `interrupted` or `failed`. Show the recorded error when available. |
 
 These labels describe the **board queue**, not verified task outcomes. Waiting
 means the chat is open and Codex is idle; it does not prove that Codex requested
-input or review. Done currently means the user marked the chat Done in TaskChef Next.
+input or review. Done means a manual mark for a chat without PRs, or confirmed merged status for all attached PRs.
 Archived is separate; archiving does not prove that the underlying work succeeded.
-A future GitHub integration can use merged PRs for Done, and unmerged PRs for
-Waiting after a completed turn. This policy is not yet implemented.
+The GitHub integration uses merged PRs for Done and unmerged or unavailable PRs
+for Waiting after a completed turn. Real sign-in needs a registered GitHub App.
 
 The archive flag takes precedence over an old turn status. The earlier proposal
 used a two-minute activity cutoff for Running. That proposal is superseded:
@@ -85,23 +85,18 @@ cannot supply the missing chats in the tested account. Do not replace the
 missing cloud list with an empty list presented as complete. A supported
 code-driven source for these desktop cloud chats is still needed.
 
-No PR association table was found in the inspected local `state_5.sqlite` or
-`thread_history_1.sqlite` schema. Do not infer an attached PR from every GitHub
-URL in a chat: an example or dependency can belong to another task. A verified
-chat-to-PR attachment source is needed before PR merge state can label a chat.
+The current Codex database has `state_5.sqlite:thread_attachments`. Records with
+`attachment_type=pull_request` provide the attached PR URL in `payload.url`.
+This corrects the earlier schema scan. Transcript links are not attachments.
 
-For a local product, GitHub's device authorization flow is a possible OAuth
-route. It requires a registered app's public client ID and device flow enabled
-on that app. No TaskChef client ID has been supplied for this experiment.
-Do not bundle a client secret, use the developer's private CLI credentials, or
-borrow Codex's GitHub plugin credentials. Keep granted tokens in the local OS
-credential store and out of the sidebar and ordinary settings files. See
-[GitHub device flow documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
+The implemented GitHub App device flow needs a registered public client ID and
+device flow enabled. Registration currently waits for owner identity confirmation.
+TaskChef uses read-only Pull requests, Checks, and Commit statuses permissions.
+Access and refresh tokens stay in the local OS credential store; the sidebar
+receives no tokens. There is no client secret, private key, or developer CLI
+credential in the product flow.
 
-Once the attachment source and authentication are available, apply PR rules
-only after a turn completes. Require a nonempty attachment list and confirmed
-merged status for every attached PR before assigning Done. An open, draft, or
-closed-without-merge PR stays Waiting. An unreadable or unavailable PR status
-must not count as merged. Running, Interrupted, Archived, and manual Done
-retain their existing rules. These PR rules are a proposed contract, not a
-working integration.
+After a completed turn, a nonempty attachment list with every PR confirmed merged
+means Done. Open, draft, closed without merge, and unavailable PRs stay Waiting.
+Running, Interrupted, and Archived retain their rules. Manual Done applies only
+without PR attachments. See [setup, polling and validation limits](taskchef-next-github.md).

@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI } from "../src/mcp-app.js";
 
-const task = { id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
+const task = { observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
 test("TaskChef Next sidebar exposes database reads, local Done marks, and chat navigation", async (t) => {
   assert.equal(TASKCHEF_APP_URI, "ui://taskchef/task-board/v3");
@@ -38,12 +38,12 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
-    const defaults = { showExec: false, showCli: false, showArchived: false };
+    const defaults = { showExec: false, showCli: false, showArchived: false, githubClientId: "" };
     assert.deepEqual(client.getServerCapabilities().experimental["openai/settings"], { readTool: "taskchef_settings_read", updateTool: "taskchef_settings_update" });
     const settings = await client.callTool({ name: "taskchef_settings_read", arguments: {} });
     assert.deepEqual(settings.structuredContent.values, defaults);
     assert.equal(settings.structuredContent.schema.properties.showExec.type, "boolean");
-    assert.deepEqual(settings.structuredContent.layout[0].items.map((item) => item.property), Object.keys(defaults));
+    assert.deepEqual(settings.structuredContent.layout.flatMap((group) => group.items.map((item) => item.property)), Object.keys(defaults));
     await assert.rejects(access(settingsPath));
     const updated = await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCli: true } } });
     assert.deepEqual(updated.structuredContent.values, { ...defaults, showCli: true });
@@ -69,7 +69,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.scan.indexedFiles, 1);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: false, connected: false, login: null } });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);

@@ -96,3 +96,10 @@ test("unarchiving a saved terminal turn does not replay its notification", async
   await reconcile(store, [task("working", "active", { observed: { archive: false, lastTurnEvent: "inProgress" } })]);
   assert.equal((await reconcile(store, [task("needs_input", "active", { observed: { archive: false, lastTurnEvent: "completed" } })])).items.length, 1);
 });
+
+test("merged PR Done consumes completion quietly and GitHub disconnect does not replay readiness", async (t) => {
+  const { store } = await setup(t);
+  await reconcile(store, [task("working", "t1", { observed: { lastTurnEvent: "inProgress" } })]);
+  await reconcile(store, [task("completed", "t1", { observed: { lastTurnEvent: "completed" } })]);
+  assert.equal((await reconcile(store, [task("needs_input", "t1", { observed: { lastTurnEvent: "completed" } })])).items.length, 0);
+});

@@ -59,7 +59,9 @@
     "skills/taskchef-dashboard",
     "skills/taskchef-delegate",
     "skills/taskchef-executor",
-    "skills/taskchef-copilot"
+    "skills/taskchef-copilot",
+    "docs/taskchef-next-github.md",
+    "scripts/prepare-github-keyring.js"
   ],
   "engines": {
     "node": ">=18"
@@ -93,13 +95,15 @@
     "preview:dashboard": "node scripts/preview-dashboard.js",
     "test": "npm run test:node && npm run test:dashboard",
     "test:node": "node --test tests/*.test.js",
-    "test:dashboard": "vitest run --config vitest.config.ts"
+    "test:dashboard": "vitest run --config vitest.config.ts",
+    "prepack": "node scripts/prepare-github-keyring.js"
   },
   "dependencies": {
     "@mantine/core": "9.5.2",
     "@mantine/hooks": "9.5.2",
     "@mantine/notifications": "9.5.2",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@napi-rs/keyring": "2.1.0",
     "@tabler/icons-react": "3.35.0",
     "mdast-util-from-markdown": "2.0.2",
     "proper-lockfile": "^4.1.2",
@@ -115,7 +119,8 @@
     "proper-lockfile",
     "smol-toml",
     "zod",
-    "mdast-util-from-markdown"
+    "mdast-util-from-markdown",
+    "@napi-rs/keyring"
   ],
   "optionalDependencies": {
     "ccusage": "20.0.24"

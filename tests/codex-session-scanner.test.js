@@ -521,3 +521,37 @@ test("saved project names and assignments update the board revision independentl
   assert.equal(failed.healthy, false);
   assert.match(failed.scan.error, /Codex project metadata/);
 });
+
+test("PR attachments come from the attachment registry and update independently of chat timestamps", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'PR chat', '/repo', 0, 1, 1, 1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home }); t.after(() => scanner.close());
+  const first = await scanner.refresh(); assert.deepEqual(first.tasks[0].pullRequests, []);
+  const url = "https://github.com/example/repo/pull/12";
+  state.prepare("INSERT INTO thread_attachments VALUES (?, 'pull_request', ?)").run(id, JSON.stringify({ url }));
+  state.prepare("INSERT INTO thread_attachments VALUES (?, 'worktree', ?)").run(id, JSON.stringify({ root: "/repo" }));
+  const next = await scanner.refresh();
+  assert.ok(next.revision > first.revision);
+  assert.deepEqual(next.tasks[0].pullRequests, [{ url, state: "unknown", checks: "unknown" }]);
+  state.exec("DELETE FROM thread_attachments WHERE attachment_type='pull_request'");
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests, []);
+});
+
+test("a newly attached PR rejects manual Done and suppresses an older manual mark", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'PR chat', '/repo', 0, 1, 1, 1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const statePath = join(home, "done.json");
+  const scanner = new CodexSessionScanner({ codexHome: home, statePath }); t.after(() => scanner.close());
+  await scanner.setDone(id, "turn-1", true);
+  assert.equal(scanner.task(id).manualDone, true);
+  state.prepare("INSERT INTO thread_attachments VALUES (?, 'pull_request', ?)").run(id, JSON.stringify({ url: "https://github.com/example/repo/pull/12" }));
+  await assert.rejects(() => scanner.setDone(id, "turn-1", true), /attached PRs/);
+  assert.equal(scanner.task(id).manualDone, false);
+  assert.equal(scanner.task(id).status, "needs_input");
+});

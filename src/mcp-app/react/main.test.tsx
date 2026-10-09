@@ -12,6 +12,7 @@ vi.mock("@mantine/core", async () => {
   return {
     createTheme: (theme: unknown) => theme,
     ActionIcon: ({ children, onClick, ...props }: Record<string, unknown>) => React.createElement("button", { "aria-label": props["aria-label"], onClick }, children as React.ReactNode),
+    Modal: ({ opened, children }: { opened: boolean; children: React.ReactNode }) => opened ? <div role="dialog">{children}</div> : null,
     Alert: wrap("div"), Box: wrap("div"), Button: ({ children, onClick, disabled }: {children: React.ReactNode; onClick?: () => void; disabled?: boolean}) => <button onClick={onClick} disabled={disabled}>{children}</button>, Group: wrap("div"),
     MantineProvider: ({ children }: { children: React.ReactNode }) => children,
     TextInput: ({ value, onChange, ...props }: { value: string; onChange: React.ChangeEventHandler<HTMLInputElement>; "aria-label": string }) => <input aria-label={props["aria-label"]} value={value} onChange={onChange} />,

@@ -1,3 +1,4 @@
+import { PullRequestBadges } from "./PullRequestBadges";
 import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight } from "@tabler/icons-react";
@@ -147,6 +148,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
       <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
+      <PullRequestBadges pullRequests={task.pullRequests} />
       <Box className="taskchef-board-card-footer">
         {task.observed && task.status === "working"
           ? <ElapsedTime startedAt={task.observed.lastTurnEventAt} />

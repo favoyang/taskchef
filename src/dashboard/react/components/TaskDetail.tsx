@@ -1,3 +1,4 @@
+import { PullRequestBadges } from "./PullRequestBadges";
 import {
   ActionIcon,
   Alert,
@@ -120,6 +121,7 @@ export function TaskDetail({
           </Menu>}
         </Group>
         <Box mt="sm">
+          <PullRequestBadges pullRequests={task.pullRequests} />
           <GitHubLinks task={task} />
         </Box>
       </Box>

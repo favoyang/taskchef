@@ -13,13 +13,13 @@ The board uses these queue labels:
 | Scheduled | Latest completed input has a heartbeat marker matching a known automation, has no `clientId`, and that matching schedule is active. |
 | Running | Latest selected turn is `inProgress`. There is no age cutoff. |
 | Waiting for input/review | Latest turn completed, interrupted, or failed and the chat remains open. Interrupted or failed turns have an Interrupted tag. This does not prove Codex asked a question. |
-| Done | Chat is marked Done in TaskChef Next. This does not prove the work succeeded. |
+| Done | A chat without PRs is marked Done in TaskChef Next, or its latest turn completed and all attached PRs are confirmed merged. This does not prove the larger task succeeded. |
 | Archived | Chat is archived in Codex. Hidden by default; separate from Done. |
 | Unverified | An unrecognized turn state. |
 
-Archived and manual Done marks take precedence. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
+Archived takes precedence. Manual Done marks apply only to chats without PR attachments. After a completed turn, attached PRs determine Done or Waiting before the scheduled-input rule. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
 
-**Mark Done** changes only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. There is no Reopen button; send a new prompt in Codex to start another turn. Archived and in-progress chats cannot be marked from this app. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
+**Mark Done** changes only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. There is no Reopen button; send a new prompt in Codex to start another turn. Archived, in-progress, and PR-linked chats cannot be marked from this app. PR-linked chats use confirmed merge status. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
 
 Both databases and the expected tables must be available. Missing or incompatible databases, or failed queries, produce a fatal app error and clear the visible inventory. Rollout files never replace database inventory or status. The selected-chat detail may optionally read a bounded head and tail of the JSONL file at its database `rollout_path` for message counts and byte coverage. The path stays server-side. This detail never changes the database-derived status. If the path or file is absent or cannot be parsed, database metadata remains available. No raw transcript content is returned. All reads are local and read-only.
 
@@ -57,14 +57,16 @@ Every poll separately reads and parses `automations/*/automation.toml`. For the 
 
 Each poll checks both database file identities. Replacement reconnects and reloads; missing files or database/query errors discard the cache and clear the board with a fatal error. A later poll retries. Server shutdown closes the connections. The scan readout reports whether database records were queried or reused. This skips unchanged snapshots; it does not fetch only changed rows.
 
-PR-based Done labels are planned, not implemented. For completed chats, the intended rule is all attached PRs merged → Done; an unmerged attached PR → Waiting for review. GitHub status must come from an authenticated source before these labels can be applied.
+PR-based Done labels use saved Codex attachments and authenticated GitHub status. After a completed turn, all attached PRs confirmed merged means Done. An unmerged or unavailable PR means Waiting for review. See [GitHub setup](taskchef-next-github.md); registration and real sign-in remain required.
 
 ### Native plugin settings
 
 TaskChef Next advertises `openai/settings` with `taskchef_settings_read` and
 `taskchef_settings_update`. The read tool returns the schema, current values,
-and a Chat visibility group. The update tool accepts only changed Boolean
-properties and preserves the others. All three switches default to false.
+and Chat visibility and GitHub groups. The update tool accepts changed
+Boolean visibility properties and a public GitHub App client ID string. It
+preserves the other values. All three visibility switches default to false.
+The client ID starts empty; it is not a secret.
 Updates use the existing local workspace lock and atomic file writer. Codex
 SQLite files remain read-only. Invalid settings fail visibly rather than
 silently resetting preferences.
@@ -192,3 +194,8 @@ older version in the desktop logs, the MCP process still uses that old folder;
 updating a different folder will not repair it. A full plugin/runtime update is
 still needed for server code or dependency changes. This helper is for local
 preview review, not production plugin distribution.
+
+## GitHub PR status
+
+TaskChef Next reads saved PR attachments and can connect to GitHub with device
+sign-in. See [GitHub setup and board rules](taskchef-next-github.md).

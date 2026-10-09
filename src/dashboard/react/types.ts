@@ -66,6 +66,14 @@ export interface ReportedWorkSummary {
   totalMilliseconds: number | null;
 }
 
+export interface PullRequestStatus {
+  url: string;
+  state: "unknown" | "open" | "draft" | "closed" | "merged";
+  checks: "unknown" | "none" | "passed" | "failed" | "pending";
+  checkedAt?: string;
+  error?: string;
+}
+
 export interface Task {
   schemaVersion?: number;
   id: string;
@@ -94,6 +102,7 @@ export interface Task {
   replyImage?: { url: string; alt: string } | null;
   inputSource?: "scheduled" | "ordinary" | "unverified";
   observed?: { source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; latestTurnDurationMs?: number | null; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
+  pullRequests?: PullRequestStatus[];
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;

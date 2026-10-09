@@ -111,7 +111,18 @@ function readDatabaseRecords(state, history) {
     const projects = state.prepare("SELECT id, name FROM projects ORDER BY position, id").all().map((project) => ({
       ...project, roots: state.prepare("SELECT path FROM project_roots WHERE project_id = ? ORDER BY position").all(project.id).map((root) => root.path),
     }));
-    return { rows, turns, inputs, replies, projects };
+    const attachments = new Map();
+    // Older Codex builds have no attachment registry. Never infer ownership from transcript links.
+    if (state.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'thread_attachments'").get()) {
+      for (const row of state.prepare("SELECT thread_id, payload FROM thread_attachments WHERE attachment_type = 'pull_request'").all()) {
+        const payload = JSON.parse(row.payload);
+        if (typeof payload.url !== "string") throw new Error("Invalid PR attachment.");
+        const urls = attachments.get(row.thread_id) ?? [];
+        if (!urls.includes(payload.url)) urls.push(payload.url);
+        attachments.set(row.thread_id, urls);
+      }
+    }
+    return { rows, turns, inputs, replies, projects, attachments };
 }
 
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
@@ -145,7 +156,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       }
       const replyExcerpt = replyText.slice(0, 2000) || null;
       if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
-      const manualDone = doneMarks[row.id] === turn.turn_id;
+      const manualDone = doneMarks[row.id] === turn.turn_id && !(records.attachments.get(row.id)?.length);
       const status = row.archived ? "archived" : manualDone ? "completed" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
           : turn.status === "completed" ? inputScheduleActive ? "scheduled" : "needs_input" : null;
@@ -161,6 +172,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         instruction: "Chat name and title are local metadata and can contain user text.",
         summary: reason, replyExcerpt, replyImage: images.get(row.id),
         status, statusLabel, scheduled, manualDone, inputSource,
+        pullRequests: (records.attachments.get(row.id) ?? []).map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { id: row.project_id, name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: turn.turn_id, turnId: turn.turn_id, lastResult: null, latestTurn: null,
@@ -346,7 +358,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage,
+        task.scheduled, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;
@@ -398,6 +410,7 @@ export class CodexSessionScanner {
       if (!snapshot.healthy) throw new Error(snapshot.scan.error);
       const task = this.task(id);
       if (!task || task.turnId !== expectedTurnId) throw new Error("Chat changed. Refresh and try again.");
+      if (done && task.pullRequests?.length) throw new Error("Chats with attached PRs use GitHub merge status. Mark Done is only available without PR attachments.");
       if (task.observed.archive || task.observed.lastTurnEvent === "inProgress") throw new Error("Archived or in-progress chats cannot be marked from TaskChef Next.");
       await mkdir(dirname(this.statePath), { recursive: true, mode: 0o700 });
       const release = await acquireWorkspaceLock(dirname(this.statePath));
