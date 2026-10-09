@@ -44,7 +44,7 @@ body { background: var(--taskchef-page); }
 .next-icon-button { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 30px; height: 30px; border: 0; border-radius: 5px; color: #adb5bd; background: transparent; cursor: pointer; }
 .next-icon-button:hover { background: #343a40; color: #fff; }
 .next-icon-button:focus-visible, .next-notification-panel button:focus-visible, .next-toast button:focus-visible { outline: 2px solid #74c0fc; outline-offset: 2px; }
-.next-unread-count { position: absolute; top: -4px; right: -5px; min-width: 16px; border-radius: 9px; background: #e03131; color: #fff; padding: 0 3px; font-size: 10px; line-height: 16px; }
+.next-unread-dot { position: absolute; top: 1px; right: 1px; width: 7px; height: 7px; border-radius: 50%; background: #e03131; }
 .next-notification-panel { position: fixed; right: 12px; top: 52px; width: min(390px, calc(100vw - 24px)); z-index: 210; border: 1px solid #495057; border-radius: 8px; background: #25262b; box-shadow: 0 8px 32px #0008; }
 .next-notification-heading { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; }
 .next-notification-controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 12px; }

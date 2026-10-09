@@ -28,8 +28,8 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
     try { await onAction(action, id); } finally { setBusy(false); }
   }
   return <div className="next-notifications" ref={root}>
-    <button ref={bell} className="next-icon-button" aria-label="Notifications" aria-expanded={opened} aria-controls="next-notification-panel" onClick={() => setOpened((value) => !value)} title={unread ? `${unread} unread notifications` : "Notifications"}>
-      <IconBell size={18} />{unread > 0 && <span className="next-unread-count" aria-label={`${unread} unread`}>{unread}</span>}
+    <button ref={bell} className="next-icon-button" aria-label={unread > 0 ? "Notifications, unread" : "Notifications"} aria-expanded={opened} aria-controls="next-notification-panel" onClick={() => setOpened((value) => !value)} title={unread ? "Unread notifications" : "Notifications"}>
+      <IconBell size={18} />{unread > 0 && <span className="next-unread-dot" aria-hidden="true" />}
     </button>
     {opened && <section id="next-notification-panel" className="next-notification-panel" aria-label="Notification center">
       <div className="next-notification-heading"><strong>Notifications</strong><button className="next-icon-button" aria-label="Close notifications" onClick={() => { setOpened(false); bell.current?.focus(); }}><IconX size={16} /></button></div>

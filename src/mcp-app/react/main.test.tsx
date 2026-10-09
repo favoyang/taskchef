@@ -402,12 +402,13 @@ test("notification center restores saved history quietly and shares read/clear a
   mount();
   await screen.findByRole("button", { name: "Task one" });
   expect(screen.queryByText("Saved notification")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("1 unread")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  expect(screen.getByRole("button", { name: "Notifications, unread" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Notifications, unread" })).not.toHaveTextContent(/\d/);
+  fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
   const center = screen.getByRole("region", { name: "Notification center" });
   expect(within(center).getByText("Saved notification")).toBeVisible();
   fireEvent.click(within(center).getByRole("button", { name: "Mark all read" }));
-  await waitFor(() => expect(screen.queryByLabelText("1 unread")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Notifications, unread" })).not.toBeInTheDocument());
   fireEvent.click(within(center).getByRole("button", { name: "Unread" }));
   expect(within(center).getByText("No unread notifications")).toBeVisible();
   fireEvent.click(within(center).getByRole("button", { name: "All" }));
@@ -415,7 +416,7 @@ test("notification center restores saved history quietly and shares read/clear a
   expect(await screen.findByRole("region", { name: "Task detail" })).toBeVisible();
   expect(screen.queryByRole("region", { name: "Notification center" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
-  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
   fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
   expect(await screen.findByText("No notifications yet")).toBeVisible();
 });
@@ -435,11 +436,11 @@ test("new notifications toast once for five seconds without replacing the board"
     expect(screen.queryByText("Task one is ready for input or review")).not.toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
     expect(screen.queryByText("Task one is ready for input or review")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
     expect(screen.getByText("Task one is ready for input or review")).toBeVisible();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("region", { name: "Notification center" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Notifications" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: /^Notifications/ })).toHaveFocus();
   } finally { vi.useRealTimers(); }
 });
 
@@ -452,12 +453,12 @@ test("a saved notification can open Details for a chat hidden by Settings", asyn
   mount();
   await screen.findByRole("button", { name: "Task one" });
   expect(screen.queryByRole("button", { name: "Task hidden" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
   fireEvent.click(screen.getByRole("button", { name: /Task hidden is ready/ }));
   expect(await screen.findByRole("region", { name: "Task detail" })).toHaveTextContent("Task hidden");
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task hidden"));
-  expect(screen.queryByLabelText("1 unread")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Notifications, unread" })).not.toBeInTheDocument();
 });
 
 
