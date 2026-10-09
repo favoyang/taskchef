@@ -8,7 +8,7 @@ import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
-import { isCodexThreadDeepLinkId, openThreadInCodex } from "./codex-app.js";
+import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
 
 export const TASKCHEF_APP_URI = "ui://taskchef/task-board/v3";
 const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
@@ -42,6 +42,7 @@ export function registerTaskChefApp(server, {
   createScanner = () => new CodexSessionScanner(),
   openThread = openThreadInCodex,
   getSettingsUrl = pluginSettingsUrl,
+  openSettings = openPluginSettingsInCodex,
   settingsPath = join(homedir(), ".agents", "taskchef-next", "settings.json"),
   notificationsPath = join(dirname(settingsPath), "notifications.json"),
 } = {}) {
@@ -144,6 +145,14 @@ export function registerTaskChefApp(server, {
     const task = taskId ? scanner.task(taskId) : null;
     const notifications = await notificationStore.action({ action, id, task, operation, error });
     return { structuredContent: { notifications }, content: [] };
+  });
+  server.registerTool("taskchef_app_open_settings", {
+    title: "Open TaskChef Next settings", description: "Open this installed plugin's native settings page in Codex.",
+    inputSchema: {}, _meta: appOnly,
+    annotations: { readOnlyHint: false, openWorldHint: false },
+  }, async () => {
+    await openSettings(await getSettingsUrl());
+    return { structuredContent: { message: "Requested plugin settings in Codex." }, content: [] };
   });
   server.registerTool("taskchef_app_open_chat", {
     title: "Open Codex chat", description: "Open the selected Codex chat.",

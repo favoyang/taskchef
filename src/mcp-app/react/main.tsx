@@ -58,7 +58,6 @@ export function TaskChefApp() {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [settingsUrl, setSettingsUrl] = useState("codex://plugins");
 
   const [detailError, setDetailError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NextNotificationState>({ revision: 0, items: [] });
@@ -122,7 +121,6 @@ export function TaskChefApp() {
     if (version !== refreshVersion.current) return;
     receiveNotifications(data.notifications);
     setVisibility(data.settings);
-    setSettingsUrl(data.settingsUrl ?? "codex://plugins");
     if (data.snapshot) {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.healthy === false ? [] : data.snapshot.tasks);
@@ -297,7 +295,7 @@ export function TaskChefApp() {
           <Group gap="xs">
           <NextNotificationCenter state={notifications} toasts={toasts} onAction={notificationAction} onDismiss={dismissToast} onOpen={(item) => { const task = tasks.find((task) => task.id === item.taskId); if (task) void select(task, true); else void actionError("open", new Error("This chat is no longer available.")); }} />
           <ActionIcon aria-label="Settings" title="Plugin settings" onClick={() => void (async () => {
-            try { await connected; const result = await bridge.openLink({ url: settingsUrl }); if (result.isError) throw new Error("Could not open plugin settings."); }
+            try { await call("taskchef_app_open_settings", {}); }
             catch (cause) { await actionError("settings", cause); }
           })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>

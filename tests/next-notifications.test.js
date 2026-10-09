@@ -83,3 +83,16 @@ test("paused, missing and unreadable heartbeat schedules do not create ready not
   }
   assert.equal((await reconcile(store, [task("needs_input", "human", { inputSource: "ordinary", scheduled: true })])).items.length, 1);
 });
+
+
+test("unarchiving a saved terminal turn does not replay its notification", async (t) => {
+  const { store } = await setup(t);
+  for (const [terminal, visible] of [["completed", "needs_input"], ["failed", "interrupted"], ["interrupted", "interrupted"]]) {
+    const turn = `archived-${terminal}`;
+    await reconcile(store, [task("archived", turn, { observed: { archive: true, lastTurnEvent: terminal } })]);
+    assert.equal((await reconcile(store, [task(visible, turn, { observed: { archive: false, lastTurnEvent: terminal } })])).items.length, 0);
+  }
+  await reconcile(store, [task("archived", "active", { observed: { archive: true, lastTurnEvent: "inProgress" } })]);
+  await reconcile(store, [task("working", "active", { observed: { archive: false, lastTurnEvent: "inProgress" } })]);
+  assert.equal((await reconcile(store, [task("needs_input", "active", { observed: { archive: false, lastTurnEvent: "completed" } })])).items.length, 1);
+});

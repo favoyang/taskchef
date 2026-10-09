@@ -48,7 +48,10 @@ export class NextNotifications {
         const previous = state.chats[task.id];
         const announced = previous?.turn === turn ? previous.announced : [];
         const current = { turn, status: task.status ?? null, announced: [...announced] };
-        const event = task.status === "needs_input" && task.inputSource === "ordinary" ? "ready" : task.status === "interrupted" ? "interrupted" : null;
+        // Archiving changes the board label, but must still consume the saved terminal event.
+        const terminal = task.observed?.archive || task.manualDone ? task.observed?.lastTurnEvent : null;
+        const event = (task.status === "needs_input" || terminal === "completed") && task.inputSource === "ordinary"
+          ? "ready" : task.status === "interrupted" || terminal === "interrupted" || terminal === "failed" ? "interrupted" : null;
         const eligible = !task.observed?.archive && !task.manualDone
           && (settings.showExec || task.observed?.source !== "exec")
           && (settings.showCli || task.observed?.source !== "cli");

@@ -86,11 +86,14 @@ Scheduled, Running, Waiting, and Done remain visible when empty, with a short
 message specific to each column. This keeps their positions steady when chats
 change state or filters change. Archived remains an optional column.
 
-The header Settings icon opens the installed local plugin details page using
-its configured marketplace root. If that root cannot be resolved, it opens
-the plugin browser. This desktop link was checked against the installed
-app's link parser; it is not part of the published MCP settings specification.
-Native host navigation still needs a manual check where host automation is
+The header Settings icon calls the app-only `taskchef_app_open_settings` tool.
+The server resolves this installed plugin's marketplace root and requests its
+native details page through the operating system's Codex URL handler, using the
+same method as Open chat. It does not depend on the MCP view's link handler.
+An unresolved plugin location or failed desktop opener produces a notification.
+The deep link is based on the installed desktop parser, not the published MCP
+settings specification. A successful opener only confirms that navigation was
+requested; the native page still needs a manual check where host automation is
 unavailable.
 
 ### Reply image covers

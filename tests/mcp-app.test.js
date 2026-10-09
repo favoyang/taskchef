@@ -15,6 +15,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
   let revision = 1;
   let scans = 0;
   let opened = null;
+  let settingsOpened = null;
   const scanner = {
     refresh: async ({ force } = {}) => {
       scans += 1;
@@ -31,7 +32,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
   t.after(() => rm(temp, { recursive: true, force: true }));
   const settingsPath = join(temp, "settings.json");
   const server = new McpServer({ name: "taskchef-next-test", version: "1" });
-  registerTaskChefApp(server, { settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; } });
+  registerTaskChefApp(server, { settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; }, getSettingsUrl: async () => "codex://plugins/taskchef-next?marketplacePath=%2Fexample", openSettings: async (url) => { settingsOpened = url; } });
   const client = new Client({ name: "taskchef-next-client", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -68,7 +69,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.scan.indexedFiles, 1);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins", notifications: snapshot.structuredContent.notifications });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);
@@ -77,6 +78,8 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     assert.equal(forced.structuredContent.snapshot.revision, 2);
     const detail = await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id } });
     assert.equal(detail.structuredContent.task.title, task.title);
+    await client.callTool({ name: "taskchef_app_open_settings", arguments: {} });
+    assert.equal(settingsOpened, "codex://plugins/taskchef-next?marketplacePath=%2Fexample");
     await client.callTool({ name: "taskchef_app_open_chat", arguments: { taskId: task.id } });
     assert.equal(opened, task.id);
     const done = await client.callTool({ name: "taskchef_app_set_done", arguments: { taskId: task.id, expectedTurnId: "turn-one", done: true } });
@@ -96,4 +99,24 @@ test("plugin settings link resolves the installed local marketplace", async (t) 
   const url = await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" });
   assert.equal(url, "codex://plugins/taskchef-next?marketplacePath=%2Fexample%2Fmarketplace");
   assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/unknown/" }), "codex://plugins");
+});
+
+
+test("plugin settings uses the native desktop opener and reports errors", async () => {
+  const { openPluginSettingsInCodex } = await import("../src/codex-app.js");
+  const url = "codex://plugins/taskchef-next?marketplacePath=%2Fexample";
+  for (const [platform, command, args] of [
+    ["darwin", "/usr/bin/open", [url]],
+    ["win32", "rundll32.exe", ["url.dll,FileProtocolHandler", url]],
+    ["linux", "xdg-open", [url]],
+  ]) {
+    let invocation;
+    await openPluginSettingsInCodex(url, { platform, run: async (...values) => { invocation = values; } });
+    assert.equal(invocation[0], command);
+    assert.deepEqual(invocation[1], args);
+  }
+  await assert.rejects(openPluginSettingsInCodex(url, { run: async () => { throw new Error("Opener failed"); } }), /Opener failed/);
+  for (const invalid of ["codex://plugins", "https://example.com", "codex://plugins/taskchef-next?marketplacePath=relative", "codex://plugins/taskchef-next?marketplacePath=%2Fexample&other=value"]) {
+    await assert.rejects(openPluginSettingsInCodex(invalid, { run: async () => assert.fail("Must not open invalid URL") }));
+  }
 });

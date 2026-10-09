@@ -81,6 +81,7 @@ beforeEach(() => {
       return Promise.resolve({ structuredContent: { notifications: notificationState } });
     }
     if (name === "taskchef_app_transition") return transition();
+    if (name === "taskchef_app_open_settings") return Promise.resolve({ structuredContent: { message: "Requested settings." } });
     if (name === "taskchef_app_open_chat") return Promise.resolve({ isError: true, content: [{ type: "text", text: "Codex could not be opened." }] });
     throw new Error(`Unexpected tool: ${name}`);
   });
@@ -128,8 +129,10 @@ test("shows only Board, ignores a saved List choice, and filters project and dat
 test("Settings opens the installed plugin details link and reports failure", async () => {
   mount(); await screen.findByRole("button", { name: "Task one" });
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-  await waitFor(() => expect(server.openLink).toHaveBeenCalledWith({ url: "codex://plugins/taskchef-next?marketplacePath=%2Fexample" }));
-  server.openLink.mockResolvedValue({ isError: true });
+  await waitFor(() => expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_open_settings", arguments: {} }));
+  const original = server.call.getMockImplementation()!;
+  server.call.mockImplementation((input) => input.name === "taskchef_app_open_settings"
+    ? Promise.resolve({ isError: true, content: [{ type: "text", text: "Desktop opener failed." }] }) : original(input));
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   expect(await screen.findByText("Could not open plugin settings")).toBeVisible();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
