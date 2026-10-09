@@ -9,6 +9,7 @@ import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
 import { TaskCard } from "../../dashboard/react/components/TaskCard";
 import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
 import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
+import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
 import "../../dashboard/react/styles.css";
@@ -58,9 +59,43 @@ export function TaskChefApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsUrl, setSettingsUrl] = useState("codex://plugins");
-  const [navigationError, setNavigationError] = useState<string | null>(null);
+
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<NextNotificationState>({ revision: 0, items: [] });
+  const [toasts, setToasts] = useState<NextNotification[]>([]);
+  const notificationRevision = useRef(-1);
+  const seenNotifications = useRef<Set<string> | null>(null);
+  const toastTimers = useRef(new Map<string, number>());
+  const dismissToast = useCallback((id: string) => {
+    window.clearTimeout(toastTimers.current.get(id));
+    toastTimers.current.delete(id);
+    setToasts((items) => items.filter((item) => item.id !== id));
+  }, []);
+  const receiveNotifications = useCallback((next?: NextNotificationState) => {
+    if (!next || next.revision < notificationRevision.current) return;
+    notificationRevision.current = next.revision;
+    setNotifications(next);
+    const added = seenNotifications.current ? next.items.filter((item) => !seenNotifications.current!.has(item.id)) : [];
+    seenNotifications.current = new Set(next.items.map((item) => item.id));
+    if (added.length) {
+      setToasts((items) => [...added, ...items].slice(0, 3));
+      for (const item of added) toastTimers.current.set(item.id, window.setTimeout(() => dismissToast(item.id), 5000));
+    }
+  }, [dismissToast]);
+  useEffect(() => () => { for (const timer of toastTimers.current.values()) window.clearTimeout(timer); }, []);
+  async function notificationAction(action: "read" | "read_all" | "clear", id?: string) {
+    try {
+      const result = await call<{ notifications: NextNotificationState }>("taskchef_app_notifications", { action, ...(id ? { id } : {}) });
+      receiveNotifications(result.notifications);
+      if (action === "clear") { for (const item of toasts) dismissToast(item.id); }
+    } catch (cause) { setError(String(cause)); }
+  }
+  async function actionError(operation: "open" | "done" | "copy" | "settings", cause: unknown, task?: Task) {
+    try {
+      const result = await call<{ notifications: NextNotificationState }>("taskchef_app_notifications", { action: "error", operation, error: String(cause).slice(0, 1000), ...(task ? { taskId: task.id } : {}) });
+      receiveNotifications(result.notifications);
+    } catch (notificationError) { setError(`${String(cause)}. ${String(notificationError)}`); }
+  }
   const [project, setProject] = useState("");
   const [date, setDate] = useState("all");
   const [status, setStatus] = useState("");
@@ -71,6 +106,7 @@ export function TaskChefApp() {
   const [now, setNow] = useState(() => Date.now());
   const selectedRef = useRef<Task | null>(null);
   const selectionVersion = useRef(0);
+  const notificationSelection = useRef(false);
   const detailRequestVersion = useRef(0);
   const refreshVersion = useRef(0);
   const revisionRef = useRef<number | null>(null);
@@ -80,10 +116,11 @@ export function TaskChefApp() {
   const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string }>(
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string; notifications?: NextNotificationState } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string; notifications?: NextNotificationState }>(
       "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
+    receiveNotifications(data.notifications);
     setVisibility(data.settings);
     setSettingsUrl(data.settingsUrl ?? "codex://plugins");
     if (data.snapshot) {
@@ -129,7 +166,7 @@ export function TaskChefApp() {
       if (cause instanceof Error && cause.message === "Task not found.") clearRemovedTask();
       else setDetailError(String(cause));
     }
-  }, []);
+  }, [receiveNotifications]);
   useEffect(() => {
     logLifecycle("mounted");
     const onVisibility = () => {
@@ -179,7 +216,7 @@ export function TaskChefApp() {
   }, [showExec, showCli, showArchived]);
   const lanes = NEXT_LANES.filter((lane) => lane.status !== "archived" || showArchived);
   useEffect(() => {
-    if (!selected || eligibleForView(selected, showCli, showArchived, showExec)) return;
+    if (!selected || notificationSelection.current || eligibleForView(selected, showCli, showArchived, showExec)) return;
     selectionVersion.current += 1;
     selectedRef.current = null;
     setSelected(null);
@@ -207,14 +244,14 @@ export function TaskChefApp() {
     setView(value);
     try { window.localStorage.setItem(VIEW_KEY, value); } catch { /* Keep the selection in memory. */ }
   }
-  async function select(task: Task) {
+  async function select(task: Task, fromNotification = false) {
+    notificationSelection.current = fromNotification;
     const selection = ++selectionVersion.current;
     const detailRequest = ++detailRequestVersion.current;
     selectedRef.current = task;
     setSelected(task);
     setOpened(true);
     setDetailError(null);
-    setNotice(null);
     try {
       const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id });
       if (selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
@@ -226,14 +263,10 @@ export function TaskChefApp() {
   }
   async function openChat(task: Task) {
     setBusy(true);
-    setNavigationError(null);
-    setNotice(null);
     try {
-      const result = await call<{ message: string }>("taskchef_app_open_chat", { taskId: task.id });
-      setNotice(result.message);
+      await call("taskchef_app_open_chat", { taskId: task.id });
     } catch (cause) {
-      if (selectedRef.current?.id === task.id) setDetailError(String(cause));
-      else setNavigationError(String(cause));
+      await actionError("open", cause, task);
     }
     finally { setBusy(false); }
   }
@@ -241,11 +274,11 @@ export function TaskChefApp() {
     if (!task.turnId) return;
     setBusy(true);
     try {
-      const result = await call<{ task: Task }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: true });
+      const result = await call<{ task: Task; notifications?: NextNotificationState }>("taskchef_app_set_done", { taskId: task.id, expectedTurnId: task.turnId, done: true });
       if (selectedRef.current?.id === task.id) { selectedRef.current = result.task; setSelected(result.task); }
-      await refresh(true);
-      setNotice("Marked Done. A new turn will reset this mark.");
-    } catch (cause) { setDetailError(String(cause)); }
+      receiveNotifications(result.notifications);
+      await refresh(true).catch((cause) => { setTasks([]); setError(String(cause)); });
+    } catch (cause) { await actionError("done", cause, task); }
     finally { setBusy(false); }
   }
   function closeDetail() {
@@ -262,14 +295,14 @@ export function TaskChefApp() {
         <header className="taskchef-app-header">
           <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
           <Group gap="xs">
+          <NextNotificationCenter state={notifications} toasts={toasts} onAction={notificationAction} onDismiss={dismissToast} onOpen={(item) => { const task = tasks.find((task) => task.id === item.taskId); if (task) void select(task, true); else void actionError("open", new Error("This chat is no longer available.")); }} />
           <ActionIcon aria-label="Settings" title="Plugin settings" onClick={() => void (async () => {
             try { await connected; const result = await bridge.openLink({ url: settingsUrl }); if (result.isError) throw new Error("Could not open plugin settings."); }
-            catch (cause) { setNavigationError(String(cause)); }
+            catch (cause) { await actionError("settings", cause); }
           })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">
-          {navigationError && <Alert color="red" role="alert">{navigationError}</Alert>}
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
             <Text size="sm">{eligibleTasks.length} eligible top-level chats</Text>
             <Stack gap="xs" mt="xs">
@@ -290,8 +323,6 @@ export function TaskChefApp() {
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
-          {navigationError && !opened && <Alert color="red" role="alert" mt="sm">{navigationError}</Alert>}
-          {notice && !opened && <Alert color="teal" role="status" mt="sm">{notice}</Alert>}
           {!error && (view === "board" ? <TaskBoard loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
@@ -302,8 +333,9 @@ export function TaskChefApp() {
       </Box>
       <TaskDetail extraActions={selected && !selected.manualDone && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
-        void navigator.clipboard.writeText(selected.id).then(() => setNotice("Task ID copied."), () => setNotice("Clipboard unavailable. Copy the ID from metadata."));
-      }} onOpenCodex={() => selected && void openChat(selected)} onTransition={async () => ({ ok: false })} opened={opened} task={selected} notice={notice} readOnly />
+        const task = selected;
+        void (async () => { try { await navigator.clipboard.writeText(task.id); } catch (cause) { await actionError("copy", cause, task); } })();
+      }} onOpenCodex={() => selected && void openChat(selected)} onTransition={async () => ({ ok: false })} opened={opened} task={selected} readOnly />
     </RelativeTimeProvider>
   </MantineProvider>;
 }

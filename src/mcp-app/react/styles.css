@@ -39,3 +39,30 @@ body { background: var(--taskchef-page); }
 .taskchef-app-inline { min-height: 0; }
 .taskchef-inline-main { padding: 8px 12px 12px; }
 .taskchef-inline-main .mantine-Button-root { justify-content: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+.next-notifications { position: relative; }
+.next-icon-button { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 30px; height: 30px; border: 0; border-radius: 5px; color: #adb5bd; background: transparent; cursor: pointer; }
+.next-icon-button:hover { background: #343a40; color: #fff; }
+.next-icon-button:focus-visible, .next-notification-panel button:focus-visible, .next-toast button:focus-visible { outline: 2px solid #74c0fc; outline-offset: 2px; }
+.next-unread-count { position: absolute; top: -4px; right: -5px; min-width: 16px; border-radius: 9px; background: #e03131; color: #fff; padding: 0 3px; font-size: 10px; line-height: 16px; }
+.next-notification-panel { position: fixed; right: 12px; top: 52px; width: min(390px, calc(100vw - 24px)); z-index: 210; border: 1px solid #495057; border-radius: 8px; background: #25262b; box-shadow: 0 8px 32px #0008; }
+.next-notification-heading { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; }
+.next-notification-controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 12px; }
+.next-notification-controls button { border: 0; border-radius: 4px; padding: 4px 6px; background: transparent; color: #adb5bd; cursor: pointer; font-size: 12px; }
+.next-notification-controls button[aria-pressed="true"] { color: #fff; background: #373a40; }
+.next-notification-controls button:disabled { opacity: .4; cursor: default; }
+.next-notification-list { overflow: auto; max-height: min(55vh, 420px); border-top: 1px solid #373a40; }
+.next-notification-empty { text-align: center; padding: 20px 12px; color: #adb5bd; font-size: 13px; }
+.next-notification-item { border-bottom: 1px solid #373a40; }
+.next-notification-unread { border-left: 3px solid #74c0fc; background: #2c3038; }
+.next-notification-message, .next-toast-message { width: 100%; text-align: left; border: 0; color: #dee2e6; background: transparent; padding: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.next-notification-message:hover, .next-toast-message:hover { background: #ffffff08; }
+.next-notification-message strong, .next-toast-message strong { display: block; font-size: 13px; font-weight: 500; }
+.next-notification-message span, .next-toast-message span { display: block; margin-top: 5px; font-size: 12px; color: #adb5bd; white-space: pre-wrap; }
+.next-notification-message time { display: block; margin-top: 6px; font-size: 11px; color: #868e96; }
+.next-toast-stack { position: fixed; right: 12px; top: 58px; width: min(360px, calc(100vw - 24px)); z-index: 400; display: grid; gap: 8px; pointer-events: none; }
+.next-notification-panel ~ .next-toast-stack { top: auto; bottom: 16px; }
+.next-toast { display: flex; align-items: flex-start; border: 1px solid #495057; border-left: 3px solid #74c0fc; border-radius: 6px; background: #25262b; box-shadow: 0 4px 20px #0006; pointer-events: auto; }
+.next-toast-error, .next-toast-interrupted { border-left-color: #ffa94d; }
+.next-toast-confirmation { border-left-color: #69db7c; }
+.next-toast > .next-icon-button { flex-shrink: 0; margin: 4px; }

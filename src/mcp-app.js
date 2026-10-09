@@ -6,6 +6,7 @@ import { writeDurableAtomic } from "./state-store.js";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
+import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex } from "./codex-app.js";
 
@@ -42,8 +43,10 @@ export function registerTaskChefApp(server, {
   openThread = openThreadInCodex,
   getSettingsUrl = pluginSettingsUrl,
   settingsPath = join(homedir(), ".agents", "taskchef-next", "settings.json"),
+  notificationsPath = join(dirname(settingsPath), "notifications.json"),
 } = {}) {
   const scanner = createScanner();
+  const notificationStore = new NextNotifications(notificationsPath);
   async function readSettings() {
     try { return settingsSchema.parse(JSON.parse(await readFile(settingsPath, "utf8"))); }
     catch (error) {
@@ -99,11 +102,11 @@ export function registerTaskChefApp(server, {
   }, async ({ revision, force }) => {
     const settings = await readSettings();
     const settingsUrl = await getSettingsUrl();
-    const snapshot = await scanner.refresh({ force });
+    const { snapshot, notifications } = await notificationStore.reconcile(() => scanner.refresh({ force }), settings);
     if (!force && revision !== undefined && revision === snapshot.revision && snapshot.healthy !== false) {
-      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings, settingsUrl }, content: [] };
+      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings, settingsUrl, notifications }, content: [] };
     }
-    return { structuredContent: { snapshot, settings, settingsUrl }, content: [] };
+    return { structuredContent: { snapshot, settings, settingsUrl, notifications }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata without returning transcript text.",
@@ -129,7 +132,18 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ taskId, expectedTurnId, done }) => {
     const task = await scanner.setDone(taskId, expectedTurnId, done);
-    return { structuredContent: { task }, content: [] };
+    return { structuredContent: { task, notifications: done ? await notificationStore.confirmation(task) : undefined }, content: [] };
+  });
+  server.registerTool("taskchef_app_notifications", {
+    title: "Update TaskChef Next notifications",
+    inputSchema: { action: z.enum(["read", "read_all", "clear", "error"]), id: z.string().optional(), taskId: taskIdSchema.optional(), operation: z.enum(["open", "done", "copy", "settings"]).optional(), error: z.string().max(1000).optional() },
+    _meta: appOnly, annotations: { readOnlyHint: false, openWorldHint: false },
+  }, async ({ action, id, taskId, operation, error }) => {
+    if (action === "read" && !id) throw new Error("Notification ID required.");
+    if (action === "error" && (!operation || !error)) throw new Error("Operation and error required.");
+    const task = taskId ? scanner.task(taskId) : null;
+    const notifications = await notificationStore.action({ action, id, task, operation, error });
+    return { structuredContent: { notifications }, content: [] };
   });
   server.registerTool("taskchef_app_open_chat", {
     title: "Open Codex chat", description: "Open the selected Codex chat.",

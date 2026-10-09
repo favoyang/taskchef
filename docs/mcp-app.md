@@ -110,3 +110,35 @@ The Markdown text renderer still shows image captions rather than inline images.
 
 This follows Trello’s image-above-title cover option:
 [Add a card cover](https://support.atlassian.com/trello/docs/what-is-a-card-cover).
+
+
+### Next notifications
+
+The bell beside Settings opens the notification center. It has All and Unread
+filters, Mark all read, and Clear all. Click a chat message to open Details and
+mark it read. New messages appear in a five-second overlay toast; the board does
+not move. At most three toasts are shown at once. Saved messages do not replay
+as toasts when a view opens.
+
+- A new completed turn with a verified ordinary input creates an unread “ready for input or review” message.
+- An interrupted or failed turn creates an unread interruption message, including scheduled failures.
+- Routine scheduled completions stay quiet.
+- Mark Done creates a confirmation that is already read. It does not increase the unread badge.
+- Opening a chat, copying an ID, and refreshing have no success message. Action failures use the same center.
+- Database read errors remain visible on the board until recovery.
+
+The MCP process stores the newest 100 messages, read status, and per-chat turn
+watermarks in `notifications.json` beside its settings file. Views share this
+file through the existing lock and atomic writer; no daemon is added. Clear all
+removes messages but keeps watermarks, so polling cannot replay cleared events.
+The first successful scan establishes a quiet baseline. Subsequent visible
+five-second refreshes reconcile changes, including cached database snapshots.
+Exec and CLI visibility settings also suppress notifications from hidden sources;
+project and date filters only change the board. Archived chats stay quiet. Saved notifications can still open Details for a chat
+that is now hidden by Settings.
+
+When views are closed or hidden, no background scan runs. A later refresh can
+notice the latest saved turn change. It cannot reconstruct intermediate turns
+that finished while no view was checking. Notifications are local app messages;
+this feature does not send OS notifications. A damaged notification file fails
+visibly and is preserved for repair.

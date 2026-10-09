@@ -68,7 +68,7 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.scan.indexedFiles, 1);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins" });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins", notifications: snapshot.structuredContent.notifications });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);
@@ -81,6 +81,9 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
     assert.equal(opened, task.id);
     const done = await client.callTool({ name: "taskchef_app_set_done", arguments: { taskId: task.id, expectedTurnId: "turn-one", done: true } });
     assert.equal(done.structuredContent.task.manualDone, true);
+    assert.equal(done.structuredContent.notifications.items[0].read, true);
+    const cleared = await client.callTool({ name: "taskchef_app_notifications", arguments: { action: "clear" } });
+    assert.equal(cleared.structuredContent.notifications.items.length, 0);
     assert.ok(scans >= 4);
   } finally { await client.close(); await server.close(); }
 });

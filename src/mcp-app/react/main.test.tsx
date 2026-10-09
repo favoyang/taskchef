@@ -52,6 +52,7 @@ const task = (id: string, status: Task["status"] = "working", updatedAt = "2026-
   threadId: null, turnRef: null, turnId: null, lastResult: null, latestTurn: null,
 });
 
+let notificationState = { revision: 0, items: [] as import("./NextNotificationCenter").NextNotification[] };
 let visibility = { showExec: false, showCli: false, showArchived: false };
 let tasks: Task[];
 let details: Map<string, Task>;
@@ -64,14 +65,21 @@ beforeEach(() => {
   window.localStorage.clear();
   server.openLink.mockResolvedValue({ isError: false });
   visibility = { showExec: false, showCli: false, showArchived: false };
+  notificationState = { revision: 0, items: [] };
   tasks = [task("one")];
   details = new Map(tasks.map((item) => [item.id, item]));
   transition = async () => ({ structuredContent: { task: task("one", "completed") } });
   detailFailure = null;
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
     if (name === "taskchef_app_task" && detailFailure) return Promise.resolve({ isError: true, content: [{ type: "text", text: detailFailure }] });
     if (name === "taskchef_app_task") return Promise.resolve({ structuredContent: { task: details.get(args.taskId as string) } });
+    if (name === "taskchef_app_notifications") {
+      if (args.action === "error") notificationState = { revision: notificationState.revision + 1, items: [{ id: `n${notificationState.revision}`, taskId: args.taskId ?? null, title: args.operation === "settings" ? "Could not open plugin settings" : "Could not open Task one", detail: String(args.error), read: false, timestamp: new Date().toISOString(), kind: "error" }, ...notificationState.items] };
+      if (args.action === "clear") notificationState = { revision: notificationState.revision + 1, items: [] };
+      if (args.action === "read_all" || args.action === "read") notificationState = { revision: notificationState.revision + 1, items: notificationState.items.map((item) => args.action === "read_all" || item.id === args.id ? { ...item, read: true } : item) };
+      return Promise.resolve({ structuredContent: { notifications: notificationState } });
+    }
     if (name === "taskchef_app_transition") return transition();
     if (name === "taskchef_app_open_chat") return Promise.resolve({ isError: true, content: [{ type: "text", text: "Codex could not be opened." }] });
     throw new Error(`Unexpected tool: ${name}`);
@@ -123,7 +131,8 @@ test("Settings opens the installed plugin details link and reports failure", asy
   await waitFor(() => expect(server.openLink).toHaveBeenCalledWith({ url: "codex://plugins/taskchef-next?marketplacePath=%2Fexample" }));
   server.openLink.mockResolvedValue({ isError: true });
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Could not open plugin settings");
+  expect(await screen.findByText("Could not open plugin settings")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 test("filters projects with the same name by directory", async () => {
@@ -182,7 +191,7 @@ test("an older selection detail cannot replace a newer refresh detail", async ()
   const first = new Promise((resolve) => { releaseFirst = resolve; });
   let detailCalls = 0;
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
     if (name === "taskchef_app_task") return ++detailCalls === 1
       ? first
       : Promise.resolve({ structuredContent: { task: task("one", "needs_input") } });
@@ -200,7 +209,8 @@ test("an older selection detail cannot replace a newer refresh detail", async ()
 test("shows a card Open chat failure without hiding cards or opening detail", async () => {
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "Open chat for Task one" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Codex could not be opened.");
+  expect(await screen.findByText(/Codex could not be opened/)).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Task one" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Open chat for Task one" })).toBeVisible();
   expect(screen.queryByRole("region", { name: "Task detail" })).not.toBeInTheDocument();
@@ -211,7 +221,7 @@ test("an older selection response cannot replace the current task", async () => 
   let release!: (value: unknown) => void;
   const first = new Promise((resolve) => { release = resolve; });
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
     if (name === "taskchef_app_task") return args.taskId === "one" ? first : Promise.resolve({ structuredContent: { task: task("two") } });
     throw new Error(`Unexpected tool: ${name}`);
   });
@@ -225,7 +235,7 @@ test("an older selection response cannot replace the current task", async () => 
 
 test("keeps scan diagnostics out of the board", async () => {
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: true, revision: 1,
       scan: { source: "database", mode: "database", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 5,
         indexedFiles: 8620, visibleFiles: 300, unreadFiles: 8320, errors: 0 },
@@ -242,7 +252,7 @@ test("keeps scan diagnostics out of the board", async () => {
 
 test("shows an initial inventory failure without undefined scan counts", async () => {
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: false, revision: 0,
       scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "EACCES" },
     } } });
@@ -290,7 +300,7 @@ test("inline mode loads once and begins polling when expanded", async () => {
 });
 
 test("shows the Node requirement when the scanner rejects its runtime", async () => {
-  server.call.mockResolvedValue({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+  server.call.mockResolvedValue({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
     tasks: [], healthy: false, revision: 0,
     scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "TaskChef Next requires Node.js 22.18.0 or later for read-only SQLite (current: 22.17.9)." },
   } } });
@@ -302,7 +312,7 @@ test("a database failure after a healthy snapshot removes stale tasks", async ()
   mount();
   expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: false, revision: 2,
       scan: { source: "database", mode: "error", checkedAt: new Date().toISOString() },
     } } });
@@ -323,7 +333,7 @@ test("Done control calls the local mark tool with the displayed turn and refresh
       tasks = [next]; details.set(current.id, next);
       return { structuredContent: { task: next } };
     }
-    if (name === "taskchef_app_snapshot") return { structuredContent: { settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } };
+    if (name === "taskchef_app_snapshot") return { structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } };
     if (name === "taskchef_app_task") return { structuredContent: { task: details.get(current.id) } };
     throw new Error(name);
   });
@@ -379,4 +389,67 @@ test("inline mode follows the exec, CLI and archive visibility settings", async 
   expect(await screen.findByText("1 eligible top-level chats")).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task cli" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Task archive" })).not.toBeInTheDocument();
+});
+
+test("notification center restores saved history quietly and shares read/clear actions", async () => {
+  notificationState = { revision: 1, items: [{ id: "saved", taskId: "one", title: "Saved notification", detail: "", kind: "ready", read: false, timestamp: new Date().toISOString() }] };
+  mount();
+  await screen.findByRole("button", { name: "Task one" });
+  expect(screen.queryByText("Saved notification")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("1 unread")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  const center = screen.getByRole("region", { name: "Notification center" });
+  expect(within(center).getByText("Saved notification")).toBeVisible();
+  fireEvent.click(within(center).getByRole("button", { name: "Mark all read" }));
+  await waitFor(() => expect(screen.queryByLabelText("1 unread")).not.toBeInTheDocument());
+  fireEvent.click(within(center).getByRole("button", { name: "Unread" }));
+  expect(within(center).getByText("No unread notifications")).toBeVisible();
+  fireEvent.click(within(center).getByRole("button", { name: "All" }));
+  fireEvent.click(within(center).getByRole("button", { name: /Saved notification/ }));
+  expect(await screen.findByRole("region", { name: "Task detail" })).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Notification center" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+  expect(await screen.findByText("No notifications yet")).toBeVisible();
+});
+
+test("new notifications toast once for five seconds without replacing the board", async () => {
+  mount();
+  await screen.findByRole("button", { name: "Task one" });
+  vi.useFakeTimers();
+  try {
+    notificationState = { revision: 1, items: [{ id: "new", taskId: "one", title: "Task one is ready for input or review", detail: "", kind: "ready", read: false, timestamp: new Date().toISOString() }] };
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+    expect(screen.getByText("Task one is ready for input or review")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Task board" })).toBeVisible();
+    await act(async () => { vi.advanceTimersByTime(4000); });
+    expect(screen.getByText("Task one is ready for input or review")).toBeVisible();
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(screen.queryByText("Task one is ready for input or review")).not.toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+    expect(screen.queryByText("Task one is ready for input or review")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    expect(screen.getByText("Task one is ready for input or review")).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Notification center" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Notifications" })).toHaveFocus();
+  } finally { vi.useRealTimers(); }
+});
+
+
+test("a saved notification can open Details for a chat hidden by Settings", async () => {
+  const hidden = { ...task("hidden", "archived"), observed: { source: "cli", archive: true } } as Task;
+  tasks.push(hidden);
+  details.set(hidden.id, hidden);
+  notificationState = { revision: 1, items: [{ id: "saved", taskId: "hidden", title: "Task hidden is ready for input or review", detail: "", kind: "ready", read: false, timestamp: new Date().toISOString() }] };
+  mount();
+  await screen.findByRole("button", { name: "Task one" });
+  expect(screen.queryByRole("button", { name: "Task hidden" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  fireEvent.click(screen.getByRole("button", { name: /Task hidden is ready/ }));
+  expect(await screen.findByRole("region", { name: "Task detail" })).toHaveTextContent("Task hidden");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task hidden"));
+  expect(screen.queryByLabelText("1 unread")).not.toBeInTheDocument();
 });
