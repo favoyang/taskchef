@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, readFile, writeFile, access } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, rm, readFile, writeFile, access, mkdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -95,10 +95,16 @@ test("TaskChef Next sidebar exposes database reads, local Done marks, and chat n
 test("plugin settings link resolves the installed local marketplace", async (t) => {
   const temp = await mkdtemp(join(tmpdir(), "taskchef-plugin-link-"));
   t.after(() => rm(temp, { recursive: true, force: true }));
-  await writeFile(join(temp, "config.toml"), '[marketplaces.preview]\nsource = "/example/marketplace"\n');
+  const root = join(temp, "marketplace");
+  const marketplacePath = join(root, ".agents", "plugins", "marketplace.json");
+  await mkdir(dirname(marketplacePath), { recursive: true });
+  await writeFile(marketplacePath, JSON.stringify({ name: "preview", plugins: [{ name: "taskchef-next" }] }));
+  await writeFile(join(temp, "config.toml"), `[marketplaces.preview]\nsource = ${JSON.stringify(root)}\n`);
   const url = await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" });
-  assert.equal(url, "codex://plugins/taskchef-next?marketplacePath=%2Fexample%2Fmarketplace");
+  assert.equal(url, `codex://plugins/taskchef-next?${new URLSearchParams({ marketplacePath })}`);
   assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/unknown/" }), null);
+  await writeFile(marketplacePath, JSON.stringify({ name: "preview", plugins: [] }));
+  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" }), null);
 });
 
 

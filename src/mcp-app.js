@@ -25,14 +25,17 @@ const settingsProperties = {
 };
 
 export async function pluginSettingsUrl({ pluginRoot = fileURLToPath(new URL("../", import.meta.url)), codexHome = process.env.CODEX_HOME || join(homedir(), ".codex") } = {}) {
-  // Local plugin detail links need the marketplace root, not the installed cache.
+  // Codex plugin detail links take the catalog file, not the marketplace root.
   const plugin = basename(dirname(pluginRoot));
   const marketplace = basename(dirname(dirname(pluginRoot)));
   try {
     const config = parseToml(await readFile(join(codexHome, "config.toml"), "utf8"));
     const source = config.marketplaces?.[marketplace]?.source;
     if (typeof source === "string" && isAbsolute(source)) {
-      return `codex://plugins/${encodeURIComponent(plugin)}?${new URLSearchParams({ marketplacePath: source })}`;
+      const marketplacePath = join(source, ".agents", "plugins", "marketplace.json");
+      const catalog = JSON.parse(await readFile(marketplacePath, "utf8"));
+      if (catalog.name !== marketplace || !catalog.plugins?.some((entry) => entry.name === plugin)) return null;
+      return `codex://plugins/${encodeURIComponent(plugin)}?${new URLSearchParams({ marketplacePath })}`;
     }
   } catch { /* Report unresolved settings navigation when the user requests it. */ }
   return null;
