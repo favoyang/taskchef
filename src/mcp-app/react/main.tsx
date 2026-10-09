@@ -1,5 +1,5 @@
 import { App } from "@modelcontextprotocol/ext-apps";
-import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, createTheme, Paper, SegmentedControl, Select, Stack, Text, Title } from "@mantine/core";
 import { IconRefresh, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,6 +15,12 @@ import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
 import "../../dashboard/react/styles.css";
 import "./styles.css";
+
+const theme = createTheme({
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  headings: { fontFamily: "inherit" },
+  colors: { dark: ["#dcdcdc", "#cdcdcd", "#afafaf", "#808080", "#414141", "#353535", "#282828", "#212121", "#181818", "#131313"] },
+});
 
 const bridge = new App({ name: "TaskChef Next", version: "1.0.0" });
 const connected = bridge.connect();
@@ -299,12 +305,16 @@ export function TaskChefApp() {
     setSelected(null);
     setDetailError(null);
   }
-  return <MantineProvider forceColorScheme="dark">
+  return <MantineProvider theme={theme} forceColorScheme="dark">
     <RelativeTimeProvider now={now}>
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
-          <Group gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
-          <Group gap="xs">
+          <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef Next</Title></Group>
+          {displayMode !== "inline" && <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
+            <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
+            <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
+          </Group>}
+          <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <NextNotificationCenter state={notifications} toasts={toasts} onAction={notificationAction} onDismiss={dismissToast} onOpen={(item) => { const task = tasks.find((task) => task.id === item.taskId); if (task) void select(task, true); else void actionError("open", new Error("This chat is no longer available.")); }} />
           <ActionIcon aria-label="Settings" title="Plugin settings" onClick={() => void (async () => {
             try { await call("taskchef_app_open_settings", {}); }
@@ -321,15 +331,9 @@ export function TaskChefApp() {
           </>}
         </main> : <>
         <main className={`taskchef-app-main${view === "list" ? " taskchef-app-main-list" : ""}`}>
-          <Paper className="taskchef-toolbar" radius={0}>
-            <Stack gap="sm">
-              <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
-                <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
-                <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
-              </Group>
-              {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}
-            </Stack>
-          </Paper>
+          {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
+            <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
+          </Paper>}
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}

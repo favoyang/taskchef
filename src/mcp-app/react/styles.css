@@ -1,18 +1,35 @@
-:root { color-scheme: dark; --taskchef-page-gutter: 12px; }
+/* Neutral colors and system font match Codex's default dark appearance. */
+:root {
+  color-scheme: dark;
+  --taskchef-page-gutter: 12px;
+  --taskchef-page: #212121;
+  --taskchef-surface-muted: #282828;
+  --taskchef-border: #ffffff1f;
+  --taskchef-text: #dcdcdc;
+  --taskchef-muted: #afafaf;
+  --taskchef-accent: #dcdcdc;
+}
 html, body, #root { min-width: 0; min-height: 100%; }
 body { background: var(--taskchef-page); }
 .taskchef-app-shell { min-height: 100vh; background: var(--taskchef-page); }
-.taskchef-app-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
-.taskchef-app-header h1 { color: var(--taskchef-accent); font-size: 13px; font-weight: 750; letter-spacing: .025em; line-height: 1.1; text-transform: uppercase; }
-.taskchef-app-header h1 span { color: var(--taskchef-muted); font-weight: 600; }
+.taskchef-app-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand filters actions"; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
+.taskchef-app-brand { grid-area: brand; }
+.taskchef-app-actions { grid-area: actions; }
+.taskchef-app-header h1 { color: var(--taskchef-text); font-size: 14px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.taskchef-app-inline .taskchef-app-header { grid-template-columns: 1fr auto; grid-template-areas: "brand actions"; }
 .taskchef-app-mark { display: block; flex: none; width: 25px; height: 25px; }
 .taskchef-app-main { min-width: 0; padding: 6px 12px 28px; }
 .taskchef-app-main-list { max-width: 624px; margin-inline: auto; }
 .taskchef-app-main .taskchef-toolbar { margin-bottom: 8px; padding-bottom: 10px; }
 .taskchef-app-main .mantine-SegmentedControl-root { max-width: 100%; }
 .taskchef-app-view { width: max-content; }
-.taskchef-app-filters { min-width: 0; width: min(100%, 488px); }
-.taskchef-app-filters .mantine-InputWrapper-root { flex: 1 1 0; width: 0; min-width: 0; max-width: 240px; }
+.taskchef-app-filters { grid-area: filters; min-width: 0; width: min(100%, 350px); }
+.taskchef-app-filters .mantine-InputWrapper-root { flex: 1 1 0; min-width: 0; }
+.taskchef-app-filters .taskchef-app-date { flex: 0 0 132px; }
+@media (max-width: 650px) {
+  .taskchef-app-header { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand actions" "filters filters"; gap: 8px; }
+  .taskchef-app-filters { width: 100%; }
+}
 .taskchef-app-status { max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
 .taskchef-app-status .mantine-SegmentedControl-root { width: max-content; min-width: max-content; }
 .taskchef-app-status .mantine-SegmentedControl-label { padding-inline: 9px; font-size: 11px; white-space: nowrap; }
@@ -29,8 +46,6 @@ body { background: var(--taskchef-page); }
 .taskchef-app-main .taskchef-board-card { min-height: 140px; }
 @media (max-width: 360px) {
   .taskchef-app-main { padding-inline: 8px; }
-  .taskchef-app-filters { flex-wrap: wrap; }
-  .taskchef-app-filters .mantine-InputWrapper-root { flex-basis: 100%; max-width: none; }
   .taskchef-app-main .taskchef-board { grid-auto-columns: min(300px, calc(100% - 18px)); }
 }
 
@@ -41,28 +56,28 @@ body { background: var(--taskchef-page); }
 .taskchef-inline-main .mantine-Button-root { justify-content: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
 .next-notifications { position: relative; }
-.next-icon-button { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 30px; height: 30px; border: 0; border-radius: 5px; color: #adb5bd; background: transparent; cursor: pointer; }
-.next-icon-button:hover { background: #343a40; color: #fff; }
+.next-icon-button { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 30px; height: 30px; border: 0; border-radius: 5px; color: var(--taskchef-muted); background: transparent; cursor: pointer; }
+.next-icon-button:hover { background: var(--taskchef-surface-muted); color: #fff; }
 .next-icon-button:focus-visible, .next-notification-panel button:focus-visible, .next-toast button:focus-visible { outline: 2px solid #74c0fc; outline-offset: 2px; }
 .next-unread-dot { position: absolute; top: 1px; right: 1px; width: 7px; height: 7px; border-radius: 50%; background: #e03131; }
-.next-notification-panel { position: fixed; right: 12px; top: 52px; width: min(390px, calc(100vw - 24px)); z-index: 210; border: 1px solid #495057; border-radius: 8px; background: #25262b; box-shadow: 0 8px 32px #0008; }
+.next-notification-panel { position: fixed; right: 12px; top: 52px; width: min(390px, calc(100vw - 24px)); z-index: 210; border: 1px solid var(--taskchef-border); border-radius: 8px; background: var(--taskchef-surface-muted); box-shadow: 0 8px 32px #0008; }
 .next-notification-heading { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; }
 .next-notification-controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 12px; }
-.next-notification-controls button { border: 0; border-radius: 4px; padding: 4px 6px; background: transparent; color: #adb5bd; cursor: pointer; font-size: 12px; }
-.next-notification-controls button[aria-pressed="true"] { color: #fff; background: #373a40; }
+.next-notification-controls button { border: 0; border-radius: 4px; padding: 4px 6px; background: transparent; color: var(--taskchef-muted); cursor: pointer; font-size: 12px; }
+.next-notification-controls button[aria-pressed="true"] { color: #fff; background: var(--taskchef-border); }
 .next-notification-controls button:disabled { opacity: .4; cursor: default; }
-.next-notification-list { overflow: auto; max-height: min(55vh, 420px); border-top: 1px solid #373a40; }
-.next-notification-empty { text-align: center; padding: 20px 12px; color: #adb5bd; font-size: 13px; }
-.next-notification-item { border-bottom: 1px solid #373a40; }
-.next-notification-unread { border-left: 3px solid #74c0fc; background: #2c3038; }
-.next-notification-message, .next-toast-message { width: 100%; text-align: left; border: 0; color: #dee2e6; background: transparent; padding: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.next-notification-list { overflow: auto; max-height: min(55vh, 420px); border-top: 1px solid var(--taskchef-border); }
+.next-notification-empty { text-align: center; padding: 20px 12px; color: var(--taskchef-muted); font-size: 13px; }
+.next-notification-item { border-bottom: 1px solid var(--taskchef-border); }
+.next-notification-unread { border-left: 3px solid #74c0fc; background: #303030; }
+.next-notification-message, .next-toast-message { width: 100%; text-align: left; border: 0; color: var(--taskchef-text); background: transparent; padding: 12px; cursor: pointer; overflow-wrap: anywhere; }
 .next-notification-message:hover, .next-toast-message:hover { background: #ffffff08; }
 .next-notification-message strong, .next-toast-message strong { display: block; font-size: 13px; font-weight: 500; }
-.next-notification-message span, .next-toast-message span { display: block; margin-top: 5px; font-size: 12px; color: #adb5bd; white-space: pre-wrap; }
-.next-notification-message time { display: block; margin-top: 6px; font-size: 11px; color: #868e96; }
+.next-notification-message span, .next-toast-message span { display: block; margin-top: 5px; font-size: 12px; color: var(--taskchef-muted); white-space: pre-wrap; }
+.next-notification-message time { display: block; margin-top: 6px; font-size: 11px; color: var(--taskchef-muted); }
 .next-toast-stack { position: fixed; right: 12px; top: 58px; width: min(360px, calc(100vw - 24px)); z-index: 400; display: grid; gap: 8px; pointer-events: none; }
 .next-notification-panel ~ .next-toast-stack { top: auto; bottom: 16px; }
-.next-toast { display: flex; align-items: flex-start; border: 1px solid #495057; border-left: 3px solid #74c0fc; border-radius: 6px; background: #25262b; box-shadow: 0 4px 20px #0006; pointer-events: auto; }
+.next-toast { display: flex; align-items: flex-start; border: 1px solid var(--taskchef-border); border-left: 3px solid #74c0fc; border-radius: 6px; background: var(--taskchef-surface-muted); box-shadow: 0 4px 20px #0006; pointer-events: auto; }
 .next-toast-error, .next-toast-interrupted { border-left-color: #ffa94d; }
 .next-toast-confirmation { border-left-color: #69db7c; }
 .next-toast > .next-icon-button { flex-shrink: 0; margin: 4px; }
@@ -75,3 +90,11 @@ body { background: var(--taskchef-page); }
 .next-project-options { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
 
 .next-project-sort { display: flex; align-items: center; padding-left: 5px; border-left: 1px solid var(--taskchef-border); }
+
+.taskchef-board-card, .taskchef-section { background: var(--taskchef-surface-muted); }
+.taskchef-board-card { border-color: var(--taskchef-border); }
+.taskchef-board-card:hover { border-color: #ffffff33; }
+.taskchef-board-title { font-size: var(--mantine-font-size-sm); font-weight: 700; line-height: var(--mantine-line-height-sm); }
+.taskchef-board-excerpt { color: var(--taskchef-text); }
+.taskchef-board-project { color: var(--taskchef-muted); }
+.taskchef-reply-cover { background: #181818; }
