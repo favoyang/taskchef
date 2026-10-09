@@ -24,8 +24,9 @@ export function ReplyCover({ task, loadImage, onOpen }: { task: Task; loadImage?
     if (observer && root.current) observer.observe(root.current); else void load();
     return () => { cancelled = true; observer?.disconnect(); };
   }, [image.url, task.turnId, loadImage]);
+  if (failed) return null;
   return <button ref={root} type="button" className="taskchef-reply-cover" aria-label={`View image details for ${task.title}`} onClick={onOpen}>
-    {src && !failed ? <img src={src} alt={image.alt} referrerPolicy="no-referrer" loading="lazy" onError={() => setFailed(true)} />
-      : <span>{failed ? "Image unavailable" : "Loading image…"}</span>}
+    {src ? <img src={src} alt={image.alt} referrerPolicy="no-referrer" loading="lazy" onError={() => setFailed(true)} />
+      : <span>Loading image…</span>}
   </button>;
 }

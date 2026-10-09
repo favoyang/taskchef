@@ -104,7 +104,7 @@ Covers load when near the visible area. HTTPS images load directly in the
 sidebar without a referrer. Local absolute paths load through an app-only MCP
 tool tied to the chat, turn and saved image URL. Local PNG, JPEG, GIF and WebP
 files up to 4 MiB are supported; no remote URL is fetched by the MCP server.
-Missing, oversized, unsupported or failed images show “Image unavailable.”
+Missing, oversized, unsupported or failed image covers are hidden.
 Click a cover to open chat Details. Text and navigation remain available.
 The Markdown text renderer still shows image captions rather than inline images.
 
