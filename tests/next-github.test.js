@@ -15,18 +15,28 @@ async function setup(t, replies, initial = {}) {
   let credential = initial;
   let time = 100_000;
   const requests = [];
+  const ciRequests = [];
+  let lastResponse;
   const credentials = { read: async () => structuredClone(credential), write: async (_, next) => { credential = structuredClone(next); }, remove: async () => { credential = {}; } };
   const github = new NextGitHub({ stateDir: dir, now: () => time, credentials, fetch: async (url, options) => {
+    if (url.includes("/commits/")) {
+      ciRequests.push({url,options});
+      const rollup = lastResponse?.data?.p0?.pullRequest?.commits?.nodes?.[0]?.commit?.statusCheckRollup;
+      const state=rollup?.state;
+      const payload=url.includes("/check-runs") ? {total_count:rollup===null?0:1,check_runs:rollup===null?[]:[{status:["PENDING","EXPECTED"].includes(state)?"in_progress":"completed",conclusion:state==="SUCCESS"?"success":["ERROR","FAILURE"].includes(state)?"failure":"unrecognized"}]} : {total_count:0,state:"pending"};
+      return {ok:true,status:200,json:async()=>payload};
+    }
     requests.push({ url, options });
     const next = replies.shift();
     if (next instanceof Error) throw next;
     assert.ok(next, `Unexpected request: ${url}`);
+    lastResponse = next;
     return { ok: !next.httpError, status: next.httpError ?? 200, json: async () => next };
   } });
-  return { github, requests, credentials, dir, read: () => credential, advance: (ms) => { time += ms; } };
+  return { github, requests, ciRequests, credentials, dir, read: () => credential, advance: (ms) => { time += ms; } };
 }
 const signedIn = { token: "private-token", login: "tester" };
-const response = (merged = false, state = "OPEN", checks = "SUCCESS", extra = {}) => ({ data: { p0: { pullRequest: { merged, state, isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", commits: { nodes: [{ commit: { statusCheckRollup: checks === null ? null : { state: checks } } }] }, ...extra } } } });
+const response = (merged = false, state = "OPEN", checks = "SUCCESS", extra = {}) => ({ data: { p0: { pullRequest: { merged, state, headRefOid:"a".repeat(40), isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", commits: { nodes: [{ commit: { statusCheckRollup: checks === null ? null : { state: checks } } }] }, ...extra } } } });
 
 test("only exact GitHub PR URLs become query identities", () => {
   assert.equal(pullRequestIdentity("https://evil.test/repo/pull/12"), null);
@@ -193,7 +203,7 @@ test("only cards in view start GitHub queries, including old chats in All time",
 
 
 test("saved cache survives another MCP process; new turns refresh it without repeated scans", async t => {
-  const c = await setup(t, [response(false, "OPEN", "SUCCESS", {title:"Improve search",headRefOid:"abc",mergeable:"MERGEABLE",mergeStateStatus:"CLEAN"}), response(true, "MERGED")], signedIn);
+  const c = await setup(t, [response(false, "OPEN", "SUCCESS", {title:"Improve search",headRefOid:"a".repeat(40),mergeable:"MERGEABLE",mergeStateStatus:"CLEAN"}), response(true, "MERGED")], signedIn);
   const snapshot = {healthy:true,tasks:[task()]};
   const first = await c.github.enrich(snapshot,settings);
   assert.equal(first.snapshot.tasks[0].pullRequests[0].canMerge,true);
@@ -271,4 +281,29 @@ test("GitHub calculating mergeability retries even with settled CI and CLEAN mer
   const second=await c.github.enrich(snapshot,settings);
   assert.equal(second.snapshot.tasks[0].pullRequests[0].canMerge,true);
   assert.equal(c.requests.length,2);
+});
+
+
+test("partial metadata errors preserve merged PR state; CI reads use existing read-only endpoints",async t=>{
+ const reply=response(true,"MERGED");
+ reply.errors=[{path:["p0","pullRequest","mergeable"],message:"Resource not accessible by integration"}];
+ const c=await setup(t,[reply],signedIn);
+ const r=await c.github.enrich({healthy:true,tasks:[task()]},settings);
+ assert.equal(r.snapshot.tasks[0].pullRequests[0].state,"merged");
+ assert.equal(r.snapshot.tasks[0].pullRequests[0].checks,"passed");
+ assert.equal(r.snapshot.tasks[0].status,"completed");
+ assert.equal(c.ciRequests.length,2);
+ assert.ok(c.ciRequests.some(x=>x.url.includes("/check-runs?")));
+ assert.ok(c.ciRequests.some(x=>x.url.includes("/status?")));
+ assert.doesNotMatch(c.requests[0].options.body,/statusCheckRollup|commits\(/);
+});
+
+test("CI access failure preserves PR merge status, and an empty legacy-status result is not pending",async t=>{
+ const c=await setup(t,[],signedIn);
+ let denied=true;
+ c.github.fetch=async endpoint=>({ok:!denied,status:denied?403:200,json:async()=>endpoint.includes("check-runs")?{total_count:1,check_runs:[{status:"completed",conclusion:"success"}]}:{total_count:0,state:"pending"}});
+ const identity=pullRequestIdentity(url);
+ assert.equal((await c.github.checks(identity,"a".repeat(40),"token")).checks,"unknown");
+ denied=false;c.advance(60001);
+ assert.equal((await c.github.checks(identity,"a".repeat(40),"token")).checks,"passed");
 });

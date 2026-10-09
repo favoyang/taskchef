@@ -171,3 +171,14 @@ Its tooltip uses the desktop scheduler's `automations` table in
 known time across active schedules for that chat. Reads are short and read-only.
 Missing next-run metadata does not change the schedule flag or guess a time;
 the tooltip says the next run time is unavailable.
+
+## Private repository CI reads
+
+PR state and merge metadata use GraphQL. CI uses the head revision with the
+REST check-runs and combined commit-status endpoints. These endpoints use the
+app's existing read-only Checks and Commit statuses permissions. Reading a
+GraphQL commit object can require Contents access on private repositories;
+TaskChef does not request Contents access. A CI error keeps the independently
+returned PR state. Empty legacy status lists do not count as pending CI.
+If more than 100 latest check runs are returned, TaskChef keeps CI unknown
+instead of claiming success from an incomplete page.

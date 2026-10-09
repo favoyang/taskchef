@@ -81,6 +81,27 @@ export class NextGitHub {
     }
     try { return await response.json(); } catch { throw new Error("GitHub returned an invalid response."); }
   }
+  async checks(identity, sha, token) {
+    if (!/^[a-f0-9]{40,64}$/i.test(sha ?? "")) return { checks: "unknown", error: "CI status unavailable: GitHub did not return the head revision." };
+    const base = `https://api.github.com/repos/${identity.owner}/${identity.repo}/commits/${sha}`;
+    try {
+      const [runs, statuses] = await Promise.all([
+        this.request(`${base}/check-runs?filter=latest&per_page=100`, { token }),
+        this.request(`${base}/status?per_page=100`, { token }),
+      ]);
+      if (!Array.isArray(runs.check_runs) || !Number.isFinite(runs.total_count) || !Number.isFinite(statuses.total_count)) throw new Error("Invalid CI response.");
+      // Never report success when a page omits checks we have not inspected.
+      if (runs.total_count > runs.check_runs.length) return { checks: "unknown", error: "CI status unavailable: more than 100 checks. Open GitHub for the full result." };
+      const conclusions = runs.check_runs.filter(run => run.status === "completed").map(run => run.conclusion);
+      const failed = conclusions.some(value => ["failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"].includes(value)) || (statuses.total_count > 0 && ["failure", "error"].includes(statuses.state));
+      const pending = runs.check_runs.some(run => run.status !== "completed") || (statuses.total_count > 0 && statuses.state === "pending");
+      const unknown = conclusions.some(value => !["success", "neutral", "skipped", "failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"].includes(value)) || (statuses.total_count > 0 && !["success", "pending", "failure", "error"].includes(statuses.state));
+      return { checks: failed ? "failed" : unknown ? "unknown" : pending ? "pending" : runs.total_count + statuses.total_count === 0 ? "none" : "passed" };
+    } catch (error) {
+      if (error.status === 401) throw error;
+      return { checks: "unknown", error: "CI status unavailable. Check GitHub repository access and try Refresh." };
+    }
+  }
   async readCredential(clientId) {
     try {
       const value = await this.credentials.read(clientId);
@@ -177,7 +198,7 @@ export class NextGitHub {
             const batch = needed.slice(start, start + 25);
             const query = `query { ${batch.map((url, i) => {
               const p = pullRequestIdentity(url);
-              return `p${i}: repository(owner:${JSON.stringify(p.owner)},name:${JSON.stringify(p.repo)}) { pullRequest(number:${p.number}) { title state merged isDraft headRefOid mergeable mergeStateStatus commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } }`;
+              return `p${i}: repository(owner:${JSON.stringify(p.owner)},name:${JSON.stringify(p.repo)}) { pullRequest(number:${p.number}) { title state merged isDraft headRefOid mergeable mergeStateStatus } }`;
             }).join(" ")} }`;
             let result;
             try { result = await this.request("https://api.github.com/graphql", { token: value.token, query }); }
@@ -189,11 +210,18 @@ export class NextGitHub {
             }
             for (const [i, url] of batch.entries()) {
               const p = result.data?.[`p${i}`]?.pullRequest;
-              const failed = result.errors?.some((error) => !error.path || error.path[0] === `p${i}`);
-              const state = failed || !p ? "unknown" : p.merged === true ? "merged" : p.state === "CLOSED" ? "closed" : p.state === "OPEN" ? p.isDraft ? "draft" : "open" : "unknown";
-              const rollup = p?.commits?.nodes?.[0]?.commit?.statusCheckRollup;
-              const checks = failed || !p ? "unknown" : rollup === null ? "none" : rollup?.state === "SUCCESS" ? "passed" : ["ERROR", "FAILURE"].includes(rollup?.state) ? "failed" : ["PENDING", "EXPECTED"].includes(rollup?.state) ? "pending" : "unknown";
-              this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state, checks, ...(typeof p?.title === "string" ? { title: p.title } : {}), ...(typeof p?.headRefOid === "string" ? { headRevision: p.headRefOid } : {}), mergeState: p?.mergeStateStatus ?? null, mergeable: p?.mergeable ?? "UNKNOWN", hasMergeConflicts: p?.mergeable === "CONFLICTING" || p?.mergeStateStatus === "DIRTY", canMerge: p?.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(p?.mergeStateStatus) && !p?.isDraft, checkedAt: new Date(this.now()).toISOString(), ...(state === "unknown" ? { error: "PR status unavailable. Check the app's repository access." } : {}) } });
+              const failed = !p || !["OPEN", "CLOSED", "MERGED"].includes(p.state);
+              const state = failed || !p ? "unknown" : p.merged === true || p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : p.state === "OPEN" ? p.isDraft ? "draft" : "open" : "unknown";
+              let ci = { checks: "unknown" };
+              if (!failed) {
+                try { ci = await this.checks(pullRequestIdentity(url), p.headRefOid, value.token); }
+                catch (error) {
+                  if (error.status === 401) { await this.save(clientId, {}); auth.connected = false; await this.clearCache(); break; }
+                  throw error;
+                }
+              }
+              const { checks } = ci;
+              this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state, checks, ...(ci.error ? { error: ci.error } : {}), ...(typeof p?.title === "string" ? { title: p.title } : {}), ...(typeof p?.headRefOid === "string" ? { headRevision: p.headRefOid } : {}), mergeState: p?.mergeStateStatus ?? null, mergeable: p?.mergeable ?? "UNKNOWN", hasMergeConflicts: p?.mergeable === "CONFLICTING" || p?.mergeStateStatus === "DIRTY", canMerge: p?.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(p?.mergeStateStatus) && !p?.isDraft, checkedAt: new Date(this.now()).toISOString(), ...(state === "unknown" ? { error: "PR status unavailable. Check the app's repository access." } : {}) } });
             }
           }
           if (needed.length && auth.connected) await this.saveCache(clientId, value.login);
