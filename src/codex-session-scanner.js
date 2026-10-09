@@ -100,11 +100,17 @@ function readDatabaseRecords(state, history) {
     });
     const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_id = ?");
     const latestReply = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'agentMessage' ORDER BY rollout_ordinal DESC LIMIT 1");
+    const attachCalls = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'mcpToolCall'");
+    const turnAttachments = new Map();
     const inputs = new Map();
     const replies = new Map();
     for (const row of rows) {
       const key = historyId(row);
       const turn = turns.get(key);
+      turnAttachments.set(key, attachCalls.all(key, turn.turn_id).map((row) => JSON.parse(row.item_json))
+        .filter((item) => item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError
+          && item.arguments?.artifact_type === "pull_request" && typeof item.arguments.url === "string")
+        .map((item) => item.arguments.url));
       inputs.set(key, turn.first_user_item_id ? input.get(key, turn.turn_id, turn.first_user_item_id)?.item_json : null);
       replies.set(key, (turn.final_agent_item_id ? input.get(key, turn.turn_id, turn.final_agent_item_id) : latestReply.get(key, turn.turn_id))?.item_json);
     }
@@ -122,7 +128,7 @@ function readDatabaseRecords(state, history) {
         attachments.set(row.thread_id, urls);
       }
     }
-    return { rows, turns, inputs, replies, projects, attachments };
+    return { rows, turns, inputs, replies, projects, attachments, turnAttachments };
 }
 
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
@@ -135,15 +141,15 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       const chatSchedules = schedules.get(row.id) ?? [];
       const scheduled = chatSchedules.some((schedule) => schedule.active);
       let inputSource = "unverified";
-      let inputScheduleActive = false;
+      let inputText = "";
       if (turn.first_user_item_id) {
         const raw = inputs.get(historyId(row));
         if (raw) {
           const item = JSON.parse(raw);
-          const text = (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+          const text = inputText = (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
           const marker = /^\s*<heartbeat>\s*<automation_id>([^<]+)<\/automation_id>/.exec(text);
           const inputSchedule = marker && !item.clientId && chatSchedules.find((schedule) => schedule.id === marker[1].trim());
-          if (inputSchedule) { inputSource = "scheduled"; inputScheduleActive = inputSchedule.active; }
+          if (inputSchedule) { inputSource = "scheduled"; }
           else if (!marker && item.clientId) inputSource = "ordinary";
         }
       }
@@ -156,10 +162,14 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       }
       const replyExcerpt = replyText.slice(0, 2000) || null;
       if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
-      const manualDone = !scheduled && doneMarks[row.id] === turn.turn_id && !(records.attachments.get(row.id)?.length);
+      // Ownership comes from the registry; latest-turn references only narrow that owned set.
+      const references = new Set([...`${inputText}\n${replyText}`.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].map((match) => match[0].replace(/\/$/, "")));
+      for (const url of records.turnAttachments.get(historyId(row)) ?? []) references.add(url.replace(/\/$/, ""));
+      const turnPrs = (records.attachments.get(row.id) ?? []).filter((url) => references.has(url.replace(/\/$/, "")));
+      const manualDone = !active && !scheduled && doneMarks[row.id] === turn.turn_id && !turnPrs.length;
       const status = row.archived ? "archived" : manualDone ? "completed" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
-          : turn.status === "completed" ? inputScheduleActive ? "scheduled" : "needs_input" : null;
+          : turn.status === "completed" ? scheduled && inputSource === "scheduled" ? "scheduled" : "needs_input" : null;
       const statusLabel = status === "archived" ? "Archived" : status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
       const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef. A new turn resets this mark."
         : active ? "Latest selected turn is in progress."
@@ -172,7 +182,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         instruction: "Chat name and title are local metadata and can contain user text.",
         summary: reason, replyExcerpt, replyImage: images.get(row.id),
         status, statusLabel, scheduled, manualDone, inputSource,
-        pullRequests: (records.attachments.get(row.id) ?? []).map((url) => ({ url, state: "unknown", checks: "unknown" })),
+        pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { id: row.project_id, name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: turn.turn_id, turnId: turn.turn_id, lastResult: null, latestTurn: null,

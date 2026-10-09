@@ -166,8 +166,20 @@ export class NextGitHub {
     } else this.cache.clear();
     const tasks = snapshot.tasks.map((task) => {
       const pullRequests = (task.pullRequests ?? []).map((pr) => this.cache.get(pr.url)?.pr ?? { ...pr, state: "unknown", checks: "unknown", error: pullRequestIdentity(pr.url) ? auth.connected ? "Waiting for the next GitHub check." : "Connect GitHub to read PR status." : "This GitHub host or PR URL is not supported." });
-      const prDone = task.observed.lastTurnEvent === "completed" && !task.observed.archive && pullRequests.length > 0 && pullRequests.every((pr) => pr.state === "merged");
-      return { ...task, pullRequests, ...(task.observed.lastTurnEvent === "completed" && !task.observed.archive && pullRequests.length > 0 ? prDone ? task.scheduled ? { status: "scheduled", statusLabel: "Scheduled", summary: "All attached pull requests are merged; an active schedule remains." } : { status: "completed", statusLabel: "Done", summary: "All attached pull requests are merged." } : { status: "needs_input", statusLabel: "Waiting for input/review", summary: "Attached pull requests need review or confirmed merge status." } : {}) };
+      if (task.observed.lastTurnEvent !== "completed" || task.observed.archive) return { ...task, pullRequests };
+      // A routine completion returns to its schedule regardless of GitHub access or PR state.
+      if (task.scheduled && task.inputSource === "scheduled") return {
+        ...task, pullRequests, status: "scheduled", statusLabel: "Scheduled",
+        summary: "Latest scheduled turn ended; an active schedule remains.",
+      };
+      if (!pullRequests.length) return { ...task, pullRequests };
+      const allMerged = pullRequests.every((pr) => pr.state === "merged");
+      const status = allMerged ? task.scheduled ? "scheduled" : "completed" : "needs_input";
+      return { ...task, pullRequests, status,
+        statusLabel: status === "scheduled" ? "Scheduled" : status === "completed" ? "Done" : "Waiting for input/review",
+        summary: allMerged ? task.scheduled ? "Latest-turn PRs are merged; an active schedule remains." : "Latest-turn PRs are merged."
+          : "Latest-turn PRs need review or confirmed merge status.",
+      };
     });
     return { snapshot: { ...snapshot, tasks }, auth };
   }

@@ -211,13 +211,13 @@ test("workflow labels distinguish scheduled input, ordinary input, archives, and
   await writeFile(join(home, "automations", "routine", "automation.toml"), 'id = "routine"\nkind = "heartbeat"\nstatus = "PAUSED"\ntarget_thread_id = "mixed"\n');
   await scanner.refresh();
   assert.equal(scanner.task("mixed").scheduled, false);
-  // Another active schedule must not make this paused heartbeat Scheduled.
+  // A chat with another active schedule still has future routine work.
   await mkdir(join(home, "automations", "other"));
   await writeFile(join(home, "automations", "other", "automation.toml"), 'id = "other"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "mixed"\n');
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,?,?,?,?)").run("mixed", 3, "completed", "paused-turn", "input-mixed");
   history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) SELECT thread_id, 'paused-turn', item_id, item_json FROM thread_items WHERE turn_id='turn-mixed'").run();
   await scanner.refresh();
-  assert.equal(scanner.task("mixed").status, "needs_input");
+  assert.equal(scanner.task("mixed").status, "scheduled");
   assert.equal(scanner.task("mixed").scheduled, true);
   assert.equal(scanner.task("mixed").inputSource, "scheduled");
 });
@@ -528,6 +528,7 @@ test("PR attachments come from the attachment registry and update independently 
   state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
   state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'PR chat', '/repo', 0, 1, 1, 1)").run(id);
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_type,item_json) VALUES (?,'turn-1','reply','agentMessage',?)").run(id, JSON.stringify({type:'agentMessage',text:'https://github.com/example/repo/pull/12'}));
   const scanner = new CodexSessionScanner({ codexHome: home }); t.after(() => scanner.close());
   const first = await scanner.refresh(); assert.deepEqual(first.tasks[0].pullRequests, []);
   const url = "https://github.com/example/repo/pull/12";
@@ -546,6 +547,7 @@ test("a newly attached PR rejects manual Done and suppresses an older manual mar
   state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
   state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'PR chat', '/repo', 0, 1, 1, 1)").run(id);
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_type,item_json) VALUES (?,'turn-1','reply','agentMessage',?)").run(id, JSON.stringify({type:'agentMessage',text:'https://github.com/example/repo/pull/12'}));
   const statePath = join(home, "done.json");
   const scanner = new CodexSessionScanner({ codexHome: home, statePath }); t.after(() => scanner.close());
   await scanner.setDone(id, "turn-1", true);
@@ -577,4 +579,37 @@ test("active schedules block new and existing Done marks until every schedule is
   await writeFile(join(home, "automations", "two", "automation.toml"), `id = "two"\nkind = "heartbeat"\nstatus = "PAUSED"\ntarget_thread_id = "${id}"\n`);
   await scanner.setDone(id, "turn-1", true);
   assert.equal(scanner.task(id).status, "completed");
+});
+
+
+test("latest-turn PRs require both registered ownership and a current-turn reference", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const {home,state,history}=setup;
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  state.prepare("INSERT INTO threads (id,name,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'PR scope',0,1,1,1)").run(id);
+  const oldUrl="https://github.com/example/repo/pull/12", currentUrl="https://github.com/example/repo/pull/123";
+  for(const url of [oldUrl,currentUrl])state.prepare("INSERT INTO thread_attachments VALUES (?,'pull_request',?)").run(id,JSON.stringify({url}));
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,1,'completed','old'), (?,2,'completed','new')").run(id,id);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_type,item_json) VALUES (?,'old','reply','agentMessage',?), (?,'new','reply','agentMessage',?)").run(id,JSON.stringify({type:"agentMessage",text:oldUrl}),id,JSON.stringify({type:"agentMessage",text:`${currentUrl}/ https://github.com/example/repo/pull/999`}));
+  const scanner=new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json')});t.after(()=>scanner.close());
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests.map(x=>x.url),[currentUrl]);
+  history.prepare("UPDATE thread_items SET item_json=? WHERE turn_id='new'").run(JSON.stringify({type:"agentMessage",text:"No PR mentioned."}));
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests,[]);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_type,item_json) VALUES (?,'new','attach','mcpToolCall',?)").run(id,JSON.stringify({server:'codex_app',tool:'attach_artifact',status:'completed',arguments:{artifact_type:'pull_request',url:currentUrl}}));
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests.map(x=>x.url),[currentUrl]);
+  history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='attach'").run(JSON.stringify({server:'codex_app',tool:'attach_artifact',status:'failed',error:{message:'failed'},arguments:{artifact_type:'pull_request',url:currentUrl}}));
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests,[]);
+});
+
+
+test("Running overrides a saved Done mark when the selected turn resumes", async (t) => {
+  const setup=await fixture(t);if(!setup)return;
+  const {home,state,history}=setup;
+  state.prepare("INSERT INTO threads (id,name,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Resume',0,1,1,1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,1,'completed','same-turn')").run(id);
+  const scanner=new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json')});t.after(()=>scanner.close());
+  await scanner.setDone(id,'same-turn',true);
+  history.exec("UPDATE thread_turns SET status='inProgress'");
+  const running=(await scanner.refresh()).tasks[0];
+  assert.equal(running.status,'working');assert.equal(running.manualDone,false);
 });

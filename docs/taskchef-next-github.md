@@ -2,7 +2,7 @@
 
 TaskChef reads PR attachments from `state_5.sqlite:thread_attachments`.
 Only records with `attachment_type = pull_request` count. The `payload.url`
-identifies the PR. Links mentioned in chat messages do not count as attachments.
+identifies the PR. A transcript link alone does not establish PR ownership. The card uses only registered PRs referenced in the latest prompt/reply or successfully attached by a saved `codex_app.attach_artifact` call in that turn. Older chat attachments do not decide the latest turn's state.
 Older Codex databases without this table show no PR attachments.
 
 ## Connect GitHub
@@ -48,20 +48,39 @@ status. Do not enter an OAuth App ID or a personal access token in the setting.
 
 ## Board rules
 
-| Chat / attached PRs | Column |
-| --- | --- |
-| Archived | Archived, if enabled |
-| Latest turn in progress | Running |
-| Failed or interrupted turn | Waiting, with Interrupted tag |
-| Completed turn; every attached PR confirmed merged; active schedule | Scheduled |
-| Completed turn; every attached PR confirmed merged; no active schedule | Done |
-| Completed turn; any open, draft, closed without merge, or unavailable PR | Waiting for input/review |
-| No attached PR | Existing schedule and manual Done rules |
+Archived chats go to the optional Archived column before these rules apply.
+Chats with no saved turn are hidden. Running always takes priority over Done marks.
 
-Mark Done is available for chats without attached PRs or active schedules.
-Pause all schedules to restore ordinary Done rules. A new turn resets that
-mark. A passing CI badge means the reported checks passed; it does not guarantee
-merge approval or that every branch-protection requirement is met.
+### With an active schedule
+
+| Latest turn | Result | Column |
+| --- | --- | --- |
+| Either input source | In progress | Running |
+| Either input source | Failed or interrupted | Waiting, with Interrupted tag |
+| Scheduled prompt | Completed, with any PR state or no PR | Scheduled |
+| Human prompt | Completed; all latest-turn PRs merged | Scheduled |
+| Human prompt | Completed; unmerged/unknown PR or no PR | Waiting for input/review |
+
+A saved heartbeat marker identifies a scheduled prompt. If input source cannot
+be verified, use the human-input rules. Any active schedule keeps the chat
+scheduled, even when the schedule that started the latest turn is now paused.
+Manual Done is disabled until all schedules are paused.
+
+### Without an active schedule
+
+| Latest turn / user action | Column |
+| --- | --- |
+| In progress | Running |
+| Marked Done for this turn, with no latest-turn PR | Done |
+| Failed or interrupted, without a Done mark | Waiting, with Interrupted tag |
+| Completed; all latest-turn PRs merged | Done |
+| Completed; any unmerged or unknown latest-turn PR | Waiting for input/review |
+| Completed; no latest-turn PR and no Done mark | Waiting for input/review |
+| Unrecognized saved turn status | Unverified, within Waiting |
+
+A new turn resets a manual Done mark. Passing CI does not guarantee merge
+approval or that every branch-protection requirement is met. A closed PR
+without merge remains Waiting for a human.
 
 Badges show Merged (purple), Draft (gray), Checks passed (green), No checks or
 Checks pending (yellow), Checks failed or Closed without merge (red), and

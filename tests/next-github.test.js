@@ -139,3 +139,23 @@ test("active scheduled chats return to Scheduled after PR merge and ordinary cha
   result = await c.github.enrich(snapshot, settings);
   assert.equal(result.snapshot.tasks[0].status, "needs_input");
 });
+
+
+test("schedule rules use turn source; routine completions ignore PR state", async (t) => {
+  for (const inputSource of ["scheduled", "ordinary", "unverified"]) {
+    for (const prState of ["none", "merged", "open", "draft", "closed", "unknown"]) {
+      await t.test(`${inputSource}: ${prState}`, async (t) => {
+        const c = await setup(t, prState === "none" || prState === "unknown" ? [] : [response(prState === "merged", prState === "closed" ? "CLOSED" : "OPEN", "SUCCESS", {isDraft:prState === "draft"})], prState === "unknown" ? {} : signedIn);
+        const result = await c.github.enrich({healthy:true,tasks:[task({scheduled:true,inputSource,pullRequests:prState === "none" ? [] : [{url}]})]},settings);
+        assert.equal(result.snapshot.tasks[0].status, inputSource === "scheduled" || prState === "merged" ? "scheduled" : "needs_input");
+      });
+    }
+  }
+});
+
+test("Running, interruptions and archives keep priority over schedule completions", async (t) => {
+  const c = await setup(t, [response(true)], signedIn);
+  const cases = [["inProgress","working"],["failed","interrupted"],["interrupted","interrupted"]];
+  const result = await c.github.enrich({healthy:true,tasks:cases.map(([lastTurnEvent,status])=>task({scheduled:true,inputSource:"scheduled",status,observed:{archive:false,lastTurnEvent}}))},settings);
+  assert.deepEqual(result.snapshot.tasks.map(x=>x.status),cases.map(x=>x[1]));
+});
