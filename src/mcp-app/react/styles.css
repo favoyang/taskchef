@@ -18,7 +18,7 @@ body { background: var(--taskchef-page); }
 .taskchef-app-header h1 { color: var(--taskchef-text); font-size: 14px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
 .taskchef-app-inline .taskchef-app-header { grid-template-columns: 1fr auto; grid-template-areas: "brand actions"; }
 .taskchef-app-mark { display: block; flex: none; width: 25px; height: 25px; }
-.taskchef-app-main { min-width: 0; padding: 6px 12px 28px; }
+.taskchef-app-main { min-width: 0; padding: 12px 12px 28px; }
 .taskchef-app-main-list { max-width: 624px; margin-inline: auto; }
 .taskchef-app-main .taskchef-toolbar { margin-bottom: 8px; padding-bottom: 10px; }
 .taskchef-app-main .mantine-SegmentedControl-root { max-width: 100%; }
