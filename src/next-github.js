@@ -1,3 +1,4 @@
+import { filterTasks } from "./dashboard/state.js";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { acquireWorkspaceLock } from "./workspace.js";
@@ -122,10 +123,10 @@ export class NextGitHub {
       return this.publicAuth(value);
     });
   }
-  async enrich(snapshot, settings, { force = false } = {}) {
+  async enrich(snapshot, settings, { force = false, scope = {} } = {}) {
     if (!snapshot.healthy) return { snapshot, auth: { configured: Boolean(settings.githubClientId), connected: false, login: null } };
     const clientId = settings.githubClientId;
-    const urls = [...new Set(snapshot.tasks.filter((task) => !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")).flatMap((task) => (task.pullRequests ?? []).map((pr) => pr.url)))];
+    const urls = [...new Set(filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")).flatMap((task) => (task.pullRequests ?? []).map((pr) => pr.url)))];
     let auth = { configured: Boolean(clientId), connected: false, login: null };
     if (clientId) {
       try {
@@ -136,7 +137,7 @@ export class NextGitHub {
           auth = this.publicAuth(value);
           if (!value.token) { this.cache.clear(); return; }
           value = await this.tokenBundle(clientId, value);
-          const needed = urls.filter((url) => pullRequestIdentity(url) && (force || !this.cache.has(url) || this.cache.get(url).expiresAt <= this.now()))
+          const needed = urls.filter((url) => pullRequestIdentity(url) && (force || !this.cache.has(url) || (this.cache.get(url).pr.state !== "merged" && this.cache.get(url).expiresAt <= this.now())))
             .sort((a, b) => (this.cache.get(a)?.expiresAt ?? 0) - (this.cache.get(b)?.expiresAt ?? 0)).slice(0, 25);
           for (let start = 0; start < needed.length; start += 25) {
             const batch = needed.slice(start, start + 25);

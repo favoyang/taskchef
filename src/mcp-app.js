@@ -11,6 +11,7 @@ import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
 
+export const TASKCHEF_GITHUB_URI = "ui://taskchef/github-settings/v1";
 export const TASKCHEF_APP_URI = "ui://taskchef/task-board/v3";
 const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
 const htmlPath = fileURLToPath(new URL("./mcp-app/dist/index.html", import.meta.url));
@@ -58,8 +59,8 @@ export function registerTaskChefApp(server, {
   let boardRevision = 0;
   let boardSignature;
   let githubAuth;
-  async function boardSnapshot(settings, force = false) {
-    const result = await github.enrich(await scanner.refresh({ force }), settings, { force });
+  async function boardSnapshot(settings, force = false, scope = { date: "7d" }) {
+    const result = await github.enrich(await scanner.refresh({ force }), settings, { scope });
     githubAuth = result.auth;
     const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests])]);
     if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
@@ -86,7 +87,7 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => ({ content: [], structuredContent: {
     schema: { type: "object", properties: settingsProperties }, values: await readSettings(),
-    layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(settingsFields).filter((property) => property !== "githubClientId").map((property) => ({ kind: "property", property })) }, { kind: "group", title: "GitHub", items: [{ kind: "property", property: "githubClientId" }] }],
+    layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(settingsFields).filter((property) => property !== "githubClientId").map((property) => ({ kind: "property", property })) }, { kind: "group", title: "GitHub", items: [{ kind: "property", property: "githubClientId" }, { kind: "tool", tool: "taskchef_github_settings", title: "Connect GitHub", description: "Sign in, manage repository access, or disconnect this computer." }] }],
   } }));
   server.registerTool("taskchef_settings_update", {
     title: "Update TaskChef settings",
@@ -109,6 +110,15 @@ export function registerTaskChefApp(server, {
     description: "TaskChef read-only Codex session board", mimeType: RESOURCE_MIME_TYPE,
     _meta: { ui: { csp: { resourceDomains: ["https:"] } } },
   }, async () => ({ contents: [{ uri: TASKCHEF_APP_URI, mimeType: RESOURCE_MIME_TYPE, text: await readFile(htmlPath, "utf8"), _meta: { ui: { csp: { resourceDomains: ["https:"] } } } }] }));
+  server.registerResource("TaskChef GitHub settings", TASKCHEF_GITHUB_URI, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{
+    uri: TASKCHEF_GITHUB_URI, mimeType: RESOURCE_MIME_TYPE,
+    text: (await readFile(htmlPath, "utf8")).replace('<div id="root"', '<div data-taskchef-page="github" id="root"'),
+  }] }));
+  server.registerTool("taskchef_github_settings", {
+    title: "Connect GitHub", inputSchema: {},
+    _meta: { ui: { resourceUri: TASKCHEF_GITHUB_URI } },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => ({ structuredContent: { github: await github.auth((await readSettings()).githubClientId, "status") }, content: [] }));
   server.registerTool("open_taskchef_board", {
     title: "TaskChef", description: "Show read-only local Codex session activity in the sidebar.", inputSchema: {},
     _meta: { ui: { resourceUri: TASKCHEF_APP_URI }, "openai/ui": { entrypoints: [{ type: "global" }] } },
@@ -120,12 +130,12 @@ export function registerTaskChefApp(server, {
   });
   server.registerTool("taskchef_app_snapshot", {
     title: "Refresh TaskChef", description: "Read local Codex session metadata.",
-    inputSchema: { revision: z.number().int().nonnegative().optional(), force: z.boolean().optional() }, _meta: appOnly,
+    inputSchema: { revision: z.number().int().nonnegative().optional(), force: z.boolean().optional(), project: z.string().max(1000).optional(), date: z.enum(["24h", "7d", "all"]).optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, async ({ revision, force }) => {
+  }, async ({ revision, force, project, date }) => {
     const settings = await readSettings();
     const settingsUrl = await getSettingsUrl();
-    const { snapshot, notifications } = await notificationStore.reconcile(() => boardSnapshot(settings, force), settings);
+    const { snapshot, notifications } = await notificationStore.reconcile(() => boardSnapshot(settings, force, { project, date: date ?? "7d" }), settings);
     if (!force && revision !== undefined && revision === snapshot.revision && snapshot.healthy !== false) {
       return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings, settingsUrl, notifications, github: githubAuth }, content: [] };
     }
@@ -157,9 +167,9 @@ export function registerTaskChefApp(server, {
     const task = await decoratedTask(await scanner.setDone(taskId, expectedTurnId, done));
     return { structuredContent: { task, notifications: done ? await notificationStore.confirmation(task) : undefined }, content: [] };
   });
-  server.registerTool("taskchef_app_github", {
+  for (const [name, resourceUri] of [["taskchef_app_github", TASKCHEF_APP_URI], ["taskchef_github_settings_auth", TASKCHEF_GITHUB_URI]]) server.registerTool(name, {
     title: "Connect GitHub for PR status", description: "Start device sign-in, check approval, or remove local credentials. Tokens stay in the system credential store.",
-    inputSchema: { action: z.enum(["status", "start", "poll", "disconnect"]) }, _meta: appOnly,
+    inputSchema: { action: z.enum(["status", "start", "poll", "disconnect"]) }, _meta: { ui: { resourceUri, visibility: ["app"] } },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ action }) => ({ structuredContent: { github: await github.auth((await readSettings()).githubClientId, action) }, content: [] }));
   server.registerTool("taskchef_app_notifications", {
@@ -173,9 +183,9 @@ export function registerTaskChefApp(server, {
     const notifications = await notificationStore.action({ action, id, task, operation, error });
     return { structuredContent: { notifications }, content: [] };
   });
-  server.registerTool("taskchef_app_open_settings", {
+  for (const [name, resourceUri] of [["taskchef_app_open_settings", TASKCHEF_APP_URI], ["taskchef_github_settings_open_plugin", TASKCHEF_GITHUB_URI]]) server.registerTool(name, {
     title: "Open TaskChef settings", description: "Open this installed plugin's native settings page in Codex.",
-    inputSchema: {}, _meta: appOnly,
+    inputSchema: {}, _meta: { ui: { resourceUri, visibility: ["app"] } },
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async () => {
     await openSettings(await getSettingsUrl());

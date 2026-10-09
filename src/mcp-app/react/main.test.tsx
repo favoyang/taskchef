@@ -36,7 +36,7 @@ vi.mock("../../dashboard/react/components/TaskCard", () => ({
   TaskCard: ({ task, onOpenCodex, onOpenDetail }: { task: Task; onOpenCodex: (task: Task) => void; onOpenDetail: (task: Task) => void }) => <article><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>,
 }));
 vi.mock("../../dashboard/react/components/TaskBoard", () => ({
-  TaskBoard: ({ tasks, onOpenDetail, onOpenCodex }: { tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board">{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
+  TaskBoard: ({ tasks, onOpenDetail, onOpenCodex, doneNotice }: { doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board">{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
 vi.mock("../../dashboard/react/components/TaskDetail", () => ({
   TaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
@@ -50,7 +50,7 @@ vi.mock("../../dashboard/react/components/TaskDetail", () => ({
 
 import { TaskChefApp } from "./main";
 
-const task = (id: string, status: Task["status"] = "working", updatedAt = "2026-10-01T00:00:00Z", project = "Example"): Task => ({
+const task = (id: string, status: Task["status"] = "working", updatedAt = new Date().toISOString(), project = "Example"): Task => ({
   id, title: `Task ${id}`, instruction: "Do the work", status, updatedAt, createdAt: updatedAt,
   project: { name: project, path: `/${project}`, githubRepos: [] }, summary: "Initial summary",
   threadId: null, turnRef: null, turnId: null, lastResult: null, latestTurn: null,
@@ -215,7 +215,7 @@ test("refresh sends the last revision and keeps selection detail current on unch
   details.set("one", task("one", "needs_input"));
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("needs_input"));
-  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1, force: true } });
+  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1, force: true, date: "7d", project: "" } });
   tasks = [task("two")];
   revision = 2;
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -507,7 +507,7 @@ test("saved project selection groups original and worktree chats and includes em
   expect(screen.getByRole("button", { name: "Task plain" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task original" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "empty" } });
-  expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("button")).toHaveLength(0);
+  expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("article")).toHaveLength(0);
 });
 
 test("active scheduled chat hides Mark Done in Details", async () => {
@@ -517,4 +517,13 @@ test("active scheduled chat hides Mark Done in Details", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Task one" }));
   expect(await screen.findByRole("region", { name: "Task detail" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Mark Done" })).not.toBeInTheDocument();
+});
+
+
+test("Done connection link opens GitHub controls without leaving the board", async () => {
+  mount();
+  const link = await screen.findByRole("button", {name:"Connect GitHub"});
+  fireEvent.click(link);
+  expect(await screen.findByRole("button", {name:"Open plugin settings"})).toBeInTheDocument();
+  expect(screen.getByRole("region", {name:"Task board"})).toBeVisible();
 });

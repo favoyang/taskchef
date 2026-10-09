@@ -54,14 +54,14 @@ test("slow_down and expiry respect GitHub polling deadlines", async (t) => {
   c.advance(11000); await assert.rejects(() => c.github.auth(client, "poll"), /expired/);
 });
 test("all merged means Done; caching avoids repeated network checks", async (t) => {
-  const c = await setup(t, [response(true, "MERGED"), response(false)], signedIn);
+  const c = await setup(t, [response(false), response(true, "MERGED")], signedIn);
   const snapshot = { healthy: true, tasks: [task()] };
   const first = await c.github.enrich(snapshot, settings);
-  assert.equal(first.snapshot.tasks[0].status, "completed");
+  assert.equal(first.snapshot.tasks[0].status, "needs_input");
   await c.github.enrich(snapshot, settings); assert.equal(c.requests.length, 1);
   c.advance(60_001);
   const updated = await c.github.enrich(snapshot, settings);
-  assert.equal(updated.snapshot.tasks[0].status, "needs_input");
+  assert.equal(updated.snapshot.tasks[0].status, "completed");
   assert.equal(updated.snapshot.tasks[0].pullRequests[0].checks, "passed");
   assert.ok(!c.requests[0].options.body.includes('chat'));
   assert.equal(c.requests[0].options.redirect, "error");
@@ -137,7 +137,8 @@ test("active scheduled chats return to Scheduled after PR merge and ordinary cha
   assert.equal(result.snapshot.tasks[0].status, "completed");
   c.advance(60_001);
   result = await c.github.enrich(snapshot, settings);
-  assert.equal(result.snapshot.tasks[0].status, "needs_input");
+  assert.equal(result.snapshot.tasks[0].status, "scheduled");
+  assert.equal(c.requests.length, 1);
 });
 
 
@@ -158,4 +159,19 @@ test("Running, interruptions and archives keep priority over schedule completion
   const cases = [["inProgress","working"],["failed","interrupted"],["interrupted","interrupted"]];
   const result = await c.github.enrich({healthy:true,tasks:cases.map(([lastTurnEvent,status])=>task({scheduled:true,inputSource:"scheduled",status,observed:{archive:false,lastTurnEvent}}))},settings);
   assert.deepEqual(result.snapshot.tasks.map(x=>x.status),cases.map(x=>x[1]));
+});
+
+
+test("project and time scope exclude old history; selecting All time fetches it on demand", async (t) => {
+  const c = await setup(t, [response(), response(true, "MERGED")], signedIn);
+  const tasks = [task({id:"recent", updatedAt:new Date(99_000).toISOString(), project:{id:"a"}}), task({id:"old", updatedAt:new Date(-700_000_000).toISOString(), project:{id:"a"}, pullRequests:[{url:"https://github.com/example/repo/pull/13"}]}), task({id:"other", updatedAt:new Date(99_000).toISOString(), project:{id:"b"}, pullRequests:[{url:"https://github.com/example/repo/pull/14"}]})];
+  await c.github.enrich({healthy:true,tasks},settings,{scope:{date:"7d",project:"a"}});
+  assert.match(c.requests[0].options.body, /number:12/);
+  assert.doesNotMatch(c.requests[0].options.body, /number:13|number:14/);
+  await c.github.enrich({healthy:true,tasks},settings,{scope:{date:"all",project:"a"}});
+  assert.match(c.requests[1].options.body, /number:13/);
+  assert.doesNotMatch(c.requests[1].options.body, /number:12|number:14/);
+  c.advance(60_001);
+  await c.github.enrich({healthy:true,tasks:[tasks[1]]},settings);
+  assert.equal(c.requests.length,2,"merged PR is not fetched again after cache TTL");
 });

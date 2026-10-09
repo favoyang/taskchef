@@ -8,7 +8,7 @@ Older Codex databases without this table show no PR attachments.
 ## Connect GitHub
 
 1. Open TaskChef's plugin settings and set the public GitHub App client ID.
-2. Select the GitHub icon in the board header, then **Sign in with GitHub**.
+2. In plugin settings, select **GitHub → Connect GitHub**, then **Sign in with GitHub**. The Done column also links to these connection controls when signed out.
 3. Enter the displayed code on GitHub and approve access.
 4. Install the GitHub App on the accounts and repositories you want to read.
    **Repository access** opens GitHub's installation settings.
@@ -89,9 +89,23 @@ Unavailable (gray). Hover shows the PR URL, check time, and any access error.
 ## Refresh and failure behavior
 
 The board still polls its local MCP server every five seconds while visible.
-GitHub status is cached in memory for 60 seconds per MCP server. Queries combine
-up to 25 PRs in one request per poll. Additional PRs are checked on later polls. Hidden CLI/exec chats and archived history do not
-start GitHub requests. A forced board refresh bypasses this cache, but still respects GitHub rate limits.
+GitHub checks use the board's project and time filters. The default time filter is
+Latest 7 days. Opening the board does not fetch all historical chats. Selecting
+All time explicitly includes older open chats. Opening one chat's Details checks
+that chat on demand. New chats enter the same checks when their latest turn has
+an owned PR and they match the filters. Search text does not change GitHub scope.
+
+PR status is cached in memory for 60 seconds per MCP server. Merged PRs stay
+cached until the process restarts, sign-in changes, or the user disconnects.
+Queries combine up to 25 PRs in one request per five-second poll. Additional PRs
+are checked on later polls, oldest cache entries first. Hidden CLI/exec chats
+and archived history do not start GitHub requests. A board refresh refreshes
+local data while respecting the GitHub cache and rate limits. The cache is not
+shared between separate MCP server processes and is not saved to disk.
+
+Without GitHub sign-in, automatic Done from PR merge cannot be verified. Manual
+Done for chats with no latest-turn PR still works. The Done column shows a
+Connect GitHub link until sign-in succeeds.
 
 GitHub receives repository names and PR numbers only, plus its authentication
 token. Task titles, prompts, replies, and local paths are not included.

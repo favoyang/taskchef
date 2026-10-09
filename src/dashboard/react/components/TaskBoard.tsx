@@ -1,6 +1,6 @@
 import { PullRequestBadges } from "./PullRequestBadges";
 import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
-import { useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
@@ -20,6 +20,7 @@ export function TaskBoard({
   lanes = defaultLanes,
   groupInterruptedWithWaiting = false,
   loadImage,
+  doneNotice,
   completedLimit,
   archivedLimit = 5,
   onMoreArchived,
@@ -29,6 +30,7 @@ export function TaskBoard({
   tasks,
 }: {
   groupInterruptedWithWaiting?: boolean;
+  doneNotice?: ReactNode;
   loadImage?: (task: Task) => Promise<string | null>;
   lanes?: { status: TaskStatus; label: string; emptyMessage?: string }[];
   completedLimit: number;
@@ -111,6 +113,7 @@ export function TaskBoard({
               {matching.length > 0 && <Text aria-label={`${matching.length} tasks`} c="dimmed" size="sm">{matching.length}</Text>}
             </Box>
             <Stack gap="sm">
+              {status === "completed" && doneNotice}
               {shown.map((task) => <BoardCard loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
               {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{emptyMessage ?? "No tasks"}</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (

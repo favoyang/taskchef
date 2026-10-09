@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI } from "../src/mcp-app.js";
+import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI, TASKCHEF_GITHUB_URI } from "../src/mcp-app.js";
 
 const task = { observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
@@ -43,7 +43,13 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     const settings = await client.callTool({ name: "taskchef_settings_read", arguments: {} });
     assert.deepEqual(settings.structuredContent.values, defaults);
     assert.equal(settings.structuredContent.schema.properties.showExec.type, "boolean");
-    assert.deepEqual(settings.structuredContent.layout.flatMap((group) => group.items.map((item) => item.property)), Object.keys(defaults));
+    assert.deepEqual(settings.structuredContent.layout.flatMap((group) => group.items.filter((item) => item.kind === "property").map((item) => item.property)), Object.keys(defaults));
+    const action = settings.structuredContent.layout.find(group => group.title === "GitHub").items.find(item => item.kind === "tool");
+    assert.equal(action.tool, "taskchef_github_settings");
+    const githubSettings = await client.callTool({ name: action.tool, arguments: {} });
+    assert.equal(githubSettings.structuredContent.github.connected, false);
+    const settingsResource = await client.readResource({ uri: TASKCHEF_GITHUB_URI });
+    assert.match(settingsResource.contents[0].text, /data-taskchef-page="github"/);
     await assert.rejects(access(settingsPath));
     const updated = await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCli: true } } });
     assert.deepEqual(updated.structuredContent.values, { ...defaults, showCli: true });
@@ -59,7 +65,7 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     assert.equal(tools.find((item) => item.name === "open_taskchef_board")._meta.ui.resourceUri, TASKCHEF_APP_URI);
     assert.equal(tools.find((item) => item.name === "taskchef_app_transition"), undefined);
     for (const tool of tools.filter((item) => item.name.startsWith("taskchef_app_"))) assert.deepEqual(tool._meta.ui.visibility, ["app"]);
-    const resource = await client.readResource({ uri: TASKCHEF_APP_URI });
+    const resource = await client.readResource({ uri: TASKCHEF_APP_URI, TASKCHEF_GITHUB_URI });
     assert.match(resource.contents[0].text, /TaskChef/);
     assert.deepEqual(resource.contents[0]._meta.ui.csp.resourceDomains, ["https:"]);
     const image = await client.callTool({ name: "taskchef_app_image", arguments: { taskId: task.id, expectedTurnId: "turn-one", expectedUrl: "/image.png" } });

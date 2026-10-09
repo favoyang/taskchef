@@ -9,18 +9,22 @@ export interface GitHubAuth {
   error?: string;
   pending?: { userCode: string; verificationUrl: string; expiresAt: number };
 }
-export function GitHubConnection({ auth, request, openLink, refresh, openSettings }: {
+export function GitHubConnection({ auth, request, openLink, refresh, openSettings, openSignal = 0, inline = false, hideTrigger = false }: {
+  openSignal?: number;
+  inline?: boolean;
+  hideTrigger?: boolean;
   auth: GitHubAuth;
   request: (action: "status" | "start" | "poll" | "disconnect") => Promise<GitHubAuth>;
   openLink: (url: string) => Promise<unknown>;
   refresh: () => Promise<unknown>;
   openSettings: () => Promise<unknown>;
 }) {
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(inline);
   const [current, setCurrent] = useState(auth);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setCurrent(auth); }, [auth]);
+  useEffect(() => { if (openSignal > 0) { setError(null); setOpened(true); } }, [openSignal]);
   useEffect(() => {
     if (!opened || !current.pending || document.visibilityState === "hidden") return;
     let cancelled = false;
@@ -44,17 +48,14 @@ export function GitHubConnection({ auth, request, openLink, refresh, openSetting
     try { await operation(); } catch (cause) { setError(String(cause)); }
     finally { setBusy(false); }
   }
-  return <>
-    <ActionIcon aria-label="GitHub connection" title={auth.connected ? `GitHub: ${auth.login}` : "Connect GitHub"} variant="subtle" onClick={() => { setError(null); setOpened(true); }}><IconBrandGithub size={17} /></ActionIcon>
-    <Modal opened={opened} onClose={() => setOpened(false)} title="GitHub PR status" centered>
-      <Stack gap="sm">
+  const controls = <Stack gap="sm">
         {(error || current.error) && <Alert color="red" role="alert">{error || current.error}</Alert>}
         {!current.configured ? <>
           <Text size="sm">GitHub sign-in needs a registered GitHub App. Set its public client ID in plugin settings.</Text>
           <Button onClick={() => void action(openSettings)}>Open plugin settings</Button>
         </> : current.connected ? <>
           <Text size="sm">Connected as <strong>{current.login}</strong>.</Text>
-          <Text size="sm">TaskChef checks attached PRs once a minute while the board is open.</Text>
+          <Text size="sm">TaskChef checks latest-turn PRs in your project and time filters. Status is cached for one minute; merged PRs stay cached until TaskChef restarts.</Text>
           <Button variant="subtle" onClick={() => void action(() => openLink("https://github.com/settings/installations"))}>Manage repository access</Button>
           <Button disabled={busy} variant="default" onClick={() => void action(async () => { setCurrent(await request("disconnect")); await refresh(); })}>Disconnect this computer</Button>
           <Text c="dimmed" size="xs">Disconnect removes the local token. You can revoke GitHub authorization in your GitHub settings.</Text>
@@ -68,7 +69,10 @@ export function GitHubConnection({ auth, request, openLink, refresh, openSetting
           <Group><Button disabled={busy} onClick={() => void action(async () => setCurrent(await request("start")))}>Sign in with GitHub</Button>
             <Button variant="subtle" onClick={() => void action(() => openLink("https://github.com/settings/installations"))}>Repository access</Button></Group>
         </>}
-      </Stack>
-    </Modal>
+  </Stack>;
+  if (inline) return controls;
+  return <>
+    {!hideTrigger && <ActionIcon aria-label="GitHub connection" title={auth.connected ? `GitHub: ${auth.login}` : "Connect GitHub"} variant="subtle" onClick={() => { setError(null); setOpened(true); }}><IconBrandGithub size={17} /></ActionIcon>}
+    <Modal opened={opened} onClose={() => setOpened(false)} title="GitHub PR status" centered>{controls}</Modal>
   </>;
 }

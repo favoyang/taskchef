@@ -59,6 +59,7 @@ interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "dat
 
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
+  const [githubOpenSignal, setGitHubOpenSignal] = useState(0);
   const [githubAuth, setGitHubAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
@@ -107,7 +108,7 @@ export function TaskChefApp() {
   }
   const [project, setProject] = useState("");
   const [search, setSearch] = useState("");
-  const [date, setDate] = useState("all");
+  const [date, setDate] = useState("7d");
   const [status, setStatus] = useState("");
   // Keep the list implementation for later, but expose only Board. Ignore old saved List choices.
   const [view, setView] = useState<"board" | "list">("board");
@@ -127,7 +128,7 @@ export function TaskChefApp() {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
     const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats; projects?: Project[] }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth }>(
-      "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
+      "taskchef_app_snapshot", { project, date, ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
     receiveNotifications(data.notifications);
@@ -177,7 +178,7 @@ export function TaskChefApp() {
       if (cause instanceof Error && cause.message === "Task not found.") clearRemovedTask();
       else setDetailError(String(cause));
     }
-  }, [receiveNotifications]);
+  }, [receiveNotifications, project, date]);
   const githubRequest = useCallback(async (action: "status" | "start" | "poll" | "disconnect") => (await call<{ github: GitHubAuth }>("taskchef_app_github", { action })).github, []);
   const githubOpenLink = useCallback((url: string) => bridge.openLink({ url }), []);
   const githubRefresh = useCallback(() => refresh(true), [refresh]);
@@ -330,7 +331,7 @@ export function TaskChefApp() {
             <TextInput className="taskchef-app-search" aria-label="Search cards" placeholder="Search cards" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
-          <GitHubConnection auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />
+          <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />
           <NextNotificationCenter state={notifications} toasts={toasts} onAction={notificationAction} onDismiss={dismissToast} onOpen={(item) => { const task = tasks.find((task) => task.id === item.taskId); if (task) void select(task, true); else void actionError("open", new Error("This chat is no longer available.")); }} />
           <ActionIcon aria-label="Settings" title="Plugin settings" onClick={() => void (async () => {
             try { await call("taskchef_app_open_settings", {}); }
@@ -353,7 +354,7 @@ export function TaskChefApp() {
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
-          {!error && (view === "board" ? <TaskBoard loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}
@@ -371,4 +372,19 @@ export function TaskChefApp() {
 }
 
 const root = document.getElementById("root");
-if (root) createRoot(root).render(<TaskChefApp />);
+function GitHubSettingsApp() {
+  const [auth, setAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
+  const [error, setError] = useState<string | null>(null);
+  const request = useCallback(async (action: "status" | "start" | "poll" | "disconnect") => {
+    const result = await call<{ github: GitHubAuth }>("taskchef_github_settings_auth", { action });
+    setAuth(result.github);
+    return result.github;
+  }, []);
+  useEffect(() => { void request("status").catch((cause) => setError(String(cause))); }, [request]);
+  return <MantineProvider theme={theme} forceColorScheme="dark"><Box p="md">
+    <Title order={1} size="h4" mb="md">GitHub PR status</Title>
+    {error && <Alert color="red" role="alert" mb="sm">{error}</Alert>}
+    <GitHubConnection inline auth={auth} request={request} openLink={(url) => bridge.openLink({ url })} refresh={async () => { await request("status"); }} openSettings={() => call("taskchef_github_settings_open_plugin")} />
+  </Box></MantineProvider>;
+}
+if (root) createRoot(root).render(root.dataset.taskchefPage === "github" ? <GitHubSettingsApp /> : <TaskChefApp />);
