@@ -3,6 +3,18 @@ import { IconBell, IconX } from "@tabler/icons-react";
 
 export interface NextNotification { id: string; taskId: string | null; title: string; detail: string; kind: "ready" | "interrupted" | "confirmation" | "error"; read: boolean; timestamp: string; }
 export interface NextNotificationState { revision: number; items: NextNotification[]; }
+
+// Saved notifications arrive newest first. Keep the latest copy of each chat message.
+function latestChatMessages(items: NextNotification[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.taskId) return true;
+    const key = JSON.stringify([item.taskId, item.kind, item.title, item.detail]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDismiss }: {
   state: NextNotificationState; toasts: NextNotification[];
   onAction: (action: "read" | "read_all" | "clear", id?: string) => Promise<void>;
@@ -13,8 +25,9 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const bell = useRef<HTMLButtonElement>(null);
-  const unread = state.items.filter((item) => !item.read).length;
-  const items = state.items.filter((item) => filter === "all" || !item.read);
+  const latest = latestChatMessages(state.items);
+  const unread = latest.filter((item) => !item.read).length;
+  const items = latest.filter((item) => filter === "all" || !item.read);
   useEffect(() => {
     if (!opened) return;
     const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpened(false); };
