@@ -33,7 +33,7 @@ export function ProjectPicker({ data, value, onChange }: { data: ProjectOption[]
     <Combobox.Dropdown className="next-project-dropdown">
       <Combobox.Search aria-label="Search projects" placeholder="Search projects" value={search} leftSection={<IconSearch size={15} aria-hidden />}
         rightSectionPointerEvents="all" rightSectionWidth={34}
-        rightSection={<span className="next-project-sort"><ActionIcon variant="subtle" size="sm" aria-label={`Sort projects: ${sortLabel}. Switch to ${nextLabel}`} title={`Sort: ${sortLabel}. Click for ${nextLabel}`}
+        rightSection={<span className="next-project-sort"><ActionIcon variant="subtle" size="sm" aria-label={`Sort projects: ${sortLabel}. Switch to ${nextLabel}`} title={`Sort: ${sortLabel}`}
           onMouseDown={(event) => event.preventDefault()} onClick={() => { setSort(sort === "recent" ? "az" : sort === "az" ? "za" : "recent"); store.resetSelectedOption(); }}>
           <SortIcon size={17} aria-hidden />
         </ActionIcon></span>}
