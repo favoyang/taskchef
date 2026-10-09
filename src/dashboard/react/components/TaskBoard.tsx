@@ -150,7 +150,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
       <Box className="taskchef-board-card-footer">
         {task.observed && task.status === "working"
           ? <ElapsedTime startedAt={task.observed.lastTurnEventAt} />
-          : <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} />}
+          : <RelativeTime calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} durationMs={task.observed ? task.observed.latestTurnDurationMs ?? null : undefined} />}
         {linked ? (
           <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
             <IconArrowUpRight aria-hidden size={19} stroke={1.6} />

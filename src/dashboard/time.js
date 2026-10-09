@@ -41,8 +41,16 @@ export function formatCardTime(value, { now = Date.now() } = {}) {
   const day = date.getDate();
   const suffix = day % 100 >= 11 && day % 100 <= 13 ? "th"
     : ({ 1: "st", 2: "nd", 3: "rd" }[day % 10] ?? "th");
-  const month = new Intl.DateTimeFormat("en-US", { month: "long" }).format(date);
+  const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date);
   return `${month} ${day}${suffix}${date.getFullYear() === current.getFullYear() ? "" : `, ${date.getFullYear()}`}`;
+}
+
+export function formatWorkedDuration(durationMs) {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return "—";
+  const totalMinutes = Math.floor(durationMs / MINUTE_MS);
+  if (totalMinutes < 1) return "<1m";
+  const hours = Math.floor(totalMinutes / 60);
+  return `${hours ? `${hours}h ` : ""}${totalMinutes % 60}m`;
 }
 
 function hourPhrase(milliseconds, direction) {

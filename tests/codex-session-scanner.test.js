@@ -19,11 +19,30 @@ async function fixture(t) {
   state.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, position INTEGER)");
   state.exec("CREATE TABLE project_roots (project_id TEXT, path TEXT, position INTEGER)");
   state.exec("CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT, PRIMARY KEY (parent_thread_id, child_thread_id))");
-  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
+  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, duration_ms INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
   history.exec("CREATE TABLE thread_items (thread_id TEXT, turn_id TEXT, item_id TEXT, item_json TEXT, item_type TEXT, rollout_ordinal INTEGER, PRIMARY KEY (thread_id, turn_id, item_id))");
   t.after(() => { state.close(); history.close(); });
   return { home, state, history };
 }
+
+test("latest turn duration comes from the selected database turn and is absent while running", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Duration demo', '/repo', 0, 1, 1, 1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,duration_ms) VALUES (?,1,'completed',54300000)").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home });
+  t.after(() => scanner.close());
+  const initial = await scanner.refresh();
+  assert.equal(initial.tasks[0].observed.latestTurnDurationMs, 54300000);
+  history.prepare("UPDATE thread_turns SET duration_ms=60000").run();
+  const updated = await scanner.refresh();
+  assert.equal(updated.tasks[0].observed.latestTurnDurationMs, 60000);
+  assert.ok(updated.revision > initial.revision);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,duration_ms) VALUES (?,2,'inProgress',54300000)").run(id);
+  assert.equal((await scanner.refresh(true)).tasks[0].observed.latestTurnDurationMs, null);
+  history.prepare("UPDATE thread_turns SET status='completed', duration_ms=NULL WHERE rollout_ordinal=2").run();
+  assert.equal((await scanner.refresh(true)).tasks[0].observed.latestTurnDurationMs, null);
+});
 
 test("database is the sole inventory and status source", async (t) => {
   const setup = await fixture(t); if (!setup) return;
@@ -120,7 +139,7 @@ test("missing or incompatible databases are fatal and clear prior inventory", as
   assert.deepEqual(failed.tasks, []);
   assert.equal(scanner.task(id), undefined);
   assert.equal(await scanner.taskDetail(id), null);
-  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
+  history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, duration_ms INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
   assert.equal((await scanner.refresh()).healthy, true);
 });
 

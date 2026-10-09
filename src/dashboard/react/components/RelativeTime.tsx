@@ -1,7 +1,7 @@
 import { Tooltip, UnstyledButton } from "@mantine/core";
 import { IconClock, IconHourglass } from "@tabler/icons-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { formatCardTime, formatExactTime, formatRelativeTime } from "../../time.js";
+import { formatCardTime, formatExactTime, formatRelativeTime, formatWorkedDuration } from "../../time.js";
 
 const RelativeTimeClock = createContext<number | null>(null);
 
@@ -20,11 +20,8 @@ export function ElapsedTime({ startedAt }: { startedAt: string | null | undefine
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
   }, [available, startedAt]);
-  const elapsedMinutes = Math.max(0, Math.floor((now - start) / 60000));
-  const hours = Math.floor(elapsedMinutes / 60);
-  const minutes = elapsedMinutes % 60;
-  const text = available ? elapsedMinutes < 1 ? "<1m" : `${hours ? `${hours}h ` : ""}${minutes}m` : "—";
-  const tooltip = available ? `Started ${formatExactTime(startedAt)}` : "Turn start time unavailable";
+  const text = available ? formatWorkedDuration(Math.max(0, now - start)) : "—";
+  const tooltip = available ? `Worked for ${text} · Started ${formatExactTime(startedAt)}` : "Turn start time unavailable";
   return <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
     <span aria-label={`Elapsed time: ${text}. ${tooltip}`} className="taskchef-time" tabIndex={0}>
       <IconHourglass aria-hidden size={12} style={{ transform: "translateY(-1px)" }} />
@@ -38,11 +35,13 @@ export function RelativeTime({
   calendar = false,
   label,
   value,
+  durationMs,
 }: {
   icon?: ReactNode;
   calendar?: boolean;
   label: string;
   value: string | null | undefined;
+  durationMs?: number | null;
 }) {
   const [exact, setExact] = useState(false);
   const now = useContext(RelativeTimeClock) ?? Date.now();
@@ -50,7 +49,10 @@ export function RelativeTime({
   const text = exact ? formatExactTime(value) : shortText;
   const exactText = formatExactTime(value);
   const unavailable = exactText === "—";
-  const tooltip = unavailable ? "Updated time unavailable" : exact ? shortText : exactText;
+  const duration = formatWorkedDuration(durationMs);
+  const tooltip = durationMs !== undefined
+    ? duration === "—" ? "Run duration unavailable" : `Worked for ${duration}`
+    : unavailable ? "Updated time unavailable" : exact ? shortText : exactText;
   return (
     <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
       <UnstyledButton

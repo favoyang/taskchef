@@ -1,11 +1,18 @@
 import { MantineProvider } from "@mantine/core";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { formatCardTime } from "../../time.js";
+import { formatCardTime, formatWorkedDuration } from "../../time.js";
 import { ElapsedTime, RelativeTime, RelativeTimeProvider } from "./RelativeTime";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 const local = (year: number, month: number, day: number, hour = 0, minute = 0) => new Date(year, month - 1, day, hour, minute).toISOString();
+
+test("saved work durations use hours and minutes without inventing missing data", () => {
+  expect(formatWorkedDuration(54300000)).toBe("15h 5m");
+  expect(formatWorkedDuration(59999)).toBe("<1m");
+  expect(formatWorkedDuration(60000)).toBe("1m");
+  for (const value of [null, undefined, -1, NaN]) expect(formatWorkedDuration(value)).toBe("—");
+});
 
 test("elapsed time ticks from the turn start, resets for a new turn, and cleans up", () => {
   vi.useFakeTimers();
@@ -40,17 +47,17 @@ test("card dates use local calendar days across midnight and year boundaries", (
   const now = new Date(2026, 9, 8, 14, 35).getTime();
   expect(formatCardTime(local(2026, 10, 8, 14, 30), { now })).toBe("2:30PM");
   expect(formatCardTime(local(2026, 10, 7, 23, 59), { now })).toBe("Yesterday");
-  expect(formatCardTime(local(2026, 7, 7), { now })).toBe("July 7th");
-  expect(formatCardTime(local(2025, 7, 7), { now })).toBe("July 7th, 2025");
+  expect(formatCardTime(local(2026, 7, 7), { now })).toBe("Jul 7th");
+  expect(formatCardTime(local(2025, 7, 7), { now })).toBe("Jul 7th, 2025");
   expect(formatCardTime(local(2025, 12, 31), { now: new Date(2026, 0, 1, 0, 1).getTime() })).toBe("Yesterday");
-  expect(formatCardTime(local(2026, 10, 9), { now })).toBe("October 9th");
+  expect(formatCardTime(local(2026, 10, 9), { now })).toBe("Oct 9th");
   expect(formatCardTime(null, { now })).toBe("—");
 });
 
 test("ordinal date labels handle teens and month endings", () => {
   const now = new Date(2026, 9, 8).getTime();
   for (const [day, suffix] of [[1, "st"], [2, "nd"], [3, "rd"], [11, "th"], [12, "th"], [13, "th"], [21, "st"], [31, "st"]] as const) {
-    expect(formatCardTime(local(2026, 7, day), { now })).toBe(`July ${day}${suffix}`);
+    expect(formatCardTime(local(2026, 7, day), { now })).toBe(`Jul ${day}${suffix}`);
   }
 });
 
