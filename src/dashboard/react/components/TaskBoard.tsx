@@ -1,6 +1,6 @@
 import { PullRequestBadges } from "./PullRequestBadges";
 import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
-import { useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
@@ -21,6 +21,7 @@ export function TaskBoard({
   groupInterruptedWithWaiting = false,
   loadImage,
   doneNotice,
+  onVisibleTasksChange,
   completedLimit,
   archivedLimit = 5,
   onMoreArchived,
@@ -31,6 +32,7 @@ export function TaskBoard({
 }: {
   groupInterruptedWithWaiting?: boolean;
   doneNotice?: ReactNode;
+  onVisibleTasksChange?: (ids: string[]) => void;
   loadImage?: (task: Task) => Promise<string | null>;
   lanes?: { status: TaskStatus; label: string; emptyMessage?: string }[];
   completedLimit: number;
@@ -44,6 +46,27 @@ export function TaskBoard({
   const boardRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
+
+  // Observe the same DOM cards across reply updates; rebuild only when cards or lanes change.
+  const cardLayoutKey = JSON.stringify(tasks.map(({ id, status }) => [id, status]));
+  useLayoutEffect(() => {
+    if (!onVisibleTasksChange || !boardRef.current || typeof IntersectionObserver === "undefined") return;
+    onVisibleTasksChange([]);
+    const visible = new Set<string>();
+    let active = true;
+    const observer = new IntersectionObserver(entries => {
+      if (!active) return;
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.chatId;
+        if (!id) continue;
+        if (entry.isIntersecting) visible.add(id); else visible.delete(id);
+      }
+      onVisibleTasksChange([...visible].sort());
+    });
+    const cards = boardRef.current.querySelectorAll("[data-chat-id]");
+    for (const card of cards) observer.observe(card);
+    return () => { active = false; observer.disconnect(); onVisibleTasksChange([]); };
+  }, [cardLayoutKey, completedLimit, archivedLimit, onVisibleTasksChange]);
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType !== "mouse" || event.button !== 0 || !event.isPrimary) return;
@@ -140,7 +163,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
     : task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
   return (
-    <Paper className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
+    <Paper data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
       {task.observed && task.replyImage && <ReplyCover key={`${task.turnId}:${task.replyImage.url}`} task={task} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>

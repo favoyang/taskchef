@@ -126,7 +126,8 @@ export class NextGitHub {
   async enrich(snapshot, settings, { force = false, scope = {} } = {}) {
     if (!snapshot.healthy) return { snapshot, auth: { configured: Boolean(settings.githubClientId), connected: false, login: null } };
     const clientId = settings.githubClientId;
-    const urls = [...new Set(filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")).flatMap((task) => (task.pullRequests ?? []).map((pr) => pr.url)))];
+    const requestedIds = scope.taskIds === undefined ? null : new Set(scope.taskIds);
+    const urls = [...new Set(filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!requestedIds || requestedIds.has(task.id)) && (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")).flatMap((task) => (task.pullRequests ?? []).map((pr) => pr.url)))];
     let auth = { configured: Boolean(clientId), connected: false, login: null };
     if (clientId) {
       try {

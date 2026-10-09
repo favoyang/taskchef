@@ -36,7 +36,7 @@ vi.mock("../../dashboard/react/components/TaskCard", () => ({
   TaskCard: ({ task, onOpenCodex, onOpenDetail }: { task: Task; onOpenCodex: (task: Task) => void; onOpenDetail: (task: Task) => void }) => <article><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>,
 }));
 vi.mock("../../dashboard/react/components/TaskBoard", () => ({
-  TaskBoard: ({ tasks, onOpenDetail, onOpenCodex, doneNotice }: { doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board">{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
+  TaskBoard: ({ tasks, onOpenDetail, onOpenCodex, doneNotice, onVisibleTasksChange }: { onVisibleTasksChange?: (ids: string[]) => void; doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board"><button onClick={() => onVisibleTasksChange?.([tasks[0].id])}>Report card in view</button>{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
 vi.mock("../../dashboard/react/components/TaskDetail", () => ({
   TaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
@@ -215,7 +215,7 @@ test("refresh sends the last revision and keeps selection detail current on unch
   details.set("one", task("one", "needs_input"));
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("needs_input"));
-  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1, force: true, date: "7d", project: "" } });
+  expect(server.call).toHaveBeenCalledWith({ name: "taskchef_app_snapshot", arguments: { revision: 1, force: true, date: "all", project: "", visibleTaskIds: [] } });
   tasks = [task("two")];
   revision = 2;
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -526,4 +526,14 @@ test("Done connection link opens GitHub controls without leaving the board", asy
   fireEvent.click(link);
   expect(await screen.findByRole("button", {name:"Open plugin settings"})).toBeInTheDocument();
   expect(screen.getByRole("region", {name:"Task board"})).toBeVisible();
+});
+
+
+test("All time loads local records first and passes visible card IDs on the next request", async () => {
+  render(<TaskChefApp />);
+  await screen.findByRole("button", { name: "Report card in view" });
+  expect(server.call).toHaveBeenCalledWith({name:"taskchef_app_snapshot",arguments:{project:"",date:"all",visibleTaskIds:[]}});
+  server.call.mockClear();
+  fireEvent.click(screen.getByRole("button", { name: "Report card in view" }));
+  await waitFor(() => expect(server.call).toHaveBeenCalledWith({name:"taskchef_app_snapshot",arguments:{project:"",date:"all",visibleTaskIds:["one"]}}));
 });

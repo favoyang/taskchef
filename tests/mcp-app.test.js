@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { NextGitHub } from "../src/next-github.js";
 import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI, TASKCHEF_GITHUB_URI } from "../src/mcp-app.js";
 
 const task = { observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
@@ -32,19 +33,30 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
   t.after(() => rm(temp, { recursive: true, force: true }));
   const settingsPath = join(temp, "settings.json");
   const server = new McpServer({ name: "taskchef-next-test", version: "1" });
-  registerTaskChefApp(server, { settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; }, getSettingsUrl: async () => "codex://plugins/taskchef-next?marketplacePath=%2Fexample", openSettings: async (url) => { settingsOpened = url; } });
+  let credential = {};
+  const scopes = [];
+  const github = new NextGitHub({ stateDir: temp, credentials: { read: async () => credential, write: async (_, value) => { credential = value; }, remove: async () => { credential = {}; } }, fetch: async () => { throw new Error("Unexpected GitHub request"); } });
+  const enrich = github.enrich.bind(github);
+  github.enrich = async (snapshot, settings, options) => { scopes.push(options?.scope); return enrich(snapshot, settings, options); };
+  registerTaskChefApp(server, { createGitHub: () => github, settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; }, getSettingsUrl: async () => "codex://plugins/taskchef-next?marketplacePath=%2Fexample", openSettings: async (url) => { settingsOpened = url; } });
   const client = new Client({ name: "taskchef-next-client", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
-    const defaults = { showExec: false, showCli: false, showArchived: false, githubClientId: "" };
+    const defaults = { showExec: false, showCli: false, showArchived: false };
     assert.deepEqual(client.getServerCapabilities().experimental["openai/settings"], { readTool: "taskchef_settings_read", updateTool: "taskchef_settings_update" });
     const settings = await client.callTool({ name: "taskchef_settings_read", arguments: {} });
     assert.deepEqual(settings.structuredContent.values, defaults);
     assert.equal(settings.structuredContent.schema.properties.showExec.type, "boolean");
     assert.deepEqual(settings.structuredContent.layout.flatMap((group) => group.items.filter((item) => item.kind === "property").map((item) => item.property)), Object.keys(defaults));
     const action = settings.structuredContent.layout.find(group => group.title === "GitHub").items.find(item => item.kind === "tool");
+    assert.equal(action.title, "Connect GitHub");
+    assert.equal(settings.structuredContent.schema.properties.githubClientId, undefined);
+    credential = { token: "test-token", login: "tester" };
+    const connectedSettings = await client.callTool({ name: "taskchef_settings_read", arguments: {} });
+    assert.equal(connectedSettings.structuredContent.layout.find(group => group.title === "GitHub").items[0].title, "Manage GitHub");
+    credential = {};
     assert.equal(action.tool, "taskchef_github_settings");
     const githubSettings = await client.callTool({ name: action.tool, arguments: {} });
     assert.equal(githubSettings.structuredContent.github.connected, false);
@@ -53,8 +65,8 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     await assert.rejects(access(settingsPath));
     const updated = await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCli: true } } });
     assert.deepEqual(updated.structuredContent.values, { ...defaults, showCli: true });
-    assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), updated.structuredContent.values);
-    for (const set of [{}, { bogus: true }, { showExec: "yes" }]) {
+    assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { ...updated.structuredContent.values, githubClientId: "Iv23likjK80RCtqZFGg8" });
+    for (const set of [{}, { bogus: true }, { showExec: "yes" }, { githubClientId: "Iv1.test" }]) {
       const invalid = await client.callTool({ name: "taskchef_settings_update", arguments: { set } });
       assert.equal(invalid.isError, true);
     }
@@ -74,8 +86,11 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     assert.equal(initial.structuredContent.taskCount, 1);
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.scan.indexedFiles, 1);
+    assert.deepEqual(scopes.at(-1), { date: "all", project: undefined, taskIds: [] });
+    await client.callTool({ name: "taskchef_app_snapshot", arguments: { visibleTaskIds: [task.id] } });
+    assert.deepEqual(scopes.at(-1).taskIds, [task.id]);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: false, connected: false, login: null } });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: true, connected: false, login: null } });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);

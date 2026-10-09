@@ -89,8 +89,8 @@ The current Codex database has `state_5.sqlite:thread_attachments`. Records with
 `attachment_type=pull_request` provide the attached PR URL in `payload.url`.
 This corrects the earlier schema scan. Transcript links are not attachments.
 
-The implemented GitHub App device flow needs a registered public client ID and
-device flow enabled. Registration currently waits for owner identity confirmation.
+TaskChef includes its registered GitHub App public client ID with device flow
+enabled. Users connect through the native GitHub settings action.
 TaskChef uses read-only Pull requests, Checks, and Commit statuses permissions.
 Access and refresh tokens stay in the local OS credential store; the sidebar
 receives no tokens. There is no client secret, private key, or developer CLI

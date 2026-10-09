@@ -175,3 +175,17 @@ test("project and time scope exclude old history; selecting All time fetches it 
   await c.github.enrich({healthy:true,tasks:[tasks[1]]},settings);
   assert.equal(c.requests.length,2,"merged PR is not fetched again after cache TTL");
 });
+
+
+test("only cards in view start GitHub queries, including old chats in All time", async (t) => {
+  const c = await setup(t, [response(), response()], signedIn);
+  const tasks = [task({id:"visible"}), task({id:"offscreen",updatedAt:new Date(-700_000_000).toISOString(),pullRequests:[{url:"https://github.com/example/repo/pull/13"}]})];
+  await c.github.enrich({healthy:true,tasks},settings,{scope:{date:"all",taskIds:[]}});
+  assert.equal(c.requests.length,0);
+  await c.github.enrich({healthy:true,tasks},settings,{scope:{date:"all",taskIds:["visible"]}});
+  assert.match(c.requests[0].options.body,/number:12/);
+  assert.doesNotMatch(c.requests[0].options.body,/number:13/);
+  await c.github.enrich({healthy:true,tasks},settings,{scope:{date:"all",taskIds:["offscreen"]}});
+  assert.match(c.requests[1].options.body,/number:13/);
+  assert.doesNotMatch(c.requests[1].options.body,/number:12/);
+});

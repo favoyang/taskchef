@@ -7,13 +7,12 @@ Older Codex databases without this table show no PR attachments.
 
 ## Connect GitHub
 
-1. Open TaskChef's plugin settings and set the public GitHub App client ID.
-2. In plugin settings, select **GitHub → Connect GitHub**, then **Sign in with GitHub**. The Done column also links to these connection controls when signed out.
-3. Enter the displayed code on GitHub and approve access.
-4. Install the GitHub App on the accounts and repositories you want to read.
+1. In plugin settings, select **GitHub → Connect GitHub**, then **Sign in with GitHub**. The Done column also links to these connection controls when signed out.
+2. Enter the displayed code on GitHub and approve access.
+3. Install the GitHub App on the accounts and repositories you want to read.
    **Repository access** opens GitHub's installation settings.
 
-The public client ID is not a secret. The device code, access token, and refresh
+TaskChef includes its registered GitHub App client ID. Once connected, the native settings action becomes **Manage GitHub**. Existing local client-ID overrides remain internal; the public settings page has no client-ID field. The device code, access token, and refresh
 token stay in the local MCP server's system credential store. They never go to
 the sidebar, ordinary JSON files, shell arguments, or a TaskChef hosted server.
 On macOS this is Keychain; Windows uses Credential Manager; Linux requires
@@ -86,14 +85,39 @@ Badges show Merged (purple), Draft (gray), Checks passed (green), No checks or
 Checks pending (yellow), Checks failed or Closed without merge (red), and
 Unavailable (gray). Hover shows the PR URL, check time, and any access error.
 
+## Codex sidebar icon research
+
+OpenAI's changelog confirms draft, open, merged, and closed PR badges. It does
+not publish a color legend. The table below comes from read-only inspection of
+the installed desktop application's compiled `webview/assets/app-initial` bundle
+on 10 October 2026. It is an implementation observation, not a documented API.
+
+| Appearance | Installed Codex rule |
+| --- | --- |
+| Dashed PR icon | Draft |
+| Purple merge icon | Merged |
+| Red closed icon | Closed without merge |
+| PR with red dot | Merge conflicts or failing CI |
+| PR with green dot | Passing CI or `canMerge = true` |
+| PR with yellow dot | Other open PR state (`in_progress`) |
+
+The implementation selects `successful` when CI passes but `canMerge` is false,
+and `ready` when `canMerge` is true. Both use the same green dot. Yellow does
+not specifically mean no CI, and green alone does not prove merge readiness.
+TaskChef currently reads PR state, draft state, and the latest commit's combined
+check status. It does not yet read merge blockers or review requirements, so its
+current green badge means **Checks passed** only.
+
 ## Refresh and failure behavior
 
 The board still polls its local MCP server every five seconds while visible.
 GitHub checks use the board's project and time filters. The default time filter is
-Latest 7 days. Opening the board does not fetch all historical chats. Selecting
-All time explicitly includes older open chats. Opening one chat's Details checks
-that chat on demand. New chats enter the same checks when their latest turn has
-an owned PR and they match the filters. Search text does not change GitHub scope.
+All time. Only rendered cards that intersect the visible viewport start requests.
+Opening the board first reads local records without GitHub requests. Card visibility
+then schedules a check after a 250 ms debounce. Scrolling, searching, filtering,
+and loading more cards update this set. Offscreen cards do not start requests.
+Opening one chat's Details checks that chat on demand. New chats follow the same
+rule when their latest turn has an owned PR.
 
 PR status is cached in memory for 60 seconds per MCP server. Merged PRs stay
 cached until the process restarts, sign-in changes, or the user disconnects.
@@ -124,3 +148,5 @@ Refresh tokens are rotated under a local lock shared by MCP processes.
 - [GitHub App device flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)
 - [Refresh user tokens without a device-flow client secret](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)
 - [GitHub App permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)
+
+- [OpenAI changelog: PR status badges](https://learn.chatgpt.com/docs/changelog)

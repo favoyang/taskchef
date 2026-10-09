@@ -1,5 +1,5 @@
 import { MantineProvider } from "@mantine/core";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "../fixtures";
 import { TaskBoard } from "./TaskBoard";
@@ -170,4 +170,41 @@ test("Next groups interrupted cards under Waiting with a tag and keeps empty Sch
   expect(screen.queryByRole("region", { name: /Unverified/ })).not.toBeInTheDocument();
   rerender(<MantineProvider><TaskBoard lanes={lanes} tasks={[interrupted, task(2, "scheduled")]} groupInterruptedWithWaiting completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
   expect(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).toBeVisible();
+});
+
+
+test("reports only intersecting cards and does not observe unrendered Done cards", () => {
+  let notify!: IntersectionObserverCallback;
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(callback: IntersectionObserverCallback) { notify = callback; }
+    observe = observe;
+    disconnect = disconnect;
+  });
+  try {
+    const onVisibleTasksChange = vi.fn();
+    const tasks = [task(1,"working"),task(2,"completed"),task(3,"completed")];
+    const view = render(<MantineProvider><TaskBoard tasks={tasks} completedLimit={1} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onVisibleTasksChange={onVisibleTasksChange} /></MantineProvider>);
+    const cards = observe.mock.calls.map(([element]) => element as HTMLElement);
+    expect(cards).toHaveLength(2);
+    act(() => notify([{target:cards[0],isIntersecting:true},{target:cards[1],isIntersecting:false}] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(onVisibleTasksChange).toHaveBeenLastCalledWith([cards[0].dataset.chatId]);
+    act(() => notify([{target:cards[0],isIntersecting:false},{target:cards[1],isIntersecting:true}] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(onVisibleTasksChange).toHaveBeenLastCalledWith([cards[1].dataset.chatId]);
+    const observations = observe.mock.calls.length;
+    const previousNotify = notify;
+    view.rerender(<MantineProvider><TaskBoard tasks={tasks.map(item => ({...item, summary:"Updated reply"}))} completedLimit={1} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onVisibleTasksChange={onVisibleTasksChange} /></MantineProvider>);
+    expect(observe.mock.calls.length).toBe(observations);
+    view.rerender(<MantineProvider><TaskBoard tasks={[tasks[0]]} completedLimit={1} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onVisibleTasksChange={onVisibleTasksChange} /></MantineProvider>);
+    expect(onVisibleTasksChange).toHaveBeenLastCalledWith([]);
+    act(() => previousNotify([{target:cards[0],isIntersecting:true}] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(onVisibleTasksChange).toHaveBeenLastCalledWith([]);
+    view.rerender(<MantineProvider><TaskBoard tasks={[]} completedLimit={1} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onVisibleTasksChange={onVisibleTasksChange} /></MantineProvider>);
+    expect(onVisibleTasksChange).toHaveBeenLastCalledWith([]);
+    onVisibleTasksChange.mockClear();
+    view.unmount();
+    expect(onVisibleTasksChange).toHaveBeenLastCalledWith([]);
+    expect(disconnect).toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
 });

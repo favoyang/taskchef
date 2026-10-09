@@ -26,7 +26,7 @@ export function GitHubConnection({ auth, request, openLink, refresh, openSetting
   useEffect(() => { setCurrent(auth); }, [auth]);
   useEffect(() => { if (openSignal > 0) { setError(null); setOpened(true); } }, [openSignal]);
   useEffect(() => {
-    if (!opened || !current.pending || document.visibilityState === "hidden") return;
+    if (!opened || !current.pending) return;
     let cancelled = false;
     let polling = false;
     const timer = window.setInterval(async () => {
@@ -51,23 +51,23 @@ export function GitHubConnection({ auth, request, openLink, refresh, openSetting
   const controls = <Stack gap="sm">
         {(error || current.error) && <Alert color="red" role="alert">{error || current.error}</Alert>}
         {!current.configured ? <>
-          <Text size="sm">GitHub sign-in needs a registered GitHub App. Set its public client ID in plugin settings.</Text>
+          <Text size="sm">GitHub connection is not ready. Open plugin settings and try again.</Text>
           <Button onClick={() => void action(openSettings)}>Open plugin settings</Button>
         </> : current.connected ? <>
           <Text size="sm">Connected as <strong>{current.login}</strong>.</Text>
-          <Text size="sm">TaskChef checks latest-turn PRs in your project and time filters. Status is cached for one minute; merged PRs stay cached until TaskChef restarts.</Text>
-          <Button variant="subtle" onClick={() => void action(() => openLink("https://github.com/settings/installations"))}>Manage repository access</Button>
+          <Text size="sm">Install TaskChef in each organization you want to use, and select the repositories it can access. An organization owner may need to approve the installation.</Text>
+          <Button variant="default" onClick={() => void action(() => openLink("https://github.com/settings/installations"))}>Manage repository access</Button>
           <Button disabled={busy} variant="default" onClick={() => void action(async () => { setCurrent(await request("disconnect")); await refresh(); })}>Disconnect this computer</Button>
-          <Text c="dimmed" size="xs">Disconnect removes the local token. You can revoke GitHub authorization in your GitHub settings.</Text>
+          <Text c="dimmed" size="xs">You can reconnect at any time.</Text>
         </> : current.pending ? <>
           <Text size="sm">Enter this code on GitHub:</Text>
           <Text fw={700} size="xl" style={{ letterSpacing: "0.1em" }}>{current.pending.userCode}</Text>
           <Button disabled={busy} onClick={() => void action(() => openLink(current.pending!.verificationUrl))}>Open GitHub</Button>
           <Text c="dimmed" size="xs">Waiting for your approval. Keep this dialog open. The code expires in 15 minutes.</Text>
         </> : <>
-          <Text size="sm">Read PR and CI status for your selected repositories. Your sign-in stays in this computer’s credential store. Chat messages are not sent to GitHub.</Text>
+          <Text size="sm">Let TaskChef read PR and CI status for your selected repositories and update the board automatically.</Text>
           <Group><Button disabled={busy} onClick={() => void action(async () => setCurrent(await request("start")))}>Sign in with GitHub</Button>
-            <Button variant="subtle" onClick={() => void action(() => openLink("https://github.com/settings/installations"))}>Repository access</Button></Group>
+            <Button variant="default" onClick={() => void action(() => openLink("https://github.com/settings/installations"))}>Repository access</Button></Group>
         </>}
   </Stack>;
   if (inline) return controls;

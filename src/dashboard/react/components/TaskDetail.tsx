@@ -101,6 +101,7 @@ export function TaskDetail({
         <Group gap="xs" mt="md">
           <OpenChatButton loading={busy} onClick={onOpenCodex} taskTitle={task.title} />
           {extraActions}
+          {readOnly && <Button leftSection={<IconClipboard size={14} />} onClick={onCopy} variant="default">Copy Task ID</Button>}
           {!readOnly && <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
             <Menu.Target>
               <Tooltip label="More task actions">

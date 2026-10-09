@@ -235,3 +235,12 @@ function ConfirmationHarness({ onTransition }: { onTransition: (status: Terminal
     </MantineProvider>
   );
 }
+
+
+test("read-only Details allows copying an ID without exposing manual status actions", () => {
+  const onCopy = vi.fn();
+  render(<MantineProvider><TaskDetail busy={false} error={null} highlightTurnRef={null} onClose={vi.fn()} onCopy={onCopy} onOpenCodex={vi.fn()} onTransition={vi.fn()} opened readOnly task={fixtureTask()} /></MantineProvider>);
+  expect(screen.queryByRole("button", {name:"More task actions"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name:"Copy Task ID"}));
+  expect(onCopy).toHaveBeenCalledOnce();
+});
