@@ -98,7 +98,7 @@ test("plugin settings link resolves the installed local marketplace", async (t) 
   await writeFile(join(temp, "config.toml"), '[marketplaces.preview]\nsource = "/example/marketplace"\n');
   const url = await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" });
   assert.equal(url, "codex://plugins/taskchef-next?marketplacePath=%2Fexample%2Fmarketplace");
-  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/unknown/" }), "codex://plugins");
+  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/unknown/" }), null);
 });
 
 
@@ -116,7 +116,7 @@ test("plugin settings uses the native desktop opener and reports errors", async 
     assert.deepEqual(invocation[1], args);
   }
   await assert.rejects(openPluginSettingsInCodex(url, { run: async () => { throw new Error("Opener failed"); } }), /Opener failed/);
-  for (const invalid of ["codex://plugins", "https://example.com", "codex://plugins/taskchef-next?marketplacePath=relative", "codex://plugins/taskchef-next?marketplacePath=%2Fexample&other=value"]) {
+  for (const invalid of [null, "codex://plugins", "https://example.com", "codex://plugins/taskchef-next?marketplacePath=relative", "codex://plugins/taskchef-next?marketplacePath=%2Fexample&other=value"]) {
     await assert.rejects(openPluginSettingsInCodex(invalid, { run: async () => assert.fail("Must not open invalid URL") }));
   }
 });

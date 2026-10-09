@@ -15,7 +15,9 @@ async function fixture(t) {
   t.after(async () => rm(home, { recursive: true, force: true }));
   const state = new sqlite.DatabaseSync(join(home, "state_5.sqlite"));
   const history = new sqlite.DatabaseSync(join(home, "thread_history_1.sqlite"));
-  state.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT, cwd TEXT, archived INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER, recency_at_ms INTEGER, rollout_path TEXT, thread_source TEXT, source TEXT DEFAULT 'vscode', history_mode TEXT DEFAULT 'legacy')");
+  state.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT, cwd TEXT, archived INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER, recency_at_ms INTEGER, rollout_path TEXT, thread_source TEXT, source TEXT DEFAULT 'vscode', history_mode TEXT DEFAULT 'legacy', project_id TEXT)");
+  state.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, position INTEGER)");
+  state.exec("CREATE TABLE project_roots (project_id TEXT, path TEXT, position INTEGER)");
   state.exec("CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT, PRIMARY KEY (parent_thread_id, child_thread_id))");
   history.exec("CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT, turn_id TEXT DEFAULT 'turn-1', started_at INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER)");
   history.exec("CREATE TABLE thread_items (thread_id TEXT, turn_id TEXT, item_id TEXT, item_json TEXT, item_type TEXT, rollout_ordinal INTEGER, PRIMARY KEY (thread_id, turn_id, item_id))");
@@ -475,3 +477,26 @@ test("Done-file cache notices rewrites, replacements, removal, and invalid conte
   const next=await scanner.refresh();assert.equal(next.tasks[0].replyImage,null);assert.notEqual(next.revision,first.revision);
   assert.equal(await scanner.taskImage(id,"cover-turn",image),null);
  });
+
+test("saved project names and assignments update the board revision independently of turn status", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO projects VALUES ('saved','Workspace',0)").run();
+  state.prepare("INSERT INTO project_roots VALUES ('saved','/repo',0)").run();
+  state.prepare("INSERT INTO threads (id,cwd,project_id,created_at_ms,updated_at_ms) VALUES (?, '/worktree','saved',1,1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home, statePath: join(home, "done.json") });
+  t.after(() => scanner.close());
+  const first = await scanner.refresh();
+  assert.equal(first.projects[0].name, "Workspace");
+  assert.equal(first.tasks[0].project.id, "saved");
+  assert.equal(first.tasks[0].project.path, "/worktree");
+  state.prepare("UPDATE projects SET name='Renamed' WHERE id='saved'").run();
+  const renamed = await scanner.refresh();
+  assert.ok(renamed.revision > first.revision);
+  assert.equal(renamed.tasks[0].project.name, "Renamed");
+  await writeFile(join(home, ".codex-global-state.json"), "broken");
+  const failed = await scanner.refresh();
+  assert.equal(failed.healthy, false);
+  assert.match(failed.scan.error, /Codex project metadata/);
+});

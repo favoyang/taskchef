@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { Task } from "../../dashboard/react/types";
 
 const server = vi.hoisted(() => ({ call: vi.fn(), openLink: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void), teardown: undefined as undefined | (() => object) }));
+vi.mock("./ProjectPicker", () => ({ ProjectPicker: ({ data, value, onChange }: { data: Array<{label: string; value: string}>; value: string; onChange: (value: string) => void }) => <select aria-label="Project" value={value} onChange={(event) => onChange(event.target.value)}>{data.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select> }));
 vi.mock("@mantine/core", async () => {
   const React = await import("react");
   const wrap = (tag: string) => ({ children, component, ...props }: Record<string, unknown>) => React.createElement(component as string || tag, { "aria-label": props["aria-label"], role: props.role, id: props.id }, children as React.ReactNode);
@@ -55,6 +56,7 @@ const task = (id: string, status: Task["status"] = "working", updatedAt = "2026-
 let notificationState = { revision: 0, items: [] as import("./NextNotificationCenter").NextNotification[] };
 let visibility = { showExec: false, showCli: false, showArchived: false };
 let tasks: Task[];
+let registeredProjects: Array<{id: string; name: string; path: string; githubRepos: string[]}>;
 let details: Map<string, Task>;
 let transition: () => Promise<unknown>;
 let detailFailure: string | null;
@@ -67,11 +69,12 @@ beforeEach(() => {
   visibility = { showExec: false, showCli: false, showArchived: false };
   notificationState = { revision: 0, items: [] };
   tasks = [task("one")];
+  registeredProjects = [];
   details = new Map(tasks.map((item) => [item.id, item]));
   transition = async () => ({ structuredContent: { task: task("one", "completed") } });
   detailFailure = null;
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
     if (name === "taskchef_app_task" && detailFailure) return Promise.resolve({ isError: true, content: [{ type: "text", text: detailFailure }] });
     if (name === "taskchef_app_task") return Promise.resolve({ structuredContent: { task: details.get(args.taskId as string) } });
     if (name === "taskchef_app_notifications") {
@@ -194,7 +197,7 @@ test("an older selection detail cannot replace a newer refresh detail", async ()
   const first = new Promise((resolve) => { releaseFirst = resolve; });
   let detailCalls = 0;
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
     if (name === "taskchef_app_task") return ++detailCalls === 1
       ? first
       : Promise.resolve({ structuredContent: { task: task("one", "needs_input") } });
@@ -224,7 +227,7 @@ test("an older selection response cannot replace the current task", async () => 
   let release!: (value: unknown) => void;
   const first = new Promise((resolve) => { release = resolve; });
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
     if (name === "taskchef_app_task") return args.taskId === "one" ? first : Promise.resolve({ structuredContent: { task: task("two") } });
     throw new Error(`Unexpected tool: ${name}`);
   });
@@ -336,7 +339,7 @@ test("Done control calls the local mark tool with the displayed turn and refresh
       tasks = [next]; details.set(current.id, next);
       return { structuredContent: { task: next } };
     }
-    if (name === "taskchef_app_snapshot") return { structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, healthy: true } } };
+    if (name === "taskchef_app_snapshot") return { structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } };
     if (name === "taskchef_app_task") return { structuredContent: { task: details.get(current.id) } };
     throw new Error(name);
   });
@@ -455,4 +458,22 @@ test("a saved notification can open Details for a chat hidden by Settings", asyn
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(screen.getByRole("region", { name: "Task detail" })).toHaveTextContent("Task hidden"));
   expect(screen.queryByLabelText("1 unread")).not.toBeInTheDocument();
+});
+
+
+test("saved project selection groups original and worktree chats and includes empty projects", async () => {
+  tasks = [task("original"), task("worktree"), task("plain")];
+  tasks[0].project = { id: "saved", name: "My project", path: "/repo", githubRepos: [] };
+  tasks[1].project = { id: "saved", name: "My project", path: "/worktree", githubRepos: [] };
+  tasks[2].project = { id: "projectless", name: "No project", path: "/Documents/Codex/date/task", githubRepos: [] };
+  registeredProjects = [{ id: "saved", name: "My project", path: "/repo", githubRepos: [] }, { id: "empty", name: "Empty project", path: "/empty", githubRepos: [] }];
+  mount(); await screen.findByRole("button", { name: "Task original" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "saved" } });
+  expect(screen.getByRole("button", { name: "Task worktree" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task plain" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "projectless" } });
+  expect(screen.getByRole("button", { name: "Task plain" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Task original" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "empty" } });
+  expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("button")).toHaveLength(0);
 });

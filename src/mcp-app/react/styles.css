@@ -66,3 +66,10 @@ body { background: var(--taskchef-page); }
 .next-toast-error, .next-toast-interrupted { border-left-color: #ffa94d; }
 .next-toast-confirmation { border-left-color: #69db7c; }
 .next-toast > .next-icon-button { flex-shrink: 0; margin: 4px; }
+
+.next-project-trigger span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.next-project-dropdown { max-width: calc(100vw - 24px); border-radius: 12px; padding: 6px; }
+.next-project-dropdown .mantine-Combobox-search { border: 0; border-bottom: 1px solid var(--taskchef-border); margin-bottom: 5px; }
+.next-project-dropdown .mantine-Combobox-option { border-radius: 8px; padding: 7px 9px; }
+
+.next-project-options { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }

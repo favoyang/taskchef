@@ -1,6 +1,7 @@
 export type TaskStatus = "working" | "needs_input" | "completed" | "failed" | "scheduled" | "interrupted" | "archived" | null;
 
 export interface Project {
+  id?: string;
   name: string;
   path: string;
   description?: string;

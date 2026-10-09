@@ -34,8 +34,8 @@ export async function pluginSettingsUrl({ pluginRoot = fileURLToPath(new URL("..
     if (typeof source === "string" && isAbsolute(source)) {
       return `codex://plugins/${encodeURIComponent(plugin)}?${new URLSearchParams({ marketplacePath: source })}`;
     }
-  } catch { /* The plugin browser remains available if the local source cannot be resolved. */ }
-  return "codex://plugins";
+  } catch { /* Report unresolved settings navigation when the user requests it. */ }
+  return null;
 }
 
 export function registerTaskChefApp(server, {

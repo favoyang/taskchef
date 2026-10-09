@@ -3,13 +3,14 @@ import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Paper, Segmente
 import { IconRefresh, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DashboardSnapshot, Task } from "../../dashboard/react/types";
+import type { DashboardSnapshot, Task, Project } from "../../dashboard/react/types";
 import { filterTasks } from "../../dashboard/state.js";
 import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
 import { TaskCard } from "../../dashboard/react/components/TaskCard";
 import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
 import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
 import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
+import { ProjectPicker } from "./ProjectPicker";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
 import "../../dashboard/react/styles.css";
@@ -52,6 +53,7 @@ interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "dat
 export function TaskChefApp() {
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
   const [{ showExec, showCli, showArchived }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
@@ -115,7 +117,7 @@ export function TaskChefApp() {
   const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string; notifications?: NextNotificationState } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string; notifications?: NextNotificationState }>(
+    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats; projects?: Project[] }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState }>(
       "taskchef_app_snapshot", { ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
@@ -124,6 +126,7 @@ export function TaskChefApp() {
     if (data.snapshot) {
       revisionRef.current = data.snapshot.revision;
       setTasks(data.snapshot.healthy === false ? [] : data.snapshot.tasks);
+      setRegisteredProjects(data.snapshot.healthy === false ? [] : data.snapshot.projects ?? []);
       setScan(data.snapshot.scan);
       setError(data.snapshot.healthy === false ? data.snapshot.scan.error?.startsWith("TaskChef Next")
         ? data.snapshot.scan.error
@@ -221,16 +224,19 @@ export function TaskChefApp() {
     setOpened(false);
     setDetailError(null);
   }, [selected, showCli, showArchived, showExec]);
-  const projects = useMemo(() => [
-    { label: "All projects", value: "" },
-    ...[...new Map(eligibleTasks.map((task) => [task.project.path || task.project.name, task.project])).values()]
-      .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
-      .map((item, _, items) => ({
-        label: items.some((other) => other !== item && other.name === item.name) ? `${item.name} (${item.path})` : item.name,
-        value: item.path || item.name,
-      })),
-  ], [eligibleTasks]);
-  const projectTasks = useMemo(() => eligibleTasks.filter((task) => !project || (task.project.path || task.project.name) === project), [eligibleTasks, project]);
+  const projects = useMemo(() => {
+    const items = registeredProjects.length ? registeredProjects : [...new Map(eligibleTasks
+      .filter((task) => task.project.id !== "projectless")
+      .map((task) => [task.project.id || task.project.path || task.project.name, task.project])).values()];
+    return [
+      { label: "All projects", value: "" },
+      ...items.map((item) => ({ label: items.some((other) => other !== item && other.name === item.name)
+        ? `${item.name} (${item.path})` : item.name, value: item.id || item.path || item.name, path: item.path })),
+      { label: "No project", value: "projectless" },
+    ];
+  }, [eligibleTasks, registeredProjects]);
+  useEffect(() => { if (project && !projects.some((item) => item.value === project)) setProject(""); }, [project, projects]);
+  const projectTasks = useMemo(() => eligibleTasks.filter((task) => !project || (task.project.id || task.project.path || task.project.name) === project), [eligibleTasks, project]);
   const boardTasks: Task[] = useMemo(() => filterTasks(projectTasks, { date, now }), [projectTasks, date, now]);
   const visible = useMemo(() => boardTasks.filter((task) => !status || (task.status ?? "unverified") === status), [boardTasks, status]);
   const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...lanes.map(({ label, status: value }) => ({
@@ -312,7 +318,7 @@ export function TaskChefApp() {
           <Paper className="taskchef-toolbar" radius={0}>
             <Stack gap="sm">
               <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
-                <Select aria-label="Project" data={projects} onChange={(value) => { setProject(value ?? ""); setCompletedLimit(5); }} value={project} size="xs" />
+                <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
                 <Select aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
               </Group>
               {view === "list" && <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>}

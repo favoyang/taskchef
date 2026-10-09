@@ -1,3 +1,4 @@
+import { CodexProjects } from "./codex-projects.js";
 import { replyImage, localReplyImage } from "./reply-image.js";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
@@ -15,6 +16,7 @@ let sqliteModule;
 class UnsupportedNodeVersionError extends Error {}
 class DoneStateError extends Error {}
 class InvalidRolloutMetadataError extends Error {}
+class ProjectMetadataError extends Error {}
 
 function supportsReadOnlySqlite(version) {
   const match = /^(\d+)\.(\d+)\./.exec(version);
@@ -87,7 +89,7 @@ function readDatabaseRecords(state, history) {
     const latestTurn = history.prepare(`SELECT turn_id, status, started_at, first_user_item_id, final_agent_item_id
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
-    const rows = state.prepare(`SELECT id, name, title, cwd, archived, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode,
+    const rows = state.prepare(`SELECT id, name, title, cwd, archived, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode, project_id,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
       FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => {
       const key = historyId(row);
@@ -106,7 +108,10 @@ function readDatabaseRecords(state, history) {
       inputs.set(key, turn.first_user_item_id ? input.get(key, turn.turn_id, turn.first_user_item_id)?.item_json : null);
       replies.set(key, (turn.final_agent_item_id ? input.get(key, turn.turn_id, turn.final_agent_item_id) : latestReply.get(key, turn.turn_id))?.item_json);
     }
-    return { rows, turns, inputs, replies };
+    const projects = state.prepare("SELECT id, name FROM projects ORDER BY position, id").all().map((project) => ({
+      ...project, roots: state.prepare("SELECT path FROM project_roots WHERE project_id = ? ORDER BY position").all(project.id).map((root) => root.path),
+    }));
+    return { rows, turns, inputs, replies, projects };
 }
 
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
@@ -157,7 +162,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         summary: reason, replyExcerpt, replyImage: images.get(row.id),
         status, statusLabel, scheduled, manualDone, inputSource,
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
-        updatedBy: "Local Codex database", project: { name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
+        updatedBy: "Local Codex database", project: { id: row.project_id, name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: turn.turn_id, turnId: turn.turn_id, lastResult: null, latestTurn: null,
         observed: { source: row.source, archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, recentFileActivity: !row.archived && now - updatedMs < ACTIVE_WINDOW_MS, directChildCount: row.child_count },
       };
@@ -258,6 +263,8 @@ export class CodexSessionScanner {
   constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), statePath = join(homedir(), ".agents", "taskchef-next", "done.json"), nodeVersion = process.versions.node } = {}) {
     this.codexHome = codexHome;
     this.now = now;
+    this.projectCatalog = new CodexProjects(codexHome);
+    this.projects = [];
     this.nodeVersion = nodeVersion;
     this.statePath = statePath;
     this.mutation = Promise.resolve();
@@ -332,14 +339,18 @@ export class CodexSessionScanner {
       const doneMarks = await this.doneMarks(force);
       const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
       const database = buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit);
-      const nextTasks = new Map(database.tasks.map((task) => [task.id, task]));
+      let grouped;
+      try { grouped = await this.projectCatalog.group(database.tasks, records.projects); }
+      catch { throw new ProjectMetadataError("TaskChef Next cannot read Codex project metadata. Check .codex-global-state.json and the project worktree metadata, then refresh."); }
+      const nextTasks = new Map(grouped.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
-        task.id, task.title, task.project.path, task.updatedAt, task.status, task.summary,
+        task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.lastTurnEvent, task.observed.directChildCount,
         task.scheduled, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage,
       ]));
-      if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks)) this.revision += 1;
+      if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;
+      this.projects = grouped.projects;
       this.rolloutPaths = database.rolloutPaths;
       this.stats = database.scan;
       return this.snapshot();
@@ -347,13 +358,14 @@ export class CodexSessionScanner {
       this.close();
       if (this.stats?.mode !== "error" || this.tasks.size) this.revision += 1;
       this.tasks = new Map();
+      this.projects = [];
       this.rolloutPaths = new Map();
-      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError || error instanceof DoneStateError || error instanceof InvalidRolloutMetadataError ? error.message : "Codex databases are unavailable or incompatible." };
+      this.stats = { source: "database", mode: "error", checkedAt: iso(now), error: error instanceof UnsupportedNodeVersionError || error instanceof DoneStateError || error instanceof InvalidRolloutMetadataError || error instanceof ProjectMetadataError ? error.message : "Codex databases are unavailable or incompatible." };
       return this.snapshot();
     }
   }
   snapshot() {
-    return { healthy: this.stats?.mode !== "error", revision: this.revision, tasks: [...this.tasks.values()], scan: this.stats };
+    return { healthy: this.stats?.mode !== "error", revision: this.revision, tasks: [...this.tasks.values()], projects: this.projects, scan: this.stats };
   }
   task(id) { return this.tasks.get(id); }
   async taskImage(id, expectedTurnId, expectedUrl) {

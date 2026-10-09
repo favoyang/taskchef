@@ -96,6 +96,26 @@ settings specification. A successful opener only confirms that navigation was
 requested; the native page still needs a manual check where host automation is
 unavailable.
 
+### Project picker
+
+The searchable picker uses `projects` and `project_roots` from `state_5.sqlite`,
+including saved projects that have no visible chats. Project names and order
+come from the saved registry. Chats use `threads.project_id` first. Older
+assignments use the desktop's project ID migration map and project root hints
+from `.codex-global-state.json`. Git's `.git` pointer and `commondir` identify a
+worktree's original checkout when no assignment is saved. Nested folders match
+the most specific saved project root. Working folders remain in chat details.
+
+Projectless chat IDs, folders under `~/Documents/Codex`, and folders that do not
+match a saved project share the **No project** entry. **All projects** clears the
+filter. The dropdown has folder icons, a check for the selection, search by name
+or path, and keyboard navigation. It does not create projects.
+
+Project settings changes are checked on the next visible poll. The desktop
+settings file is parsed only when its file stamp changes. Its unrelated fields
+are never returned to the view. Invalid project metadata produces a visible
+error; it does not silently replace the saved inventory.
+
 ### Reply image covers
 
 Next board cards feature the first supported Markdown image in the latest

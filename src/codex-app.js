@@ -159,6 +159,7 @@ export async function openThreadInCodex(threadId, options = {}) {
 }
 
 export async function openPluginSettingsInCodex(url, options = {}) {
+  if (typeof url !== "string") throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef Next from Plugins.");
   const link = new URL(url);
   if (link.protocol !== "codex:" || link.hostname !== "plugins" || !/^\/[^/]+$/.test(link.pathname)
     || link.username || link.password || link.port || link.hash
