@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -19,6 +20,12 @@ import { resolveWorkspacePath } from "./workspace-path.js";
 import { DASHBOARD_SERVER_VERSION, TASKCHEF_VERSION } from "./version.js";
 import { createUsageTracker } from "./usage-tracker.js";
 import { registerTaskChefApp } from "./mcp-app.js";
+
+const sidebarSvg = readFileSync(new URL("../assets/taskchef-sidebar.svg", import.meta.url), "utf8");
+const sidebarIcons = [["light", "#333333"], ["dark", "#dddddd"]].map(([theme, color]) => ({
+  src: `data:image/svg+xml;base64,${Buffer.from(sidebarSvg.replace("<svg ", `<svg style="color:${color}" `)).toString("base64")}`,
+  mimeType: "image/svg+xml", sizes: ["20x20"], theme,
+}));
 
 const projectSchema = z.object({
   name: z.string(),
@@ -234,7 +241,7 @@ export function createTaskChefMcpServer({
 } = {}) {
   const reportingDestination = `Store lifecycle state and summaries in the configured local TaskChef dashboard log ${JSON.stringify(path.resolve(workspace, "tasks.jsonl"))}. GitHub URLs are stored as references, not published to GitHub. Also triggers local Codex usage tracking in ${JSON.stringify(path.resolve(workspace, ".taskchef-usage.json"))}. Exclude secrets. `;
   const server = new McpServer(
-    { name: "taskchef", version: TASKCHEF_VERSION },
+    { name: "taskchef", version: TASKCHEF_VERSION, icons: sidebarIcons },
     {
       instructions:
         "Prepare with prepare_dispatch, call record_task before creating the Codex task, then create it natively and return immediately. Follow the active TaskChef skill for role-specific sequencing of the identity and state tools.",

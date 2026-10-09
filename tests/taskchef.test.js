@@ -633,6 +633,15 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   assert.equal(ensureCount, 1, "MCP initialization should start the dashboard before connecting");
+  const icons = client.getServerVersion().icons;
+  assert.deepEqual(icons.map((icon) => icon.theme), ["light", "dark"]);
+  const svg = await readFile(new URL("../assets/taskchef-sidebar.svg", import.meta.url), "utf8");
+  for (const icon of icons) {
+    assert.equal(icon.mimeType, "image/svg+xml");
+    assert.deepEqual(icon.sizes, ["20x20"]);
+    const color = icon.theme === "dark" ? "#dddddd" : "#333333";
+    assert.equal(Buffer.from(icon.src.split(",")[1], "base64").toString("utf8"), svg.replace("<svg ", `<svg style="color:${color}" `));
+  }
 
   try {
     const listed = await client.listTools();
