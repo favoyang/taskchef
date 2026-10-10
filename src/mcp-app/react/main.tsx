@@ -274,7 +274,11 @@ export function TaskChefApp() {
   const boardTasks: Task[] = useMemo(() => {
     const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     return filterTasks(projectTasks, { date, now }).filter((task: Task) => {
-      const content = `${task.title}\n${task.replyExcerpt ?? ""}`.toLocaleLowerCase();
+      const content = [
+        task.title, task.replyExcerpt ?? "", task.project.name,
+        ...(task.project.githubRepos ?? []),
+        ...(task.pullRequests ?? []).flatMap((pr) => [pr.title ?? "", pr.url.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)/)?.[1] ?? ""]),
+      ].join("\n").toLocaleLowerCase();
       return terms.every((term) => content.includes(term));
     });
   }, [projectTasks, date, now, search]);
@@ -341,7 +345,7 @@ export function TaskChefApp() {
           {displayMode !== "inline" && <Group className="taskchef-app-filters" gap="xs" wrap="nowrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
-            <TextInput className="taskchef-app-search" aria-label="Search cards" placeholder="Search cards" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
+            <TextInput className="taskchef-app-search" aria-label="Search chats" placeholder="Search chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />

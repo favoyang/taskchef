@@ -132,19 +132,32 @@ test("shows only Board, ignores a saved List choice, and filters project and dat
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
 });
 
-test("search finds titles and full card excerpts, combines filters, and keeps the query after refresh", async () => {
+test("search finds chat text, projects, PR titles and repositories, combines filters, and keeps the query after refresh", async () => {
   tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "needs_input", new Date().toISOString(), "Beta"), task("old", "completed", "2026-01-01T00:00:00Z", "Alpha")];
   tasks[0].title = "Fix login";
   tasks[0].replyExcerpt = "First line\nSecond line\n**Database** migration passed";
   tasks[1].replyExcerpt = "Database migration passed";
   tasks[2].replyExcerpt = "Database migration passed";
+  tasks[0].project.githubRepos = ["acme/login-service"];
+  tasks[1].pullRequests = [{ url: "https://github.com/example/search-engine/pull/12", title: "Improve indexing", state: "open", checks: "unknown" }];
   mount();
   await screen.findByRole("button", { name: "Fix login" });
-  const input = screen.getByLabelText("Search cards");
+  const input = screen.getByLabelText("Search chats");
   const callsBeforeTyping = server.call.mock.calls.length;
   fireEvent.change(input, { target: { value: "  LOGIN database  " } });
   expect(screen.getByRole("button", { name: "Fix login" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+  expect(server.call.mock.calls.length).toBe(callsBeforeTyping);
+  for (const query of ["Alpha", "login-service"]) {
+    fireEvent.change(input, { target: { value: query } });
+    expect(screen.getByRole("button", { name: "Fix login" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+  }
+  for (const query of ["Beta", "INDEXING", "search-engine", "example/search-engine", "beta indexing search-engine"]) {
+    fireEvent.change(input, { target: { value: query } });
+    expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Fix login" })).not.toBeInTheDocument();
+  }
   expect(server.call.mock.calls.length).toBe(callsBeforeTyping);
   fireEvent.change(input, { target: { value: "migration" } });
   expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();

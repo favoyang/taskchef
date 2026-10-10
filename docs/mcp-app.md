@@ -203,3 +203,16 @@ preview review, not production plugin distribution.
 
 TaskChef reads saved PR attachments and can connect to GitHub with device
 sign-in. See [GitHub setup and board rules](taskchef-next-github.md).
+
+
+### Chat search
+
+**Search chats** matches chat titles, saved reply excerpts, project names,
+known project repositories, and latest-turn PR titles and repository names.
+Matching ignores letter case; every word must match somewhere in those fields.
+Project and time filters still apply.
+
+Search uses the current snapshot. PR titles become searchable after GitHub
+loads them; repository names from saved PR URLs are searchable before status
+loads. Search does not add a separate GitHub lookup or scan local Git remotes.
+The existing visible-card refresh still runs when the displayed cards change.
