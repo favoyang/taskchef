@@ -24,7 +24,7 @@ export function ElapsedTime({ startedAt, tooltipEnabled = true }: { startedAt: s
   const tooltip = available ? `Worked for ${text} · Started ${formatExactTime(startedAt)}` : "Turn start time unavailable";
   return <Tooltip disabled={!tooltipEnabled} events={{ focus: true, hover: true, touch: false }} label={tooltip}>
     <span aria-label={`Elapsed time: ${text}. ${tooltip}`} className="taskchef-time" tabIndex={0}>
-      <IconHourglass aria-hidden size={12} style={{ transform: "translateY(-1px)" }} />
+      <IconHourglass aria-hidden size={12} />
       <bdi className="taskchef-time-label">{text}</bdi>
     </span>
   </Tooltip>;
