@@ -132,7 +132,15 @@ export function TaskBoard({
         return (
           <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}>
             <Box className="taskchef-board-lane-heading">
-              <Title order={2} size="h5">{label}</Title>
+              <Box className="taskchef-board-lane-title">
+                <Title order={2} size="h5">{label}</Title>
+                {status === "working" && label === "Running" && matching.length > 0 && (
+                  <svg aria-label="Running chats" role="img" className="taskchef-running-spinner" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path opacity="0.3" d="M18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18C15.3137 18 18 15.3137 18 12ZM20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12Z" fill="currentColor" />
+                    <path d="M12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12H6C6 15.3137 8.68629 18 12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6V4Z" fill="currentColor" />
+                  </svg>
+                )}
+              </Box>
               {matching.length > 0 && <Text aria-label={`${matching.length} tasks`} c="dimmed" size="sm">{matching.length}</Text>}
             </Box>
             <Stack gap="sm">

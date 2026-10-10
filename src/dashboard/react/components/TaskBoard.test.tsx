@@ -223,3 +223,16 @@ test("card footer orders time, schedule clock and PR icon; project has a folder"
   expect(stats.children[2]).toHaveClass("taskchef-card-pr-icons");
   expect(within(card).getByLabelText("#12 Improve search: Merged")).toBeInTheDocument();
 });
+
+
+test("shows the Running spinner only for a populated Running lane", () => {
+  const props = { completedLimit: 5, onMoreCompleted: vi.fn(), onOpenCodex: vi.fn(), onOpenDetail: vi.fn() };
+  const running = task(1, "working");
+  const lanes = [{ status: "working" as const, label: "Running" }];
+  const { rerender } = render(<MantineProvider><TaskBoard {...props} lanes={lanes} tasks={[running]} /></MantineProvider>);
+  expect(screen.getByRole("img", { name: "Running chats" })).toBeInTheDocument();
+  rerender(<MantineProvider><TaskBoard {...props} lanes={lanes} tasks={[]} /></MantineProvider>);
+  expect(screen.queryByRole("img", { name: "Running chats" })).not.toBeInTheDocument();
+  rerender(<MantineProvider><TaskBoard {...props} tasks={[running]} /></MantineProvider>);
+  expect(screen.queryByRole("img", { name: "Running chats" })).not.toBeInTheDocument();
+});

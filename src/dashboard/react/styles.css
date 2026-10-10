@@ -267,3 +267,9 @@ body {
 .taskchef-schedule-clock { transform: scaleX(-1); }
 
 .taskchef-pr-access-alert { box-shadow: inset 0 0 0 1px #eac54f; border-radius: 4px; padding: 6px 8px 6px 0; }
+
+.taskchef-board-lane-title { display: flex; align-items: center; gap: 4px; }
+/* Codex desktop's default spinner geometry and animation cadence. */
+.taskchef-running-spinner { flex-shrink: 0; color: var(--mantine-color-dimmed); animation: taskchef-running-spin 2s steps(60, end) infinite; }
+@keyframes taskchef-running-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .taskchef-running-spinner { animation: none; } }
