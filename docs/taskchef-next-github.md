@@ -83,9 +83,15 @@ without merge remains Waiting for a human.
 
 Cards show compact PR icons beside their time. The whole status line shares
 one popup on hover or focus. It shows work duration, each linked PR title with
-its number, known CI status, and the next scheduled run, each on a separate
-line. Missing information is omitted. Mergeability and check time are not shown.
+its number first, known CI status, and the next scheduled run, each on a separate
+line with an icon. PR titles stay on one line and use an ellipsis. A final robot
+row shows the chat’s direct subagent count across its history when greater than zero. Missing information is omitted. Mergeability and check time are not shown.
 Unknown PR status uses a neutral icon without an Unavailable label on the card.
+Repository access failures add a warning icon and a Grant access link to the
+TaskChef GitHub App installation page. Confirmed permission errors say Access
+denied; GitHub NOT_FOUND responses say Cannot access because they can also
+mean the repository or PR was removed. Network and rate-limit errors do not
+claim a permission failure. Valid PR state remains visible if CI access fails.
 Tab moves from the status line to its PR link; Escape closes the popup.
 
 ![Shared card status popup](images/taskchef-unified-status-popup.jpg)

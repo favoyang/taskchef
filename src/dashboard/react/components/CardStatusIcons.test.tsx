@@ -25,8 +25,8 @@ const url="https://github.com/example/repo/pull/12";
 const pr:PullRequestStatus={url,state:"open",checks:"passed",title:"Improve search"};
 test("cards keep PR status in an accessible icon without extra text",()=>{
   render(<MantineProvider><PullRequestIcons pullRequests={[pr,{...pr,url:"https://github.com/example/repo/pull/13",state:"unknown"}]}/></MantineProvider>);
-  expect(screen.getByLabelText("Improve search #12: Checks passed")).toBeInTheDocument();
-  expect(screen.getByLabelText("Improve search #13: PR status not checked or unavailable")).toBeInTheDocument();
+  expect(screen.getByLabelText("#12 Improve search: Checks passed")).toBeInTheDocument();
+  expect(screen.getByLabelText("#13 Improve search: PR status not checked or unavailable")).toBeInTheDocument();
   expect(screen.queryByText(/unavailable/)).not.toBeInTheDocument();
 });
 test("PR presentation follows Codex priority for drafts, conflicts, CI and merge readiness",()=>{
@@ -47,7 +47,7 @@ test("next run uses Today and Tomorrow and never invents missing times",()=>{
 test("popup content keeps CI for merged and unknown PRs and links only supported URLs",()=>{
   const {rerender}=render(<MantineProvider><PullRequestInfo pr={{...pr,state:"merged"}}/></MantineProvider>);
   expect(screen.getByText("CI passed")).toBeInTheDocument();
-  expect(screen.getByRole("link",{name:"Improve search #12"})).toHaveAttribute("href",url);
+  expect(screen.getByRole("link",{name:"#12 Improve search"})).toHaveAttribute("href",url);
   rerender(<MantineProvider><PullRequestInfo pr={{...pr,state:"unknown",checks:"unknown",url:"javascript:alert(1)"}}/></MantineProvider>);
   expect(screen.queryByText(/CI status unknown/)).not.toBeInTheDocument();
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
@@ -59,7 +59,7 @@ test("one status popup shows available lines, survives movement onto links, and 
   const line = screen.getByLabelText("Turn status details");
   fireEvent.mouseEnter(line);
   expect(screen.getByText("Worked for 15h 5m")).toBeInTheDocument();
-  const link = screen.getByRole("link", {name:"Improve search #12",hidden:true});
+  const link = screen.getByRole("link", {name:"#12 Improve search",hidden:true});
   expect(link).toHaveAttribute("href",url);
   expect(screen.getByText("CI passed")).toBeInTheDocument();
   expect(screen.getByText(/^Next run:/)).toBeInTheDocument();
@@ -74,14 +74,14 @@ test("one status popup shows available lines, survives movement onto links, and 
 test("popup omits missing duration, CI and schedule time instead of unavailable lines", async () => {
   render(<MantineProvider env="test"><CardStatusLine durationMs={null} scheduled nextRunAt={null} pullRequests={[{...pr,checks:"unknown"}]}><span>Oct 7th</span></CardStatusLine></MantineProvider>);
   fireEvent.mouseEnter(screen.getByLabelText("Turn status details"));
-  expect(screen.getByRole("link",{name:"Improve search #12",hidden:true})).toBeInTheDocument();
+  expect(screen.getByRole("link",{name:"#12 Improve search",hidden:true})).toBeInTheDocument();
   expect(screen.queryByText(/Worked for|Next run:|CI status|unavailable/)).not.toBeInTheDocument();
 });
 
 
 test("status line describes PR state to keyboard and screen-reader users", () => {
   render(<MantineProvider><CardStatusLine pullRequests={[{...pr,state:"merged"},{...pr,url:"https://github.com/example/repo/pull/13",state:"draft"}]}><span>Oct 7th</span></CardStatusLine></MantineProvider>);
-  expect(screen.getByLabelText("Turn status details")).toHaveAccessibleDescription("Improve search #12: Merged. Improve search #13: Draft");
+  expect(screen.getByLabelText("Turn status details")).toHaveAccessibleDescription("#12 Improve search: Merged. #13 Improve search: Draft");
 });
 
 
@@ -93,5 +93,14 @@ test("Tab preserves the time control before handing focus to the PR link", () =>
   const time = screen.getByRole("button", {name:"Oct 7th"});
   time.focus();
   fireEvent.keyDown(time, {key:"Tab"});
-  expect(screen.getByRole("link", {name:"Improve search #12",hidden:true})).toHaveFocus();
+  expect(screen.getByRole("link", {name:"#12 Improve search",hidden:true})).toHaveFocus();
+});
+
+test("shows subagents and repository access action with number first", () => {
+  render(<MantineProvider><CardStatusLine subagentCount={155} pullRequests={[{...pr,state:"unknown",checks:"unknown",accessIssue:"denied"}]}><span>Oct 7th</span></CardStatusLine></MantineProvider>);
+  fireEvent.mouseEnter(screen.getByLabelText("Turn status details"));
+  expect(screen.getByText("155 subagents")).toBeInTheDocument();
+  expect(screen.getByText(/Access denied to example\/repo/)).toBeInTheDocument();
+  expect(screen.getByRole("link",{name:"Grant access"})).toHaveAttribute("href","https://github.com/apps/taskchef/installations/new");
+  expect(screen.getByRole("link",{name:"#12 Improve search"})).toHaveClass("taskchef-status-pr-title");
 });

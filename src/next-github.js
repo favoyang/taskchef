@@ -73,7 +73,13 @@ export class NextGitHub {
     if (!response.ok) {
       const error = new Error(response.status === 401 ? "GitHub sign-in expired. Sign in again." : response.status === 403 || response.status === 429 ? "GitHub access is blocked or rate limited. Check repository access and try later." : "GitHub could not return PR status.");
       error.status = response.status;
-      if (response.status === 403 || response.status === 429) {
+      let rateLimited = response.status === 429;
+      if (response.status === 403) {
+        const body = await response.json().catch(() => null);
+        if (/^Resource not accessible by (integration|personal access token)$/i.test(body?.message ?? "")) error.accessIssue = "denied";
+        rateLimited = !error.accessIssue && (/rate limit/i.test(body?.message ?? "") || response.headers?.get("x-ratelimit-remaining") === "0" || !!response.headers?.get("retry-after"));
+      }
+      if (rateLimited) {
         const retry = Number(response.headers?.get("retry-after"));
         this.retryUntil = this.now() + Math.max(CACHE_MS, Number.isFinite(retry) ? retry * 1000 : CACHE_MS);
       }
@@ -99,7 +105,7 @@ export class NextGitHub {
       return { checks: failed ? "failed" : unknown ? "unknown" : pending ? "pending" : runs.total_count + statuses.total_count === 0 ? "none" : "passed" };
     } catch (error) {
       if (error.status === 401) throw error;
-      return { checks: "unknown", error: "CI status unavailable. Check GitHub repository access and try Refresh." };
+      return { checks: "unknown", ...(error.accessIssue ? { accessIssue: error.accessIssue } : {}), error: "CI status unavailable. Check GitHub repository access and try Refresh." };
     }
   }
   async readCredential(clientId) {
@@ -203,25 +209,37 @@ export class NextGitHub {
             let result;
             try { result = await this.request("https://api.github.com/graphql", { token: value.token, query }); }
             catch (error) {
-              for (const url of batch) this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state: "unknown", checks: "unknown", error: error.message } });
+              for (const url of batch) this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state: "unknown", checks: "unknown", ...(error.accessIssue ? { accessIssue: error.accessIssue } : {}), error: error.message } });
               auth = { ...auth, error: error.message };
               if (error.status === 401) { await this.save(clientId, {}); auth.connected = false; await this.clearCache(); break; }
               continue;
             }
+            const ciResults = [];
+            // Bound CI requests so one batch does not wait for every PR in sequence.
+            for (let offset = 0; offset < batch.length; offset += 5) {
+              ciResults.push(...await Promise.all(batch.slice(offset, offset + 5).map(async (url, index) => {
+                const p = result.data?.[`p${offset + index}`]?.pullRequest;
+                if (!p || !["OPEN", "CLOSED", "MERGED"].includes(p.state)) return { checks: "unknown" };
+                try { return await this.checks(pullRequestIdentity(url), p.headRefOid, value.token); }
+                catch (error) { return { authError: error }; }
+              })));
+              if (ciResults.some(ci => ci.authError)) break;
+            }
+            const authError = ciResults.find(ci => ci.authError)?.authError;
+            if (authError) {
+              if (authError.status === 401) { await this.save(clientId, {}); auth.connected = false; await this.clearCache(); break; }
+              throw authError;
+            }
             for (const [i, url] of batch.entries()) {
               const p = result.data?.[`p${i}`]?.pullRequest;
+              const accessErrors = (result.errors ?? []).filter(error => error.path?.[0] === `p${i}`);
+              const accessIssue = accessErrors.some(error => error.type === "FORBIDDEN") ? "denied"
+                : !p && accessErrors.some(error => error.type === "NOT_FOUND") ? "not_found" : null;
               const failed = !p || !["OPEN", "CLOSED", "MERGED"].includes(p.state);
               const state = failed || !p ? "unknown" : p.merged === true || p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : p.state === "OPEN" ? p.isDraft ? "draft" : "open" : "unknown";
-              let ci = { checks: "unknown" };
-              if (!failed) {
-                try { ci = await this.checks(pullRequestIdentity(url), p.headRefOid, value.token); }
-                catch (error) {
-                  if (error.status === 401) { await this.save(clientId, {}); auth.connected = false; await this.clearCache(); break; }
-                  throw error;
-                }
-              }
+              const ci = ciResults[i];
               const { checks } = ci;
-              this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state, checks, ...(ci.error ? { error: ci.error } : {}), ...(typeof p?.title === "string" ? { title: p.title } : {}), ...(typeof p?.headRefOid === "string" ? { headRevision: p.headRefOid } : {}), mergeState: p?.mergeStateStatus ?? null, mergeable: p?.mergeable ?? "UNKNOWN", hasMergeConflicts: p?.mergeable === "CONFLICTING" || p?.mergeStateStatus === "DIRTY", canMerge: p?.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(p?.mergeStateStatus) && !p?.isDraft, checkedAt: new Date(this.now()).toISOString(), ...(state === "unknown" ? { error: "PR status unavailable. Check the app's repository access." } : {}) } });
+              this.cache.set(url, { expiresAt: this.now() + CACHE_MS, turns: { ...this.cache.get(url)?.turns, ...turnsFor(url) }, pr: { url, state, checks, ...(accessIssue || ci.accessIssue ? { accessIssue: accessIssue || ci.accessIssue } : {}), ...(ci.error ? { error: ci.error } : {}), ...(typeof p?.title === "string" ? { title: p.title } : {}), ...(typeof p?.headRefOid === "string" ? { headRevision: p.headRefOid } : {}), mergeState: p?.mergeStateStatus ?? null, mergeable: p?.mergeable ?? "UNKNOWN", hasMergeConflicts: p?.mergeable === "CONFLICTING" || p?.mergeStateStatus === "DIRTY", canMerge: p?.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(p?.mergeStateStatus) && !p?.isDraft, checkedAt: new Date(this.now()).toISOString(), ...(state === "unknown" ? { error: "PR status unavailable. Check the app's repository access." } : {}) } });
             }
           }
           if (needed.length && auth.connected) await this.saveCache(clientId, value.login);

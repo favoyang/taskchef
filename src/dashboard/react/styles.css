@@ -256,3 +256,11 @@ body {
 .taskchef-pr-dot { position: absolute; width: 5px; height: 5px; right: 1px; bottom: 3px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--taskchef-surface-muted); }
 
 .taskchef-status-tooltip { background: var(--taskchef-surface-muted); color: var(--taskchef-text); border: 1px solid var(--taskchef-border); }
+
+.taskchef-status-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; line-height: 1.5; }
+.taskchef-status-row-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; flex: 0 0 18px; color: var(--taskchef-muted); }
+.taskchef-status-row-content { min-width: 0; flex: 1; }
+.taskchef-status-pr-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: inherit; color: inherit; }
+.taskchef-popup-pr-icon { position: relative; display: inline-flex; width: 18px; height: 18px; align-items: center; }
+
+.taskchef-pr-access-warning { position: absolute; right: -6px; top: -3px; color: #eac54f; }

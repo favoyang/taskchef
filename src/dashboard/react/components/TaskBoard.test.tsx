@@ -221,5 +221,5 @@ test("card footer orders time, schedule clock and PR icon; project has a folder"
   expect(stats.children[0]).toHaveClass("taskchef-time");
   expect(stats.children[1]).toHaveAttribute("aria-label","Active schedule");
   expect(stats.children[2]).toHaveClass("taskchef-card-pr-icons");
-  expect(within(card).getByLabelText("Improve search #12: Merged")).toBeInTheDocument();
+  expect(within(card).getByLabelText("#12 Improve search: Merged")).toBeInTheDocument();
 });

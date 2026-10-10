@@ -77,6 +77,7 @@ export interface PullRequestStatus {
   mergeState?: string | null;
   mergeable?: string;
   checkedAt?: string;
+  accessIssue?: "denied" | "not_found";
   error?: string;
 }
 

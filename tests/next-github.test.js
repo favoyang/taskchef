@@ -339,3 +339,56 @@ test("closed PR with settled CI ignores irrelevant unknown mergeability", async 
   assert.equal(cached.snapshot.tasks[0].pullRequests[0].state,"closed");
   assert.equal(c.requests.length,1);
 });
+
+test("repository access errors are distinct from rate limits and preserve known merge state", async t => {
+  for (const [type, expected] of [["FORBIDDEN", "denied"], ["NOT_FOUND", "not_found"], ["RATE_LIMITED", undefined]]) {
+    const c = await setup(t, [{data:{p0:null},errors:[{type,path:["p0"]}]}], signedIn);
+    const result = await c.github.enrich({healthy:true,tasks:[task()]}, settings);
+    assert.equal(result.snapshot.tasks[0].pullRequests[0].accessIssue, expected);
+  }
+  const reply=response(true,"MERGED");
+  reply.errors=[{type:"FORBIDDEN",path:["p0","pullRequest","mergeable"]}];
+  const c=await setup(t,[reply],signedIn);
+  const result=await c.github.enrich({healthy:true,tasks:[task()]},settings);
+  assert.equal(result.snapshot.tasks[0].pullRequests[0].state,"merged");
+  assert.equal(result.snapshot.tasks[0].pullRequests[0].accessIssue,"denied");
+});
+
+test("CI permission failures have an access marker; HTTP rate limits do not", async t => {
+  for (const [message, expected] of [["Resource not accessible by integration", "denied"], ["API rate limit exceeded", undefined]]) {
+    const c=await setup(t, [],signedIn);
+    c.github.fetch=async()=>({ok:false,status:403,json:async()=>({message})});
+    const result=await c.github.checks(pullRequestIdentity(url),"a".repeat(40),"test-token");
+    assert.equal(result.accessIssue,expected);
+  }
+});
+
+test("one repository permission failure does not block the next PR's CI", async t => {
+  const c=await setup(t,[],signedIn);
+  let calls=0;
+  c.github.fetch=async requestUrl=>{
+    calls++;
+    if(requestUrl.includes("/example/repo/")) return {ok:false,status:403,json:async()=>({message:"Resource not accessible by integration"})};
+    return {ok:true,status:200,json:async()=>requestUrl.includes("check-runs")?{total_count:0,check_runs:[]}:{total_count:0,state:"pending"}};
+  };
+  const first=await c.github.checks(pullRequestIdentity(url),"a".repeat(40),"test-token");
+  assert.equal(first.accessIssue,"denied");
+  const second=await c.github.checks(pullRequestIdentity("https://github.com/other/project/pull/1"),"a".repeat(40),"test-token");
+  assert.equal(second.checks,"none");
+  assert.equal(calls,4);
+});
+test("a batch checks CI concurrently with at most five PRs at a time", async t => {
+  const c=await setup(t,[],signedIn);
+  let active=0, peak=0;
+  const tasks=Array.from({length:8},(_,i)=>task({id:"chat"+i,pullRequests:[{url:"https://github.com/example/repo/pull/"+(i+1)}]}));
+  c.github.fetch=async endpoint=>{
+    if(endpoint.endsWith("/graphql")) return {ok:true,status:200,json:async()=>({data:Object.fromEntries(tasks.map((_,i)=>["p"+i,response(true,"MERGED").data.p0]))})};
+    active++; peak=Math.max(peak,active);
+    await new Promise(resolve=>setTimeout(resolve,5));
+    active--;
+    return {ok:true,status:200,json:async()=>endpoint.includes("check-runs")?{total_count:0,check_runs:[]}:{total_count:0,state:"pending"}};
+  };
+  const result=await c.github.enrich({healthy:true,tasks},settings);
+  assert.ok(peak>2 && peak<=10,"two endpoints per PR, up to five PRs");
+  assert.ok(result.snapshot.tasks.every(task=>task.pullRequests[0].checks==="none"));
+});
