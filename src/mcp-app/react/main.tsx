@@ -43,7 +43,7 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-interface VisibilitySettings { showExec: boolean; showCli: boolean; showArchived: boolean; }
+interface VisibilitySettings { showExec: boolean; showCli: boolean; showArchived: boolean; showCalendarDates?: boolean; }
 function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, showExec: boolean) {
   return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
@@ -63,7 +63,7 @@ export function TaskChefApp() {
   const [githubAuth, setGitHubAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
-  const [{ showExec, showCli, showArchived }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
+  const [{ showExec, showCli, showArchived, showCalendarDates = false }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
@@ -334,7 +334,7 @@ export function TaskChefApp() {
     setDetailError(null);
   }
   return <MantineProvider theme={theme} forceColorScheme="dark">
-    <RelativeTimeProvider now={now}>
+    <RelativeTimeProvider now={now} showCalendarDates={showCalendarDates}>
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef</Title></Group>

@@ -1,12 +1,13 @@
 import { Tooltip, UnstyledButton } from "@mantine/core";
 import { IconClock, IconHourglass } from "@tabler/icons-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { formatCardTime, formatExactTime, formatRelativeTime, formatWorkedDuration } from "../../time.js";
+import { formatCardAge, formatCardTime, formatExactTime, formatRelativeTime, formatWorkedDuration } from "../../time.js";
 
+const CardCalendarDates = createContext(false);
 const RelativeTimeClock = createContext<number | null>(null);
 
-export function RelativeTimeProvider({ children, now }: { children: ReactNode; now: number }) {
-  return <RelativeTimeClock value={now}>{children}</RelativeTimeClock>;
+export function RelativeTimeProvider({ children, now, showCalendarDates = false }: { children: ReactNode; now: number; showCalendarDates?: boolean }) {
+  return <RelativeTimeClock value={now}><CardCalendarDates value={showCalendarDates}>{children}</CardCalendarDates></RelativeTimeClock>;
 }
 
 export function ElapsedTime({ startedAt, tooltipEnabled = true }: { startedAt: string | null | undefined; tooltipEnabled?: boolean }) {
@@ -47,7 +48,10 @@ export function RelativeTime({
 }) {
   const [exact, setExact] = useState(false);
   const now = useContext(RelativeTimeClock) ?? Date.now();
-  const shortText = calendar ? formatCardTime(value, { now }) : formatRelativeTime(value);
+  const showCalendarDates = useContext(CardCalendarDates);
+  const shortText = calendar
+    ? showCalendarDates ? formatCardTime(value, { now }) : formatCardAge(value, { now })
+    : formatRelativeTime(value, { now });
   const text = exact ? formatExactTime(value) : shortText;
   const exactText = formatExactTime(value);
   const unavailable = exactText === "—";
@@ -60,7 +64,7 @@ export function RelativeTime({
       <UnstyledButton
         aria-label={unavailable
           ? `${label}: unavailable.`
-          : `${label}: ${text}. ${exact ? calendar ? "Show card date" : "Show relative time" : "Show exact time"}`}
+          : `${label}: ${text}. ${exact ? calendar && showCalendarDates ? "Show card date" : "Show relative time" : "Show exact time"}`}
         className="taskchef-time"
         disabled={unavailable}
         onClick={() => setExact((value) => !value)}

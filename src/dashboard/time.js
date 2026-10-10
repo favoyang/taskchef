@@ -45,6 +45,18 @@ export function formatCardTime(value, { now = Date.now() } = {}) {
   return `${month} ${day}${suffix}${date.getFullYear() === current.getFullYear() ? "" : `, ${date.getFullYear()}`}`;
 }
 
+// Compact card age; clamp clock skew to now and use 30-day months.
+export function formatCardAge(value, { now = Date.now() } = {}) {
+  const parsed = parsedTimestamp(value);
+  if (!parsed) return "—";
+  const elapsed = Math.max(0, now - parsed.milliseconds);
+  if (elapsed < MINUTE_MS) return "<1m";
+  if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}m`;
+  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}h`;
+  if (elapsed < 30 * DAY_MS) return `${Math.floor(elapsed / DAY_MS)}d`;
+  return `${Math.floor(elapsed / (30 * DAY_MS))}mo`;
+}
+
 export function formatWorkedDuration(durationMs) {
   if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return "—";
   const totalMinutes = Math.floor(durationMs / MINUTE_MS);

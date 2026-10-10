@@ -1,7 +1,7 @@
 import { MantineProvider } from "@mantine/core";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { formatCardTime, formatWorkedDuration } from "../../time.js";
+import { formatCardAge, formatCardTime, formatWorkedDuration } from "../../time.js";
 import { ElapsedTime, RelativeTime, RelativeTimeProvider } from "./RelativeTime";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -62,7 +62,7 @@ test("ordinal date labels handle teens and month endings", () => {
 });
 
 test("card time has no clock and preserves exact-time access", () => {
-  render(<MantineProvider><RelativeTimeProvider now={new Date(2026, 9, 8, 15).getTime()}>
+  render(<MantineProvider><RelativeTimeProvider showCalendarDates now={new Date(2026, 9, 8, 15).getTime()}>
     <RelativeTime calendar icon={false} label="Updated time" value={local(2026, 10, 8, 14, 30)} />
   </RelativeTimeProvider></MantineProvider>);
   const button = screen.getByRole("button", { name: "Updated time: 2:30PM. Show exact time" });
@@ -72,4 +72,29 @@ test("card time has no clock and preserves exact-time access", () => {
   expect(button).toHaveTextContent("2026");
   fireEvent.click(button);
   expect(button).toHaveTextContent("2:30PM");
+});
+
+
+test("compact card ages use minutes, hours, days, and months at their boundaries", () => {
+  const now = Date.parse("2026-10-10T12:00:00Z");
+  for (const [age, expected] of [[0, "<1m"], [59999, "<1m"], [60000, "1m"], [3600000, "1h"], [7200000, "2h"], [5 * 86400000, "5d"], [29 * 86400000, "29d"], [30 * 86400000, "1mo"], [75 * 86400000, "2mo"], [-60000, "<1m"]] as const) {
+    expect(formatCardAge(new Date(now - age).toISOString(), { now })).toBe(expected);
+  }
+  expect(formatCardAge("invalid", { now })).toBe("—");
+});
+
+test("card format defaults to compact age and changes with the shared setting", () => {
+  const now = new Date(2026, 9, 8, 15).getTime();
+  const view = (showCalendarDates = false) => <MantineProvider><RelativeTimeProvider now={now} showCalendarDates={showCalendarDates}>
+    <RelativeTime calendar icon={false} label="Updated time" value={local(2026, 10, 8, 14, 30)} />
+  </RelativeTimeProvider></MantineProvider>;
+  const { rerender } = render(view());
+  expect(screen.getByRole("button", { name: /^Updated time:/ })).toHaveTextContent("30m");
+  fireEvent.click(screen.getByRole("button", { name: /^Updated time:/ }));
+  expect(screen.getByRole("button", { name: /^Updated time:/ })).toHaveAccessibleName(/Show relative time/);
+  fireEvent.click(screen.getByRole("button", { name: /^Updated time:/ }));
+  rerender(view(true));
+  expect(screen.getByRole("button", { name: /^Updated time:/ })).toHaveTextContent("2:30PM");
+  rerender(view());
+  expect(screen.getByRole("button", { name: /^Updated time:/ })).toHaveTextContent("30m");
 });

@@ -65,10 +65,12 @@ PR-based Done labels use saved Codex attachments and authenticated GitHub status
 
 TaskChef advertises `openai/settings` with `taskchef_settings_read` and
 `taskchef_settings_update`. The read tool returns the schema, current values,
-and Chat visibility and GitHub groups. The update tool accepts changed
-Boolean visibility properties and a public GitHub App client ID string. It
-preserves the other values. All three visibility switches default to false.
-The client ID starts empty; it is not a secret.
+and Chat visibility, Card display, and GitHub groups. The update tool accepts
+changed Boolean preferences and preserves other values. All switches default
+to false. Card timestamps default to compact ages: `<1m`, `1m`, `2h`, `5d`,
+and `1mo` (30-day months). Enable **Show calendar dates** to use the previous
+local format: `2:30PM` today, `Yesterday`, or `Oct 3rd`. Running cards keep
+their hourglass and elapsed work duration in either mode.
 Updates use the existing local workspace lock and atomic file writer. Codex
 SQLite files remain read-only. Invalid settings fail visibly rather than
 silently resetting preferences.

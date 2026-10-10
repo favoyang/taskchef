@@ -45,12 +45,12 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
-    const defaults = { showExec: false, showCli: false, showArchived: false };
+    const defaults = { showCalendarDates: false, showExec: false, showCli: false, showArchived: false };
     assert.deepEqual(client.getServerCapabilities().experimental["openai/settings"], { readTool: "taskchef_settings_read", updateTool: "taskchef_settings_update" });
     const settings = await client.callTool({ name: "taskchef_settings_read", arguments: {} });
     assert.deepEqual(settings.structuredContent.values, defaults);
     assert.equal(settings.structuredContent.schema.properties.showExec.type, "boolean");
-    assert.deepEqual(settings.structuredContent.layout.flatMap((group) => group.items.filter((item) => item.kind === "property").map((item) => item.property)), Object.keys(defaults));
+    assert.deepEqual(settings.structuredContent.layout.flatMap((group) => group.items.filter((item) => item.kind === "property").map((item) => item.property)), ["showExec", "showCli", "showArchived", "showCalendarDates"]);
     const action = settings.structuredContent.layout.find(group => group.title === "GitHub").items.find(item => item.kind === "tool");
     assert.equal(action.title, "Connect GitHub");
     assert.equal(settings.structuredContent.schema.properties.githubClientId, undefined);
@@ -67,10 +67,13 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     const updated = await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCli: true } } });
     assert.deepEqual(updated.structuredContent.values, { ...defaults, showCli: true });
     assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { ...updated.structuredContent.values, githubClientId: "Iv23likjK80RCtqZFGg8" });
-    for (const set of [{}, { bogus: true }, { showExec: "yes" }, { githubClientId: "Iv1.test" }]) {
+    for (const set of [{}, { bogus: true }, { showExec: "yes" }, { showCalendarDates: "yes" }, { githubClientId: "Iv1.test" }]) {
       const invalid = await client.callTool({ name: "taskchef_settings_update", arguments: { set } });
       assert.equal(invalid.isError, true);
     }
+    await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCalendarDates: true } } });
+    assert.equal((await client.callTool({ name: "taskchef_settings_read", arguments: {} })).structuredContent.values.showCalendarDates, true);
+    await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCalendarDates: false } } });
     await client.callTool({ name: "taskchef_settings_update", arguments: { set: { showCli: false } } });
     const { tools } = await client.listTools();
     assert.ok(tools.find((tool) => tool.name === "taskchef_settings_read").outputSchema);

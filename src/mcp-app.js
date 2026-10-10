@@ -19,16 +19,17 @@ const taskIdSchema = z.string().uuid();
 
 const DEFAULT_GITHUB_CLIENT_ID = "Iv23likjK80RCtqZFGg8";
 const visibilityFields = { showExec: z.boolean(), showCli: z.boolean(), showArchived: z.boolean() };
-const settingsSchema = z.strictObject(visibilityFields);
+const settingsSchema = z.strictObject({ ...visibilityFields, showCalendarDates: z.boolean() });
 const storedSettingsSchema = settingsSchema.extend({ githubClientId: z.string().trim().max(80).regex(/^(?:Iv(?:1\.[A-Za-z0-9]+|[A-Za-z0-9]{10,}))?$/) });
-const settingsDefaults = { showExec: false, showCli: false, showArchived: false, githubClientId: DEFAULT_GITHUB_CLIENT_ID };
+const settingsDefaults = { showExec: false, showCli: false, showArchived: false, showCalendarDates: false, githubClientId: DEFAULT_GITHUB_CLIENT_ID };
 const settingsProperties = {
   showExec: { type: "boolean", title: "Show exec sessions", description: "Include standalone codex exec runs. Subagents stay hidden." },
   showCli: { type: "boolean", title: "Show CLI sessions", description: "Include chats started from the Codex CLI." },
+  showCalendarDates: { type: "boolean", title: "Show calendar dates", description: "Use times and dates such as 2:30PM, Yesterday, and Oct 3rd instead of 1m, 2h, 5d, and 1mo on cards." },
   showArchived: { type: "boolean", title: "Show archived chats", description: "Show archived chats in their own column and list filter." },
 };
 function publicSettings(values) {
-  return Object.fromEntries(Object.keys(visibilityFields).map(key => [key, values[key]]));
+  return Object.fromEntries(Object.keys(settingsProperties).map(key => [key, values[key]]));
 }
 
 export async function pluginSettingsUrl({ pluginRoot = fileURLToPath(new URL("../", import.meta.url)), codexHome = process.env.CODEX_HOME || join(homedir(), ".codex") } = {}) {
@@ -98,7 +99,7 @@ export function registerTaskChefApp(server, {
     try { connected = (await github.auth(values.githubClientId, "status")).connected; } catch { /* Keep connection errors in the GitHub dialog. */ }
     return { content: [], structuredContent: {
       schema: { type: "object", properties: settingsProperties }, values: publicSettings(values),
-      layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(visibilityFields).map(property => ({ kind: "property", property })) }, { kind: "group", title: "GitHub", items: [{ kind: "tool", tool: "taskchef_github_settings", title: connected ? "Manage GitHub" : "Connect GitHub", description: "Sign in, manage repository access, or disconnect this computer." }] }],
+      layout: [{ kind: "group", title: "Chat visibility", items: Object.keys(visibilityFields).map(property => ({ kind: "property", property })) }, { kind: "group", title: "Card display", items: [{ kind: "property", property: "showCalendarDates" }] }, { kind: "group", title: "GitHub", items: [{ kind: "tool", tool: "taskchef_github_settings", title: connected ? "Manage GitHub" : "Connect GitHub", description: "Sign in, manage repository access, or disconnect this computer." }] }],
     } };
   });
   server.registerTool("taskchef_settings_update", {
