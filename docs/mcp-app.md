@@ -249,3 +249,5 @@ opens the center; moving into its panel keeps it open, and leaving closes it aft
 a short delay. The button remains usable with a keyboard or touch.
 
 The Theme selector after Refresh offers Dark (default), Light, and System. The choice is saved in this view's local storage and restored when it reopens. System follows the operating system's appearance.
+
+TaskChef's selected appearance takes priority over a host-applied inline `color-scheme`. Verify Light inside a dark host as well as in a standalone browser: the page, cards, and controls must change together.
