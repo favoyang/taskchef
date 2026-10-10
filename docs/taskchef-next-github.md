@@ -81,7 +81,10 @@ A new turn resets a manual Done mark. Passing CI does not guarantee merge
 approval or that every branch-protection requirement is met. A closed PR
 without merge remains Waiting for a human.
 
-Cards show compact PR icons beside their time. The whole status line shares
+Cards show compact PR icons beside their time. Local SVG drawings match the
+Codex branch layout: a curved merged branch, a plus on the plain open icon,
+and colored status dots in place of the lower-right node. Cards and popup
+rows use the same glyphs. The whole status line shares
 one popup on hover or focus. It shows work duration, each linked PR title with
 its number first, known CI status, and the next scheduled run, each on a separate
 line with an icon. PR titles stay on one line and use an ellipsis. A final robot
@@ -95,6 +98,8 @@ claim a permission failure. Valid PR state remains visible if CI access fails.
 Tab moves from the status line to its PR link; Escape closes the popup.
 
 ![Shared card status popup](images/taskchef-unified-status-popup.jpg)
+
+![PR icon shape comparison](images/taskchef-pr-icon-comparison.jpg)
 
 ## Codex sidebar icon research
 

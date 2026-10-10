@@ -253,7 +253,6 @@ body {
 .taskchef-card-pr-icons:empty { display: none; }
 .taskchef-card-status-icon { display: inline-flex; position: relative; align-items: center; justify-content: center; width: 20px; height: 22px; padding: 0; flex-shrink: 0; background: none; border: 0; color: var(--taskchef-muted); cursor: pointer; }
 .taskchef-card-status-icon:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; border-radius: 3px; }
-.taskchef-pr-dot { position: absolute; width: 5px; height: 5px; right: 1px; bottom: 3px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--taskchef-surface-muted); }
 
 .taskchef-status-tooltip { background: var(--taskchef-surface-muted); color: var(--taskchef-text); border: 1px solid var(--taskchef-border); }
 

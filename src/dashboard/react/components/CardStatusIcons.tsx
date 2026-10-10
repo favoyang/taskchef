@@ -1,6 +1,7 @@
+import { PrOpenIcon, PrStatusIcon, PrDraftIcon, PrMergedIcon, PrClosedIcon } from "./PrGlyph";
 import { Anchor, Box, Popover, Stack, Text, VisuallyHidden } from "@mantine/core";
-import { IconAlertTriangle, IconHourglass, IconRobot, IconCircleCheck, IconCircleX, IconLoader, IconMinus, IconClock, IconGitMerge, IconGitPullRequest, IconGitPullRequestClosed, IconGitPullRequestDraft } from "@tabler/icons-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { IconAlertTriangle, IconHourglass, IconRobot, IconCircleCheck, IconCircleX, IconLoader, IconMinus, IconClock } from "@tabler/icons-react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { formatWorkedDuration } from "../../time.js";
 import type { PullRequestStatus } from "../types";
 
@@ -14,22 +15,21 @@ export function nextRunLabel(value?: string | null, now = new Date()) {
 }
 
 export function prPresentation(pr: PullRequestStatus) {
-  if (pr.state === "merged") return { Icon: IconGitMerge, color: "#b28bdf", dot: null, label: "Merged" };
-  if (pr.state === "closed") return { Icon: IconGitPullRequestClosed, color: "#f0787e", dot: null, label: "Closed, not merged" };
-  if (pr.state === "draft") return { Icon: IconGitPullRequestDraft, color: "var(--taskchef-muted)", dot: null, label: "Draft" };
+  if (pr.state === "merged") return { Icon: PrMergedIcon, color: "#b28bdf", dot: null, label: "Merged" };
+  if (pr.state === "closed") return { Icon: PrClosedIcon, color: "#f0787e", dot: null, label: "Closed, not merged" };
+  if (pr.state === "draft") return { Icon: PrDraftIcon, color: "var(--taskchef-muted)", dot: null, label: "Draft" };
   if (pr.accessIssue && pr.state === "unknown") return { Icon: IconAlertTriangle, color: "#eac54f", dot: null, label: "Repository access needed" };
-  if (pr.state === "unknown") return { Icon: IconGitPullRequest, color: "var(--taskchef-muted)", dot: null, label: "PR status not checked or unavailable" };
-  if (pr.hasMergeConflicts || pr.checks === "failed") return { Icon: IconGitPullRequest, color: "var(--taskchef-muted)", dot: "#e56b6f", label: pr.hasMergeConflicts ? "Merge conflicts" : "Checks failed" };
-  if (pr.canMerge || pr.checks === "passed") return { Icon: IconGitPullRequest, color: "var(--taskchef-muted)", dot: "#39c681", label: pr.canMerge ? "Ready to merge" : "Checks passed" };
-  return { Icon: IconGitPullRequest, color: "var(--taskchef-muted)", dot: "#eac54f", label: pr.checks === "none" ? "No checks" : pr.checks === "pending" ? "Checks pending" : "Open PR" };
+  if (pr.state === "unknown") return { Icon: PrOpenIcon, color: "var(--taskchef-muted)", dot: null, label: "PR status not checked or unavailable" };
+  if (pr.hasMergeConflicts || pr.checks === "failed") return { Icon: PrStatusIcon, color: "var(--taskchef-muted)", dot: "#e56b6f", label: pr.hasMergeConflicts ? "Merge conflicts" : "Checks failed" };
+  if (pr.canMerge || pr.checks === "passed") return { Icon: PrStatusIcon, color: "var(--taskchef-muted)", dot: "#39c681", label: pr.canMerge ? "Ready to merge" : "Checks passed" };
+  return { Icon: PrStatusIcon, color: "var(--taskchef-muted)", dot: "#eac54f", label: pr.checks === "none" ? "No checks" : pr.checks === "pending" ? "Checks pending" : "Open PR" };
 }
 
 export function PullRequestIcons({ pullRequests = [] }: { pullRequests?: PullRequestStatus[] }) {
   return <Box className="taskchef-card-pr-icons">{pullRequests.map(pr => {
     const { Icon, color, dot, label } = prPresentation(pr);
-    return <span key={pr.url} className="taskchef-card-status-icon" aria-label={`${prTitle(pr)}: ${label}`} style={{ color }}>
+    return <span key={pr.url} className="taskchef-card-status-icon" aria-label={`${prTitle(pr)}: ${label}`} style={{ color, "--taskchef-pr-dot-color": dot ?? "currentColor" } as CSSProperties}>
       <Icon size={15} stroke={1.5} aria-hidden />
-      {dot && <span className="taskchef-pr-dot" style={{ background: dot }} />}
       {pr.accessIssue && pr.state !== "unknown" && <IconAlertTriangle className="taskchef-pr-access-warning" size={10} aria-hidden />}
     </span>;
   })}</Box>;
@@ -117,7 +117,7 @@ export function PullRequestInfo({ pr }: { pr: PullRequestStatus }) {
   const CiIcon = pr.checks === "passed" ? IconCircleCheck : pr.checks === "failed" ? IconCircleX : pr.checks === "pending" ? IconLoader : IconMinus;
   const repo = safeLink ? pr.url.match(/github\.com\/(.+)\/pull\//)?.[1] : null;
   return <Stack gap={5}>
-    <StatusRow icon={<span className="taskchef-popup-pr-icon" style={{ color }}><Icon size={15} stroke={1.5} />{dot && <span className="taskchef-pr-dot" style={{ background: dot }} />}</span>}>
+    <StatusRow icon={<span className="taskchef-popup-pr-icon" style={{ color, "--taskchef-pr-dot-color": dot ?? "currentColor" } as CSSProperties}><Icon size={15} stroke={1.5} /></span>}>
       {safeLink ? <Anchor className="taskchef-status-pr-title" href={pr.url} target="_blank" rel="noopener noreferrer" title={title}>{title}</Anchor> : <Text className="taskchef-status-pr-title">{title}</Text>}
     </StatusRow>
     {pr.checks !== "unknown" && <StatusRow icon={<CiIcon size={15} stroke={1.5} />}>{pr.checks === "passed" ? "CI passed" : pr.checks === "failed" ? "CI failed" : pr.checks === "pending" ? "CI pending" : "No CI checks"}</StatusRow>}
