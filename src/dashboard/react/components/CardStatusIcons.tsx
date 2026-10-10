@@ -1,9 +1,10 @@
 import { PrOpenIcon, PrStatusIcon, PrDraftIcon, PrMergedIcon, PrClosedIcon } from "./PrGlyph";
 import { Anchor, Box, Popover, Stack, Text, VisuallyHidden } from "@mantine/core";
-import { IconAlertTriangle, IconHourglass, IconRobot, IconCircleCheck, IconCircleX, IconLoader, IconMinus, IconClock } from "@tabler/icons-react";
+import { IconAlertTriangle, IconHourglass, IconRobot, IconCircleCheck, IconCircleX, IconLoader, IconMinus, IconClock, IconChartBar } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { formatWorkedDuration } from "../../time.js";
-import type { PullRequestStatus } from "../types";
+import { turnUsageLabel } from "./SavedUsageFormat";
+import type { SavedUsage, PullRequestStatus } from "../types";
 
 export function nextRunLabel(value?: string | null, now = new Date()) {
   if (!value || !Number.isFinite(new Date(value).getTime())) return "Next run time unavailable";
@@ -35,8 +36,9 @@ export function PullRequestIcons({ pullRequests = [] }: { pullRequests?: PullReq
   })}</Box>;
 }
 
-export function CardStatusLine({ children, pullRequests = [], scheduled, nextRunAt, durationMs, startedAt, subagentCount }: {
+export function CardStatusLine({ children, pullRequests = [], scheduled, nextRunAt, durationMs, startedAt, subagentCount, turnUsage }: {
   subagentCount?: number;
+  turnUsage?: SavedUsage;
   children: ReactNode;
   pullRequests?: PullRequestStatus[];
   scheduled?: boolean;
@@ -58,7 +60,8 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
   const duration = formatWorkedDuration(running ? Math.max(0, now - start) : durationMs);
   const hasNextRun = scheduled && !!nextRunAt && Number.isFinite(Date.parse(nextRunAt));
   const hasSubagents = Number.isInteger(subagentCount) && (subagentCount ?? 0) > 0;
-  const hasInfo = duration !== "—" || pullRequests.length > 0 || hasNextRun || hasSubagents;
+  const hasUsage = !!turnUsage?.samples;
+  const hasInfo = hasUsage || duration !== "—" || pullRequests.length > 0 || hasNextRun || hasSubagents;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const target = useRef<HTMLDivElement>(null);
   const popup = useRef<HTMLDivElement>(null);
@@ -83,6 +86,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
           }
         }}>
         {children}
+        {hasUsage && <span className="taskchef-card-turn-usage">{turnUsageLabel(turnUsage!)}</span>}
         {scheduled && <span className="taskchef-card-status-icon" aria-label="Active schedule"><IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} aria-hidden /></span>}
         <PullRequestIcons pullRequests={pullRequests} />
         {pullRequests.length > 0 && <VisuallyHidden id={descriptionId}>{pullRequests.map(pr => `${prTitle(pr)}: ${pr.state === "merged" ? "Merged" : pr.state === "closed" ? "Closed, not merged" : pr.state === "draft" ? "Draft" : pr.state === "unknown" ? "PR status not checked or unavailable" : pr.hasMergeConflicts ? "Open, merge conflicts" : "Open"}`).join(". ")}</VisuallyHidden>}
@@ -92,6 +96,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
       onKeyDown={event => { if (event.key === "Escape") { setOpened(false); target.current?.focus(); setOpened(false); event.stopPropagation(); } }}>
       <Stack gap={5}>
         {duration !== "—" && <StatusRow icon={<IconHourglass size={15} stroke={1.5} />}>Worked for {duration}</StatusRow>}
+        {hasUsage && <StatusRow icon={<IconChartBar size={15} stroke={1.5} />}>Turn usage: {turnUsageLabel(turnUsage!)}</StatusRow>}
         {pullRequests.map(pr => <PullRequestInfo key={pr.url} pr={pr} showChecks={false} />)}
         {hasNextRun && <StatusRow icon={<IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} />}>{nextRunLabel(nextRunAt)}</StatusRow>}
         {hasSubagents && <StatusRow icon={<IconRobot size={15} stroke={1.5} />}>{subagentCount} {subagentCount === 1 ? "subagent" : "subagents"}</StatusRow>}

@@ -104,3 +104,11 @@ test("shows subagents and repository access action with number first", () => {
   expect(screen.getByRole("link",{name:"Grant access"})).toHaveAttribute("href","https://github.com/apps/taskchef/installations/new");
   expect(screen.getByRole("link",{name:"#12 Improve search"})).toHaveClass("taskchef-status-pr-title");
 });
+
+ test("card and popup use latest turn usage and retain incomplete markers", () => {
+  const turnUsage = {tokens:{input_tokens:1000,cached_input_tokens:200,cache_write_input_tokens:0,output_tokens:100,reasoning_output_tokens:40,total_tokens:1100},costUsd:2.34,samples:1,partial:true,costPartial:true};
+  render(<MantineProvider env="test"><CardStatusLine turnUsage={turnUsage}><span>1h</span></CardStatusLine></MantineProvider>);
+  expect(screen.getByText("≥1.10K / ≥$2.34")).toBeVisible();
+  fireEvent.focus(screen.getByLabelText("Turn status details"));
+  expect(screen.getByText("Turn usage: ≥1.10K / ≥$2.34")).toBeVisible();
+});

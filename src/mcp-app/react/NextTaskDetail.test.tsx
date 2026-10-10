@@ -61,7 +61,7 @@ test("usage keeps later-turn tokens visible when historical cost is partial", ()
   expect(within(usage).getByRole("link", {name: "OpenAI API pricing"})).toHaveAttribute("href", "https://developers.openai.com/api/docs/pricing");
   expect(within(usage).queryByText(/Includes 3 subagents/)).toBeNull();
   expect(within(usage).getByText("110")).toBeVisible();
-  expect(within(usage).getByText("10,000 · Partial")).toBeVisible();
+  expect(within(usage).getByText("10.00K · Partial")).toBeVisible();
   expect(within(usage).getByText("$0.20")).toBeVisible();
   expect(within(usage).getByText("At least $3.20")).toBeVisible();
 });

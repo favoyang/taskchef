@@ -155,3 +155,34 @@ test("plugin settings uses the native desktop opener and reports errors", async 
     await assert.rejects(openPluginSettingsInCodex(invalid, { run: async () => assert.fail("Must not open invalid URL") }));
   }
 });
+
+test("board usage is scoped to visible cards, revises with usage, and clears on a new turn", async (t) => {
+  const temp = await mkdtemp(join(tmpdir(), "taskchef-card-usage-"));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const task = {id:"01a00000-0000-7000-8000-000000000001",title:"Usage",status:"needs_input",turnId:"one",project:{name:"Test",path:"/test"},pullRequests:[]};
+  const requests=[];
+  let tokens=100;
+  const scanner={task:id=>id===task.id?task:null,refresh:async()=>({healthy:true,revision:1,tasks:[task],scan:{}}),taskUsage:async id=>{requests.push(id);return {latest:{tokens:{total_tokens:tokens},samples:1,costUsd:1}};},close(){}};
+  const github={enrich:async snapshot=>({snapshot,auth:{connected:false}}),auth:async()=>({connected:false})};
+  const server=new McpServer({name:"usage-test",version:"1"});
+  registerTaskChefApp(server,{createScanner:()=>scanner,createGitHub:()=>github,settingsPath:join(temp,"settings.json"),getSettingsUrl:async()=>null});
+  const client=new Client({name:"usage-client",version:"1"});
+  const [ct,st]=InMemoryTransport.createLinkedPair();
+  await server.connect(st);await client.connect(ct);
+  t.after(async()=>{await client.close();await server.close();});
+  const read=async args=>(await client.callTool({name:"taskchef_app_snapshot",arguments:args})).structuredContent;
+  const initial=await read({});assert.equal(requests.length,0);
+  await read({revision:initial.snapshot.revision,visibleTaskIds:[task.id]});
+  await new Promise(resolve=>setImmediate(resolve));
+  const populated=await read({revision:initial.snapshot.revision});
+  assert.equal(populated.snapshot.tasks[0].turnUsage.tokens.total_tokens,100);
+  assert.equal((await read({revision:populated.snapshot.revision})).unchanged,true);
+  tokens=200;
+  await read({revision:populated.snapshot.revision,visibleTaskIds:[task.id]});
+  await new Promise(resolve=>setImmediate(resolve));
+  const changed=await read({revision:populated.snapshot.revision});
+  assert.equal(changed.snapshot.tasks[0].turnUsage.tokens.total_tokens,200);
+  task.turnId="two";
+  const newTurn=await read({revision:changed.snapshot.revision});
+  assert.equal(newTurn.snapshot.tasks[0].turnUsage,undefined);
+});

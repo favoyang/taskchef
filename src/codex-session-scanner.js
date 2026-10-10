@@ -421,6 +421,14 @@ export class CodexSessionScanner {
     if (!task || task.turnId !== expectedTurnId || task.replyImage?.url !== expectedUrl) return null;
     try { return await localReplyImage(task.replyImage.url); } catch { return null; }
   }
+  async taskUsage(id, savedDurations = []) {
+    const task = this.task(id);
+    if (!task) return null;
+    const sessions = this.connections.state.prepare(`WITH RECURSIVE family(id) AS (
+      SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
+    ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
+    return this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations });
+  }
   async taskDetail(id) {
     const task = this.task(id);
     if (!task) return null;
@@ -463,17 +471,12 @@ export class CodexSessionScanner {
     }
     let detail = { ...task, detailPullRequests, observed: { ...task.observed,
       recordedChatDurationMs: durations.total ?? 0, missingTurnDurations: durations.missing ?? 0 } };
-    const sessions = this.connections.state.prepare(`WITH RECURSIVE family(id) AS (
-      SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
-    ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
     try {
-      const sessionUsage = await this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations: durations.saved });
+      const sessionUsage = await this.taskUsage(id, durations.saved);
       detail = { ...detail, sessionUsage, observed: { ...detail.observed,
         ...(sessionUsage.durationTurns ? { recordedChatDurationMs: Math.max(durations.total ?? 0, sessionUsage.durationMs) } : {}),
         historicalTimePartial: sessionUsage.partial || !sessionUsage.durationTurns } };
-    } catch {
-      detail.observed.historicalTimePartial = true;
-    }
+    } catch { detail.observed.historicalTimePartial = true; }
     try {
       const path = this.rolloutPaths.get(id);
       if (typeof path !== "string" || !isAbsolute(path)) return detail;

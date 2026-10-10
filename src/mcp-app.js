@@ -64,10 +64,30 @@ export function registerTaskChefApp(server, {
   let boardRevision = 0;
   let boardSignature;
   let githubAuth;
+  const turnUsageCache = new Map();
+  const usagePending = new Map();
   async function boardSnapshot(settings, force = false, scope = { date: "all", taskIds: [] }) {
     const result = await github.enrich(await scanner.refresh({ force }), settings, { force, scope });
     githubAuth = result.auth;
-    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests])]);
+    const visible = new Set(scope.taskIds ?? []);
+    const tasks = [];
+    for (const task of result.snapshot.tasks) {
+      let cached = turnUsageCache.get(task.id);
+      if (cached?.turnId !== task.turnId) { turnUsageCache.delete(task.id); cached = null; }
+      if (result.snapshot.healthy !== false && visible.has(task.id) && scanner.taskUsage && !usagePending.has(task.id)) {
+        // Cold log parsing must not delay the database-backed board response.
+        const turnId = task.turnId;
+        const pending = Promise.resolve().then(() => scanner.taskUsage(task.id)).then(usage => {
+          if (usage && scanner.task(task.id)?.turnId === turnId) turnUsageCache.set(task.id, { turnId, usage: usage.latest });
+        }).catch(() => { /* Optional usage failure never hides a card. */ }).finally(() => usagePending.delete(task.id));
+        usagePending.set(task.id, pending);
+      }
+      tasks.push(cached ? { ...task, turnUsage: cached.usage } : task);
+    }
+    const present = new Set(tasks.map(task => task.id));
+    for (const id of turnUsageCache.keys()) if (!present.has(id)) turnUsageCache.delete(id);
+    result.snapshot = { ...result.snapshot, tasks };
+    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests, task.turnUsage])]);
     if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
     return { ...result.snapshot, revision: boardRevision };
   }

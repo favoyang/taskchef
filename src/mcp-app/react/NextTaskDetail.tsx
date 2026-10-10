@@ -6,6 +6,7 @@ import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
 import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
 import { ReplyMarkdown } from "../../dashboard/react/components/ReplyMarkdown";
+import { compactTokens, TokenBreakdown } from "../../dashboard/react/components/SavedUsageFormat";
 import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
 import { formatWorkedDuration } from "../../dashboard/time.js";
 
@@ -73,7 +74,7 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
         {task.sessionUsage && <section aria-label="Usage">
           <Title order={5} mb="sm">Usage</Title>
           <table className="taskchef-detail-usage"><thead><tr><th /><th>Latest turn</th><th>Total chat</th></tr></thead><tbody>
-            <tr><th>Tokens</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={`Input: ${value.tokens.input_tokens.toLocaleString()}; cached: ${value.tokens.cached_input_tokens.toLocaleString()}; cache writes: ${value.tokens.cache_write_input_tokens.toLocaleString()}; output: ${value.tokens.output_tokens.toLocaleString()}. Reasoning tokens are included in output.${value.partial ? " Some saved usage records or turn links are missing or incomplete." : ""}`}><span>{value.samples ? value.tokens.total_tokens.toLocaleString() : "—"}{value.partial && " · Partial"}</span></Tooltip></td>)}</tr>
+            <tr><th>Tokens</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={<TokenBreakdown value={value} />}><span>{value.samples ? compactTokens(value.tokens.total_tokens) : "—"}{value.partial && " · Partial"}</span></Tooltip></td>)}</tr>
             <tr><th>API-equivalent cost</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={value.costPartial ? "Some usage records or model prices are missing. This is the subtotal for the calls TaskChef can price." : "Estimated from saved calls at standard API prices."}><span>{usageCost(value)}</span></Tooltip></td>)}</tr>
           </tbody></table>
           <Text size="xs" c="dimmed" mt={8}>Estimates use <Anchor size="xs" href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">OpenAI API pricing</Anchor>. Subscription users are not billed this amount.</Text>

@@ -102,6 +102,7 @@ export interface Task {
   results?: TaskResult[];
   reportedWork?: ReportedWorkSummary;
   usage?: UsageProjection | null;
+  turnUsage?: SavedUsage;
   sessionUsage?: {
     latest: SavedUsage;
     total: SavedUsage;

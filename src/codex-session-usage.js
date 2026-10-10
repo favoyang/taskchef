@@ -123,7 +123,10 @@ export class CodexSessionUsage {
     }
     const pricing = await this.pricing.get({ refresh: parsed.some(entry => entry.records.some(record => record.kind === "usage")) });
     const signature = JSON.stringify([latestTurnId, savedDurations, parsed.map(entry => [entry.session.id, entry.versions, entry.failed, entry.timePartial]), pricing]);
-    const cached = this.results.get(id);
+    // Board and Details can request different duration fallbacks concurrently.
+    // Keep both results so opening Details does not evict the board calculation.
+    const resultKey = `${id}:${savedDurations.length ? "details" : "board"}`;
+    const cached = this.results.get(resultKey);
     if (cached?.signature === signature) return cached.result;
     const result = { latest: bucket(), total: bucket(), subagents: sessions.length - 1, pricingDate: pricing.date,
       durationMs: 0, durationTurns: 0, partial: inventoryFailed };
@@ -146,7 +149,7 @@ export class CodexSessionUsage {
         result.durationTurns = summary.durations.size;
       }
     }
-    this.results.set(id, { signature, result });
+    this.results.set(resultKey, { signature, result });
     return result;
   }
   async readFile(path, expectedId) {
