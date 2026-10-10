@@ -29,8 +29,16 @@
     "docs/dashboard-lifecycle.md",
     "docs/dashboard-ui.md",
     "docs/mcp-app.md",
+    "docs/taskchef-next-storage.md",
+    "docs/diagrams/taskchef-next-storage.drawio",
+    "docs/diagrams/taskchef-next-storage.drawio.png",
+    "docs/diagrams/taskchef-next-reply-lookup.drawio",
+    "docs/diagrams/taskchef-next-reply-lookup.drawio.png",
+    "docs/taskchef-next-status-research.md",
     "docs/firstmate-taskchef-comparison.md",
     "docs/images/dashboard-identity.jpg",
+    "docs/images/taskchef-unified-status-popup.jpg",
+    "docs/images/taskchef-pr-icon-comparison.jpg",
     "docs/images/ccusage-token-consumption.png",
     "docs/images/notification-event-snapshots.jpg",
     "docs/images/result-history-dashboard.jpg",
@@ -53,7 +61,9 @@
     "skills/taskchef-dashboard",
     "skills/taskchef-delegate",
     "skills/taskchef-executor",
-    "skills/taskchef-copilot"
+    "skills/taskchef-copilot",
+    "docs/taskchef-next-github.md",
+    "scripts/prepare-github-keyring.js"
   ],
   "engines": {
     "node": ">=18"
@@ -81,28 +91,38 @@
     "benchmark:e2e": "node scripts/e2e-benchmark.js",
     "build:dashboard": "vite build --config vite.config.ts",
     "build:mcp-app": "vite build --config vite.mcp-app.config.ts",
+    "update:mcp-app-preview": "npm run build:mcp-app && node scripts/update-mcp-app-preview.js",
     "check:dashboard": "tsc --noEmit -p tsconfig.dashboard.json",
     "check:mcp-app": "tsc --noEmit -p tsconfig.mcp-app.json",
     "preview:dashboard": "node scripts/preview-dashboard.js",
     "test": "npm run test:node && npm run test:dashboard",
     "test:node": "node --test tests/*.test.js",
-    "test:dashboard": "vitest run --config vitest.config.ts"
+    "test:dashboard": "vitest run --config vitest.config.ts",
+    "prepack": "node scripts/prepare-github-keyring.js"
   },
   "dependencies": {
     "@mantine/core": "9.5.2",
     "@mantine/hooks": "9.5.2",
     "@mantine/notifications": "9.5.2",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@napi-rs/keyring": "2.1.0",
     "@tabler/icons-react": "3.35.0",
+    "mdast-util-from-markdown": "2.0.2",
     "proper-lockfile": "^4.1.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "smol-toml": "^1.9.0",
     "zod": "^4.4.3"
   },
   "bundleDependencies": [
     "@modelcontextprotocol/sdk",
     "proper-lockfile",
-    "zod"
+    "smol-toml",
+    "zod",
+    "mdast-util-from-markdown",
+    "@napi-rs/keyring"
   ],
   "optionalDependencies": {
     "ccusage": "20.0.24"

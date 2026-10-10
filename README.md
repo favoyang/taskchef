@@ -47,10 +47,14 @@ every task.
 
 The screenshots in this walkthrough use illustrative demo data. Open the
 dashboard beside TaskChef master to see both tasks across your projects.
-In Codex, you can also call `open_taskchef_board` for a compact [sidebar app](docs/mcp-app.md)
-with a task board, task details, chat links, and confirmed manual status changes.
-**Board** groups tasks by **Working**, **Needs input**, **Completed**, and
-**Failed** so you can see their status at a glance.
+In Codex, call `open_taskchef_board` for the [TaskChef sidebar](docs/mcp-app.md).
+It reads local Codex data and groups chats as **Scheduled**, **Running**,
+**Waiting for input/review**, and **Done**. Interrupted chats stay in Waiting with an **Interrupted** tag. Empty board columns remain visible with a short message. Ambiguous records stay
+**Unverified**. Running follows the latest selected turn
+state; these labels do not prove task outcomes. Mark Done writes only TaskChef's separate local state. A new Codex turn
+resets that mark.
+The main dashboard's **Board** groups reported tasks by **Working**,
+**Needs input**, **Completed**, and **Failed** so you can see their status at a glance.
 
 ![TaskChef master beside the dashboard board with recipe-book working and payments needing input](docs/images/readme-board.png)
 

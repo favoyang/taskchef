@@ -6,6 +6,8 @@ import { GitHubLinks } from "./GitHubLinks";
 import { LinkedText } from "./LinkedText";
 import { ShimmerText } from "./ShimmerText";
 import { StatusBadge } from "./StatusBadge";
+import { ReplyMarkdown } from "./ReplyMarkdown";
+import { RelativeTime } from "./RelativeTime";
 import { TaskCardStats } from "./TaskCardStats";
 
 export function TaskCard({
@@ -29,13 +31,16 @@ export function TaskCard({
                 </button>
               </Title>
               <Stack align="flex-end" className="taskchef-card-metadata" gap={4}>
-                <StatusBadge status={task.status} />
+                <StatusBadge status={task.status} label={task.statusLabel} />
               </Stack>
             </Box>
             <Text c="dimmed" mt={2} size="xs">{task.project.name}</Text>
+            {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
           </Box>
 
-          <Box className="taskchef-summary-grid">
+          {task.observed ? <Text component="div" className="taskchef-preserve-lines" lineClamp={2} size="sm">
+            <ReplyMarkdown compact text={task.replyExcerpt || "No reply text to show for this turn."} />
+          </Text> : <Box className="taskchef-summary-grid">
             <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
             <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">
               <LinkedText task={task} text={latest.requestSummary} />
@@ -46,11 +51,11 @@ export function TaskCard({
                 ? <ShimmerText>{latest.resultSummary}</ShimmerText>
                 : <LinkedText task={task} text={latest.resultSummary} />}
             </Text>
-          </Box>
+          </Box>}
 
           <GitHubLinks task={task} />
           <Box className="taskchef-list-card-footer">
-            <TaskCardStats task={task} />
+            {task.observed ? <RelativeTime calendar icon={false} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /> : <TaskCardStats task={task} />}
             <button aria-label={`Open chat for ${task.title}`} className="taskchef-board-chat" onClick={() => onOpenCodex(task)} title="Open chat" type="button">
               <IconArrowUpRight aria-hidden size={19} stroke={1.6} />
             </button>

@@ -4,12 +4,85 @@ import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "../fixtures";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { ManualTransitionConfirmation, type TerminalStatus } from "./TaskDetail";
+import { ManualTransitionConfirmation, TaskDetail, type TerminalStatus } from "./TaskDetail";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+test("shows only metadata available from a DB-backed observed task", () => {
+  renderObservedDetail({
+    archive: false,
+    lastTurnEvent: "inProgress",
+    lastTurnEventAt: null,
+    recentFileActivity: true,
+  });
+
+  const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
+  expect(within(metadata).getByText("Archive status")).toBeVisible();
+  expect(within(metadata).getByText("Active")).toBeVisible();
+  expect(within(metadata).queryByText("Location")).not.toBeInTheDocument();
+  expect(within(metadata).getByText("inProgress")).toBeVisible();
+  expect(within(metadata).queryByText("Observed messages")).not.toBeInTheDocument();
+  expect(within(metadata).queryByText("Log bytes sampled")).not.toBeInTheDocument();
+  expect(within(metadata).getByText("Queue reason")).toBeVisible();
+  expect(metadata).not.toHaveTextContent("undefined");
+});
+
+test("shows archived database chat status without claiming a file location", () => {
+  renderObservedDetail({
+    archive: true,
+    lastTurnEvent: "completed",
+    lastTurnEventAt: null,
+    recentFileActivity: false,
+  });
+
+  const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
+  expect(within(metadata).getByText("Archive status")).toBeVisible();
+  expect(within(metadata).getByText("Archived")).toBeVisible();
+  expect(within(metadata).queryByText("Location")).not.toBeInTheDocument();
+});
+
+test("keeps log message and byte counts in observed task metadata", () => {
+  renderObservedDetail({
+    archive: true,
+    lastTurnEvent: "completed",
+    lastTurnEventAt: null,
+    recentFileActivity: false,
+    userMessages: 2,
+    assistantMessages: 3,
+    sampledBytes: 1024,
+    fileBytes: 4096,
+  }, "Local Codex log");
+
+  const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
+  expect(within(metadata).getByText("Location")).toBeVisible();
+  expect(within(metadata).getByText("Archived sessions")).toBeVisible();
+  expect(within(metadata).getByText("Observed messages")).toBeVisible();
+  expect(within(metadata).getByText("2 user, 3 assistant")).toBeVisible();
+  expect(within(metadata).getByText("Log bytes sampled")).toBeVisible();
+  expect(within(metadata).getByText("1024 of 4096")).toBeVisible();
+});
+
+function renderObservedDetail(observed: NonNullable<ReturnType<typeof fixtureTask>["observed"]>, updatedBy = "Local Codex database") {
+  render(
+    <MantineProvider>
+      <TaskDetail
+        busy={false}
+        error={null}
+        highlightTurnRef={null}
+        onClose={() => {}}
+        onCopy={() => {}}
+        onOpenCodex={() => {}}
+        onTransition={async () => ({ ok: true })}
+        opened
+        readOnly
+        task={fixtureTask({ observed, updatedBy })}
+      />
+    </MantineProvider>,
+  );
+}
 
 test("clears a manual-transition confirmation only after success", async () => {
   const onTransition = vi.fn().mockResolvedValue({ ok: true });
@@ -162,3 +235,12 @@ function ConfirmationHarness({ onTransition }: { onTransition: (status: Terminal
     </MantineProvider>
   );
 }
+
+
+test("read-only Details allows copying an ID without exposing manual status actions", () => {
+  const onCopy = vi.fn();
+  render(<MantineProvider><TaskDetail busy={false} error={null} highlightTurnRef={null} onClose={vi.fn()} onCopy={onCopy} onOpenCodex={vi.fn()} onTransition={vi.fn()} opened readOnly task={fixtureTask()} /></MantineProvider>);
+  expect(screen.queryByRole("button", {name:"More task actions"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name:"Copy Task ID"}));
+  expect(onCopy).toHaveBeenCalledOnce();
+});

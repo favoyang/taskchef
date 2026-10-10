@@ -1,3 +1,4 @@
+import { PullRequestBadges } from "./PullRequestBadges";
 import {
   ActionIcon,
   Alert,
@@ -26,6 +27,7 @@ import type { Task } from "../types";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { GitHubLinks } from "./GitHubLinks";
 import { OpenChatButton } from "./OpenChatButton";
+import { ReplyMarkdown } from "./ReplyMarkdown";
 import { RelativeTime } from "./RelativeTime";
 import { StatusBadge } from "./StatusBadge";
 import { UsagePanel } from "./UsagePanel";
@@ -48,6 +50,8 @@ export function TaskDetail({
   task,
   notifications,
   notice,
+  readOnly = false,
+  extraActions,
 }: {
   busy: boolean;
   error: string | null;
@@ -60,6 +64,8 @@ export function TaskDetail({
   task: Task | null;
   notifications?: ReactNode;
   notice?: string | null;
+  readOnly?: boolean;
+  extraActions?: React.ReactNode;
 }) {
   const mobile = useMediaQuery("(max-width: 48em)");
   const [confirmStatus, setConfirmStatus] = useState<TerminalStatus | null>(null);
@@ -90,11 +96,13 @@ export function TaskDetail({
             <Text c="teal" fw={700} size="xs" tt="uppercase">{task.project.name}</Text>
             <Title id="task-detail-title" order={2} size="h3" tabIndex={-1}>{task.title}</Title>
           </Box>
-          <StatusBadge status={task.status} />
+          <StatusBadge status={task.status} label={task.statusLabel} />
         </Group>
         <Group gap="xs" mt="md">
           <OpenChatButton loading={busy} onClick={onOpenCodex} taskTitle={task.title} />
-          <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
+          {extraActions}
+          {readOnly && <Button leftSection={<IconClipboard size={14} />} onClick={onCopy} variant="default">Copy Task ID</Button>}
+          {!readOnly && <Menu position="bottom-start" shadow="md" withinPortal zIndex={360}>
             <Menu.Target>
               <Tooltip label="More task actions">
                 <ActionIcon aria-label="More task actions" className="taskchef-detail-more" disabled={busy} variant="default">
@@ -111,9 +119,10 @@ export function TaskDetail({
                 <Menu.Item color="red" leftSection={<IconX size={14} />} onClick={() => setConfirmStatus("failed")}>Mark failed</Menu.Item>
               )}
             </Menu.Dropdown>
-          </Menu>
+          </Menu>}
         </Group>
         <Box mt="sm">
+          <PullRequestBadges pullRequests={task.pullRequests} />
           <GitHubLinks task={task} />
         </Box>
       </Box>
@@ -130,19 +139,23 @@ export function TaskDetail({
       {notice && <Alert color="teal" role="status">{notice}</Alert>}
       {error && <Alert color="red" role="alert">{error}</Alert>}
 
-      <section aria-labelledby="usage-heading">
+      {!readOnly && <section aria-labelledby="usage-heading">
         <Title id="usage-heading" mb="xs" order={3} size="h5">Usage</Title>
         <UsagePanel task={task} />
-      </section>
-      <Divider />
-      <section aria-labelledby="activity-heading">
+      </section>}
+      {!readOnly && <Divider />}
+      {!readOnly && <section aria-labelledby="activity-heading">
         <Title id="activity-heading" mb="sm" order={3} size="h5">Activity timeline</Title>
         <ActivityTimeline highlightTurnRef={highlightTurnRef} task={task} />
-      </section>
-      <section aria-labelledby="instruction-heading">
+      </section>}
+      {!readOnly && <section aria-labelledby="instruction-heading">
         <Title id="instruction-heading" mb="xs" order={3} size="h5">Original instruction</Title>
         <Box className="taskchef-code-panel" component="pre">{task.instruction}</Box>
-      </section>
+      </section>}
+      {task.observed && <section aria-labelledby="saved-reply-heading">
+        <Title id="saved-reply-heading" mb="xs" order={3} size="h5">Latest saved reply (excerpt)</Title>
+        <Text component="div" size="sm"><ReplyMarkdown text={task.replyExcerpt || "No reply text to show for this turn."} /></Text>
+      </section>}
       <section aria-labelledby="metadata-heading">
         <Title id="metadata-heading" mb="xs" order={3} size="h5">Metadata</Title>
         <dl className="taskchef-metadata">
@@ -153,6 +166,23 @@ export function TaskDetail({
           <dt>Created</dt><dd><RelativeTime label="Created time" value={task.createdAt} /></dd>
           <dt>Updated</dt><dd><RelativeTime label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} /></dd>
           <dt>Updated by</dt><dd>{task.updatedBy ?? "—"}</dd>
+          {task.observed?.directChildCount !== undefined && <><dt>Direct subagent chats (all history)</dt><dd>{task.observed.directChildCount}</dd></>}
+          {task.observed && <>
+            <dt>Queue reason</dt><dd>{task.summary}</dd>
+            {task.updatedBy === "Local Codex database" ? <>
+              <dt>Archive status</dt><dd>{task.observed.archive ? "Archived" : "Active"}</dd>
+            </> : <>
+              <dt>Location</dt><dd>{task.observed.archive ? "Archived sessions" : "Active sessions"}</dd>
+            </>}
+            {task.statusLabel && <><dt>Schedule</dt><dd>{task.scheduled ? "Active" : "None active"}</dd><dt>Latest input</dt><dd>{task.inputSource}</dd><dt>Done reason</dt><dd>{task.observed.archive ? "Archived" : task.manualDone ? "Manual mark" : "Not marked"}</dd></>}
+            <dt>Latest turn event</dt><dd>{task.observed.lastTurnEvent ?? "Unknown"}</dd>
+            {task.observed.userMessages !== undefined && task.observed.assistantMessages !== undefined && <>
+              <dt>Observed messages</dt><dd>{task.observed.userMessages} user, {task.observed.assistantMessages} assistant</dd>
+            </>}
+            {task.observed.sampledBytes !== undefined && task.observed.fileBytes !== undefined && <>
+              <dt>Log bytes sampled</dt><dd>{task.observed.sampledBytes} of {task.observed.fileBytes}</dd>
+            </>}
+          </>}
         </dl>
       </section>
     </Stack>

@@ -633,6 +633,15 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   assert.equal(ensureCount, 1, "MCP initialization should start the dashboard before connecting");
+  const icons = client.getServerVersion().icons;
+  assert.deepEqual(icons.map((icon) => icon.theme), ["light", "dark"]);
+  const svg = await readFile(new URL("../assets/taskchef-sidebar.svg", import.meta.url), "utf8");
+  for (const icon of icons) {
+    assert.equal(icon.mimeType, "image/svg+xml");
+    assert.deepEqual(icon.sizes, ["20x20"]);
+    const color = icon.theme === "dark" ? "#dddddd" : "#333333";
+    assert.equal(Buffer.from(icon.src.split(",")[1], "base64").toString("utf8"), svg.replace("<svg ", `<svg style="color:${color}" `));
+  }
 
   try {
     const listed = await client.listTools();
@@ -646,10 +655,20 @@ test("structured MCP tools prepare, record, self-link, and report through canoni
       "link_task",
       "report_state",
       "report_result",
+      "taskchef_settings_read",
+      "taskchef_settings_update",
+      "taskchef_github_settings",
       "open_taskchef_board",
       "taskchef_app_snapshot",
       "taskchef_app_task",
-      "taskchef_app_transition",
+      "taskchef_app_image",
+      "taskchef_app_set_scheduled",
+      "taskchef_app_set_done",
+      "taskchef_app_github",
+      "taskchef_github_settings_auth",
+      "taskchef_app_notifications",
+      "taskchef_app_open_settings",
+      "taskchef_github_settings_open_plugin",
       "taskchef_app_open_chat",
     ]);
     const byName = (name) => listed.tools.find((tool) => tool.name === name);
@@ -900,7 +919,7 @@ test("dashboard autostart defaults on, honors opt-out, isolates failure, and ini
   await client.connect(clientTransport);
   try {
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal((await client.listTools()).tools.length, 14);
+    assert.equal((await client.listTools()).tools.length, 24);
     assert.deepEqual(isolatedDiagnostics, [
       "TaskChef dashboard autostart skipped: port 127.0.0.1:3210 is unavailable; the listener was left untouched.",
     ]);
@@ -3775,7 +3794,10 @@ test("plugin manifest packages all skills and stays synchronized by release tool
   assert.deepEqual(packageJson.bundleDependencies, [
     "@modelcontextprotocol/sdk",
     "proper-lockfile",
+    "smol-toml",
     "zod",
+    "mdast-util-from-markdown",
+    "@napi-rs/keyring",
   ]);
   assert.equal(packageJson.optionalDependencies.ccusage, "20.0.24");
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));

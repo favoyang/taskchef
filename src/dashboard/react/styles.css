@@ -104,11 +104,11 @@ body {
 }
 .taskchef-board:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
 .taskchef-board-dragging { scroll-snap-type: none; user-select: none; cursor: grabbing; }
-.taskchef-board-lane { min-width: 0; scroll-snap-align: start; cursor: grab; }
+.taskchef-board-lane { min-width: 0; scroll-snap-align: start; cursor: grab; padding: 8px; border-radius: 10px; }
 .taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 13px 6px; margin-bottom: 6px; }
 .taskchef-board-lane-heading h2 { font-size: var(--mantine-font-size-sm); font-weight: 680; }
 .taskchef-board-empty { padding: 12px 4px; }
-.taskchef-board-card { display: flex; flex-direction: column; min-width: 0; cursor: auto; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
+.taskchef-board-card { display: flex; flex-direction: column; min-width: 0; cursor: grab; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
 .taskchef-board-card:hover { border-color: light-dark(#bdc8c0, #5b685e); }
 .taskchef-board-project { color: var(--taskchef-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .taskchef-board-title { line-height: 1.3; }
@@ -218,3 +218,66 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .taskchef-refresh-spinning { animation: none; }
 }
+
+/* Markdown replies share the same renderer in the board and Details. */
+.taskchef-markdown { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+.taskchef-markdown > :first-child { margin-top: 0; }
+.taskchef-markdown > :last-child { margin-bottom: 0; }
+.taskchef-markdown p, .taskchef-markdown ul, .taskchef-markdown ol, .taskchef-markdown blockquote { margin: 0.6em 0; }
+.taskchef-markdown h1, .taskchef-markdown h2, .taskchef-markdown h3, .taskchef-markdown h4, .taskchef-markdown h5, .taskchef-markdown h6 { font-size: 1.05em; margin: 1em 0 0.4em; }
+.taskchef-markdown ul, .taskchef-markdown ol { padding-left: 1.5em; }
+.taskchef-markdown a { color: var(--mantine-color-anchor); }
+.taskchef-markdown code { background: var(--mantine-color-default-hover); border-radius: 3px; padding: 0.1em 0.25em; font-size: 0.9em; }
+.taskchef-markdown pre { overflow-x: auto; max-width: 100%; padding: 0.75em; background: var(--mantine-color-default-hover); border-radius: 6px; white-space: pre; }
+.taskchef-markdown pre code { padding: 0; background: none; }
+.taskchef-markdown blockquote { border-left: 3px solid var(--mantine-color-default-border); padding-left: 0.75em; }
+.taskchef-markdown-table { overflow-x: auto; max-width: 100%; }
+.taskchef-markdown table { border-collapse: collapse; }
+.taskchef-markdown th, .taskchef-markdown td { border: 1px solid var(--mantine-color-default-border); padding: 0.35em 0.6em; text-align: left; overflow-wrap: normal; }
+.taskchef-markdown--compact { display: inline; }
+.taskchef-markdown--compact :is(p,h1,h2,h3,h4,h5,h6,ul,ol,li,blockquote,pre,table,thead,tbody,tr,th,td,.taskchef-markdown-table) { display: inline; margin: 0; padding: 0; border: 0; font-size: inherit; white-space: normal; }
+.taskchef-markdown--compact :is(p,li,pre,blockquote,tr)::after { content: " "; }
+.taskchef-markdown--compact li::before { content: "• "; }
+.taskchef-markdown--compact :is(th,td)::after { content: " | "; }
+
+.taskchef-reply-cover { display: flex; align-items: center; justify-content: center; width: calc(100% + 24px); height: 150px; margin: -12px -12px 10px; padding: 0; border: 0; border-radius: var(--mantine-radius-default) var(--mantine-radius-default) 0 0; overflow: hidden; background: light-dark(#eef1ee, #151a17); color: var(--mantine-color-dimmed); cursor: pointer; flex-shrink: 0; }
+.taskchef-reply-cover img { width: 100%; height: 100%; object-fit: contain; }
+.taskchef-reply-cover span { font-size: var(--mantine-font-size-xs); padding: 12px; }
+.taskchef-reply-cover:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
+
+.taskchef-board-project { display: flex; align-items: center; gap: 5px; }
+.taskchef-board-project > svg { flex-shrink: 0; }
+.taskchef-board-project > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskchef-card-stats, .taskchef-card-pr-icons { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.taskchef-card-pr-icons { flex-wrap: wrap; }
+.taskchef-card-pr-icons:empty { display: none; }
+.taskchef-card-status-icon { display: inline-flex; position: relative; align-items: center; justify-content: center; width: 20px; height: 22px; padding: 0; flex-shrink: 0; background: none; border: 0; color: var(--taskchef-muted); cursor: pointer; }
+.taskchef-card-status-icon:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; border-radius: 3px; }
+
+.taskchef-status-tooltip { background: var(--taskchef-surface-muted); color: var(--taskchef-text); border: 1px solid var(--taskchef-border); }
+
+.taskchef-status-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; line-height: 1.5; }
+.taskchef-status-row-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; flex: 0 0 18px; color: var(--taskchef-muted); }
+.taskchef-status-row-content { min-width: 0; flex: 1; }
+.taskchef-status-pr-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: inherit; color: inherit; }
+.taskchef-popup-pr-icon { position: relative; display: inline-flex; width: 18px; height: 18px; align-items: center; }
+
+.taskchef-pr-access-warning { position: absolute; right: -6px; top: -3px; color: #eac54f; }
+
+.taskchef-schedule-clock { transform: scaleX(-1); }
+
+.taskchef-pr-access-alert { box-shadow: inset 0 0 0 1px #eac54f; border-radius: 4px; padding: 6px 8px 6px 0; }
+
+.taskchef-board-lane-title { display: flex; align-items: center; gap: 4px; }
+/* Codex desktop's default spinner geometry and animation cadence. */
+.taskchef-running-spinner { flex-shrink: 0; color: var(--mantine-color-dimmed); animation: taskchef-running-spin 2s steps(60, end) infinite; }
+@keyframes taskchef-running-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .taskchef-running-spinner { animation: none; } }
+
+.taskchef-board-card:active { cursor: grabbing; }
+.taskchef-board-lane-drop-target {
+  background: light-dark(rgba(47, 158, 68, 0.08), rgba(81, 207, 102, 0.08));
+  box-shadow: inset 0 0 0 1px light-dark(rgba(47, 158, 68, 0.5), rgba(81, 207, 102, 0.4));
+}
+
+.taskchef-card-turn-usage { font-size: 12px; white-space: nowrap; }
