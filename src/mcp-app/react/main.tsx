@@ -333,6 +333,7 @@ export function TaskChefApp() {
   async function moveTask(task: Task, destination: Task["status"]) {
     if (busy) return;
     if (destination === "archived") { setArchiveHelp(task); return; }
+    if (!["needs_input", "interrupted"].includes(task.status ?? "")) return;
     if (destination === "completed") {
       if (task.scheduled) { await actionError("move", new Error("This chat has an active schedule. Move it to Scheduled instead of Done."), task); return; }
       if (task.pullRequests?.some(pr => pr.state !== "merged")) { await actionError("move", new Error("Chats with an unmerged or unconfirmed PR cannot move to Done. Merge the PR first."), task); return; }

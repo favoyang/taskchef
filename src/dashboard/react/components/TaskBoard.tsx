@@ -1,6 +1,6 @@
 import { CardStatusLine } from "./CardStatusIcons";
 import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
-import { useLayoutEffect, useRef, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight, IconFolder } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
@@ -46,6 +46,12 @@ export function TaskBoard({
   tasks: Task[];
 }) {
   const draggedTask = useRef<Task | null>(null);
+  const [dragging, setDragging] = useState<Task | null>(null);
+  const isWaiting = (task: Task) => ["needs_input", "interrupted"].includes(task.status ?? "");
+  const canDrop = (task: Task, destination: TaskStatus) => destination === "archived" || (isWaiting(task) && (destination === "completed"
+    ? !task.scheduled && !task.pullRequests?.some(pr => pr.state !== "merged")
+    : destination === "scheduled" && !!task.scheduled && task.inputSource === "ordinary" && !!task.turnId));
+  const acceptsDrop = (task: Task, destination: TaskStatus) => destination === "archived" || (isWaiting(task) && ["completed", "scheduled"].includes(destination ?? ""));
   const boardRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
@@ -133,12 +139,13 @@ export function TaskBoard({
         const matching = tasks.filter((task) => laneFor(task) === status);
         const shown = (status === "completed" || status === "archived") ? matching.slice(0, status === "archived" ? archivedLimit : completedLimit) : matching;
         return (
-          <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}
-            onDragOver={(event) => { if (onMoveTask && draggedTask.current && ["completed", "scheduled", "archived"].includes(status ?? "")) event.preventDefault(); }}
+          <Box aria-label={`${label}, ${matching.length} tasks`} className={`taskchef-board-lane${dragging && canDrop(dragging, status) ? " taskchef-board-lane-drop-target" : ""}`} component="section" key={label}
+            onDragOver={(event) => { if (onMoveTask && draggedTask.current && acceptsDrop(draggedTask.current, status)) event.preventDefault(); }}
             onDrop={(event) => {
               const task = draggedTask.current;
               draggedTask.current = null;
-              if (!onMoveTask || !task || !["completed", "scheduled", "archived"].includes(status ?? "")) return;
+              setDragging(null);
+              if (!onMoveTask || !task || !acceptsDrop(task, status)) return;
               event.preventDefault();
               onMoveTask(task, status);
             }}
@@ -157,7 +164,7 @@ export function TaskBoard({
             </Box>
             <Stack gap="sm">
               {status === "completed" && doneNotice}
-              {shown.map((task) => <BoardCard draggable={!!onMoveTask && ["needs_input", "interrupted"].includes(task.status ?? "")} onDragStart={(event) => { if (event.target !== event.currentTarget) return; draggedTask.current = task; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={() => { draggedTask.current = null; }} loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
+              {shown.map((task) => <BoardCard draggable={!!onMoveTask} onDragStart={(event) => { if (event.target !== event.currentTarget) return; draggedTask.current = task; setDragging(task); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={() => { draggedTask.current = null; setDragging(null); }} loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
               {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{emptyMessage ?? "No tasks"}</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (
                 <Button className="taskchef-board-more" onClick={status === "archived" ? onMoreArchived : onMoreCompleted} size="compact-sm" variant="subtle">

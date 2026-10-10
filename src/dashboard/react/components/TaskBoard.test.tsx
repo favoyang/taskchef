@@ -2,6 +2,7 @@ import { MantineProvider } from "@mantine/core";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "../fixtures";
+import type { Task } from "../types";
 import { TaskBoard } from "./TaskBoard";
 
 afterEach(cleanup);
@@ -238,15 +239,15 @@ test("shows the Running spinner only for a populated Running lane", () => {
 });
 
 
-test("only waiting cards can drag and drops request a queue action without moving them early", () => {
+test("all cards can drag and valid destinations are highlighted without moving cards early", () => {
   const move = vi.fn();
   const waiting = task(1, "needs_input");
   const lanes = [{ status: "working" as const, label: "Running" }, { status: "needs_input" as const, label: "Waiting" }, { status: "completed" as const, label: "Done" }, { status: "scheduled" as const, label: "Scheduled" }, { status: "archived" as const, label: "Archived" }];
   render(<MantineProvider><TaskBoard lanes={lanes} tasks={[waiting, task(2, "working"), task(3, "scheduled")]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={move} /></MantineProvider>);
   const card = within(screen.getByRole("region", { name: "Waiting, 1 tasks" })).getByRole("article");
   expect(card).toHaveAttribute("draggable", "true");
-  expect(within(screen.getByRole("region", { name: "Running, 1 tasks" })).getByRole("article")).toHaveAttribute("draggable", "false");
-  expect(within(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).getByRole("article")).toHaveAttribute("draggable", "false");
+  expect(within(screen.getByRole("region", { name: "Running, 1 tasks" })).getByRole("article")).toHaveAttribute("draggable", "true");
+  expect(within(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).getByRole("article")).toHaveAttribute("draggable", "true");
   const destination = screen.getByRole("region", { name: "Done, 0 tasks" });
   fireEvent.drop(destination);
   expect(move).not.toHaveBeenCalled();
@@ -254,7 +255,40 @@ test("only waiting cards can drag and drops request a queue action without movin
   fireEvent.drop(destination);
   expect(move).not.toHaveBeenCalled();
   fireEvent.dragStart(card, { dataTransfer: { setData: vi.fn() } });
+  expect(destination).toHaveClass("taskchef-board-lane-drop-target");
+  expect(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).not.toHaveClass("taskchef-board-lane-drop-target");
   fireEvent.drop(destination);
+  expect(destination).not.toHaveClass("taskchef-board-lane-drop-target");
   expect(move).toHaveBeenCalledWith(waiting, "completed");
   expect(card).toBeInTheDocument();
+});
+
+
+test("running, scheduled, done and archived cards can drop into Archived only", () => {
+  const move = vi.fn();
+  const lanes = [{ status: "working" as const, label: "Running" }, { status: "scheduled" as const, label: "Scheduled" }, { status: "completed" as const, label: "Done" }, { status: "archived" as const, label: "Archived" }];
+  const tasks = [task(1, "working"), task(2, "scheduled"), task(3, "completed"), task(4, "archived")];
+  render(<MantineProvider><TaskBoard lanes={lanes} tasks={tasks} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={move} /></MantineProvider>);
+  const archive = screen.getByRole("region", { name: "Archived, 1 tasks" });
+  for (const item of tasks) {
+    const card = screen.getAllByRole("article").find(card => card.dataset.chatId === item.id)!;
+    fireEvent.dragStart(card, { dataTransfer: { setData: vi.fn() } });
+    expect(archive).toHaveClass("taskchef-board-lane-drop-target");
+    expect(screen.getByRole("region", { name: "Done, 1 tasks" })).not.toHaveClass("taskchef-board-lane-drop-target");
+    fireEvent.drop(archive);
+    expect(move).toHaveBeenLastCalledWith(item, "archived");
+    expect(archive).not.toHaveClass("taskchef-board-lane-drop-target");
+  }
+});
+
+test.each(["scheduled", "pr"])("blocked %s waiting cards highlight only valid destinations and clear on drag end", (kind) => {
+  const waiting = { ...task(1, "needs_input"), turnId: "turn-1", ...(kind === "scheduled" ? { scheduled: true, inputSource: "ordinary" as const } : { pullRequests: [{ state: "open", url: "https://github.com/example/repo/pull/1", checks: "pending" }] as Task["pullRequests"] }) };
+  const lanes = [{ status: "needs_input" as const, label: "Waiting" }, { status: "completed" as const, label: "Done" }, { status: "scheduled" as const, label: "Scheduled" }];
+  render(<MantineProvider><TaskBoard lanes={lanes} tasks={[waiting]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={vi.fn()} /></MantineProvider>);
+  const card = screen.getByRole("article");
+  fireEvent.dragStart(card, { dataTransfer: { setData: vi.fn() } });
+  expect(screen.getByRole("region", { name: "Done, 0 tasks" })).not.toHaveClass("taskchef-board-lane-drop-target");
+  expect(screen.getByRole("region", { name: "Scheduled, 0 tasks" }).classList.contains("taskchef-board-lane-drop-target")).toBe(kind === "scheduled");
+  fireEvent.dragEnd(card);
+  expect(document.querySelector(".taskchef-board-lane-drop-target")).toBeNull();
 });

@@ -220,7 +220,9 @@ The existing visible-card refresh still runs when the displayed cards change.
 
 ## Dragging chats between queues
 
-Only Waiting cards (including Interrupted cards) can drag. Dropping a chat
+Every card can drag. Valid destination columns are highlighted during dragging.
+Done and Scheduled moves require a Waiting card (including Interrupted cards).
+Cards from any column can drop into Archived to show the archive instructions. Dropping a chat
 without an active schedule into Done uses the existing local Done mark.
 Attached PRs must all be confirmed merged by the server. The mark also records
 the confirmed URLs; a newly attached PR invalidates that acknowledgement.
