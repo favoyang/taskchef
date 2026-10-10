@@ -434,11 +434,7 @@ export function TaskChefApp() {
         <Text size="sm">Open this chat in Codex. Use the top-right … menu and choose Archive.</Text>
         <Button mt="md" disabled={busy} onClick={() => { if (archiveHelp) void openChat(archiveHelp); }}>Open chat</Button>
       </Modal>
-      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} onClose={closeDetail} onCopy={(value) => {
-        if (!selected) return;
-        const task = selected;
-        void (async () => { try { await navigator.clipboard.writeText(value); } catch (cause) { await actionError("copy", cause, task); } })();
-      }} onOpenCodex={() => selected && void openChat(selected)} onArchive={() => { if (selected) { const task = selected; closeDetail(); setArchiveHelp(task); } }} opened={opened} task={selected} />
+      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} onClose={closeDetail} onOpenCodex={() => selected && void openChat(selected)} opened={opened} task={selected} />
     </RelativeTimeProvider>
   </MantineProvider>;
 }

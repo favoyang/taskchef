@@ -123,6 +123,11 @@ body { background: var(--taskchef-page); }
 .taskchef-detail-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 28px; align-items: start; }
 .taskchef-detail-reply, .taskchef-detail-sidebar { min-width: 0; }
 .taskchef-detail-project, .taskchef-detail-activity-row { display: flex; align-items: center; gap: 8px; }
+.taskchef-detail-meta { flex: 1; min-width: 0; }
+.taskchef-detail-project { max-width: 100%; min-width: 0; }
+.taskchef-detail-project svg { flex-shrink: 0; }
+.taskchef-detail-project > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskchef-detail-actions { flex-shrink: 0; }
 .taskchef-detail-activity-row > span:first-child { display: flex; flex-shrink: 0; color: var(--mantine-color-dimmed); }
 .taskchef-detail-technical { margin-top: 24px; border-top: 1px solid var(--mantine-color-default-border); padding-top: 12px; }
 .taskchef-detail-technical summary { cursor: pointer; font-size: var(--mantine-font-size-sm); color: var(--mantine-color-dimmed); }

@@ -61,7 +61,7 @@ test("one status popup shows available lines, survives movement onto links, and 
   expect(screen.getByText("Worked for 15h 5m")).toBeInTheDocument();
   const link = screen.getByRole("link", {name:"#12 Improve search",hidden:true});
   expect(link).toHaveAttribute("href",url);
-  expect(screen.getByText("CI passed")).toBeInTheDocument();
+  expect(screen.queryByText("CI passed")).not.toBeInTheDocument();
   expect(screen.getByText(/^Next run:/)).toBeInTheDocument();
   expect(screen.queryByText(/Checked |Ready to merge/)).not.toBeInTheDocument();
   fireEvent.focus(line);
