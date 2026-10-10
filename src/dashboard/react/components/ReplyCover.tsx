@@ -10,11 +10,13 @@ export function ReplyCover({ task, loadImage, onOpen }: { task: Task; loadImage?
     let cancelled = false;
     let started = false;
     setSrc(null); setFailed(false);
+    // Remote images remain click-only Markdown links, never automatic requests.
+    if (/^https:\/\//i.test(image.url)) { setFailed(true); return; }
     const load = async () => {
       if (started) return;
       started = true;
       try {
-        const url = /^https:\/\//i.test(image.url) ? image.url : await loadImage?.(task);
+        const url = await loadImage?.(task);
         if (!cancelled) { setSrc(url || null); setFailed(!url); }
       } catch { if (!cancelled) setFailed(true); }
     };

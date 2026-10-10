@@ -420,19 +420,48 @@ export class CodexSessionScanner {
   async taskDetail(id) {
     const task = this.task(id);
     if (!task) return null;
+    // Details alone reads a bounded tail of the selected rollout history.
+    // Restrict links to owned PRs; incidental transcript links are not attachments.
+    const records = this.databaseCache.records;
+    const row = records.rows.find(row => row.id === id);
+    const owned = new Set((records.attachments.get(id) ?? []).map(url => url.replace(/\/$/, "")));
+    const cachedDetails = records.detailPullRequests ??= new Map();
+    let detailPullRequests = cachedDetails.get(id);
+    if (!detailPullRequests) {
+      const urls = new Set();
+      const items = this.connections.history.prepare(`SELECT item_json FROM thread_items
+        WHERE thread_id = ? AND item_type IN ('userMessage', 'agentMessage', 'mcpToolCall')
+        ORDER BY rollout_ordinal DESC LIMIT 1000`).all(historyId(row));
+      for (const record of items) {
+        const item = JSON.parse(record.item_json);
+        const text = item.type === "agentMessage" ? item.text
+          : item.type === "userMessage" ? (item.content ?? []).filter(part => part.type === "text").map(part => part.text).join("\n")
+            : item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError && item.arguments?.artifact_type === "pull_request" ? item.arguments.url : "";
+        if (typeof text !== "string") continue;
+        for (const match of [...text.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].reverse()) {
+          const url = match[0].replace(/\/$/, "");
+          if (owned.has(url)) urls.add(url);
+          if (urls.size === 25) break;
+        }
+        if (urls.size === 25) break;
+      }
+      detailPullRequests = [...urls].map(url => ({ url, state: "unknown", checks: "unknown" }));
+      cachedDetails.set(id, detailPullRequests);
+    }
+    const detail = { ...task, detailPullRequests };
     try {
       const path = this.rolloutPaths.get(id);
-      if (typeof path !== "string" || !isAbsolute(path)) return task;
+      if (typeof path !== "string" || !isAbsolute(path)) return detail;
       const info = await stat(path);
-      if (!info.isFile()) return task;
+      if (!info.isFile()) return detail;
       const log = await readSession({ path, id, archive: task.observed.archive, mtimeMs: info.mtimeMs }, this.now());
-      return { ...task, observed: { ...task.observed,
+      return { ...detail, observed: { ...task.observed,
         userMessages: log.observed.userMessages,
         assistantMessages: log.observed.assistantMessages,
         sampledBytes: log.observed.sampledBytes,
         fileBytes: log.observed.fileBytes,
       } };
-    } catch { return task; } // Optional log detail never changes database status or availability.
+    } catch { return detail; } // Optional log detail never changes database status or availability.
   }
   async setDone(id, expectedTurnId, done, mergedPrUrls = []) {
     return this.setQueueMark(id, expectedTurnId, done, false, mergedPrUrls);

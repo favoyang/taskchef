@@ -112,6 +112,7 @@ export interface Task {
   inputSource?: "scheduled" | "ordinary" | "unverified";
   observed?: { source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; latestTurnDurationMs?: number | null; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
   pullRequests?: PullRequestStatus[];
+  detailPullRequests?: PullRequestStatus[];
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;

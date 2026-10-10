@@ -1,13 +1,13 @@
 # Chat details proposal
 
-Status: proposed, awaiting review. No detail-layout code changed.
+Status: approved and implemented for the sidebar. The original web detail view is unchanged.
 
 - Keep the title, project, queue label, and Open in Codex at the top. Put Copy Chat ID and archive guidance in the action menu. Show Mark Done only when allowed.
 - Render the saved reply excerpt directly, without a section heading or footer explanation. Keep the existing bounded excerpt and Markdown support.
 - Put Activity before Pull requests. Activity shows work duration, next scheduled run, and direct subagents across chat history. Hide missing rows.
 - In wide views, place Activity and Pull requests beside the reply; in narrow views, place them above it.
-- Order PRs by the most recent occurrence in the chat, newest first. The current sidebar fetches latest-turn PRs only. Listing older chat PRs needs a separate bounded history lookup when Details opens; this does not change card classification or board fetching.
-- Show a repository access alert once, below its first PR in the ordered list. Older PRs for that repository do not repeat it. Different repositories each get their own alert when needed.
+- Order PRs by the most recent occurrence in the chat, newest first. The current sidebar fetches latest-turn PRs only. Details reads up to 1,000 recent message/tool items from the selected rollout and lists up to 25 owned PRs; this does not change card classification or board fetching.
+- Show a confirmed repository access denial once, below its first PR in the ordered list. A missing PR can also mean it was removed, so show that warning below the first affected PR instead. Older PRs for that repository do not repeat the alert. Different repositories each get their own alert when needed.
 - Keep Technical details collapsed. Only show Chat ID (copy), Turn ID (copy), Source (Desktop/CLI/Exec), and Last input (Human/Scheduled/Unknown). Hide absent fields. These help identify a chat and explain which input rules apply.
 - Show the project folder as a tooltip on the project name. Remove duplicate IDs, generic queue explanation, updated-by text, redundant archive/schedule flags, sampled log byte counts, and observed message counts from normal details.
 

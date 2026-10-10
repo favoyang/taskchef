@@ -7,7 +7,8 @@ import { replyImage, localReplyImage } from '../src/reply-image.js';
 
 test('covers use actual Markdown images including references and spaced paths', () => {
   assert.deepEqual(replyImage('```\n![fake](/fake.png)\n```\n![Design](</local/design (2).png>)\n![Other](https://example.com/other.png)'), {url:'/local/design (2).png',alt:'Design'});
-  assert.deepEqual(replyImage('![Chart][result]\n\n[result]: https://example.com/chart.png'),{url:'https://example.com/chart.png',alt:'Chart'});
+  assert.equal(replyImage('![Chart][result]\n\n[result]: https://example.com/chart.png'), null);
+  assert.deepEqual(replyImage('![Remote](https://example.com/chart.png)\n![Local](/local.png)'), {url:'/local.png',alt:'Local'});
   assert.equal(replyImage('<img src="/fake.png">\n![bad](javascript:alert)\n![relative](chart.png)\n![host](//host/a.png)'),null);
 });
 

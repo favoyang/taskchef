@@ -38,8 +38,8 @@ vi.mock("../../dashboard/react/components/TaskCard", () => ({
 vi.mock("../../dashboard/react/components/TaskBoard", () => ({
   TaskBoard: ({ tasks, onOpenDetail, onOpenCodex, doneNotice, onVisibleTasksChange }: { onVisibleTasksChange?: (ids: string[]) => void; doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board"><button onClick={() => onVisibleTasksChange?.([tasks[0].id])}>Report card in view</button>{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
-vi.mock("../../dashboard/react/components/TaskDetail", () => ({
-  TaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
+vi.mock("./NextTaskDetail", () => ({
+  NextTaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
     task: Task | null; opened: boolean; onClose: () => void; extraActions?: React.ReactNode;
     onTransition: (status: "completed" | "failed", actionId: string) => Promise<unknown>;
   }) => {

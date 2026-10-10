@@ -404,3 +404,13 @@ test("a confirmed manual Done mark survives GitHub disconnect", async (t) => {
   assert.equal(result.snapshot.tasks[0].pullRequests[0].state,'unknown');
   assert.equal(result.snapshot.tasks[0].status,'completed');
 });
+
+test("detail enrichment fetches hidden archived PRs without reclassifying or invalidating turn cache", async t => {
+  const c = await setup(t, [response(true)], signedIn);
+  const record = task({ status: "archived", observed: { archive: true, source: "cli", lastTurnEvent: "completed" } });
+  const detail = await c.github.enrich({ healthy: true, tasks: [record] }, settings, { detail: true });
+  assert.equal(detail.snapshot.tasks[0].status, "archived");
+  assert.equal(detail.snapshot.tasks[0].pullRequests[0].state, "merged");
+  await c.github.enrich({ healthy: true, tasks: [task()] }, settings);
+  assert.equal(c.requests.length, 1);
+});

@@ -178,11 +178,11 @@ export class NextGitHub {
       return this.publicAuth(value);
     });
   }
-  async enrich(snapshot, settings, { force = false, scope = {} } = {}) {
+  async enrich(snapshot, settings, { force = false, scope = {}, detail = false } = {}) {
     if (!snapshot.healthy) return { snapshot, auth: { configured: Boolean(settings.githubClientId), connected: false, login: null } };
     const clientId = settings.githubClientId;
     const requestedIds = scope.taskIds === undefined ? null : new Set(scope.taskIds);
-    const scopedTasks = filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!requestedIds || requestedIds.has(task.id)) && (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec"));
+    const scopedTasks = filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!requestedIds || requestedIds.has(task.id)) && (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && (detail || !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")));
     const urls = [...new Set(scopedTasks.flatMap(task => (task.pullRequests ?? []).map(pr => pr.url)))];
     const turnsFor = url => Object.fromEntries(scopedTasks.filter(task => task.pullRequests?.some(pr => pr.url === url)).map(task => [task.id, JSON.stringify([task.turnId ?? task.turnRef, task.observed.lastTurnEvent])]));
     let auth = { configured: Boolean(clientId), connected: false, login: null };
@@ -248,7 +248,7 @@ export class NextGitHub {
     } else this.cache.clear();
     const tasks = snapshot.tasks.map((task) => {
       const pullRequests = (task.pullRequests ?? []).map((pr) => this.cache.get(pr.url)?.pr ?? { ...pr, state: "unknown", checks: "unknown", error: pullRequestIdentity(pr.url) ? auth.connected ? "Waiting for the next GitHub check." : "Connect GitHub to read PR status." : "This GitHub host or PR URL is not supported." });
-      if (task.observed.lastTurnEvent !== "completed" || task.observed.archive || task.manualDone) return { ...task, pullRequests };
+      if (detail || task.observed.lastTurnEvent !== "completed" || task.observed.archive || task.manualDone) return { ...task, pullRequests };
       // A routine completion returns to its schedule regardless of GitHub access or PR state.
       if (task.scheduled && (task.inputSource === "scheduled" || task.manualScheduled)) return {
         ...task, pullRequests, status: "scheduled", statusLabel: "Scheduled",

@@ -7,7 +7,7 @@ import type { DashboardSnapshot, Task, Project } from "../../dashboard/react/typ
 import { filterTasks } from "../../dashboard/state.js";
 import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
 import { TaskCard } from "../../dashboard/react/components/TaskCard";
-import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
+import { NextTaskDetail } from "./NextTaskDetail";
 import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
 import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
 import { GitHubConnection, type GitHubAuth } from "./GitHubConnection";
@@ -434,11 +434,11 @@ export function TaskChefApp() {
         <Text size="sm">Open this chat in Codex. Use the top-right … menu and choose Archive.</Text>
         <Button mt="md" disabled={busy} onClick={() => { if (archiveHelp) void openChat(archiveHelp); }}>Open chat</Button>
       </Modal>
-      <TaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
+      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} onClose={closeDetail} onCopy={(value) => {
         if (!selected) return;
         const task = selected;
-        void (async () => { try { await navigator.clipboard.writeText(task.id); } catch (cause) { await actionError("copy", cause, task); } })();
-      }} onOpenCodex={() => selected && void openChat(selected)} onTransition={async () => ({ ok: false })} opened={opened} task={selected} readOnly />
+        void (async () => { try { await navigator.clipboard.writeText(value); } catch (cause) { await actionError("copy", cause, task); } })();
+      }} onOpenCodex={() => selected && void openChat(selected)} onArchive={() => { if (selected) { const task = selected; closeDetail(); setArchiveHelp(task); } }} opened={opened} task={selected} />
     </RelativeTimeProvider>
   </MantineProvider>;
 }

@@ -129,8 +129,9 @@ selected assistant reply, above the title. The full saved reply is inspected,
 even when the image occurs after the 2,000-character text excerpt. Code examples
 and raw HTML do not count as images. No image is borrowed from an older turn.
 
-Covers load when near the visible area. HTTPS images load directly in the
-sidebar without a referrer. Local absolute paths load through an app-only MCP
+Local covers load when near the visible area. Remote images remain caption
+links in the reply; the sidebar does not load them automatically. Local absolute
+paths load through an app-only MCP
 tool tied to the chat, turn and saved image URL. Local PNG, JPEG, GIF and WebP
 files up to 4 MiB are supported; no remote URL is fetched by the MCP server.
 Missing, oversized, unsupported or failed image covers are hidden.

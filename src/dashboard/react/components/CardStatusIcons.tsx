@@ -110,7 +110,7 @@ function StatusRow({ icon, children }: { icon: ReactNode; children: ReactNode })
   return <Box className="taskchef-status-row"><span className="taskchef-status-row-icon" aria-hidden>{icon}</span><Box className="taskchef-status-row-content">{children}</Box></Box>;
 }
 
-export function PullRequestInfo({ pr }: { pr: PullRequestStatus }) {
+export function PullRequestInfo({ pr, showAccess = true }: { pr: PullRequestStatus; showAccess?: boolean }) {
   const title = prTitle(pr);
   const safeLink = /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?$/.test(pr.url);
   const { Icon, color, dot } = prPresentation(pr);
@@ -121,8 +121,8 @@ export function PullRequestInfo({ pr }: { pr: PullRequestStatus }) {
       {safeLink ? <Anchor className="taskchef-status-pr-title" href={pr.url} target="_blank" rel="noopener noreferrer" title={title}>{title}</Anchor> : <Text className="taskchef-status-pr-title">{title}</Text>}
     </StatusRow>
     {pr.checks !== "unknown" && <StatusRow icon={<CiIcon size={15} stroke={1.5} />}>{pr.checks === "passed" ? "CI passed" : pr.checks === "failed" ? "CI failed" : pr.checks === "pending" ? "CI pending" : "No CI checks"}</StatusRow>}
-    {pr.accessIssue && safeLink && <Box className="taskchef-pr-access-alert">
-      <StatusRow icon={null}><Text size="xs">{pr.accessIssue === "denied" ? "Access denied to" : "Cannot access"} {repo}. <Anchor size="xs" href="https://github.com/apps/taskchef/installations/new" target="_blank" rel="noopener noreferrer">Grant access</Anchor></Text></StatusRow>
+    {showAccess && pr.accessIssue && safeLink && <Box className="taskchef-pr-access-alert">
+      <StatusRow icon={null}><Text size="xs">{pr.accessIssue === "denied" ? `Access denied to ${repo}.` : `PR #${pr.url.match(/\/pull\/(\d+)/)?.[1]} is unavailable. It may be private or removed.`} <Anchor size="xs" href="https://github.com/apps/taskchef/installations/new" target="_blank" rel="noopener noreferrer">{pr.accessIssue === "denied" ? "Grant access" : "Check access"}</Anchor></Text></StatusRow>
     </Box>}
   </Stack>;
 }

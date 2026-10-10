@@ -14,12 +14,12 @@ test("loads a local cover, opens details, and clears it on a new turn", async ()
   await waitFor(() => expect(screen.queryByRole("button")).not.toBeInTheDocument());
   expect(screen.queryByRole("img")).not.toBeInTheDocument();
 });
-test("HTTPS covers use no referrer and failed loads hide the cover", async () => {
+test("remote covers are hidden without starting an image request", async () => {
   const task = fixtureTask({ title: "Chart", replyImage: {url: "https://example.com/chart.png", alt: "Chart"} });
   const load = vi.fn();
   render(<ReplyCover task={task} loadImage={load} onOpen={vi.fn()} />);
-  const image = await screen.findByAltText("Chart"); expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
-  expect(load).not.toHaveBeenCalled(); fireEvent.error(image);
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  expect(load).not.toHaveBeenCalled();
   await waitFor(() => expect(screen.queryByRole("button")).not.toBeInTheDocument());
 });
 

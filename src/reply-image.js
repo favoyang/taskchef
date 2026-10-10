@@ -13,7 +13,7 @@ export function replyImage(text) {
   const visit = (node) => {
     if (image) return;
     const url = node.type === 'image' ? node.url : node.type === 'imageReference' ? definitions.get(node.identifier) : null;
-    if (typeof url === 'string' && (isAbsolute(url) && !url.startsWith('//') || /^https:\/\//i.test(url))) image = { url, alt: node.alt || 'Reply image' };
+    if (typeof url === 'string' && isAbsolute(url) && !url.startsWith('//')) image = { url, alt: node.alt || 'Reply image' };
     for (const child of node.children ?? []) visit(child);
   };
   visit(tree);

@@ -322,13 +322,13 @@ test("cards animate between queue positions and honor reduced motion", () => {
 });
 
 
-test("native image and link drags move the card while their clicks stay available", () => {
-  const waiting = {...task(1, "needs_input"), observed: {archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false}, replyExcerpt: "See [report](https://example.com/report)", replyImage: {url: "https://example.com/image.png", alt: "Report image"}};
+test("native image and link drags move the card while their clicks stay available", async () => {
+  const waiting = {...task(1, "needs_input"), observed: {archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false}, replyExcerpt: "See [report](https://example.com/report)", replyImage: {url: "/local/image.png", alt: "Report image"}};
   const move = vi.fn();
-  render(<MantineProvider><TaskBoard tasks={[waiting]} lanes={[{status: "needs_input", label: "Waiting"}, {status: "completed", label: "Done"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={move} /></MantineProvider>);
+  render(<MantineProvider><TaskBoard loadImage={async () => "data:image/png;base64,AAAA"} tasks={[waiting]} lanes={[{status: "needs_input", label: "Waiting"}, {status: "completed", label: "Done"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={move} /></MantineProvider>);
   const card = screen.getByRole("article");
   const destination = screen.getByRole("region", {name: "Done, 0 tasks"});
-  for (const element of [within(card).getByRole("link", {name: "report"}), within(card).getByRole("img", {name: "Report image"})]) {
+  for (const element of [within(card).getByRole("link", {name: "report"}), await within(card).findByRole("img", {name: "Report image"})]) {
     const dataTransfer = {setData: vi.fn(), setDragImage: vi.fn()};
     fireEvent.dragStart(element, {dataTransfer, clientX: 10, clientY: 10});
     expect(destination).toHaveClass("taskchef-board-lane-drop-target");

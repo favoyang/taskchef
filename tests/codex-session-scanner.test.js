@@ -678,3 +678,31 @@ test("an Interrupted turn can be marked Done only with confirmed current PRs", a
   assert.equal((await scanner.refresh()).tasks[0].status,'interrupted');
   await assert.rejects(scanner.setDone(id,'turn-1',true,[urls[0]]), /confirmed merge/);
 });
+
+test("Details orders owned history PRs by latest occurrence without changing board PRs", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'PR history', '/repo', 0, 1, 1, 1)").run(id);
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  const urls = [1, 2, 3].map(n => `https://github.com/example/repo/pull/${n}`);
+  for (const url of urls) state.prepare("INSERT INTO thread_attachments VALUES (?, 'pull_request', ?)").run(id, JSON.stringify({ url }));
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,final_agent_item_id) VALUES (?,100,'completed','reply')").run(id);
+  const insert = history.prepare("INSERT INTO thread_items VALUES (?, 'turn-1', ?, ?, 'agentMessage', ?)");
+  insert.run(id, 'old', JSON.stringify({ type: 'agentMessage', text: urls[0] }), 1);
+  insert.run(id, 'middle', JSON.stringify({ type: 'agentMessage', text: urls[1] }), 2);
+  insert.run(id, 'reply', JSON.stringify({ type: 'agentMessage', text: `${urls[0]} https://github.com/unowned/repo/pull/99` }), 100);
+  insert.run('other-rollout', 'foreign', JSON.stringify({ type: 'agentMessage', text: urls[2] }), 101);
+  const scanner = new CodexSessionScanner({ codexHome: home }); t.after(() => scanner.close());
+  const board = await scanner.refresh();
+  const detail = await scanner.taskDetail(id);
+  assert.deepEqual(detail.detailPullRequests.map(pr => pr.url), [urls[0], urls[1]]);
+  assert.deepEqual(detail.pullRequests.map(pr => pr.url), [urls[0]]);
+  assert.equal(detail.status, board.tasks[0].status);
+  assert.equal(scanner.snapshot().tasks[0].detailPullRequests, undefined);
+  history.prepare("UPDATE thread_items SET item_json = ? WHERE item_id = 'reply'").run(JSON.stringify({ type: 'agentMessage', text: `${urls[0]} ${urls[1]}` }));
+  await scanner.refresh();
+  assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests.map(pr => pr.url), [urls[1], urls[0]]);
+  for (let n = 101; n <= 1101; n++) insert.run(id, `recent-${n}`, JSON.stringify({ type: 'agentMessage', text: 'No PR' }), n);
+  await scanner.refresh();
+  assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests, []);
+});

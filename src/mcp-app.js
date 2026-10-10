@@ -71,10 +71,15 @@ export function registerTaskChefApp(server, {
     if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
     return { ...result.snapshot, revision: boardRevision };
   }
-  async function decoratedTask(task, force = false) {
+  async function decoratedTask(task, force = false, includeHistory = false) {
     if (!task) return task;
     const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, await readSettings(), { force });
-    return snapshot.tasks[0];
+    const result = snapshot.tasks[0];
+    if (!includeHistory || !task.detailPullRequests?.length) return result;
+    // History is display-only. Never classify the chat using older PRs.
+    const historyTask = { ...task, pullRequests: task.detailPullRequests };
+    const history = await github.enrich({ healthy: true, tasks: [historyTask] }, await readSettings(), { force, detail: true });
+    return { ...result, detailPullRequests: history.snapshot.tasks[0].pullRequests };
   }
   async function readSettings() {
     try {
@@ -161,7 +166,7 @@ export function registerTaskChefApp(server, {
   }, async ({ taskId, refreshGithub }) => {
     const snapshot = await scanner.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
-    const task = await decoratedTask(await scanner.taskDetail(taskId), refreshGithub === true);
+    const task = await decoratedTask(await scanner.taskDetail(taskId), refreshGithub === true, true);
     if (!task) throw new Error("Task not found.");
     return { structuredContent: { task }, content: [] };
   });
