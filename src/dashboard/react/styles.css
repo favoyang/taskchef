@@ -263,3 +263,5 @@ body {
 .taskchef-popup-pr-icon { position: relative; display: inline-flex; width: 18px; height: 18px; align-items: center; }
 
 .taskchef-pr-access-warning { position: absolute; right: -6px; top: -3px; color: #eac54f; }
+
+.taskchef-schedule-clock { transform: scaleX(-1); }

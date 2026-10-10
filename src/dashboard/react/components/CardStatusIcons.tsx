@@ -83,7 +83,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
           }
         }}>
         {children}
-        {scheduled && <span className="taskchef-card-status-icon" aria-label="Active schedule"><IconClock size={15} stroke={1.5} aria-hidden /></span>}
+        {scheduled && <span className="taskchef-card-status-icon" aria-label="Active schedule"><IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} aria-hidden /></span>}
         <PullRequestIcons pullRequests={pullRequests} />
         {pullRequests.length > 0 && <VisuallyHidden id={descriptionId}>{pullRequests.map(pr => `${prTitle(pr)}: ${pr.state === "merged" ? "Merged" : pr.state === "closed" ? "Closed, not merged" : pr.state === "draft" ? "Draft" : pr.state === "unknown" ? "PR status not checked or unavailable" : pr.hasMergeConflicts ? "Open, merge conflicts" : "Open"}`).join(". ")}</VisuallyHidden>}
       </Box>
@@ -93,7 +93,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
       <Stack gap={5}>
         {duration !== "—" && <StatusRow icon={<IconHourglass size={15} stroke={1.5} />}>Worked for {duration}</StatusRow>}
         {pullRequests.map(pr => <PullRequestInfo key={pr.url} pr={pr} />)}
-        {hasNextRun && <StatusRow icon={<IconClock size={15} stroke={1.5} />}>{nextRunLabel(nextRunAt)}</StatusRow>}
+        {hasNextRun && <StatusRow icon={<IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} />}>{nextRunLabel(nextRunAt)}</StatusRow>}
         {hasSubagents && <StatusRow icon={<IconRobot size={15} stroke={1.5} />}>{subagentCount} {subagentCount === 1 ? "subagent" : "subagents"}</StatusRow>}
       </Stack>
     </Popover.Dropdown>
