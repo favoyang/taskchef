@@ -71,8 +71,8 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onCopy, onO
         {(duration != null || nextRun || count != null) && <section aria-label="Activity">
           <Title order={5} mb="sm">Activity</Title>
           <Stack gap={10}>
-            {duration != null && <ActivityRow icon={<IconHourglass size={15} />}>Latest turn: {formatWorkedDuration(duration)}</ActivityRow>}
-            {task.observed?.recordedChatDurationMs != null && <Tooltip multiline w={280} label={`Sum of saved turn durations in this chat’s selected history, plus the current running turn. Excludes idle time and subagents.${task.observed.missingTurnDurations ? ` ${task.observed.missingTurnDurations} finished turns have no saved duration.` : ""}`}><Box><ActivityRow icon={<IconHourglass size={15} />}>Recorded chat time: {formatWorkedDuration(task.observed.recordedChatDurationMs + (task.observed.lastTurnEvent === "inProgress" ? duration ?? 0 : 0))}</ActivityRow></Box></Tooltip>}
+            {duration != null && <ActivityRow icon={<IconHourglass size={15} />}>{task.observed?.lastTurnEvent === "inProgress" ? "Worked for" : "Latest turn worked for"} {formatWorkedDuration(duration)}</ActivityRow>}
+            {task.observed?.recordedChatDurationMs != null && <Tooltip multiline w={280} label={`Sum of saved turn durations in this chat’s selected history, plus the current running turn. Excludes idle time and subagents.${task.observed.missingTurnDurations ? ` ${task.observed.missingTurnDurations} finished turns have no saved duration.` : ""}`}><Box><ActivityRow icon={<IconHourglass size={15} />}>Total chat worked for {formatWorkedDuration(task.observed.recordedChatDurationMs + (task.observed.lastTurnEvent === "inProgress" ? duration ?? 0 : 0))}</ActivityRow></Box></Tooltip>}
             {nextRun && <ActivityRow icon={<IconClock size={15} className="taskchef-schedule-clock" />}>{nextRun}</ActivityRow>}
             {count != null && <ActivityRow icon={<IconRobot size={15} />}>{count} {count === 1 ? "subagent" : "subagents"}</ActivityRow>}
           </Stack>
