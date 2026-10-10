@@ -8,7 +8,7 @@ afterEach(cleanup);
 test("details show ordered PRs, one access alert per repo, and useful collapsed fields", () => {
   const copy = vi.fn();
   const task = { ...fixtureTask(), replyExcerpt: "The **update** is ready.", relatedGitHubLinks: [], inputSource: "ordinary" as const,
-    observed: { archive: false, source: "vscode", lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false, latestTurnDurationMs: 480000, directChildCount: 155 },
+    observed: { archive: false, source: "vscode", lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false, latestTurnDurationMs: 480000, recordedChatDurationMs: 1200000, directChildCount: 155 },
     detailPullRequests: [
       { url: "https://github.com/example/repo/pull/3", title: "Latest change", state: "open" as const, checks: "passed" as const },
       { url: "https://github.com/example/repo/pull/2", title: "Older change", state: "unknown" as const, checks: "unknown" as const, accessIssue: "denied" as const },
@@ -18,7 +18,11 @@ test("details show ordered PRs, one access alert per repo, and useful collapsed 
   const prs = screen.getByRole("region", { name: "Pull requests" });
   expect(within(prs).getAllByRole("link").map(link => link.textContent)).toEqual(["#3 Latest change", "Grant access", "#2 Older change", "#1 Other repo", "Grant access"]);
   expect(screen.getByRole("region", { name: "Activity" }).compareDocumentPosition(prs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getByText("Worked for 8m")).toBeVisible();
+  expect(screen.getByText("Latest turn: 8m")).toBeVisible();
+  expect(screen.getByText("Recorded chat time: 20m")).toBeVisible();
+  expect(within(prs).queryByText("CI passed")).toBeNull();
+  expect(screen.getByRole("dialog", { name: task.title })).toBeVisible();
+  expect(screen.getAllByText(task.title)).toHaveLength(1);
   expect(screen.getByText("155 subagents")).toBeVisible();
   expect(screen.queryByText("Latest saved reply (excerpt)")).toBeNull();
   const details = screen.getByText("Technical details").closest("details")!;

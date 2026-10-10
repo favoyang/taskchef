@@ -414,3 +414,17 @@ test("detail enrichment fetches hidden archived PRs without reclassifying or inv
   await c.github.enrich({ healthy: true, tasks: [task()] }, settings);
   assert.equal(c.requests.length, 1);
 });
+
+
+test("reopening historical details retains disk-cached PR results across turns and expiry", async t => {
+  const c = await setup(t, [response(true, "MERGED", "UNRECOGNIZED"), response(true, "MERGED", "SUCCESS")], signedIn);
+  const snapshot = { healthy: true, tasks: [task()] };
+  await c.github.enrich(snapshot, settings, { detail: true });
+  c.advance(86400000 * 365);
+  const nextTurn = { healthy: true, tasks: [task({ turnId: "new-turn" })] };
+  const cached = await c.github.enrich(nextTurn, settings, { detail: true });
+  assert.equal(c.requests.length, 1);
+  assert.equal(cached.snapshot.tasks[0].pullRequests[0].state, "merged");
+  await c.github.enrich(nextTurn, settings, { detail: true, force: true });
+  assert.equal(c.requests.length, 2);
+});

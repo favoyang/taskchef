@@ -54,3 +54,21 @@ TaskChef also reads heartbeat links from `automations/*/automation.toml`. Manual
 ## Project picker sorting
 
 The button beside Search projects cycles Most recent → A–Z → Z–A. Most recent is the default each time the view mounts. It uses the latest chat update time per project among chats allowed by the source and archive settings. Projects without matching chats follow those with activity, ordered by name. All projects stays first and No project stays last. Sorting preserves the search and selected project.
+
+
+## Detail timing and PR cache
+
+Details shows the latest turn’s duration and the sum of saved finished-turn
+`duration_ms` values for the selected history ID. For a running turn, the UI adds
+its elapsed time once. Idle time and child chats are excluded. The tooltip reports
+finished turns whose duration is missing. Earlier rollout histories are not added;
+after a rewind, this is recorded time for the selected history, not a lifetime total.
+The aggregate is cached until either database changes.
+
+Historical PR results use the existing disk cache. Opening Details fetches only
+URLs with no saved result; it does not expire those results or invalidate them when
+a different turn starts. Refresh explicitly checks the open detail’s PRs again.
+The board still checks newly referenced PRs and retries pending or unknown current
+PR states while their cards are visible. Disconnecting or changing the GitHub
+account clears its cached results. Local history links are cached per database
+snapshot and rebuilt when the database changes.

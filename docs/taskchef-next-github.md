@@ -143,14 +143,14 @@ lock protects reads and writes across MCP processes. Results are tied to the
 GitHub account and client ID; disconnect and sign-in clear them.
 
 Settled results have no short expiry. A new turn, a changed turn state, a new
-PR, opening Details, or manual Refresh triggers a check. Pending or unknown CI, an unknown
+PR, or manual Refresh triggers a board check. Details fetches only PRs with no saved result. Pending or unknown CI, an unknown
 merge state on an open or draft PR, and failed checks of GitHub availability retry after 60 seconds
 while the card is visible. Offscreen cards do not trigger these retries.
 Passing or failed CI stays cached until another trigger. A merge made on GitHub
-after a settled result is saved needs Refresh or opening Details to be detected.
+after a settled result is saved needs Refresh to be detected.
 
 Queries combine up to 25 PRs per request. Hidden CLI/exec chats and archived
-history do not start requests. Automatic Details polling does not force a check.
+history do not start requests. Opening, reopening, and automatic Details polling do not force a check. Historical results have no expiry; explicit Refresh also updates the open detail’s PRs.
 Rate limits still apply to explicit refreshes. A malformed or unwritable cache
 reports an error instead of silently fetching the entire board.
 

@@ -202,7 +202,7 @@ export function TaskChefApp() {
     }
     const detailRequest = ++detailRequestVersion.current;
     try {
-      const detail = await call<{ task: Task }>("taskchef_app_task", { taskId: selectedTask.id });
+      const detail = await call<{ task: Task }>("taskchef_app_task", { taskId: selectedTask.id, ...(force ? { refreshGithub: true } : {}) });
       if (version !== refreshVersion.current || selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current || selectedRef.current?.id !== detail.task.id) return;
       selectedRef.current = detail.task;
       setSelected(detail.task);
@@ -333,7 +333,7 @@ export function TaskChefApp() {
     setOpened(true);
     setDetailError(null);
     try {
-      const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id, refreshGithub: true });
+      const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id });
       if (selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
       selectedRef.current = result.task;
       setSelected(result.task);

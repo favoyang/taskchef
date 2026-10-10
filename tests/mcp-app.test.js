@@ -105,7 +105,7 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     const detail = await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id } });
     assert.equal(forces.at(-1), false);
     await client.callTool({ name: "taskchef_app_task", arguments: { taskId: task.id, refreshGithub: true } });
-    assert.equal(forces.at(-1), true);
+    assert.deepEqual(forces.slice(-2), [true, false]);
     assert.equal(detail.structuredContent.task.title, task.title);
     await client.callTool({ name: "taskchef_app_open_settings", arguments: {} });
     assert.equal(settingsOpened, "codex://plugins/taskchef-next?marketplacePath=%2Fexample");

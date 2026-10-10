@@ -448,14 +448,24 @@ export class CodexSessionScanner {
       detailPullRequests = [...urls].map(url => ({ url, state: "unknown", checks: "unknown" }));
       cachedDetails.set(id, detailPullRequests);
     }
-    const detail = { ...task, detailPullRequests };
+    const durationCache = records.detailDurations ??= new Map();
+    let durations = durationCache.get(id);
+    if (!durations) {
+      durations = this.connections.history.prepare(`SELECT
+      SUM(CASE WHEN status != 'inProgress' AND duration_ms >= 0 THEN duration_ms ELSE 0 END) AS total,
+      SUM(CASE WHEN status != 'inProgress' AND (duration_ms IS NULL OR duration_ms < 0) THEN 1 ELSE 0 END) AS missing
+      FROM thread_turns WHERE thread_id = ?`).get(historyId(row));
+      durationCache.set(id, durations);
+    }
+    const detail = { ...task, detailPullRequests, observed: { ...task.observed,
+      recordedChatDurationMs: durations.total ?? 0, missingTurnDurations: durations.missing ?? 0 } };
     try {
       const path = this.rolloutPaths.get(id);
       if (typeof path !== "string" || !isAbsolute(path)) return detail;
       const info = await stat(path);
       if (!info.isFile()) return detail;
       const log = await readSession({ path, id, archive: task.observed.archive, mtimeMs: info.mtimeMs }, this.now());
-      return { ...detail, observed: { ...task.observed,
+      return { ...detail, observed: { ...detail.observed,
         userMessages: log.observed.userMessages,
         assistantMessages: log.observed.assistantMessages,
         sampledBytes: log.observed.sampledBytes,

@@ -36,8 +36,7 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onCopy, onO
   const label = task.status === "needs_input" || task.status === "interrupted" ? "Waiting for review" : task.status === "working" ? "Running" : task.status === "completed" ? "Done" : task.statusLabel;
   const content = <Stack gap="md">
     <Box>
-      <Title order={3}>{task.title}</Title>
-      <Group gap="xs" mt={6}>
+      <Group gap="xs" mt={0}>
         <Tooltip label={task.project?.path || "No project"}><Text size="sm" c="dimmed" className="taskchef-detail-project"><IconFolder size={14} />{task.project?.name || "No project"}</Text></Tooltip>
         {label && <Badge variant="light" color="gray">{label}</Badge>}
         {task.status === "interrupted" && <Badge variant="light" color="yellow">Interrupted</Badge>}
@@ -72,7 +71,8 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onCopy, onO
         {(duration != null || nextRun || count != null) && <section aria-label="Activity">
           <Title order={5} mb="sm">Activity</Title>
           <Stack gap={10}>
-            {duration != null && <ActivityRow icon={<IconHourglass size={15} />}>Worked for {formatWorkedDuration(duration)}</ActivityRow>}
+            {duration != null && <ActivityRow icon={<IconHourglass size={15} />}>Latest turn: {formatWorkedDuration(duration)}</ActivityRow>}
+            {task.observed?.recordedChatDurationMs != null && <Tooltip multiline w={280} label={`Sum of saved turn durations in this chat’s selected history, plus the current running turn. Excludes idle time and subagents.${task.observed.missingTurnDurations ? ` ${task.observed.missingTurnDurations} finished turns have no saved duration.` : ""}`}><Box><ActivityRow icon={<IconHourglass size={15} />}>Recorded chat time: {formatWorkedDuration(task.observed.recordedChatDurationMs + (task.observed.lastTurnEvent === "inProgress" ? duration ?? 0 : 0))}</ActivityRow></Box></Tooltip>}
             {nextRun && <ActivityRow icon={<IconClock size={15} className="taskchef-schedule-clock" />}>{nextRun}</ActivityRow>}
             {count != null && <ActivityRow icon={<IconRobot size={15} />}>{count} {count === 1 ? "subagent" : "subagents"}</ActivityRow>}
           </Stack>
@@ -86,15 +86,15 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onCopy, onO
             // A missing PR does not prove the whole repository is inaccessible.
             const showAccess = !warnedRepo.has(repo) && (deniedRepos.has(repo) ? first : Boolean(pr.accessIssue));
             if (showAccess) warnedRepo.add(repo);
-            return <PullRequestInfo key={pr.url} pr={first && deniedRepos.has(repo) ? { ...pr, accessIssue: "denied" } : pr} showAccess={showAccess} />;
+            return <PullRequestInfo key={pr.url} pr={first && deniedRepos.has(repo) ? { ...pr, accessIssue: "denied" } : pr} showAccess={showAccess} showChecks={false} />;
           })}<GitHubLinks task={task} /></Stack>
         </section>}
       </Stack>
     </Box>
   </Stack>;
   return mobile
-    ? <Drawer opened={opened} onClose={onClose} position="bottom" size="92%" title="Chat details" classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
-    : <Modal opened={opened} onClose={onClose} title="Chat details" size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
+    ? <Drawer opened={opened} onClose={onClose} position="bottom" size="92%" title={task.title} classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
+    : <Modal opened={opened} onClose={onClose} title={task.title} size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
 }
 
 function ActivityRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {

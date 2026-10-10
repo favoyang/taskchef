@@ -73,13 +73,18 @@ export function registerTaskChefApp(server, {
   }
   async function decoratedTask(task, force = false, includeHistory = false) {
     if (!task) return task;
-    const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, await readSettings(), { force });
-    const result = snapshot.tasks[0];
-    if (!includeHistory || !task.detailPullRequests?.length) return result;
-    // History is display-only. Never classify the chat using older PRs.
-    const historyTask = { ...task, pullRequests: task.detailPullRequests };
-    const history = await github.enrich({ healthy: true, tasks: [historyTask] }, await readSettings(), { force, detail: true });
-    return { ...result, detailPullRequests: history.snapshot.tasks[0].pullRequests };
+    const settings = await readSettings();
+    if (!includeHistory) {
+      const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, settings, { force });
+      return snapshot.tasks[0];
+    }
+    // History is display-only. Opening it fetches missing URLs, not saved statuses.
+    const urls = [...new Map([...(task.detailPullRequests ?? []), ...(task.pullRequests ?? [])].map(pr => [pr.url, pr])).values()];
+    const history = await github.enrich({ healthy: true, tasks: [{ ...task, pullRequests: urls }] }, settings, { force, detail: true });
+    const statuses = new Map(history.snapshot.tasks[0].pullRequests.map(pr => [pr.url, pr]));
+    // Classify only the latest turn, using the results already loaded above.
+    const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, settings, { force: false, scope: { taskIds: [] } });
+    return { ...snapshot.tasks[0], detailPullRequests: (task.detailPullRequests ?? []).map(pr => statuses.get(pr.url) ?? pr) };
   }
   async function readSettings() {
     try {

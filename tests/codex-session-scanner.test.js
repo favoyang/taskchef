@@ -706,3 +706,24 @@ test("Details orders owned history PRs by latest occurrence without changing boa
   await scanner.refresh();
   assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests, []);
 });
+
+
+test("recorded chat duration sums finished turns only and updates with database changes", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Duration demo', '/repo', 0, 1, 1, 1)").run(id);
+  const insert = history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,duration_ms) VALUES (?,?,?,?)");
+  insert.run(id,1,'completed',60000);
+  insert.run(id,2,'failed',120000);
+  insert.run(id,3,'completed',null);
+  insert.run(id,4,'inProgress',9999999);
+  insert.run('child',1,'completed',9999999);
+  const scanner = new CodexSessionScanner({codexHome:home}); t.after(()=>scanner.close());
+  await scanner.refresh();
+  const detail = await scanner.taskDetail(id);
+  assert.equal(detail.observed.recordedChatDurationMs,180000);
+  assert.equal(detail.observed.missingTurnDurations,1);
+  history.prepare("UPDATE thread_turns SET status='completed', duration_ms=30000 WHERE thread_id=? AND rollout_ordinal=4").run(id);
+  await scanner.refresh();
+  assert.equal((await scanner.taskDetail(id)).observed.recordedChatDurationMs,210000);
+});

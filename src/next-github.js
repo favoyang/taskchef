@@ -196,8 +196,8 @@ export class NextGitHub {
           value = await this.tokenBundle(clientId, value);
           const needed = urls.filter((url) => pullRequestIdentity(url) && (() => {
             const entry = this.cache.get(url);
-            return force || !entry || Object.entries(turnsFor(url)).some(([id, turn]) => entry.turns[id] !== turn)
-              || ((entry.pr.state === "unknown" || entry.pr.checks === "pending" || entry.pr.checks === "unknown" || (["open", "draft"].includes(entry.pr.state) && (entry.pr.mergeState === "UNKNOWN" || entry.pr.mergeState == null || entry.pr.mergeable === "UNKNOWN"))) && entry.expiresAt <= this.now());
+            return force || !entry || !detail && (Object.entries(turnsFor(url)).some(([id, turn]) => entry.turns[id] !== turn)
+              || ((entry.pr.state === "unknown" || entry.pr.checks === "pending" || entry.pr.checks === "unknown" || (["open", "draft"].includes(entry.pr.state) && (entry.pr.mergeState === "UNKNOWN" || entry.pr.mergeState == null || entry.pr.mergeable === "UNKNOWN"))) && entry.expiresAt <= this.now()));
           })())
             .sort((a, b) => (this.cache.get(a)?.expiresAt ?? 0) - (this.cache.get(b)?.expiresAt ?? 0)).slice(0, 25);
           for (let start = 0; start < needed.length; start += 25) {

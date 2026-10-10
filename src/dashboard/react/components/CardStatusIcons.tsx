@@ -110,7 +110,7 @@ function StatusRow({ icon, children }: { icon: ReactNode; children: ReactNode })
   return <Box className="taskchef-status-row"><span className="taskchef-status-row-icon" aria-hidden>{icon}</span><Box className="taskchef-status-row-content">{children}</Box></Box>;
 }
 
-export function PullRequestInfo({ pr, showAccess = true }: { pr: PullRequestStatus; showAccess?: boolean }) {
+export function PullRequestInfo({ pr, showAccess = true, showChecks = true }: { pr: PullRequestStatus; showAccess?: boolean; showChecks?: boolean }) {
   const title = prTitle(pr);
   const safeLink = /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?$/.test(pr.url);
   const { Icon, color, dot } = prPresentation(pr);
@@ -120,7 +120,7 @@ export function PullRequestInfo({ pr, showAccess = true }: { pr: PullRequestStat
     <StatusRow icon={<span className="taskchef-popup-pr-icon" style={{ color, "--taskchef-pr-dot-color": dot ?? "currentColor" } as CSSProperties}><Icon size={15} stroke={1.5} /></span>}>
       {safeLink ? <Anchor className="taskchef-status-pr-title" href={pr.url} target="_blank" rel="noopener noreferrer" title={title}>{title}</Anchor> : <Text className="taskchef-status-pr-title">{title}</Text>}
     </StatusRow>
-    {pr.checks !== "unknown" && <StatusRow icon={<CiIcon size={15} stroke={1.5} />}>{pr.checks === "passed" ? "CI passed" : pr.checks === "failed" ? "CI failed" : pr.checks === "pending" ? "CI pending" : "No CI checks"}</StatusRow>}
+    {showChecks && pr.checks !== "unknown" && <StatusRow icon={<CiIcon size={15} stroke={1.5} />}>{pr.checks === "passed" ? "CI passed" : pr.checks === "failed" ? "CI failed" : pr.checks === "pending" ? "CI pending" : "No CI checks"}</StatusRow>}
     {showAccess && pr.accessIssue && safeLink && <Box className="taskchef-pr-access-alert">
       <StatusRow icon={null}><Text size="xs">{pr.accessIssue === "denied" ? `Access denied to ${repo}.` : `PR #${pr.url.match(/\/pull\/(\d+)/)?.[1]} is unavailable. It may be private or removed.`} <Anchor size="xs" href="https://github.com/apps/taskchef/installations/new" target="_blank" rel="noopener noreferrer">{pr.accessIssue === "denied" ? "Grant access" : "Check access"}</Anchor></Text></StatusRow>
     </Box>}

@@ -580,3 +580,18 @@ test("appearance selection changes colors and survives reopening the view", asyn
   expect(screen.getByRole("radio", { name: "Default" })).toHaveAttribute("aria-checked", "true");
   expect(document.documentElement.dataset.taskchefTheme).toBe("light");
 });
+
+
+test("opening and reopening Details use cached PRs; explicit Refresh requests new status", async () => {
+  render(<TaskChefApp />);
+  await screen.findByRole("button", {name:"Task one"});
+  fireEvent.click(screen.getByRole("button", {name:"Task one"}));
+  await screen.findByRole("region", {name:"Task detail"});
+  await waitFor(()=>expect(server.call).toHaveBeenCalledWith({name:"taskchef_app_task",arguments:{taskId:"one"}}));
+  fireEvent.click(screen.getByRole("button", {name:"Close"}));
+  fireEvent.click(screen.getByRole("button", {name:"Task one"}));
+  await screen.findByRole("region", {name:"Task detail"});
+  expect(server.call.mock.calls.filter(([request])=>request.name==="taskchef_app_task").every(([request])=>!request.arguments.refreshGithub)).toBe(true);
+  fireEvent.click(screen.getByRole("button", {name:"Refresh"}));
+  await waitFor(()=>expect(server.call).toHaveBeenCalledWith({name:"taskchef_app_task",arguments:{taskId:"one",refreshGithub:true}}));
+});
