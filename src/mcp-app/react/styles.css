@@ -12,7 +12,6 @@
 /* The host may set an inline color scheme. The user's choice takes priority. */
 :root[data-taskchef-theme="light"] { color-scheme: light !important; }
 :root[data-taskchef-theme="dark"] { color-scheme: dark !important; }
-.taskchef-app-theme { width: 94px; flex: none; }
 html, body, #root { min-width: 0; min-height: 100%; }
 body { background: var(--taskchef-page); }
 .taskchef-app-shell { min-height: 100vh; background: var(--taskchef-page); }
@@ -110,3 +109,13 @@ body { background: var(--taskchef-page); }
   .taskchef-app-inline .taskchef-app-header { grid-template-areas: "brand brand" "actions actions"; }
   .taskchef-app-actions { justify-self: end; }
 }
+
+.next-appearance { position: relative; }
+.next-appearance-panel { position: absolute; right: 0; top: calc(100% + 10px); z-index: 220; width: min(300px, calc(100vw - 24px)); padding: 16px; border: 1px solid var(--taskchef-border); border-radius: 8px; background: var(--taskchef-surface-muted); color: var(--taskchef-text); box-shadow: 0 8px 32px #0003; }
+.next-appearance-panel h2, .next-appearance-panel h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+.next-appearance-panel h3 { margin-top: 20px; }
+.next-appearance-theme { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; color: inherit; font: inherit; font-size: 13px; cursor: pointer; background: var(--taskchef-page); border: 1px solid var(--taskchef-border); border-radius: 6px; }
+.next-appearance-theme > svg { margin-left: auto; }
+.next-appearance-theme:focus-visible { outline: 2px solid #74c0fc; outline-offset: 2px; }
+.next-appearance-preview { display: flex; align-items: flex-start; gap: 3px; padding: 5px; width: 42px; height: 28px; border-radius: 3px; background: var(--taskchef-surface-muted); border: 1px solid var(--taskchef-border); }
+.next-appearance-preview i { width: 8px; height: 13px; border-radius: 2px; background: var(--taskchef-page); border: 1px solid var(--taskchef-border); }

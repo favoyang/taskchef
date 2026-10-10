@@ -11,6 +11,7 @@ import { TaskDetail } from "../../dashboard/react/components/TaskDetail";
 import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
 import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
 import { GitHubConnection, type GitHubAuth } from "./GitHubConnection";
+import { AppearancePicker } from "./AppearancePicker";
 import { ProjectPicker } from "./ProjectPicker";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
@@ -403,7 +404,7 @@ export function TaskChefApp() {
             catch (cause) { await actionError("settings", cause); }
           })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
-          <Select className="taskchef-app-theme" aria-label="Theme" title="Theme" data={[{value: "dark", label: "Dark"}, {value: "light", label: "Light"}, {value: "system", label: "System"}]} value={themeChoice} onChange={chooseTheme} size="xs" allowDeselect={false} />
+          <AppearancePicker value={themeChoice} onChange={chooseTheme} />
           </Group>
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">

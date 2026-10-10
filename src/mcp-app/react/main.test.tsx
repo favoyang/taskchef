@@ -564,15 +564,19 @@ test("returning to a visible panel reuses PR cache; manual Refresh forces a chec
   await waitFor(()=>expect(server.call).toHaveBeenCalledWith(expect.objectContaining({name:"taskchef_app_snapshot",arguments:expect.objectContaining({force:true})})));
 });
 
-test("theme selection changes colors and survives reopening the view", async () => {
+test("appearance selection changes colors and survives reopening the view", async () => {
   const first = render(<TaskChefApp />);
-  const selector = screen.getByRole("combobox", { name: "Theme" });
-  expect(selector).toHaveValue("dark");
-  fireEvent.change(selector, { target: { value: "light" } });
+  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  expect(screen.getByRole("radio", { name: "NIGHT" })).toHaveAttribute("aria-checked", "true");
+  fireEvent.click(screen.getByRole("radio", { name: "DAY" }));
   expect(document.documentElement.dataset.taskchefTheme).toBe("light");
   expect(window.localStorage.getItem("taskchef.app.theme")).toBe("light");
+  fireEvent.click(screen.getByRole("radio", { name: "Default" }));
+  expect(window.localStorage.getItem("taskchef.app.visualTheme")).toBe("default");
   first.unmount();
   render(<TaskChefApp />);
-  expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue("light");
+  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  expect(screen.getByRole("radio", { name: "DAY" })).toHaveAttribute("aria-checked", "true");
+  expect(screen.getByRole("radio", { name: "Default" })).toHaveAttribute("aria-checked", "true");
   expect(document.documentElement.dataset.taskchefTheme).toBe("light");
 });

@@ -1,6 +1,6 @@
 # Appearance panel proposal
 
-Status: proposed, awaiting review. The existing selector stays until the design is approved.
+Status: approved and implemented. The palette hover panel replaces the old selector.
 
 - Put a palette icon after Refresh. Hover opens the panel; keyboard activation and touch also open it.
 - Use a three-choice segmented control: DAY, NIGHT, SYSTEM. This changes light and dark appearance.
