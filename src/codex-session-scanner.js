@@ -1,4 +1,6 @@
 import { CodexProjects } from "./codex-projects.js";
+import { CodexSessionUsage } from "./codex-session-usage.js";
+import { CodexPricing } from "./codex-pricing.js";
 import { replyImage, localReplyImage } from "./reply-image.js";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
@@ -309,6 +311,8 @@ export class CodexSessionScanner {
     this.projects = [];
     this.nodeVersion = nodeVersion;
     this.statePath = statePath;
+    this.sessionUsage = new CodexSessionUsage({ codexHome, now,
+      pricing: new CodexPricing({ cachePath: join(dirname(statePath), "pricing.json"), now }) });
     this.mutation = Promise.resolve();
     this.tasks = new Map();
     this.rolloutPaths = new Map();
@@ -451,14 +455,25 @@ export class CodexSessionScanner {
     const durationCache = records.detailDurations ??= new Map();
     let durations = durationCache.get(id);
     if (!durations) {
-      durations = this.connections.history.prepare(`SELECT
-      SUM(CASE WHEN status != 'inProgress' AND duration_ms >= 0 THEN duration_ms ELSE 0 END) AS total,
-      SUM(CASE WHEN status != 'inProgress' AND (duration_ms IS NULL OR duration_ms < 0) THEN 1 ELSE 0 END) AS missing
-      FROM thread_turns WHERE thread_id = ?`).get(historyId(row));
+      const saved = this.connections.history.prepare(`SELECT turn_id, duration_ms
+        FROM thread_turns WHERE thread_id = ? AND status != 'inProgress'`).all(historyId(row));
+      durations = { saved, total: saved.reduce((sum, turn) => sum + (turn.duration_ms >= 0 ? turn.duration_ms ?? 0 : 0), 0),
+        missing: saved.filter(turn => turn.duration_ms == null || turn.duration_ms < 0).length };
       durationCache.set(id, durations);
     }
-    const detail = { ...task, detailPullRequests, observed: { ...task.observed,
+    let detail = { ...task, detailPullRequests, observed: { ...task.observed,
       recordedChatDurationMs: durations.total ?? 0, missingTurnDurations: durations.missing ?? 0 } };
+    const sessions = this.connections.state.prepare(`WITH RECURSIVE family(id) AS (
+      SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
+    ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
+    try {
+      const sessionUsage = await this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations: durations.saved });
+      detail = { ...detail, sessionUsage, observed: { ...detail.observed,
+        ...(sessionUsage.durationTurns ? { recordedChatDurationMs: Math.max(durations.total ?? 0, sessionUsage.durationMs) } : {}),
+        historicalTimePartial: sessionUsage.partial || !sessionUsage.durationTurns } };
+    } catch {
+      detail.observed.historicalTimePartial = true;
+    }
     try {
       const path = this.rolloutPaths.get(id);
       if (typeof path !== "string" || !isAbsolute(path)) return detail;

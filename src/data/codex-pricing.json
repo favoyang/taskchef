@@ -1,0 +1,537 @@
+{
+  "date": "2026-10-10",
+  "models": {
+    "gpt-6-astra": {
+      "short": [
+        10,
+        1,
+        12.5,
+        50
+      ],
+      "long": [
+        20,
+        2,
+        25,
+        75
+      ]
+    },
+    "gpt-6.1-sol": {
+      "short": [
+        2,
+        0.1,
+        2.5,
+        10
+      ],
+      "long": [
+        4,
+        0.2,
+        5,
+        15
+      ]
+    },
+    "gpt-6-luna": {
+      "short": [
+        0.1,
+        0.01,
+        0.125,
+        0.5
+      ],
+      "long": [
+        0.2,
+        0.02,
+        0.25,
+        0.75
+      ]
+    },
+    "gpt-6-sol": {
+      "short": [
+        2,
+        0.2,
+        2.5,
+        10
+      ],
+      "long": [
+        4,
+        0.4,
+        5,
+        15
+      ]
+    },
+    "gpt-5.6-sol": {
+      "short": [
+        4,
+        0.4,
+        5,
+        20
+      ],
+      "long": [
+        8,
+        0.8,
+        10,
+        30
+      ]
+    },
+    "gpt-5.6-terra": {
+      "short": [
+        2,
+        0.2,
+        2.5,
+        12
+      ],
+      "long": [
+        4,
+        0.4,
+        5,
+        18
+      ]
+    },
+    "gpt-5.6-luna": {
+      "short": [
+        0.2,
+        0.02,
+        0.25,
+        1.2
+      ],
+      "long": [
+        0.4,
+        0.04,
+        0.5,
+        1.8
+      ]
+    },
+    "gpt-5.5": {
+      "short": [
+        5,
+        0.5,
+        null,
+        30
+      ],
+      "long": [
+        10,
+        1,
+        null,
+        45
+      ]
+    },
+    "gpt-5.5-pro": {
+      "short": [
+        30,
+        null,
+        null,
+        180
+      ],
+      "long": [
+        60,
+        null,
+        null,
+        270
+      ]
+    },
+    "gpt-5.4": {
+      "short": [
+        2.5,
+        0.25,
+        null,
+        15
+      ],
+      "long": [
+        5,
+        0.5,
+        null,
+        22.5
+      ]
+    },
+    "gpt-5.4-mini": {
+      "short": [
+        0.75,
+        0.075,
+        null,
+        4.5
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5.4-nano": {
+      "short": [
+        0.2,
+        0.02,
+        null,
+        1.25
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5.4-pro": {
+      "short": [
+        30,
+        null,
+        null,
+        180
+      ],
+      "long": [
+        60,
+        null,
+        null,
+        270
+      ]
+    },
+    "gpt-5.2": {
+      "short": [
+        1.75,
+        0.175,
+        null,
+        14
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5.2-pro": {
+      "short": [
+        21,
+        null,
+        null,
+        168
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5.1": {
+      "short": [
+        1.25,
+        0.125,
+        null,
+        10
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5": {
+      "short": [
+        1.25,
+        0.125,
+        null,
+        10
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5-mini": {
+      "short": [
+        0.25,
+        0.025,
+        null,
+        2
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5-nano": {
+      "short": [
+        0.05,
+        0.005,
+        null,
+        0.4
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-5-pro": {
+      "short": [
+        15,
+        null,
+        null,
+        120
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4.1": {
+      "short": [
+        2,
+        0.5,
+        null,
+        8
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4.1-mini": {
+      "short": [
+        0.4,
+        0.1,
+        null,
+        1.6
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4.1-nano": {
+      "short": [
+        0.1,
+        0.025,
+        null,
+        0.4
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4o": {
+      "short": [
+        2.5,
+        1.25,
+        null,
+        10
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4o-2024-05-13": {
+      "short": [
+        5,
+        null,
+        null,
+        15
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4o-mini": {
+      "short": [
+        0.15,
+        0.075,
+        null,
+        0.6
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "o1": {
+      "short": [
+        15,
+        7.5,
+        null,
+        60
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "o1-pro": {
+      "short": [
+        150,
+        null,
+        null,
+        600
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "o3-pro": {
+      "short": [
+        20,
+        null,
+        null,
+        80
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "o3": {
+      "short": [
+        2,
+        0.5,
+        null,
+        8
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "o4-mini": {
+      "short": [
+        1.1,
+        0.275,
+        null,
+        4.4
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "o3-mini": {
+      "short": [
+        1.1,
+        0.55,
+        null,
+        4.4
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4-turbo-2024-04-09": {
+      "short": [
+        10,
+        null,
+        null,
+        30
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-4-0613": {
+      "short": [
+        30,
+        null,
+        null,
+        60
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-3.5-turbo": {
+      "short": [
+        0.5,
+        null,
+        null,
+        1.5
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-3.5-turbo-0125": {
+      "short": [
+        0.5,
+        null,
+        null,
+        1.5
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-3.5-turbo-1106": {
+      "short": [
+        1,
+        null,
+        null,
+        2
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "gpt-3.5-turbo-instruct": {
+      "short": [
+        1.5,
+        null,
+        null,
+        2
+      ],
+      "long": [
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+  }
+}

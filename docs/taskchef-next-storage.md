@@ -72,3 +72,50 @@ The board still checks newly referenced PRs and retries pending or unknown curre
 PR states while their cards are visible. Disconnecting or changing the GitHub
 account clears its cached results. Local history links are cached per database
 snapshot and rebuilt when the database changes.
+
+## Saved work time and usage in Details
+
+Opening Details reads accounting events from the chat's saved rollouts and all
+nested subagent chats found through `thread_spawn_edges`. Board inventory and
+turn state still come from the databases. A database query failure remains fatal.
+Optional accounting errors are shown as partial data.
+
+The reader discovers older rollouts under `sessions` and `archived_sessions`.
+It includes plain JSONL and zstd-compressed JSONL files. It checks this file
+inventory at most once per minute while Details is used.
+It caches compact accounting records in the MCP process. Unchanged files are
+not read again. Appended files are read from the last complete line; replaced
+or truncated files are read again. Changed compressed files are decoded again;
+unchanged compressed files use the same cache. A runtime without zstd support
+marks compressed histories partial. Concurrent views share this reader.
+
+Work time sums finished turns across the parent's saved rollouts, deduplicated
+by turn ID, and joins known durations from the selected SQLite history. It adds
+current running time in the view. Idle time and subagent time are excluded.
+Missing or unreadable histories make this total partial.
+
+Usage reads `token_count` events. Chat totals use cumulative counter changes;
+latest-turn usage uses individual call counters and the surrounding turn ID.
+Copied events and repeated unchanged counters are counted once. A missing
+boundary or counter correction does not prevent later turns from reporting.
+Subagent usage is included once per descendant chat. `root_turn_id` assigns
+child calls to the latest parent turn. Missing parent links leave that turn
+partial. Deleted logs, missing calls, and counter resets can prevent an exact
+historical result; the UI never claims that the displayed subtotal is a bill.
+
+Cost uses each saved call's model and input/cache-read/cache-write/output
+counts. Reasoning tokens are already included in output tokens. Unknown models
+remain unpriced. Missing calls can leave tokens known but cost partial. A
+partial priced subtotal is shown as “At least”.
+
+The package ships a dated table of standard USD API prices from
+<https://developers.openai.com/api/docs/pricing>. While Details is used, the
+server checks the public Markdown version in the background at most weekly.
+A failed update is retried after an hour. The last valid update is saved beside
+TaskChef's own Done state; the bundled table works offline. No API key, chat
+content, or GitHub token is sent for this public request. If the published table
+format changes, the last valid prices remain in use.
+
+Estimates apply current standard API prices, including the published long
+context rates above 272K input tokens. They do not reproduce subscription
+charges, historic prices, fast-mode surcharges, regional fees, or tool fees.

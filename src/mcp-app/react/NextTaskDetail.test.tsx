@@ -52,3 +52,14 @@ test("running details use Worked for rather than the finished-turn label", () =>
   expect(screen.getByText("Total chat worked for 5m")).toBeVisible();
   expect(screen.queryByText(/Latest turn worked for/)).toBeNull();
 });
+
+test("usage keeps later-turn tokens visible when historical cost is partial", () => {
+  const latest = {tokens: {input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 5, total_tokens: 110}, costUsd: 0.2, samples: 1, partial: false, costPartial: false};
+  const task = {...fixtureTask(), sessionUsage: {latest, total: {...latest,tokens: {...latest.tokens,total_tokens: 10000},costUsd: 3.2, partial: true,costPartial: true}, subagents: 3, pricingDate: "2026-10-10"}};
+  render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onCopy={()=>{}} onOpenCodex={()=>{}} onArchive={()=>{}} /></MantineProvider>);
+  const usage=screen.getByRole("region",{name:"Usage"});
+  expect(within(usage).getByText("110")).toBeVisible();
+  expect(within(usage).getByText("10,000 · Partial")).toBeVisible();
+  expect(within(usage).getByText("$0.20")).toBeVisible();
+  expect(within(usage).getByText("At least $3.20")).toBeVisible();
+});

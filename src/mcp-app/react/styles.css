@@ -136,4 +136,9 @@ body { background: var(--taskchef-page); }
 .taskchef-detail-dialog .mantine-ScrollArea-content { min-width: 0; width: 100%; }
 
 .taskchef-app-header .mantine-ActionIcon-root, .next-project-sort .mantine-ActionIcon-root { color: var(--taskchef-muted); }
-.taskchef-detail-dialog .mantine-Modal-title, .taskchef-detail-dialog .mantine-Drawer-title { font-weight: 600; }
+.taskchef-detail-dialog .mantine-Modal-title, .taskchef-detail-dialog .mantine-Drawer-title { font-weight: 600; font-size: var(--mantine-font-size-sm); }
+.taskchef-detail-dialog .taskchef-markdown, .taskchef-detail-dialog .mantine-Title-root { font-size: var(--mantine-font-size-sm); }
+.taskchef-detail-dialog .taskchef-markdown :is(h1,h2,h3,h4,h5,h6) { font-size: inherit; }
+.taskchef-detail-usage { width: 100%; border-collapse: collapse; font-size: var(--mantine-font-size-sm); }
+.taskchef-detail-usage th, .taskchef-detail-usage td { text-align: left; vertical-align: top; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--mantine-color-default-border); }
+.taskchef-detail-usage th { font-weight: 500; }

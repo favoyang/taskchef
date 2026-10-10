@@ -2,7 +2,7 @@ import { ActionIcon, Alert, Badge, Box, Button, Drawer, Group, Menu, Modal, Scro
 import { useMediaQuery } from "@mantine/hooks";
 import { IconArchive, IconClipboard, IconClock, IconDots, IconFolder, IconHourglass, IconRobot } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { Task } from "../../dashboard/react/types";
+import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
 import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
 import { ReplyMarkdown } from "../../dashboard/react/components/ReplyMarkdown";
@@ -72,10 +72,18 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onCopy, onO
           <Title order={5} mb="sm">Activity</Title>
           <Stack gap={10}>
             {duration != null && <ActivityRow icon={<IconHourglass size={15} />}>{task.observed?.lastTurnEvent === "inProgress" ? "Worked for" : "Latest turn worked for"} {formatWorkedDuration(duration)}</ActivityRow>}
-            {task.observed?.recordedChatDurationMs != null && <Tooltip multiline w={280} label={`Sum of saved turn durations in this chat’s selected history, plus the current running turn. Excludes idle time and subagents.${task.observed.missingTurnDurations ? ` ${task.observed.missingTurnDurations} finished turns have no saved duration.` : ""}`}><Box><ActivityRow icon={<IconHourglass size={15} />}>Total chat worked for {formatWorkedDuration(task.observed.recordedChatDurationMs + (task.observed.lastTurnEvent === "inProgress" ? duration ?? 0 : 0))}</ActivityRow></Box></Tooltip>}
+            {task.observed?.recordedChatDurationMs != null && <Tooltip multiline w={280} label={`Sum of saved turn durations across this chat’s rollout files, plus the current running turn. Excludes idle time and subagents.${task.observed.historicalTimePartial ? " Some historical records are missing or unreadable." : ""}${task.observed.missingTurnDurations ? ` ${task.observed.missingTurnDurations} finished turns have no saved duration.` : ""}`}><Box><ActivityRow icon={<IconHourglass size={15} />}>Total chat worked for {formatWorkedDuration(task.observed.recordedChatDurationMs + (task.observed.lastTurnEvent === "inProgress" ? duration ?? 0 : 0))}{task.observed.historicalTimePartial && " · Partial"}</ActivityRow></Box></Tooltip>}
             {nextRun && <ActivityRow icon={<IconClock size={15} className="taskchef-schedule-clock" />}>{nextRun}</ActivityRow>}
             {count != null && <ActivityRow icon={<IconRobot size={15} />}>{count} {count === 1 ? "subagent" : "subagents"}</ActivityRow>}
           </Stack>
+        </section>}
+        {task.sessionUsage && <section aria-label="Usage">
+          <Title order={5} mb="sm">Usage</Title>
+          <table className="taskchef-detail-usage"><thead><tr><th /><th>Latest turn</th><th>Chat total</th></tr></thead><tbody>
+            <tr><th>Tokens</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={`Input: ${value.tokens.input_tokens.toLocaleString()}; cached: ${value.tokens.cached_input_tokens.toLocaleString()}; cache writes: ${value.tokens.cache_write_input_tokens.toLocaleString()}; output: ${value.tokens.output_tokens.toLocaleString()}. Reasoning tokens are included in output.`}><span>{value.samples ? value.tokens.total_tokens.toLocaleString() : "—"}{value.partial && " · Partial"}</span></Tooltip></td>)}</tr>
+            <tr><th>API-equivalent cost</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}>{usageCost(value)}</td>)}</tr>
+          </tbody></table>
+          <Text size="xs" c="dimmed" mt={8}>Includes {task.sessionUsage.subagents} subagents. Standard API prices · {task.sessionUsage.pricingDate}. This is an estimate, not a subscription charge.</Text>
         </section>}
         {(prs.length > 0 || task.relatedGitHubLinks?.length) && <section aria-label="Pull requests">
           <Title order={5} mb="sm">Pull requests</Title>
@@ -95,6 +103,11 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onCopy, onO
   return mobile
     ? <Drawer opened={opened} onClose={onClose} position="bottom" size="92%" title={task.title} classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
     : <Modal opened={opened} onClose={onClose} title={task.title} size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
+}
+
+function usageCost(value: SavedUsage) {
+  if (!value.samples || (value.costPartial && value.costUsd === 0)) return "—";
+  return `${value.costPartial ? "At least " : ""}$${value.costUsd.toFixed(2)}`;
 }
 
 function ActivityRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
