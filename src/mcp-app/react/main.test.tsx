@@ -563,3 +563,16 @@ test("returning to a visible panel reuses PR cache; manual Refresh forces a chec
   fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
   await waitFor(()=>expect(server.call).toHaveBeenCalledWith(expect.objectContaining({name:"taskchef_app_snapshot",arguments:expect.objectContaining({force:true})})));
 });
+
+test("theme selection changes colors and survives reopening the view", async () => {
+  const first = render(<TaskChefApp />);
+  const selector = screen.getByRole("combobox", { name: "Theme" });
+  expect(selector).toHaveValue("dark");
+  fireEvent.change(selector, { target: { value: "light" } });
+  expect(document.documentElement.dataset.taskchefTheme).toBe("light");
+  expect(window.localStorage.getItem("taskchef.app.theme")).toBe("light");
+  first.unmount();
+  render(<TaskChefApp />);
+  expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue("light");
+  expect(document.documentElement.dataset.taskchefTheme).toBe("light");
+});

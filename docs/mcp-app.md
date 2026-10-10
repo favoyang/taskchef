@@ -247,3 +247,5 @@ marks notifications read as they become visible in its scrollable panel.
 The Waiting column is titled Waiting for review. Hovering the notification bell
 opens the center; moving into its panel keeps it open, and leaving closes it after
 a short delay. The button remains usable with a keyboard or touch.
+
+The Theme selector after Refresh offers Dark (default), Light, and System. The choice is saved in this view's local storage and restored when it reopens. System follows the operating system's appearance.

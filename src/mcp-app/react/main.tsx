@@ -37,6 +37,13 @@ async function call<T>(name: string, args: Record<string, unknown> = {}): Promis
   return result.structuredContent as T;
 }
 
+const THEME_KEY = "taskchef.app.theme";
+type ThemeChoice = "dark" | "light" | "system";
+function initialTheme(): ThemeChoice {
+  try { const saved = window.localStorage.getItem(THEME_KEY); return saved === "light" || saved === "system" ? saved : "dark"; }
+  catch { return "dark"; }
+}
+
 const VIEW_KEY = "taskchef.app.view";
 function initialView(): "board" | "list" {
   try { return window.localStorage.getItem(VIEW_KEY) === "board" ? "board" : "list"; }
@@ -58,6 +65,27 @@ const NEXT_LANES = [{ status: "scheduled", label: "Scheduled", emptyMessage: "No
 interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 
 export function TaskChefApp() {
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(initialTheme);
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true);
+  const colorScheme = themeChoice === "system" ? (systemDark ? "dark" : "light") : themeChoice;
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!media) return;
+    const update = () => setSystemDark(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.taskchefTheme = colorScheme;
+    return () => { delete document.documentElement.dataset.taskchefTheme; };
+  }, [colorScheme]);
+  function chooseTheme(value: string | null) {
+    const choice: ThemeChoice = value === "light" || value === "system" ? value : "dark";
+    setThemeChoice(choice);
+    try { window.localStorage.setItem(THEME_KEY, choice); } catch { /* Keep the choice for this view if storage is unavailable. */ }
+  }
+
   const [displayMode, setDisplayMode] = useState(bridge.getHostContext?.()?.displayMode ?? "unknown");
   const [githubOpenSignal, setGitHubOpenSignal] = useState(0);
   const [githubAuth, setGitHubAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
@@ -357,7 +385,7 @@ export function TaskChefApp() {
     setSelected(null);
     setDetailError(null);
   }
-  return <MantineProvider theme={theme} forceColorScheme="dark">
+  return <MantineProvider theme={theme} forceColorScheme={colorScheme}>
     <RelativeTimeProvider now={now} showCalendarDates={showCalendarDates}>
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
@@ -374,7 +402,9 @@ export function TaskChefApp() {
             try { await call("taskchef_app_open_settings", {}); }
             catch (cause) { await actionError("settings", cause); }
           })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
-          <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
+          <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
+          <Select className="taskchef-app-theme" aria-label="Theme" title="Theme" data={[{value: "dark", label: "Dark"}, {value: "light", label: "Light"}, {value: "system", label: "System"}]} value={themeChoice} onChange={chooseTheme} size="xs" allowDeselect={false} />
+          </Group>
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">
           {error ? <Alert color="red" role="alert">{error}</Alert> : <>
