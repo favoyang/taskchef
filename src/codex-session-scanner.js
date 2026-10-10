@@ -185,14 +185,15 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       const references = new Set([...`${inputText}\n${replyText}`.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].map((match) => match[0].replace(/\/$/, "")));
       for (const url of records.turnAttachments.get(historyId(row)) ?? []) references.add(url.replace(/\/$/, ""));
       const turnPrs = (records.attachments.get(row.id) ?? []).filter((url) => references.has(url.replace(/\/$/, "")));
-      const manualDone = !active && !scheduled && doneMarks[row.id] === turn.turn_id && !turnPrs.length;
-      const status = row.archived ? "archived" : manualDone ? "completed" : active ? "working"
+      const manualDone = !active && !scheduled && doneMarks[row.id] === turn.turn_id && turnPrs.every(url => (doneMarks[`done-pr:${row.id}`] ?? "").split("\n").includes(url));
+      const manualScheduled = scheduled && !active && doneMarks[`scheduled:${row.id}`] === turn.turn_id;
+      const status = row.archived ? "archived" : manualDone ? "completed" : manualScheduled ? "scheduled" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
           : turn.status === "completed" ? scheduled && inputSource === "scheduled" ? "scheduled" : "needs_input" : null;
       const statusLabel = status === "archived" ? "Archived" : status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
       const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef. A new turn resets this mark."
         : active ? "Latest selected turn is in progress."
-          : status === "scheduled" ? "Latest turn was a scheduled heartbeat; an active schedule remains."
+          : status === "scheduled" ? manualScheduled ? "Latest human turn acknowledged in TaskChef; an active schedule remains." : "Latest turn was a scheduled heartbeat; an active schedule remains."
             : status === "needs_input" ? "Latest turn ended. Chat remains open for input or review."
               : status === "interrupted" ? `Latest turn is ${turn.status}.` : "Latest turn state is unrecognized.";
       const cwd = row.cwd || "";
@@ -200,7 +201,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
         summary: reason, replyExcerpt, replyImage: images.get(row.id),
-        status, statusLabel, scheduled, nextRunAt, manualDone, inputSource,
+        status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { id: row.project_id, name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
@@ -433,21 +434,33 @@ export class CodexSessionScanner {
       } };
     } catch { return task; } // Optional log detail never changes database status or availability.
   }
-  async setDone(id, expectedTurnId, done) {
+  async setDone(id, expectedTurnId, done, mergedPrUrls = []) {
+    return this.setQueueMark(id, expectedTurnId, done, false, mergedPrUrls);
+  }
+  async setScheduled(id, expectedTurnId) {
+    return this.setQueueMark(id, expectedTurnId, true, true);
+  }
+  async setQueueMark(id, expectedTurnId, done, scheduled, mergedPrUrls = []) {
     const action = this.mutation.then(async () => {
       const snapshot = await this.refresh({ force: true });
       if (!snapshot.healthy) throw new Error(snapshot.scan.error);
       const task = this.task(id);
       if (!task || task.turnId !== expectedTurnId) throw new Error("Chat changed. Refresh and try again.");
-      if (done && task.scheduled) throw new Error("Pause all active schedules before marking this chat Done.");
-      if (done && task.pullRequests?.length) throw new Error("Chats with attached PRs use GitHub merge status. Mark Done is only available without PR attachments.");
+      if (scheduled && (!task.scheduled || task.inputSource !== "ordinary")) throw new Error("Only a chat with an active schedule and a human prompt can return to Scheduled.");
+      if (!scheduled && done && task.scheduled) throw new Error("Pause all active schedules before marking this chat Done.");
+      if (!scheduled && done && task.pullRequests?.some(pr => !mergedPrUrls.includes(pr.url))) throw new Error("Chats with attached PRs require confirmed merge status before marking Done.");
       if (task.observed.archive || task.observed.lastTurnEvent === "inProgress") throw new Error("Archived or in-progress chats cannot be marked from TaskChef.");
       await mkdir(dirname(this.statePath), { recursive: true, mode: 0o700 });
       const release = await acquireWorkspaceLock(dirname(this.statePath));
       try {
         const marks = await readDoneMarks(this.statePath);
-        if (done) marks[id] = expectedTurnId;
-        else delete marks[id];
+        const key = scheduled ? `scheduled:${id}` : id;
+        if (done) marks[key] = expectedTurnId;
+        else delete marks[key];
+        if (!scheduled) {
+          if (done && task.pullRequests?.length) marks[`done-pr:${id}`] = mergedPrUrls.join("\n");
+          else delete marks[`done-pr:${id}`];
+        }
         await writeDurableAtomic(this.statePath, JSON.stringify(marks));
       } finally { await release(); }
       await this.refresh({ force: true });

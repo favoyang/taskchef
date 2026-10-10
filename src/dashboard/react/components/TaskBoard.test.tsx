@@ -236,3 +236,25 @@ test("shows the Running spinner only for a populated Running lane", () => {
   rerender(<MantineProvider><TaskBoard {...props} tasks={[running]} /></MantineProvider>);
   expect(screen.queryByRole("img", { name: "Running chats" })).not.toBeInTheDocument();
 });
+
+
+test("only waiting cards can drag and drops request a queue action without moving them early", () => {
+  const move = vi.fn();
+  const waiting = task(1, "needs_input");
+  const lanes = [{ status: "working" as const, label: "Running" }, { status: "needs_input" as const, label: "Waiting" }, { status: "completed" as const, label: "Done" }, { status: "scheduled" as const, label: "Scheduled" }, { status: "archived" as const, label: "Archived" }];
+  render(<MantineProvider><TaskBoard lanes={lanes} tasks={[waiting, task(2, "working"), task(3, "scheduled")]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={move} /></MantineProvider>);
+  const card = within(screen.getByRole("region", { name: "Waiting, 1 tasks" })).getByRole("article");
+  expect(card).toHaveAttribute("draggable", "true");
+  expect(within(screen.getByRole("region", { name: "Running, 1 tasks" })).getByRole("article")).toHaveAttribute("draggable", "false");
+  expect(within(screen.getByRole("region", { name: "Scheduled, 1 tasks" })).getByRole("article")).toHaveAttribute("draggable", "false");
+  const destination = screen.getByRole("region", { name: "Done, 0 tasks" });
+  fireEvent.drop(destination);
+  expect(move).not.toHaveBeenCalled();
+  fireEvent.dragStart(within(card).getByRole("button", { name: waiting.title }), { dataTransfer: { setData: vi.fn() } });
+  fireEvent.drop(destination);
+  expect(move).not.toHaveBeenCalled();
+  fireEvent.dragStart(card, { dataTransfer: { setData: vi.fn() } });
+  fireEvent.drop(destination);
+  expect(move).toHaveBeenCalledWith(waiting, "completed");
+  expect(card).toBeInTheDocument();
+});

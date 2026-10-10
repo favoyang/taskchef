@@ -106,6 +106,7 @@ export interface Task {
   scheduled?: boolean;
   nextRunAt?: string | null;
   manualDone?: boolean;
+  manualScheduled?: boolean;
   replyExcerpt?: string | null;
   replyImage?: { url: string; alt: string } | null;
   inputSource?: "scheduled" | "ordinary" | "unverified";

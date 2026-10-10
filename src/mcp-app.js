@@ -172,12 +172,25 @@ export function registerTaskChefApp(server, {
   }, async ({ taskId, expectedTurnId, expectedUrl }) => ({
     structuredContent: { dataUrl: await scanner.taskImage(taskId, expectedTurnId, expectedUrl) }, content: [],
   }));
+  server.registerTool("taskchef_app_set_scheduled", {
+    title: "Return chat to Scheduled", description: "Acknowledge the latest human turn and return an active scheduled chat to its queue.",
+    inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1) }, _meta: appOnly,
+    annotations: { readOnlyHint: false, openWorldHint: false },
+  }, async ({ taskId, expectedTurnId }) => ({ structuredContent: { task: await decoratedTask(await scanner.setScheduled(taskId, expectedTurnId)) }, content: [] }));
   server.registerTool("taskchef_app_set_done", {
     title: "Mark chat Done in TaskChef", description: "Save or remove a local Done mark. Codex databases are never modified.",
     inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), done: z.boolean() }, _meta: appOnly,
     annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ taskId, expectedTurnId, done }) => {
-    const task = await decoratedTask(await scanner.setDone(taskId, expectedTurnId, done));
+    let mergedPrUrls = [];
+    if (done) {
+      const snapshot = await scanner.refresh({ force: true });
+      if (!snapshot.healthy) throw new Error(snapshot.scan.error);
+      const current = await decoratedTask(scanner.task(taskId));
+      if (!current || current.turnId !== expectedTurnId) throw new Error("Chat changed. Refresh and try again.");
+      mergedPrUrls = (current.pullRequests ?? []).filter(pr => pr.state === "merged").map(pr => pr.url);
+    }
+    const task = await decoratedTask(await scanner.setDone(taskId, expectedTurnId, done, mergedPrUrls));
     return { structuredContent: { task, notifications: done ? await notificationStore.confirmation(task) : undefined }, content: [] };
   });
   for (const [name, resourceUri] of [["taskchef_app_github", TASKCHEF_APP_URI], ["taskchef_github_settings_auth", TASKCHEF_GITHUB_URI]]) server.registerTool(name, {
@@ -187,7 +200,7 @@ export function registerTaskChefApp(server, {
   }, async ({ action }) => ({ structuredContent: { github: await github.auth((await readSettings()).githubClientId, action) }, content: [] }));
   server.registerTool("taskchef_app_notifications", {
     title: "Update TaskChef notifications",
-    inputSchema: { action: z.enum(["read", "read_all", "clear", "error"]), id: z.string().optional(), taskId: taskIdSchema.optional(), operation: z.enum(["open", "done", "copy", "settings"]).optional(), error: z.string().max(1000).optional() },
+    inputSchema: { action: z.enum(["read", "read_all", "clear", "error"]), id: z.string().optional(), taskId: taskIdSchema.optional(), operation: z.enum(["open", "done", "move", "copy", "settings"]).optional(), error: z.string().max(1000).optional() },
     _meta: appOnly, annotations: { readOnlyHint: false, openWorldHint: false },
   }, async ({ action, id, taskId, operation, error }) => {
     if (action === "read" && !id) throw new Error("Notification ID required.");

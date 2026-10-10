@@ -1,5 +1,5 @@
 import { App } from "@modelcontextprotocol/ext-apps";
-import { ActionIcon, Alert, Box, Button, Group, MantineProvider, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -71,6 +71,7 @@ export function TaskChefApp() {
   const [error, setError] = useState<string | null>(null);
 
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [archiveHelp, setArchiveHelp] = useState<Task | null>(null);
   const [notifications, setNotifications] = useState<NextNotificationState>({ revision: 0, items: [] });
   const [toasts, setToasts] = useState<NextNotification[]>([]);
   const notificationRevision = useRef(-1);
@@ -100,7 +101,7 @@ export function TaskChefApp() {
       if (action === "clear") { for (const item of toasts) dismissToast(item.id); }
     } catch (cause) { setError(String(cause)); }
   }
-  async function actionError(operation: "open" | "done" | "copy" | "settings", cause: unknown, task?: Task) {
+  async function actionError(operation: "open" | "done" | "move" | "copy" | "settings", cause: unknown, task?: Task) {
     try {
       const result = await call<{ notifications: NextNotificationState }>("taskchef_app_notifications", { action: "error", operation, error: String(cause).slice(0, 1000), ...(task ? { taskId: task.id } : {}) });
       receiveNotifications(result.notifications);
@@ -329,6 +330,22 @@ export function TaskChefApp() {
     } catch (cause) { await actionError("done", cause, task); }
     finally { setBusy(false); }
   }
+  async function moveTask(task: Task, destination: Task["status"]) {
+    if (busy) return;
+    if (destination === "archived") { setArchiveHelp(task); return; }
+    if (destination === "completed") {
+      if (task.scheduled) { await actionError("move", new Error("This chat has an active schedule. Move it to Scheduled instead of Done."), task); return; }
+      if (task.pullRequests?.some(pr => pr.state !== "merged")) { await actionError("move", new Error("Chats with an unmerged or unconfirmed PR cannot move to Done. Merge the PR first."), task); return; }
+      await markDone(task); return;
+    }
+    if (destination !== "scheduled" || !task.turnId) return;
+    setBusy(true);
+    try {
+      await call("taskchef_app_set_scheduled", { taskId: task.id, expectedTurnId: task.turnId });
+      await refresh();
+    } catch (cause) { await actionError("move", cause, task); }
+    finally { setBusy(false); }
+  }
   function closeDetail() {
     if (busy) return;
     selectionVersion.current += 1;
@@ -371,7 +388,7 @@ export function TaskChefApp() {
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
-          {!error && (view === "board" ? <TaskBoard onVisibleTasksChange={onVisibleTasksChange} doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard onMoveTask={(task, destination) => void moveTask(task, destination)} onVisibleTasksChange={onVisibleTasksChange} doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}
@@ -379,6 +396,10 @@ export function TaskChefApp() {
         </main>
         </>}
       </Box>
+      <Modal opened={!!archiveHelp} onClose={() => setArchiveHelp(null)} title="Archive in Codex" centered>
+        <Text size="sm">Open this chat in Codex. Use the top-right … menu and choose Archive.</Text>
+        <Button mt="md" disabled={busy} onClick={() => { if (archiveHelp) void openChat(archiveHelp); }}>Open chat</Button>
+      </Modal>
       <TaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} highlightTurnRef={null} onClose={closeDetail} onCopy={() => {
         if (!selected) return;
         const task = selected;

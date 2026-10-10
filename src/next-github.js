@@ -248,11 +248,11 @@ export class NextGitHub {
     } else this.cache.clear();
     const tasks = snapshot.tasks.map((task) => {
       const pullRequests = (task.pullRequests ?? []).map((pr) => this.cache.get(pr.url)?.pr ?? { ...pr, state: "unknown", checks: "unknown", error: pullRequestIdentity(pr.url) ? auth.connected ? "Waiting for the next GitHub check." : "Connect GitHub to read PR status." : "This GitHub host or PR URL is not supported." });
-      if (task.observed.lastTurnEvent !== "completed" || task.observed.archive) return { ...task, pullRequests };
+      if (task.observed.lastTurnEvent !== "completed" || task.observed.archive || task.manualDone) return { ...task, pullRequests };
       // A routine completion returns to its schedule regardless of GitHub access or PR state.
-      if (task.scheduled && task.inputSource === "scheduled") return {
+      if (task.scheduled && (task.inputSource === "scheduled" || task.manualScheduled)) return {
         ...task, pullRequests, status: "scheduled", statusLabel: "Scheduled",
-        summary: "Latest scheduled turn ended; an active schedule remains.",
+        summary: task.manualScheduled ? "Latest human turn acknowledged in TaskChef; an active schedule remains." : "Latest scheduled turn ended; an active schedule remains.",
       };
       if (!pullRequests.length) return { ...task, pullRequests };
       const allMerged = pullRequests.every((pr) => pr.state === "merged");

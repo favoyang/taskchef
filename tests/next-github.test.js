@@ -80,7 +80,7 @@ test("all merged means Done; caching avoids repeated network checks", async (t) 
 test("draft, closed without merge, and unavailable PRs stay Waiting", async (t) => {
   for (const r of [response(false, "OPEN", null, { isDraft: true }), response(false, "CLOSED"), { data: { p0: null }, errors: [{ path: ["p0"] }] }, new Error("network-token-should-not-leak")]) {
     const c = await setup(t, [r], signedIn);
-    const result = await c.github.enrich({ healthy: true, tasks: [task({ manualDone: true, status: "completed" })] }, settings);
+    const result = await c.github.enrich({ healthy: true, tasks: [task({ manualDone: false, status: "needs_input" })] }, settings);
     assert.equal(result.snapshot.tasks[0].status, "needs_input");
     assert.ok(!JSON.stringify(result).includes("network-token-should-not-leak"));
   }
@@ -391,4 +391,16 @@ test("a batch checks CI concurrently with at most five PRs at a time", async t =
   const result=await c.github.enrich({healthy:true,tasks},settings);
   assert.ok(peak>2 && peak<=10,"two endpoints per PR, up to five PRs");
   assert.ok(result.snapshot.tasks.every(task=>task.pullRequests[0].checks==="none"));
+});
+
+
+test("a confirmed manual Done mark survives GitHub disconnect", async (t) => {
+  const c = await setup(t, [response(true, "MERGED")], signedIn);
+  const snapshot = {healthy:true,tasks:[task({status:'completed',manualDone:true})]};
+  assert.equal((await c.github.enrich(snapshot,settings)).snapshot.tasks[0].status,'completed');
+  await c.github.auth(client,'disconnect');
+  const result=await c.github.enrich(snapshot,settings);
+  assert.equal(result.auth.connected,false);
+  assert.equal(result.snapshot.tasks[0].pullRequests[0].state,'unknown');
+  assert.equal(result.snapshot.tasks[0].status,'completed');
 });

@@ -78,7 +78,7 @@ export class NextNotifications {
       else if (action === "read_all") state.items.forEach((item) => { item.read = true; });
       else if (action === "clear") state.items = [];
       else if (action === "error") {
-        const titles = { open: `Could not open ${task?.title ?? "chat"}`, done: `Could not mark ${task?.title ?? "chat"} Done`, copy: "Could not copy chat ID", settings: "Could not open plugin settings" };
+        const titles = { move: `Could not move ${task?.title ?? "chat"}`, open: `Could not open ${task?.title ?? "chat"}`, done: `Could not mark ${task?.title ?? "chat"} Done`, copy: "Could not copy chat ID", settings: "Could not open plugin settings" };
         this.add(state, { taskId: task?.id ?? null, kind: "error", title: titles[operation], detail: error.slice(0, 1000) });
       }
     });

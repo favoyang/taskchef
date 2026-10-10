@@ -637,3 +637,44 @@ test("schedule clock reads nominal next run and notices scheduler changes withou
   runtime.exec("UPDATE automations SET next_run_at=300000, next_run_nominal_at=NULL");
   assert.equal((await scanner.refresh()).tasks[0].nextRunAt,new Date(300000).toISOString());
 });
+
+
+test("returning a human turn to Scheduled persists only for that turn", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,name,archived,created_at_ms,updated_at_ms) VALUES (?,'Scheduled chat',0,1,1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,1,'completed','turn-1','input')").run(id);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,'turn-1','input',?)").run(id, JSON.stringify({content:[{type:'text',text:'Discuss this'}],clientId:'human'}));
+  await mkdir(join(home,'automations','routine'),{recursive:true});
+  const schedule = join(home,'automations','routine','automation.toml');
+  await writeFile(schedule, `id = "routine"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "${id}"\n`);
+  const scanner = new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json')}); t.after(()=>scanner.close());
+  assert.equal((await scanner.setScheduled(id,'turn-1')).status,'scheduled');
+  await assert.rejects(scanner.setScheduled(id,'old-turn'), /Chat changed/);
+  history.prepare("UPDATE thread_turns SET status='inProgress'").run();
+  await assert.rejects(scanner.setScheduled(id,'turn-1'), /in-progress/);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,2,'completed','turn-2','input')").run(id);
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,'turn-2','input',?)").run(id,JSON.stringify({content:[{type:'text',text:'New question'}],clientId:'human'}));
+  assert.equal((await scanner.refresh()).tasks[0].status,'needs_input');
+  await writeFile(schedule, `id = "routine"\nkind = "heartbeat"\nstatus = "PAUSED"\ntarget_thread_id = "${id}"\n`);
+  await assert.rejects(scanner.setScheduled(id,'turn-2'), /active schedule/);
+});
+
+
+test("an Interrupted turn can be marked Done only with confirmed current PRs", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  state.prepare("INSERT INTO threads (id,name,archived,created_at_ms,updated_at_ms) VALUES (?,'Interrupted PR chat',0,1,1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,final_agent_item_id) VALUES (?,1,'interrupted','turn-1','reply')").run(id);
+  const urls=['https://github.com/example/repo/pull/12','https://github.com/example/repo/pull/13'];
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json) VALUES (?,'turn-1','reply',?)").run(id,JSON.stringify({type:'agentMessage',text:urls.join(' ')}));
+  const insert=state.prepare("INSERT INTO thread_attachments VALUES (?,'pull_request',?)");
+  insert.run(id,JSON.stringify({url:urls[0]}));
+  const scanner=new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json')});t.after(()=>scanner.close());
+  await assert.rejects(scanner.setDone(id,'turn-1',true), /confirmed merge/);
+  assert.equal((await scanner.setDone(id,'turn-1',true,[urls[0]])).status,'completed');
+  insert.run(id,JSON.stringify({url:urls[1]}));
+  assert.equal((await scanner.refresh()).tasks[0].status,'interrupted');
+  await assert.rejects(scanner.setDone(id,'turn-1',true,[urls[0]]), /confirmed merge/);
+});

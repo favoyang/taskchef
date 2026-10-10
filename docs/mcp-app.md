@@ -12,16 +12,16 @@ The board uses these queue labels:
 
 | Column | Rule |
 | --- | --- |
-| Scheduled | Latest completed input has a heartbeat marker matching a known automation, has no `clientId`, and that matching schedule is active. |
+| Scheduled | Active schedule with a normally completed scheduled prompt, a completed human turn whose PRs are all merged, or a human turn acknowledged by a drop into Scheduled. |
 | Running | Latest selected turn is `inProgress`. There is no age cutoff. |
 | Waiting for input/review | Latest turn completed, interrupted, or failed and the chat remains open. Interrupted or failed turns have an Interrupted tag. This does not prove Codex asked a question. |
-| Done | A chat without PRs is marked Done in TaskChef, or its latest turn completed and all attached PRs are confirmed merged. Both require no active schedule. This does not prove the larger task succeeded. |
+| Done | A chat is marked Done in TaskChef, or its latest turn completed and all attached PRs are confirmed merged. Manual marks require any attached PRs to be confirmed merged. Both require no active schedule. This does not prove the larger task succeeded. |
 | Archived | Chat is archived in Codex. Hidden by default; separate from Done. |
 | Unverified | An unrecognized turn state. |
 
-Archived takes precedence. Manual Done marks apply only to chats without PR attachments or active schedules. After a completed turn, attached PRs determine Done or Waiting before the scheduled-input rule. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
+Archived takes precedence. Manual Done marks apply only without active schedules; every attached PR must be confirmed merged. A normally completed scheduled prompt returns to Scheduled regardless of PR status. After a completed human turn, attached PRs determine Done or Waiting for ordinary chats, and Scheduled or Waiting for actively scheduled chats. A manual acknowledgement returns an idle scheduled human turn to Scheduled. Active schedules remain visible as a badge even when the chat is Running or Waiting. After ordinary input, a completed scheduled chat goes to Waiting. The app reads active heartbeat links from `automations/*/automation.toml` and the latest first input from `thread_items`. It checks the observed `<heartbeat><automation_id>` wrapper; this internal format can change. Missing or unrecognized input markers use Waiting rather than guessing Scheduled. Schedule read errors appear as a warning. Paused schedules do not give an active schedule badge. Cron run history is not treated as an active heartbeat chat.
 
-**Mark Done** changes only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. There is no Reopen button; send a new prompt in Codex to start another turn. Archived, in-progress, actively scheduled, and PR-linked chats cannot be marked from this app. PR-linked chats use confirmed merge status. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
+**Mark Done** changes only `~/.agents/taskchef-next/done.json`, using a lock and atomic write. The mark is bound to the current turn ID, so a new turn resets it. There is no Reopen button; send a new prompt in Codex to start another turn. Archived, in-progress, and actively scheduled chats cannot be marked Done from this app. PR-linked chats require confirmed merge status before a Done drop is allowed. Codex databases, rollout files, and dispatcher task reports are never modified. An unreadable or invalid Done state file produces a separate local-state error and blocks Done changes; the app preserves the file and does not call it a Codex database failure. Raw input text stays on the server; only the inferred input source is returned. See [the research note](taskchef-next-status-research.md) for the optional Luna judgment route.
 
 Both databases and the expected tables must be available. Missing or incompatible databases, or failed queries, produce a fatal app error and clear the visible inventory. Rollout files never replace database inventory or status. The selected-chat detail may optionally read a bounded head and tail of the JSONL file at its database `rollout_path` for message counts and byte coverage. The path stays server-side. This detail never changes the database-derived status. If the path or file is absent or cannot be parsed, database metadata remains available. The board returns a bounded excerpt of the latest saved assistant reply for cards and Details; it does not return the whole transcript. All reads are local and read-only.
 
@@ -216,3 +216,21 @@ Search uses the current snapshot. PR titles become searchable after GitHub
 loads them; repository names from saved PR URLs are searchable before status
 loads. Search does not add a separate GitHub lookup or scan local Git remotes.
 The existing visible-card refresh still runs when the displayed cards change.
+
+
+## Dragging chats between queues
+
+Only Waiting cards (including Interrupted cards) can drag. Dropping a chat
+without an active schedule into Done uses the existing local Done mark.
+Attached PRs must all be confirmed merged by the server. The mark also records
+the confirmed URLs; a newly attached PR invalidates that acknowledgement.
+Blocked drops leave the card in place and explain the rule through TaskChef
+notifications. An active scheduled chat with a human turn can return to
+Scheduled. This acknowledgement is stored under `scheduled:<chat-id>` in the
+local mark file and is bound to the selected turn ID. It expires when a new
+turn starts and does not change or pause the automation.
+
+Dropping into the visible Archived column opens instructions and an Open chat
+button. The user archives the chat through Codex's top-right **… → Archive**
+menu. This sidebar does not invoke CLI archiving, and it does not show an
+Archive drop target when the Archived column is hidden.

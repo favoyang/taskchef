@@ -22,6 +22,7 @@ export function TaskBoard({
   loadImage,
   doneNotice,
   onVisibleTasksChange,
+  onMoveTask,
   completedLimit,
   archivedLimit = 5,
   onMoreArchived,
@@ -30,6 +31,7 @@ export function TaskBoard({
   onOpenDetail,
   tasks,
 }: {
+  onMoveTask?: (task: Task, destination: TaskStatus) => void;
   groupInterruptedWithWaiting?: boolean;
   doneNotice?: ReactNode;
   onVisibleTasksChange?: (ids: string[]) => void;
@@ -43,6 +45,7 @@ export function TaskBoard({
   onOpenDetail: (task: Task) => void;
   tasks: Task[];
 }) {
+  const draggedTask = useRef<Task | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
@@ -130,7 +133,16 @@ export function TaskBoard({
         const matching = tasks.filter((task) => laneFor(task) === status);
         const shown = (status === "completed" || status === "archived") ? matching.slice(0, status === "archived" ? archivedLimit : completedLimit) : matching;
         return (
-          <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}>
+          <Box aria-label={`${label}, ${matching.length} tasks`} className="taskchef-board-lane" component="section" key={label}
+            onDragOver={(event) => { if (onMoveTask && draggedTask.current && ["completed", "scheduled", "archived"].includes(status ?? "")) event.preventDefault(); }}
+            onDrop={(event) => {
+              const task = draggedTask.current;
+              draggedTask.current = null;
+              if (!onMoveTask || !task || !["completed", "scheduled", "archived"].includes(status ?? "")) return;
+              event.preventDefault();
+              onMoveTask(task, status);
+            }}
+          >
             <Box className="taskchef-board-lane-heading">
               <Box className="taskchef-board-lane-title">
                 <Title order={2} size="h5">{label}</Title>
@@ -145,7 +157,7 @@ export function TaskBoard({
             </Box>
             <Stack gap="sm">
               {status === "completed" && doneNotice}
-              {shown.map((task) => <BoardCard loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
+              {shown.map((task) => <BoardCard draggable={!!onMoveTask && ["needs_input", "interrupted"].includes(task.status ?? "")} onDragStart={(event) => { if (event.target !== event.currentTarget) return; draggedTask.current = task; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={() => { draggedTask.current = null; }} loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
               {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{emptyMessage ?? "No tasks"}</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (
                 <Button className="taskchef-board-more" onClick={status === "archived" ? onMoreArchived : onMoreCompleted} size="compact-sm" variant="subtle">
@@ -160,7 +172,10 @@ export function TaskBoard({
   );
 }
 
-function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
+function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage, draggable, onDragStart, onDragEnd }: {
+  draggable?: boolean;
+  onDragStart?: React.DragEventHandler<HTMLElement>;
+  onDragEnd?: React.DragEventHandler<HTMLElement>;
   loadImage?: (task: Task) => Promise<string | null>;
   task: Task;
   onOpenCodex: (task: Task) => void;
@@ -171,7 +186,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage }: {
     : task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
   return (
-    <Paper data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
+    <Paper draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onDragEnd={onDragEnd} data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
       {task.observed && task.replyImage && <ReplyCover key={`${task.turnId}:${task.replyImage.url}`} task={task} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
