@@ -265,3 +265,5 @@ body {
 .taskchef-pr-access-warning { position: absolute; right: -6px; top: -3px; color: #eac54f; }
 
 .taskchef-schedule-clock { transform: scaleX(-1); }
+
+.taskchef-pr-access-alert { border: 1px solid #eac54f; border-radius: 4px; padding: 6px 8px; }

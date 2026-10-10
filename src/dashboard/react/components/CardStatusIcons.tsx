@@ -121,8 +121,8 @@ export function PullRequestInfo({ pr }: { pr: PullRequestStatus }) {
       {safeLink ? <Anchor className="taskchef-status-pr-title" href={pr.url} target="_blank" rel="noopener noreferrer" title={title}>{title}</Anchor> : <Text className="taskchef-status-pr-title">{title}</Text>}
     </StatusRow>
     {pr.checks !== "unknown" && <StatusRow icon={<CiIcon size={15} stroke={1.5} />}>{pr.checks === "passed" ? "CI passed" : pr.checks === "failed" ? "CI failed" : pr.checks === "pending" ? "CI pending" : "No CI checks"}</StatusRow>}
-    {pr.accessIssue && safeLink && <StatusRow icon={<IconAlertTriangle size={15} stroke={1.5} />}>
+    {pr.accessIssue && safeLink && <Box className="taskchef-pr-access-alert">
       <Text size="xs">{pr.accessIssue === "denied" ? "Access denied to" : "Cannot access"} {repo}. <Anchor size="xs" href="https://github.com/apps/taskchef/installations/new" target="_blank" rel="noopener noreferrer">Grant access</Anchor></Text>
-    </StatusRow>}
+    </Box>}
   </Stack>;
 }
