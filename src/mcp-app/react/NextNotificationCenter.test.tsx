@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { NextNotificationCenter, type NextNotification } from "./NextNotificationCenter";
 
@@ -39,4 +39,47 @@ test("new repeats replace the visible entry while other chats and messages stay 
   expect(entries).toHaveLength(6);
   expect(entries[0].querySelector("time")).toHaveAttribute("datetime", latest.timestamp);
   expect(within(center).getByRole("button", { name: "Unread (6)" })).toBeVisible();
+});
+
+
+test("opening and scrolling marks only notifications observed in the panel read", async () => {
+  const observers: Array<{ callback: IntersectionObserverCallback; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    observe = vi.fn(); disconnect = vi.fn();
+    constructor(callback: IntersectionObserverCallback, options: IntersectionObserverInit) { expect(options.threshold).toBe(0.01); observers.push({ callback, observe: this.observe, disconnect: this.disconnect }); }
+  });
+  try {
+    const onAction = vi.fn().mockResolvedValue(undefined);
+    const props = { toasts: [], onAction, onOpen: vi.fn(), onDismiss: vi.fn() };
+    render(<NextNotificationCenter {...props} state={{ revision: 1, items: [notice("visible"), notice("offscreen", { taskId: "other" })] }} />);
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Notifications, unread" }));
+    const entries = screen.getAllByRole("article");
+    await act(async () => observers[0].callback([{ target: entries[0], isIntersecting: true }, { target: entries[1], isIntersecting: false }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(onAction).toHaveBeenCalledExactlyOnceWith("read", "visible");
+    await act(async () => observers[0].callback([{ target: entries[0], isIntersecting: true }, { target: entries[1], isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(onAction).toHaveBeenCalledTimes(2);
+    expect(onAction).toHaveBeenLastCalledWith("read", "offscreen");
+    fireEvent.click(screen.getByRole("button", { name: "Close notifications" }));
+    expect(observers[0].disconnect).toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
+});
+
+
+test("failed auto-read requests retry when the panel opens again", async () => {
+  const observers: IntersectionObserverCallback[] = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    observe = vi.fn(); disconnect = vi.fn();
+    constructor(callback: IntersectionObserverCallback) { observers.push(callback); }
+  });
+  try {
+    const onAction = vi.fn().mockRejectedValueOnce(new Error("Temporary failure")).mockResolvedValue(undefined);
+    render(<NextNotificationCenter state={{revision: 1, items: [notice("retry")]}} toasts={[]} onAction={onAction} onOpen={vi.fn()} onDismiss={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", {name: "Notifications, unread"}));
+    await act(async () => observers[0]([{target: screen.getByRole("article"), isIntersecting: true}] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    fireEvent.click(screen.getByRole("button", {name: "Close notifications"}));
+    fireEvent.click(screen.getByRole("button", {name: "Notifications, unread"}));
+    await act(async () => observers[1]([{target: screen.getByRole("article"), isIntersecting: true}] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(onAction).toHaveBeenCalledTimes(2);
+  } finally {vi.unstubAllGlobals();}
 });

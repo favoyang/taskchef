@@ -18,6 +18,7 @@ const defaultLanes: { status: TaskStatus; label: string; emptyMessage?: string }
 ];
 export function TaskBoard({
   lanes = defaultLanes,
+  loading = false,
   groupInterruptedWithWaiting = false,
   loadImage,
   doneNotice,
@@ -31,6 +32,7 @@ export function TaskBoard({
   onOpenDetail,
   tasks,
 }: {
+  loading?: boolean;
   onMoveTask?: (task: Task, destination: TaskStatus) => void;
   groupInterruptedWithWaiting?: boolean;
   doneNotice?: ReactNode;
@@ -53,11 +55,35 @@ export function TaskBoard({
     : destination === "scheduled" && !!task.scheduled && task.inputSource === "ordinary" && !!task.turnId));
   const acceptsDrop = (task: Task, destination: TaskStatus) => destination === "archived" || (isWaiting(task) && ["completed", "scheduled"].includes(destination ?? ""));
   const boardRef = useRef<HTMLDivElement>(null);
+  const previousPositions = useRef(new Map<string, { left: number; top: number }>());
   const dragRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef(false);
 
   // Observe the same DOM cards across reply updates; rebuild only when cards or lanes change.
   const cardLayoutKey = JSON.stringify(tasks.map(({ id, status }) => [id, status]));
+  useLayoutEffect(() => {
+    const cards = boardRef.current?.querySelectorAll<HTMLElement>("[data-chat-id]");
+    if (!cards) return;
+    const next = new Map<string, { left: number; top: number }>();
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    for (const card of cards) {
+      for (const animation of card.getAnimations?.() ?? []) animation.cancel();
+      const rect = card.getBoundingClientRect();
+      const left = rect.left + (boardRef.current?.scrollLeft ?? 0);
+      const top = rect.top + (boardRef.current?.scrollTop ?? 0);
+      const id = card.dataset.chatId!;
+      const previous = previousPositions.current.get(id);
+      next.set(id, { left, top });
+      if (previous && !reducedMotion && typeof card.animate === "function") {
+        const x = previous.left - left;
+        const y = previous.top - top;
+        if (Math.abs(x) > 1 || Math.abs(y) > 1) card.animate([
+          { transform: `translate(${x}px, ${y}px)` }, { transform: "translate(0, 0)" },
+        ], { duration: 280, easing: "ease-out" });
+      }
+    }
+    previousPositions.current = next;
+  }, [cardLayoutKey, completedLimit, archivedLimit]);
   useLayoutEffect(() => {
     if (!onVisibleTasksChange || !boardRef.current || typeof IntersectionObserver === "undefined") return;
     onVisibleTasksChange([]);
@@ -163,9 +189,13 @@ export function TaskBoard({
               {matching.length > 0 && <Text aria-label={`${matching.length} tasks`} c="dimmed" size="sm">{matching.length}</Text>}
             </Box>
             <Stack gap="sm">
-              {status === "completed" && doneNotice}
-              {shown.map((task) => <BoardCard draggable={!!onMoveTask} onDragStart={(event) => { if (event.target !== event.currentTarget) return; draggedTask.current = task; setDragging(task); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={() => { draggedTask.current = null; setDragging(null); }} loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
-              {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{emptyMessage ?? "No tasks"}</Text>}
+              {!loading && status === "completed" && doneNotice}
+              {shown.map((task) => <BoardCard draggable={!!onMoveTask} onDragStart={(event) => { if (event.target !== event.currentTarget) {
+                if (!(event.target as Element).closest("a, img")) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                event.dataTransfer.setDragImage?.(event.currentTarget, event.clientX - rect.left, event.clientY - rect.top);
+              } draggedTask.current = task; setDragging(task); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", task.id); }} onDragEnd={() => { draggedTask.current = null; setDragging(null); }} loadImage={loadImage} key={task.id} onOpenCodex={onOpenCodex} onOpenDetail={onOpenDetail} task={task} />)}
+              {matching.length === 0 && <Text c="dimmed" className="taskchef-board-empty" size="sm">{loading ? "Loading…" : emptyMessage ?? "No tasks"}</Text>}
               {(status === "completed" || status === "archived") && matching.length > shown.length && (
                 <Button className="taskchef-board-more" onClick={status === "archived" ? onMoreArchived : onMoreCompleted} size="compact-sm" variant="subtle">
                   Show {Math.min(5, matching.length - shown.length)} more · {shown.length} of {matching.length}

@@ -25,6 +25,10 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const bell = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const reading = useRef(new Set<string>());
+  const actionRef = useRef(onAction);
+  actionRef.current = onAction;
   const latest = latestChatMessages(state.items);
   const unread = latest.filter((item) => !item.read).length;
   const items = latest.filter((item) => filter === "all" || !item.read);
@@ -36,9 +40,23 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
   }, [opened]);
+  const unreadKey = JSON.stringify(items.filter(item => !item.read).map(item => item.id));
+  useEffect(() => {
+    if (!opened || !list.current || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.notificationId;
+        if (!entry.isIntersecting || !id || reading.current.has(id)) continue;
+        reading.current.add(id);
+        void actionRef.current("read", id).catch(() => reading.current.delete(id));
+      }
+    }, { root: list.current, threshold: 0.01 });
+    for (const item of list.current.querySelectorAll("[data-notification-id][data-unread=true]")) observer.observe(item);
+    return () => observer.disconnect();
+  }, [opened, unreadKey]);
   async function mutate(action: "read" | "read_all" | "clear", id?: string) {
     setBusy(true);
-    try { await onAction(action, id); } finally { setBusy(false); }
+    try { await onAction(action, id); } catch { /* The caller displays the error. */ } finally { setBusy(false); }
   }
   return <div className="next-notifications" ref={root}>
     <button ref={bell} className="next-icon-button" aria-label={unread > 0 ? "Notifications, unread" : "Notifications"} aria-expanded={opened} aria-controls="next-notification-panel" onClick={() => setOpened((value) => !value)} title={unread ? "Unread notifications" : "Notifications"}>
@@ -51,9 +69,9 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
         <button disabled={busy || unread === 0} onClick={() => void mutate("read_all")}>Mark all read</button>
         <button disabled={busy || state.items.length === 0} onClick={() => void mutate("clear")}>Clear all</button>
       </div>
-      <div className="next-notification-list">
+      <div className="next-notification-list" ref={list}>
         {items.length === 0 && <p className="next-notification-empty">{filter === "unread" ? "No unread notifications" : "No notifications yet"}</p>}
-        {items.map((item) => <article key={item.id} className={`next-notification-item${item.read ? "" : " next-notification-unread"}`}>
+        {items.map((item) => <article key={item.id} data-notification-id={item.id} data-unread={!item.read} className={`next-notification-item${item.read ? "" : " next-notification-unread"}`}>
           <button className="next-notification-message" disabled={busy} onClick={() => { void mutate("read", item.id); if (item.taskId) { setOpened(false); onOpen(item); } }}>
             <strong>{item.title}</strong>{item.detail && <span>{item.detail}</span>}<time dateTime={item.timestamp}>{new Date(item.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
           </button>

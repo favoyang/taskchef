@@ -62,6 +62,7 @@ export function TaskChefApp() {
   const [githubOpenSignal, setGitHubOpenSignal] = useState(0);
   const [githubAuth, setGitHubAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
   const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
   const [{ showExec, showCli, showArchived, showCalendarDates = false }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
   const [scan, setScan] = useState<ScanStats | null>(null);
@@ -99,7 +100,7 @@ export function TaskChefApp() {
       const result = await call<{ notifications: NextNotificationState }>("taskchef_app_notifications", { action, ...(id ? { id } : {}) });
       receiveNotifications(result.notifications);
       if (action === "clear") { for (const item of toasts) dismissToast(item.id); }
-    } catch (cause) { setError(String(cause)); }
+    } catch (cause) { setError(String(cause)); throw cause; }
   }
   async function actionError(operation: "open" | "done" | "move" | "copy" | "settings", cause: unknown, task?: Task) {
     try {
@@ -134,6 +135,7 @@ export function TaskChefApp() {
       "taskchef_app_snapshot", { project, date, visibleTaskIds: visibleTaskIds.current, ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
+    setLoading(false);
     receiveNotifications(data.notifications);
     if (data.github) setGitHubAuth(data.github);
     setVisibility(data.settings);
@@ -389,7 +391,7 @@ export function TaskChefApp() {
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
-          {!error && (view === "board" ? <TaskBoard onMoveTask={(task, destination) => void moveTask(task, destination)} onVisibleTasksChange={onVisibleTasksChange} doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard loading={loading} onMoveTask={(task, destination) => void moveTask(task, destination)} onVisibleTasksChange={onVisibleTasksChange} doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}

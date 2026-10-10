@@ -292,3 +292,49 @@ test.each(["scheduled", "pr"])("blocked %s waiting cards highlight only valid de
   fireEvent.dragEnd(card);
   expect(document.querySelector(".taskchef-board-lane-drop-target")).toBeNull();
 });
+
+
+test("first load shows Loading instead of empty queue messages", () => {
+  render(<MantineProvider><TaskBoard loading tasks={[]} lanes={[{status: "working", label: "Running", emptyMessage: "No chats running"}, {status: "completed", label: "Done"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+  expect(screen.getAllByText("Loading…")).toHaveLength(2);
+  expect(screen.queryByText("No chats running")).not.toBeInTheDocument();
+});
+
+test("cards animate between queue positions and honor reduced motion", () => {
+  const animate = vi.fn();
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const left = this.closest('[aria-label="Done, 1 tasks"]') ? 320 : 0;
+    return {left, top: 100, right: left + 300, bottom: 200, width: 300, height: 100, x: left, y: 100, toJSON() { return {}; }};
+  });
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+  const props = { lanes: [{ status: "needs_input" as const, label: "Waiting" }, { status: "completed" as const, label: "Done" }], completedLimit: 5, onMoreCompleted: vi.fn(), onOpenCodex: vi.fn(), onOpenDetail: vi.fn() };
+  try {
+    const { rerender } = render(<MantineProvider><TaskBoard {...props} tasks={[task(1, "needs_input")]} /></MantineProvider>);
+    expect(animate).not.toHaveBeenCalled();
+    rerender(<MantineProvider><TaskBoard {...props} tasks={[task(1, "completed")]} /></MantineProvider>);
+    expect(animate).toHaveBeenCalledWith([{transform: "translate(-320px, 0px)"}, {transform: "translate(0, 0)"}], {duration: 280, easing: "ease-out"});
+    animate.mockClear();
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    rerender(<MantineProvider><TaskBoard {...props} tasks={[task(1, "needs_input")]} /></MantineProvider>);
+    expect(animate).not.toHaveBeenCalled();
+  } finally { rect.mockRestore(); delete (HTMLElement.prototype as unknown as {animate?: unknown}).animate; vi.unstubAllGlobals(); }
+});
+
+
+test("native image and link drags move the card while their clicks stay available", () => {
+  const waiting = {...task(1, "needs_input"), observed: {archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false}, replyExcerpt: "See [report](https://example.com/report)", replyImage: {url: "https://example.com/image.png", alt: "Report image"}};
+  const move = vi.fn();
+  render(<MantineProvider><TaskBoard tasks={[waiting]} lanes={[{status: "needs_input", label: "Waiting"}, {status: "completed", label: "Done"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} onMoveTask={move} /></MantineProvider>);
+  const card = screen.getByRole("article");
+  const destination = screen.getByRole("region", {name: "Done, 0 tasks"});
+  for (const element of [within(card).getByRole("link", {name: "report"}), within(card).getByRole("img", {name: "Report image"})]) {
+    const dataTransfer = {setData: vi.fn(), setDragImage: vi.fn()};
+    fireEvent.dragStart(element, {dataTransfer, clientX: 10, clientY: 10});
+    expect(destination).toHaveClass("taskchef-board-lane-drop-target");
+    expect(dataTransfer.setDragImage).toHaveBeenCalled();
+    fireEvent.drop(destination);
+    expect(move).toHaveBeenLastCalledWith(waiting, "completed");
+  }
+  expect(within(card).getByRole("link", {name: "report"})).toHaveAttribute("href", "https://example.com/report");
+});

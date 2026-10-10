@@ -220,7 +220,8 @@ The existing visible-card refresh still runs when the displayed cards change.
 
 ## Dragging chats between queues
 
-Every card can drag. Valid destination columns are highlighted during dragging.
+Every card can drag. Valid destination columns are highlighted during dragging, with padding between
+the rounded column border and its cards.
 Done and Scheduled moves require a Waiting card (including Interrupted cards).
 Cards from any column can drop into Archived to show the archive instructions. Dropping a chat
 without an active schedule into Done uses the existing local Done mark.
@@ -236,3 +237,9 @@ Dropping into the visible Archived column opens instructions and an Open chat
 button. The user archives the chat through Codex's top-right **… → Archive**
 menu. This sidebar does not invoke CLI archiving, and it does not show an
 Archive drop target when the Archived column is hidden.
+
+
+The first board fetch shows Loading… in empty columns. Later empty columns use
+their normal queue messages. Cards slide between positions when the board updates;
+reduced-motion preferences disable the slide. Opening the notification center
+marks notifications read as they become visible in its scrollable panel.
