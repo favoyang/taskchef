@@ -53,7 +53,7 @@ async function loadReplyImage(task: Task): Promise<string | null> {
   return result.dataUrl;
 }
 
-const NEXT_LANES = [{ status: "scheduled", label: "Scheduled", emptyMessage: "No scheduled chats" }, { status: "working", label: "Running", emptyMessage: "No chats running" }, { status: "needs_input", label: "Waiting for input/review", emptyMessage: "No chats waiting for input or review" }, { status: "completed", label: "Done", emptyMessage: "No completed chats" }, { status: "archived", label: "Archived", emptyMessage: "No archived chats" }, { status: null, label: "Unverified", emptyMessage: "No unverified chats" }] as const;
+const NEXT_LANES = [{ status: "scheduled", label: "Scheduled", emptyMessage: "No scheduled chats" }, { status: "working", label: "Running", emptyMessage: "No chats running" }, { status: "needs_input", label: "Waiting for review", emptyMessage: "No chats waiting for review" }, { status: "completed", label: "Done", emptyMessage: "No completed chats" }, { status: "archived", label: "Archived", emptyMessage: "No archived chats" }, { status: null, label: "Unverified", emptyMessage: "No unverified chats" }] as const;
 
 interface ScanStats { cacheHit?: boolean; scheduleErrors?: number; source?: "database"; mode: string; checkedAt: string; error?: string; intervalSeconds?: number; fullIntervalSeconds?: number; indexedFiles?: number; activeFiles?: number | null; archivedFiles?: number | null; parsedFiles?: number | null; visibleFiles?: number; unreadFiles?: number; errors?: number; }
 

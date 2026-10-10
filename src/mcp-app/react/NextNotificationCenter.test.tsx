@@ -83,3 +83,39 @@ test("failed auto-read requests retry when the panel opens again", async () => {
     expect(onAction).toHaveBeenCalledTimes(2);
   } finally {vi.unstubAllGlobals();}
 });
+
+
+test("hover opens the center, crossing to the panel keeps it open, and leaving closes it", () => {
+  vi.useFakeTimers();
+  try {
+    render(<NextNotificationCenter state={{revision: 1, items: []}} toasts={[]} onAction={vi.fn()} onOpen={vi.fn()} onDismiss={vi.fn()} />);
+    const bell = screen.getByRole("button", {name: "Notifications"});
+    fireEvent.pointerEnter(bell, {pointerType: "mouse"});
+    const panel = screen.getByRole("region", {name: "Notification center"});
+    fireEvent.pointerLeave(bell, {pointerType: "mouse"});
+    fireEvent.pointerEnter(panel, {pointerType: "mouse"});
+    act(() => vi.advanceTimersByTime(250));
+    expect(panel).toBeVisible();
+    fireEvent.click(bell);
+    expect(panel).toBeVisible();
+    fireEvent.pointerLeave(panel, {pointerType: "mouse"});
+    act(() => vi.advanceTimersByTime(250));
+    expect(screen.queryByRole("region", {name: "Notification center"})).not.toBeInTheDocument();
+  } finally {vi.useRealTimers();}
+});
+
+
+test("Escape cancels a pending hover close before keyboard reopening", () => {
+  vi.useFakeTimers();
+  try {
+    render(<NextNotificationCenter state={{revision: 1, items: []}} toasts={[]} onAction={vi.fn()} onOpen={vi.fn()} onDismiss={vi.fn()} />);
+    const bell = screen.getByRole("button", {name: "Notifications"});
+    fireEvent.pointerEnter(bell, {pointerType: "mouse"});
+    fireEvent.pointerLeave(screen.getByRole("region", {name: "Notification center"}), {pointerType: "mouse"});
+    fireEvent.keyDown(document, {key: "Escape"});
+    expect(screen.queryByRole("region", {name: "Notification center"})).not.toBeInTheDocument();
+    fireEvent.click(bell);
+    act(() => vi.advanceTimersByTime(250));
+    expect(screen.getByRole("region", {name: "Notification center"})).toBeVisible();
+  } finally {vi.useRealTimers();}
+});

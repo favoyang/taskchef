@@ -21,6 +21,12 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
   onOpen: (item: NextNotification) => void; onDismiss: (id: string) => void;
 }) {
   const [opened, setOpened] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = () => { if (closeTimer.current !== null) clearTimeout(closeTimer.current); closeTimer.current = null; };
+  const closeCenter = () => { cancelClose(); setOpened(false); };
+  const openOnHover = (event: React.PointerEvent) => { if (event.pointerType === "touch") return; cancelClose(); setOpened(true); };
+  const closeAfterHover = (event: React.PointerEvent) => { if (event.pointerType === "touch") return; cancelClose(); closeTimer.current = setTimeout(() => { setOpened(false); closeTimer.current = null; }, 200); };
+  useEffect(() => () => cancelClose(), []);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -34,8 +40,8 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
   const items = latest.filter((item) => filter === "all" || !item.read);
   useEffect(() => {
     if (!opened) return;
-    const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpened(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpened(false); bell.current?.focus(); } };
+    const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) closeCenter(); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { closeCenter(); bell.current?.focus(); } };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
@@ -59,11 +65,11 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
     try { await onAction(action, id); } catch { /* The caller displays the error. */ } finally { setBusy(false); }
   }
   return <div className="next-notifications" ref={root}>
-    <button ref={bell} className="next-icon-button" aria-label={unread > 0 ? "Notifications, unread" : "Notifications"} aria-expanded={opened} aria-controls="next-notification-panel" onClick={() => setOpened((value) => !value)} title={unread ? "Unread notifications" : "Notifications"}>
+    <button ref={bell} className="next-icon-button" aria-label={unread > 0 ? "Notifications, unread" : "Notifications"} aria-expanded={opened} aria-controls="next-notification-panel" onPointerEnter={openOnHover} onPointerLeave={closeAfterHover} onClick={() => { cancelClose(); setOpened(true); }} title={unread ? "Unread notifications" : "Notifications"}>
       <IconBell size={18} />{unread > 0 && <span className="next-unread-dot" aria-hidden="true" />}
     </button>
-    {opened && <section id="next-notification-panel" className="next-notification-panel" aria-label="Notification center">
-      <div className="next-notification-heading"><strong>Notifications</strong><button className="next-icon-button" aria-label="Close notifications" onClick={() => { setOpened(false); bell.current?.focus(); }}><IconX size={16} /></button></div>
+    {opened && <section onPointerEnter={openOnHover} onPointerLeave={closeAfterHover} id="next-notification-panel" className="next-notification-panel" aria-label="Notification center">
+      <div className="next-notification-heading"><strong>Notifications</strong><button className="next-icon-button" aria-label="Close notifications" onClick={() => { closeCenter(); bell.current?.focus(); }}><IconX size={16} /></button></div>
       <div className="next-notification-controls">
         <div role="group" aria-label="Notification filter"><button aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All</button><button aria-pressed={filter === "unread"} onClick={() => setFilter("unread")}>Unread{unread > 0 ? ` (${unread})` : ""}</button></div>
         <button disabled={busy || unread === 0} onClick={() => void mutate("read_all")}>Mark all read</button>
@@ -72,7 +78,7 @@ export function NextNotificationCenter({ state, toasts, onAction, onOpen, onDism
       <div className="next-notification-list" ref={list}>
         {items.length === 0 && <p className="next-notification-empty">{filter === "unread" ? "No unread notifications" : "No notifications yet"}</p>}
         {items.map((item) => <article key={item.id} data-notification-id={item.id} data-unread={!item.read} className={`next-notification-item${item.read ? "" : " next-notification-unread"}`}>
-          <button className="next-notification-message" disabled={busy} onClick={() => { void mutate("read", item.id); if (item.taskId) { setOpened(false); onOpen(item); } }}>
+          <button className="next-notification-message" disabled={busy} onClick={() => { void mutate("read", item.id); if (item.taskId) { closeCenter(); onOpen(item); } }}>
             <strong>{item.title}</strong>{item.detail && <span>{item.detail}</span>}<time dateTime={item.timestamp}>{new Date(item.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
           </button>
         </article>)}

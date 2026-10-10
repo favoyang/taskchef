@@ -243,3 +243,7 @@ The first board fetch shows Loading… in empty columns. Later empty columns use
 their normal queue messages. Cards slide between positions when the board updates;
 reduced-motion preferences disable the slide. Opening the notification center
 marks notifications read as they become visible in its scrollable panel.
+
+The Waiting column is titled Waiting for review. Hovering the notification bell
+opens the center; moving into its panel keeps it open, and leaving closes it after
+a short delay. The button remains usable with a keyboard or touch.
