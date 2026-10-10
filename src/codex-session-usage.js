@@ -1,6 +1,8 @@
 import { createReadStream } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, stat, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
+import { createHash } from "node:crypto";
+import { writeDurableAtomic } from "./state-store.js";
 import * as zlib from "node:zlib";
 import { estimateCallCost } from "./codex-pricing.js";
 
@@ -80,8 +82,8 @@ async function inventory(root, paths = []) {
 }
 
 export class CodexSessionUsage {
-  constructor({ codexHome, now = Date.now, pricing }) {
-    this.home = codexHome; this.now = now; this.pricing = pricing;
+  constructor({ codexHome, now = Date.now, pricing, cacheDir }) {
+    this.home = codexHome; this.now = now; this.pricing = pricing; this.cacheDir = cacheDir;
     this.files = new Map(); this.paths = []; this.inventoryAt = -Infinity;
     this.pending = Promise.resolve();
     this.results = new Map();
@@ -100,6 +102,33 @@ export class CodexSessionUsage {
         this.inventoryAt = this.now();
       } catch { inventoryFailed = true; }
     }
+    // Check source metadata before parsing so persisted results survive restarts.
+    // A new turn, appended/replaced log, family change, or price change invalidates them.
+    const pricing = await this.pricing.get();
+    const sources = [];
+    for (const session of sessions) {
+      const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
+      if (session.rollout_path) paths.add(session.rollout_path);
+      const versions = [];
+      for (const path of paths) {
+        try { const info = await stat(path); versions.push([path, info.dev, info.ino, info.size, info.mtimeMs]); }
+        catch { versions.push([path, "missing"]); }
+      }
+      sources.push([session.id, versions]);
+    }
+    const resultKey = `${id}:${savedDurations.length ? "details" : "board"}`;
+    const sourceSignature = JSON.stringify([latestTurnId, savedDurations, sources, inventoryFailed, pricing]);
+    let saved = this.results.get(resultKey);
+    const cachePath = this.cacheDir && join(this.cacheDir, createHash("sha256").update(resultKey).digest("hex") + ".json");
+    if (!saved && cachePath) {
+      try {
+        const value = JSON.parse(await readFile(cachePath, "utf8"));
+        if (value.version === 1 && validResult(value.result)) saved = value;
+      } catch { /* An absent or damaged cache is rebuilt from source records. */ }
+    }
+    if (saved?.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
+    const availablePaths = new Set(sources.flatMap(([, versions]) => versions.filter(version => version.length > 2).map(version => version[0])));
+    let retryRead = false;
     const parsed = [];
     for (const session of sessions) {
       const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
@@ -115,19 +144,13 @@ export class CodexSessionUsage {
           timePartial ||= file.partial;
         } catch {
           failed = timePartial = true;
+          retryRead ||= availablePaths.has(path);
           latestFailed ||= session.id !== id || path === session.rollout_path;
           versions.push([path, "missing"]);
         }
       }
       parsed.push({ session, records, versions, failed, latestFailed, timePartial });
     }
-    const pricing = await this.pricing.get({ refresh: parsed.some(entry => entry.records.some(record => record.kind === "usage")) });
-    const signature = JSON.stringify([latestTurnId, savedDurations, parsed.map(entry => [entry.session.id, entry.versions, entry.failed, entry.timePartial]), pricing]);
-    // Board and Details can request different duration fallbacks concurrently.
-    // Keep both results so opening Details does not evict the board calculation.
-    const resultKey = `${id}:${savedDurations.length ? "details" : "board"}`;
-    const cached = this.results.get(resultKey);
-    if (cached?.signature === signature) return cached.result;
     const result = { latest: bucket(), total: bucket(), subagents: sessions.length - 1, pricingDate: pricing.date,
       durationMs: 0, durationTurns: 0, partial: inventoryFailed };
     for (const { session, records, failed, latestFailed, timePartial } of parsed) {
@@ -149,7 +172,14 @@ export class CodexSessionUsage {
         result.durationTurns = summary.durations.size;
       }
     }
-    this.results.set(resultKey, { signature, result });
+    const entry = { version: 1, sourceSignature, result };
+    // Retry readable-looking sources after I/O failures; do not freeze a transient
+    // failure under an otherwise unchanged metadata fingerprint.
+    if (!retryRead) this.results.set(resultKey, entry);
+    if (cachePath && !inventoryFailed && !retryRead) {
+      try { await writeDurableAtomic(cachePath, JSON.stringify(entry) + "\n", { mode: 0o600 }); }
+      catch { /* Cache write failures do not hide readable source usage. */ }
+    }
     return result;
   }
   async readFile(path, expectedId) {
@@ -216,4 +246,16 @@ async function* readChunks(path, options, compressed) {
   if (compressed) { input.on("error", error => stream.destroy(error)); input.pipe(stream); }
   try { for await (const chunk of stream) yield chunk; }
   finally { input.destroy(); if (compressed) stream.destroy(); }
+}
+
+function validResult(value) {
+  return value && ["latest", "total"].every(key => {
+    const part = value[key];
+    return part && usage(part.tokens) && Number.isFinite(part.costUsd) && part.costUsd >= 0
+      && Number.isSafeInteger(part.samples) && part.samples >= 0
+      && typeof part.partial === "boolean" && typeof part.costPartial === "boolean";
+  }) && Number.isSafeInteger(value.subagents) && value.subagents >= 0
+    && Number.isFinite(value.durationMs) && value.durationMs >= 0
+    && Number.isSafeInteger(value.durationTurns) && value.durationTurns >= 0
+    && typeof value.partial === "boolean" && typeof value.pricingDate === "string";
 }

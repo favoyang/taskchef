@@ -74,10 +74,11 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
         {task.sessionUsage && <section aria-label="Usage">
           <Title order={5} mb="sm">Usage</Title>
           <table className="taskchef-detail-usage"><thead><tr><th /><th>Latest turn</th><th>Total chat</th></tr></thead><tbody>
-            <tr><th>Tokens</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={<TokenBreakdown value={value} />}><span>{value.samples ? compactTokens(value.tokens.total_tokens) : "—"}{value.partial && " · Partial"}</span></Tooltip></td>)}</tr>
+            <tr><th>Tokens</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={<TokenBreakdown value={value} />}><span>{value.samples ? compactTokens(value.tokens.total_tokens) : "—"}{value.partial && "*"}</span></Tooltip></td>)}</tr>
             <tr><th>API-equivalent cost</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={value.costPartial ? "Some usage records or model prices are missing. This is the subtotal for the calls TaskChef can price." : "Estimated from saved calls at standard API prices."}><span>{usageCost(value)}</span></Tooltip></td>)}</tr>
           </tbody></table>
           <Text size="xs" c="dimmed" mt={8}>Estimates use <Anchor size="xs" href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">OpenAI API pricing</Anchor>. Subscription users are not billed this amount.</Text>
+          {[task.sessionUsage.latest, task.sessionUsage.total].some(value => value.partial || value.costPartial) && <Text size="xs" c="dimmed" mt={4}>* Incomplete estimate: some usage records, turn links, or model prices are missing. Only known usage and prices are included.</Text>}
         </section>}
         {(prs.length > 0 || task.relatedGitHubLinks?.length) && <section aria-label="Pull requests">
           <Title order={5} mb="sm">Pull requests</Title>
@@ -100,8 +101,8 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
 }
 
 function usageCost(value: SavedUsage) {
-  if (!value.samples || (value.costPartial && value.costUsd === 0)) return "—";
-  return `${value.costPartial ? "At least " : ""}$${value.costUsd.toFixed(2)}`;
+  if (!value.samples || (value.costPartial && value.costUsd === 0)) return value.costPartial ? "—*" : "—";
+  return `$${value.costUsd.toFixed(2)}${value.costPartial ? "*" : ""}`;
 }
 
 function ActivityRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {

@@ -73,21 +73,32 @@ PR states while their cards are visible. Disconnecting or changing the GitHub
 account clears its cached results. Local history links are cached per database
 snapshot and rebuilt when the database changes.
 
-## Saved work time and usage in Details
+## Saved work time and usage
 
-Opening Details reads accounting events from the chat's saved rollouts and all
+Visible board cards and Details read accounting events from the chat's saved rollouts and all
 nested subagent chats found through `thread_spawn_edges`. Board inventory and
 turn state still come from the databases. A database query failure remains fatal.
 Optional accounting errors are shown as partial data.
 
 The reader discovers older rollouts under `sessions` and `archived_sessions`.
 It includes plain JSONL and zstd-compressed JSONL files. It checks this file
-inventory at most once per minute while Details is used.
+inventory at most once per minute while usage is requested.
 It caches compact accounting records in the MCP process. Unchanged files are
 not read again. Appended files are read from the last complete line; replaced
 or truncated files are read again. Changed compressed files are decoded again;
 unchanged compressed files use the same cache. A runtime without zstd support
 marks compressed histories partial. Concurrent views share this reader.
+
+Computed accounting results are saved under TaskChef's state directory in
+`usage-cache/`, with one hashed file per chat and duration-view variant. Files
+contain accounting totals and source metadata, not prompts or replies. Private
+file permissions and atomic writes protect the local cache. Before reusing it,
+the reader checks the latest turn ID, linked descendants, rollout metadata,
+duration fallbacks, and pricing table. A new turn invalidates the old result;
+appended logs also invalidate it while a turn runs. An unchanged result survives
+an MCP restart without parsing the logs again. Damaged caches are rebuilt, and
+cache write failures do not prevent source accounting. Compact parsed records
+remain in memory for incremental updates.
 
 Work time sums finished turns across the parent's saved rollouts, deduplicated
 by turn ID, and joins known durations from the selected SQLite history. It adds
@@ -106,7 +117,8 @@ historical result; the UI never claims that the displayed subtotal is a bill.
 Cost uses each saved call's model and input/cache-read/cache-write/output
 counts. Reasoning tokens are already included in output tokens. Unknown models
 remain unpriced. Missing calls can leave tokens known but cost partial. A
-partial priced subtotal is shown as “At least”.
+partial token or cost value has an asterisk. The footnote explains why the
+estimate is incomplete.
 
 The package ships a dated table of standard USD API prices from
 <https://developers.openai.com/api/docs/pricing>. While Details is used, the

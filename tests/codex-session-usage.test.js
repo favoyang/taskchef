@@ -108,3 +108,40 @@ test('compressed old rollouts are discovered, decoded, cached and joined with se
  const s=await reader.read(opts);assert.equal(s.total.tokens.total_tokens,220);assert.equal(s.latest.tokens.total_tokens,110);assert.equal(s.durationMs,1000);assert.equal(s.total.partial,false);
  assert.equal(await reader.read(opts),s);
 });
+
+test('disk cache survives restart and invalidates on a new turn, log update, or price change',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-usage-disk-'));t.after(()=>rm(home,{recursive:true,force:true}));await mkdir(join(home,'sessions'));
+ const path=join(home,'sessions','rollout-date-parent.jsonl');
+ const line=(type,payload)=>JSON.stringify({timestamp:'2026-10-10T00:00:00Z',type,payload})+'\n';
+ const count=(total,last)=>line('event_msg',{type:'token_count',info:{total_token_usage:total,last_token_usage:last}});
+ await writeFile(path,line('session_meta',{id:'parent'})+line('turn_context',{turn_id:'a',model:'gpt-6.1-sol'})+count(tokens(100),tokens(100)));
+ let prices={date:'2026-10-10',models};
+ const options={id:'parent',latestTurnId:'a',sessions:[{id:'parent',rollout_path:path}]};
+ const create=()=>new CodexSessionUsage({codexHome:home,cacheDir:join(home,'cache'),pricing:{get:async()=>prices}});
+ const first=create();const original=await first.read(options);
+ const restarted=create();let parses=0;const read=restarted.readFile.bind(restarted);restarted.readFile=(...args)=>{parses++;return read(...args);};
+ assert.deepEqual(await restarted.read(options),original);assert.equal(parses,0);
+ assert.equal((await restarted.read({...options,latestTurnId:'b'})).latest.samples,0);assert.equal(parses,1);
+ await appendFile(path,line('turn_context',{turn_id:'b',model:'gpt-6.1-sol'})+count(tokens(200,20),tokens(100)));
+ assert.equal((await restarted.read({...options,latestTurnId:'b'})).latest.tokens.total_tokens,110);assert.equal(parses,2);
+ prices={...prices,date:'2026-10-11'};
+ await restarted.read({...options,latestTurnId:'b'});assert.equal(parses,3);
+ // A damaged cache must be rebuilt instead of becoming a fatal board error.
+ for(const name of await (await import('node:fs/promises')).readdir(join(home,'cache')))await writeFile(join(home,'cache',name),'invalid');
+ assert.equal((await create().read({...options,latestTurnId:'b'})).latest.tokens.total_tokens,110);
+});
+
+test('transient source read failures are retried instead of persisted',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-usage-retry-'));t.after(()=>rm(home,{recursive:true,force:true}));await mkdir(join(home,'sessions'));
+ const path=join(home,'sessions','rollout-date-parent.jsonl');
+ const rows=[{type:'session_meta',payload:{id:'parent'}},{type:'turn_context',payload:{turn_id:'a',model:'gpt-6.1-sol'}},{type:'event_msg',payload:{type:'token_count',info:{total_token_usage:tokens(100),last_token_usage:tokens(100)}}}];
+ await writeFile(path,rows.map(row=>JSON.stringify({timestamp:'2026-10-10T00:00:00Z',...row})+'\n').join(''));
+ const create=()=>new CodexSessionUsage({codexHome:home,cacheDir:join(home,'cache'),pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const options={id:'parent',latestTurnId:'a',sessions:[{id:'parent',rollout_path:path}]};
+ const reader=create(), original=reader.readFile.bind(reader);let fail=true;
+ reader.readFile=(...args)=>{if(fail)throw new Error('temporary EIO');return original(...args);};
+ assert.equal((await reader.read(options)).latest.partial,true);
+ assert.equal((await create().read(options)).latest.tokens.total_tokens,110);
+ fail=false;
+ assert.equal((await reader.read(options)).latest.tokens.total_tokens,110);
+});

@@ -61,9 +61,10 @@ test("usage keeps later-turn tokens visible when historical cost is partial", ()
   expect(within(usage).getByRole("link", {name: "OpenAI API pricing"})).toHaveAttribute("href", "https://developers.openai.com/api/docs/pricing");
   expect(within(usage).queryByText(/Includes 3 subagents/)).toBeNull();
   expect(within(usage).getByText("110")).toBeVisible();
-  expect(within(usage).getByText("10.00K · Partial")).toBeVisible();
+  expect(within(usage).getByText("10.00K*")).toBeVisible();
   expect(within(usage).getByText("$0.20")).toBeVisible();
-  expect(within(usage).getByText("At least $3.20")).toBeVisible();
+  expect(within(usage).getByText("$3.20*")).toBeVisible();
+  expect(within(usage).getByText(/^\* Incomplete estimate:/)).toBeVisible();
 });
 
 test("detail header keeps Open chat and Done without the old action menu", () => {
@@ -73,4 +74,11 @@ test("detail header keeps Open chat and Done without the old action menu", () =>
   expect(open).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", {name: "Mark Done"})).toBeVisible();
   expect(screen.queryByRole("button", {name: "Chat actions"})).toBeNull();
+});
+
+test("unpriced usage keeps an asterisk on the cost placeholder", () => {
+  const value={tokens:{input_tokens:10,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1,reasoning_output_tokens:0,total_tokens:11},samples:1,costUsd:0,costPartial:true,partial:false};
+  const task={...fixtureTask(),sessionUsage:{latest:value,total:value,subagents:0,pricingDate:"2026-10-10"}};
+  render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={()=>{}} /></MantineProvider>);
+  expect(within(screen.getByRole("region",{name:"Usage"})).getAllByText("—*")).toHaveLength(2);
 });

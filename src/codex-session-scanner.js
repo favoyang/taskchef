@@ -311,7 +311,7 @@ export class CodexSessionScanner {
     this.projects = [];
     this.nodeVersion = nodeVersion;
     this.statePath = statePath;
-    this.sessionUsage = new CodexSessionUsage({ codexHome, now,
+    this.sessionUsage = new CodexSessionUsage({ codexHome, now, cacheDir: join(dirname(statePath), "usage-cache"),
       pricing: new CodexPricing({ cachePath: join(dirname(statePath), "pricing.json"), now }) });
     this.mutation = Promise.resolve();
     this.tasks = new Map();

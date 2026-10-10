@@ -60,7 +60,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
   const duration = formatWorkedDuration(running ? Math.max(0, now - start) : durationMs);
   const hasNextRun = scheduled && !!nextRunAt && Number.isFinite(Date.parse(nextRunAt));
   const hasSubagents = Number.isInteger(subagentCount) && (subagentCount ?? 0) > 0;
-  const hasUsage = !!turnUsage?.samples;
+  const hasUsage = !!turnUsage && (!!turnUsage.samples || turnUsage.partial || turnUsage.costPartial);
   const hasInfo = hasUsage || duration !== "—" || pullRequests.length > 0 || hasNextRun || hasSubagents;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const target = useRef<HTMLDivElement>(null);
@@ -97,6 +97,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
       <Stack gap={5}>
         {duration !== "—" && <StatusRow icon={<IconHourglass size={15} stroke={1.5} />}>Worked for {duration}</StatusRow>}
         {hasUsage && <StatusRow icon={<IconChartBar size={15} stroke={1.5} />}>Turn usage: {turnUsageLabel(turnUsage!)}</StatusRow>}
+        {hasUsage && (turnUsage!.partial || turnUsage!.costPartial) && <StatusRow icon={null}>* Some usage records, turn links, or model prices are missing.</StatusRow>}
         {pullRequests.map(pr => <PullRequestInfo key={pr.url} pr={pr} showChecks={false} />)}
         {hasNextRun && <StatusRow icon={<IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} />}>{nextRunLabel(nextRunAt)}</StatusRow>}
         {hasSubagents && <StatusRow icon={<IconRobot size={15} stroke={1.5} />}>{subagentCount} {subagentCount === 1 ? "subagent" : "subagents"}</StatusRow>}
