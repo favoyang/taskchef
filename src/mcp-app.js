@@ -25,7 +25,7 @@ const settingsDefaults = { showExec: false, showCli: false, showArchived: false,
 const settingsProperties = {
   showExec: { type: "boolean", title: "Show exec sessions", description: "Include standalone codex exec runs. Subagents stay hidden." },
   showCli: { type: "boolean", title: "Show CLI sessions", description: "Include chats started from the Codex CLI." },
-  showCalendarDates: { type: "boolean", title: "Show calendar dates", description: "Use times and dates such as 2:30PM, Yesterday, and Oct 3rd instead of 1m, 2h, 5d, and 1mo on cards." },
+  showCalendarDates: { type: "boolean", title: "Show calendar dates", description: "Show calendar dates and local times instead of relative ages." },
   showArchived: { type: "boolean", title: "Show archived chats", description: "Show archived chats in their own column and list filter." },
 };
 function publicSettings(values) {

@@ -122,7 +122,7 @@ export function PullRequestInfo({ pr }: { pr: PullRequestStatus }) {
     </StatusRow>
     {pr.checks !== "unknown" && <StatusRow icon={<CiIcon size={15} stroke={1.5} />}>{pr.checks === "passed" ? "CI passed" : pr.checks === "failed" ? "CI failed" : pr.checks === "pending" ? "CI pending" : "No CI checks"}</StatusRow>}
     {pr.accessIssue && safeLink && <Box className="taskchef-pr-access-alert">
-      <Text size="xs">{pr.accessIssue === "denied" ? "Access denied to" : "Cannot access"} {repo}. <Anchor size="xs" href="https://github.com/apps/taskchef/installations/new" target="_blank" rel="noopener noreferrer">Grant access</Anchor></Text>
+      <StatusRow icon={null}><Text size="xs">{pr.accessIssue === "denied" ? "Access denied to" : "Cannot access"} {repo}. <Anchor size="xs" href="https://github.com/apps/taskchef/installations/new" target="_blank" rel="noopener noreferrer">Grant access</Anchor></Text></StatusRow>
     </Box>}
   </Stack>;
 }

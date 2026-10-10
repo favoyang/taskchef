@@ -266,4 +266,4 @@ body {
 
 .taskchef-schedule-clock { transform: scaleX(-1); }
 
-.taskchef-pr-access-alert { border: 1px solid #eac54f; border-radius: 4px; padding: 6px 8px; }
+.taskchef-pr-access-alert { box-shadow: inset 0 0 0 1px #eac54f; border-radius: 4px; padding: 6px 8px 6px 0; }

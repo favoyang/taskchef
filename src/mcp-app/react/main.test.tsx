@@ -142,7 +142,7 @@ test("search finds chat text, projects, PR titles and repositories, combines fil
   tasks[1].pullRequests = [{ url: "https://github.com/example/search-engine/pull/12", title: "Improve indexing", state: "open", checks: "unknown" }];
   mount();
   await screen.findByRole("button", { name: "Fix login" });
-  const input = screen.getByLabelText("Search chats");
+  const input = screen.getByLabelText("Search Chats");
   const callsBeforeTyping = server.call.mock.calls.length;
   fireEvent.change(input, { target: { value: "  LOGIN database  " } });
   expect(screen.getByRole("button", { name: "Fix login" })).toBeVisible();
