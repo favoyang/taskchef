@@ -103,6 +103,12 @@ function historyId(row) {
   return row.id;
 }
 
+function delegatedPrompt(item) {
+  if (item?.type !== "functionCallOutput" || item.namespace !== "codex_app" || item.name !== "create_thread" || typeof item.output !== "string") return null;
+  const match = /^\s*<codex_delegation>\s*<source_thread_id>[^<>]+<\/source_thread_id>\s*<input>([\s\S]*)<\/input>\s*<\/codex_delegation>\s*$/.exec(item.output);
+  return match ? match[1] : null;
+}
+
 function readDatabaseRecords(state, history) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
@@ -122,6 +128,7 @@ function readDatabaseRecords(state, history) {
     const input = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_id = ?");
     const latestReply = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'agentMessage' ORDER BY rollout_ordinal DESC LIMIT 1");
     const attachCalls = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'mcpToolCall'");
+    const delegationCalls = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'functionCallOutput' ORDER BY rollout_ordinal");
     const turnAttachments = new Map();
     const inputs = new Map();
     const replies = new Map();
@@ -132,7 +139,9 @@ function readDatabaseRecords(state, history) {
         .filter((item) => item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError
           && item.arguments?.artifact_type === "pull_request" && typeof item.arguments.url === "string")
         .map((item) => item.arguments.url));
-      inputs.set(key, turn.first_user_item_id ? input.get(key, turn.turn_id, turn.first_user_item_id)?.item_json : null);
+      let rawInput = turn.first_user_item_id ? input.get(key, turn.turn_id, turn.first_user_item_id)?.item_json : null;
+      if (!rawInput) rawInput = delegationCalls.all(key, turn.turn_id).find(record => delegatedPrompt(JSON.parse(record.item_json)) !== null)?.item_json;
+      inputs.set(key, rawInput ?? null);
       replies.set(key, (turn.final_agent_item_id ? input.get(key, turn.turn_id, turn.final_agent_item_id) : latestReply.get(key, turn.turn_id))?.item_json);
     }
     const projects = state.prepare("SELECT id, name FROM projects ORDER BY position, id").all().map((project) => ({
@@ -165,15 +174,16 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       const nextRunAt = chatSchedules.filter(schedule => schedule.active && schedule.nextRunAt).map(schedule => schedule.nextRunAt).sort()[0] ?? null;
       let inputSource = "unverified";
       let inputText = "";
-      if (turn.first_user_item_id) {
+      {
         const raw = inputs.get(historyId(row));
         if (raw) {
           const item = JSON.parse(raw);
-          const text = inputText = (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+          const delegated = delegatedPrompt(item);
+          const text = inputText = delegated ?? (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
           const marker = /^\s*<heartbeat>\s*<automation_id>([^<]+)<\/automation_id>/.exec(text);
-          const inputSchedule = marker && !item.clientId;
+          const inputSchedule = marker && !item.clientId && delegated === null;
           if (inputSchedule) { inputSource = "scheduled"; }
-          else if (!marker && item.clientId) inputSource = "ordinary";
+          else if (delegated !== null || (!marker && item.clientId)) inputSource = "ordinary";
         }
       }
       const rawReply = replies.get(historyId(row));

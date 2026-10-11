@@ -834,3 +834,42 @@ test("latest-turn content never pairs a new prompt with an older response", asyn
   task=(await scanner.refresh()).tasks[0]; assert.equal(task.scheduled,false); assert.equal(task.status,'needs_input'); assert.equal(task.inputSource,'scheduled'); assert.equal(task.promptExcerpt,'Run **checks**.');
   assert.equal((await scanner.taskDetail(id)).promptText,'Run **checks**.');
 });
+
+
+test("delegation is the selected turn prompt when no user item is linked", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const {home, state, history} = setup;
+  state.prepare("INSERT INTO threads (id,name,cwd,archived) VALUES (?, 'Delegated chat', '/repo', 0)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,1,'inProgress','delegated')").run(id);
+  const add = history.prepare("INSERT INTO thread_items VALUES (?,?,?,?,?,?)");
+  const item = output => JSON.stringify({type:'functionCallOutput',namespace:'codex_app',name:'create_thread',output});
+  add.run(id,'delegated','irrelevant',item('Ordinary tool output'),'functionCallOutput',2);
+  add.run(id,'delegated','assignment',item('<codex_delegation>\n<source_thread_id>source-chat</source_thread_id>\n<input>Investigate **integration**.\nKeep the report concise.</input>\n</codex_delegation>'),'functionCallOutput',3);
+  const scanner = new CodexSessionScanner({codexHome:home});t.after(()=>scanner.close());
+  let task=(await scanner.refresh()).tasks[0];
+  assert.equal(task.inputSource,'ordinary');
+  assert.equal(task.promptExcerpt,'Investigate **integration**.\nKeep the report concise.');
+  assert.equal((await scanner.taskDetail(id)).promptText,task.promptExcerpt);
+  // A later turn with no input must not inherit the initial assignment.
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,10,'completed','later')").run(id);
+  task=(await scanner.refresh()).tasks[0];assert.equal(task.promptExcerpt,null);
+  // A genuine latest user message takes precedence over a delegation in that turn.
+  add.run(id,'later','assignment2',item('<codex_delegation><source_thread_id>source-chat</source_thread_id><input>Other assignment.</input></codex_delegation>'),'functionCallOutput',11);
+  add.run(id,'later','user',JSON.stringify({type:'userMessage',clientId:'desktop',content:[{type:'text',text:'Follow up request.'}]}),'userMessage',12);
+  history.prepare("UPDATE thread_turns SET first_user_item_id='user' WHERE turn_id='later'").run();
+  task=(await scanner.refresh()).tasks[0];assert.equal(task.promptExcerpt,'Follow up request.');
+});
+
+test("unrelated tool output is not treated as a delegated prompt", async (t) => {
+  const setup=await fixture(t);if(!setup)return;
+  const {home,state,history}=setup;
+  state.prepare("INSERT INTO threads (id,cwd,archived) VALUES (?, '/repo', 0)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const insert=history.prepare("INSERT INTO thread_items VALUES (?,?,?,?,?,?)");
+  const output='<codex_delegation><source_thread_id>source-chat</source_thread_id><input>Do this.</input></codex_delegation>';
+  for(const [index,namespace,name,value] of [[1,'other','create_thread',output],[2,'codex_app','other',output],[3,'codex_app','create_thread','Example: '+output]]) {
+    insert.run(id,'turn-1','tool-'+index,JSON.stringify({type:'functionCallOutput',namespace,name,output:value}),'functionCallOutput',index+1);
+  }
+  const scanner=new CodexSessionScanner({codexHome:home});t.after(()=>scanner.close());
+  const task=(await scanner.refresh()).tasks[0];assert.equal(task.promptExcerpt,null);assert.equal(task.inputSource,'unverified');
+});
