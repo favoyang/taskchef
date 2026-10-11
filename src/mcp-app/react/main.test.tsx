@@ -36,7 +36,7 @@ vi.mock("../../dashboard/react/components/TaskCard", () => ({
   TaskCard: ({ task, onOpenCodex, onOpenDetail }: { task: Task; onOpenCodex: (task: Task) => void; onOpenDetail: (task: Task) => void }) => <article><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>,
 }));
 vi.mock("../../dashboard/react/components/TaskBoard", () => ({
-  TaskBoard: ({ tasks, onOpenDetail, onOpenCodex, doneNotice, onVisibleTasksChange }: { onVisibleTasksChange?: (ids: string[]) => void; doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board"><button onClick={() => onVisibleTasksChange?.([tasks[0].id])}>Report card in view</button>{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
+  TaskBoard: ({ showCardUsage, tasks, onOpenDetail, onOpenCodex, doneNotice, onVisibleTasksChange }: { showCardUsage?: boolean; onVisibleTasksChange?: (ids: string[]) => void; doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board" data-card-usage={String(showCardUsage)}><button onClick={() => onVisibleTasksChange?.([tasks[0].id])}>Report card in view</button>{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
 vi.mock("./NextTaskDetail", () => ({
   NextTaskDetail: ({ task, opened, usageLoading, onClose, onTransition, extraActions }: {
@@ -57,7 +57,7 @@ const task = (id: string, status: Task["status"] = "working", updatedAt = new Da
 });
 
 let notificationState = { revision: 0, items: [] as import("./NextNotificationCenter").NextNotification[] };
-let visibility = { showExec: false, showCli: false, showArchived: false };
+let visibility: {showExec: boolean; showCli: boolean; showArchived: boolean; showCardUsage?: boolean} = { showExec: false, showCli: false, showArchived: false };
 let tasks: Task[];
 let registeredProjects: Array<{id: string; name: string; path: string; githubRepos: string[]}>;
 let details: Map<string, Task>;
@@ -615,4 +615,16 @@ test("a slow Details read finishes across successful and failed board refreshes"
  await act(async()=>finish({structuredContent:{task:{...task("one"),sessionUsage:{latest:value,total:value,subagents:0,pricingDate:"2026-10-10"}}}}));
  expect(within(screen.getByRole("region",{name:"Usage"})).getByText("Usage loaded")).toBeVisible();
  expect(screen.queryByText("Loading…")).toBeNull();
+});
+
+
+test("native card usage setting defaults on and changes without hiding detail usage", async () => {
+  render(<TaskChefApp />);
+  const board = await screen.findByRole("region", {name:"Task board"});
+  expect(board).toHaveAttribute("data-card-usage", "true");
+  visibility = {...visibility, showCardUsage:false};
+  fireEvent.click(screen.getByRole("button", {name:"Refresh"}));
+  await waitFor(() => expect(board).toHaveAttribute("data-card-usage", "false"));
+  fireEvent.click(screen.getByRole("button", {name:"Task one"}));
+  expect(await screen.findByRole("region", {name:"Usage"})).toBeInTheDocument();
 });

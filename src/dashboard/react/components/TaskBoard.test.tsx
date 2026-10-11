@@ -351,3 +351,15 @@ test("unread dots follow Codex read state and do not mark a chat read on Details
   rerender(<MantineProvider><TaskBoard {...props} tasks={[{...chat, observed: {...chat.observed, unread: false}}]} /></MantineProvider>);
   expect(screen.queryByRole("img", {name: "Unread chat"})).toBeNull();
 });
+
+test("card usage is on by default and the setting removes usage data from the status line", () => {
+  const item = task(1, "needs_input");
+  item.observed = {archive: false, lastTurnEvent: "completed", lastTurnEventAt: item.updatedAt, recentFileActivity: false, latestTurnDurationMs: 60000};
+  item.turnUsage = {tokens:{input_tokens:1000,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:100,reasoning_output_tokens:0,total_tokens:1100},costUsd:2.34,samples:1,partial:false,costPartial:false};
+  const props = {tasks:[item],completedLimit:5,onMoreCompleted:vi.fn(),onOpenCodex:vi.fn(),onOpenDetail:vi.fn()};
+  const view = render(<MantineProvider env="test"><TaskBoard {...props} /></MantineProvider>);
+  expect(screen.getByText("1.10K • $2.34")).toBeVisible();
+  view.rerender(<MantineProvider env="test"><TaskBoard {...props} showCardUsage={false} /></MantineProvider>);
+  expect(screen.queryByText("1.10K • $2.34")).toBeNull();
+  expect(screen.queryByText(/Turn usage:/)).toBeNull();
+});

@@ -66,8 +66,9 @@ PR-based Done labels use saved Codex attachments and authenticated GitHub status
 TaskChef advertises `openai/settings` with `taskchef_settings_read` and
 `taskchef_settings_update`. The read tool returns the schema, current values,
 and Chat visibility, Card display, and GitHub groups. The update tool accepts
-changed Boolean preferences and preserves other values. All switches default
-to false. Card timestamps default to compact ages: `<1m`, `1m`, `2h`, `5d`,
+changed Boolean preferences and preserves other values. **Show usage on cards** defaults to on; the other switches default
+to off. Disable it to hide token counts and estimated cost from cards and their
+status popups. Chat details always keeps its Usage section. Card timestamps default to compact ages: `<1m`, `1m`, `2h`, `5d`,
 and `1mo` (30-day months). Enable **Show calendar dates** to use the previous
 local format: `2:30PM` today, `Yesterday`, or `Oct 3rd`. Running cards keep
 their hourglass and elapsed work duration in either mode.

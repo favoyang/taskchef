@@ -19,6 +19,7 @@ const defaultLanes: { status: TaskStatus; label: string; emptyMessage?: string }
 export function TaskBoard({
   lanes = defaultLanes,
   loading = false,
+  showCardUsage = true,
   groupInterruptedWithWaiting = false,
   loadImage,
   doneNotice,
@@ -33,6 +34,7 @@ export function TaskBoard({
   tasks,
 }: {
   loading?: boolean;
+  showCardUsage?: boolean;
   onMoveTask?: (task: Task, destination: TaskStatus) => void;
   groupInterruptedWithWaiting?: boolean;
   doneNotice?: ReactNode;
@@ -190,7 +192,7 @@ export function TaskBoard({
             </Box>
             <Stack gap="sm">
               {!loading && status === "completed" && doneNotice}
-              {shown.map((task) => <BoardCard draggable={!!onMoveTask} onDragStart={(event) => { if (event.target !== event.currentTarget) {
+              {shown.map((task) => <BoardCard showCardUsage={showCardUsage} draggable={!!onMoveTask} onDragStart={(event) => { if (event.target !== event.currentTarget) {
                 if (!(event.target as Element).closest("a, img")) return;
                 const rect = event.currentTarget.getBoundingClientRect();
                 event.dataTransfer.setDragImage?.(event.currentTarget, event.clientX - rect.left, event.clientY - rect.top);
@@ -209,7 +211,8 @@ export function TaskBoard({
   );
 }
 
-function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage, draggable, onDragStart, onDragEnd }: {
+function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, draggable, onDragStart, onDragEnd }: {
+  showCardUsage: boolean;
   draggable?: boolean;
   onDragStart?: React.DragEventHandler<HTMLElement>;
   onDragEnd?: React.DragEventHandler<HTMLElement>;
@@ -235,7 +238,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage, draggable, onDr
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
       <Box className="taskchef-board-card-footer">
-        <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={task.turnUsage} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
+        <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={showCardUsage ? task.turnUsage : undefined} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
         {task.observed && task.status === "working"
           ? <ElapsedTime tooltipEnabled={false} startedAt={task.observed.lastTurnEventAt} />
           : <RelativeTime tooltipEnabled={false} calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} durationMs={task.observed ? task.observed.latestTurnDurationMs ?? null : undefined} />}

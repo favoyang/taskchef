@@ -51,7 +51,7 @@ function initialView(): "board" | "list" {
   catch { return "list"; }
 }
 
-interface VisibilitySettings { showExec: boolean; showCli: boolean; showArchived: boolean; showCalendarDates?: boolean; }
+interface VisibilitySettings { showExec: boolean; showCli: boolean; showArchived: boolean; showCalendarDates?: boolean; showCardUsage?: boolean; }
 function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, showExec: boolean) {
   return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
@@ -93,7 +93,7 @@ export function TaskChefApp() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
-  const [{ showExec, showCli, showArchived, showCalendarDates = false }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
+  const [{ showExec, showCli, showArchived, showCalendarDates = false, showCardUsage = true }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
@@ -432,7 +432,7 @@ export function TaskChefApp() {
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
-          {!error && (view === "board" ? <TaskBoard loading={loading} onMoveTask={(task, destination) => void moveTask(task, destination)} onVisibleTasksChange={onVisibleTasksChange} doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
+          {!error && (view === "board" ? <TaskBoard showCardUsage={showCardUsage} loading={loading} onMoveTask={(task, destination) => void moveTask(task, destination)} onVisibleTasksChange={onVisibleTasksChange} doneNotice={!githubAuth.connected ? <Text size="sm" c="dimmed">Connect GitHub to move merged PR chats here. <Button variant="subtle" size="compact-xs" onClick={() => setGitHubOpenSignal((value) => value + 1)}>Connect GitHub</Button></Text> : undefined} loadImage={loadReplyImage} groupInterruptedWithWaiting lanes={[...lanes]} completedLimit={completedLimit} archivedLimit={archivedLimit} onMoreArchived={() => setArchivedLimit((limit) => limit + 5)} onMoreCompleted={() => setCompletedLimit((limit) => limit + 5)} onOpenCodex={(task) => void openChat(task)} onOpenDetail={(task) => void select(task)} tasks={boardTasks} />
             : <Stack aria-describedby="task-results-summary" aria-label="Tasks" className="taskchef-list" component="section" gap="sm" mt="xs">
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}
