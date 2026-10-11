@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { SegmentedControl } from "@mantine/core";
 import { IconCheck, IconPalette } from "@tabler/icons-react";
 
-const VISUAL_THEME_KEY = "taskchef.app.visualTheme";
-export function AppearancePicker({ value, onChange }: { value: "light" | "dark" | "system"; onChange: (value: string) => void }) {
+import { VISUAL_THEMES, themeVariables, type Appearance } from "./themes";
+export function AppearancePicker({ value, onChange, visualThemeId = "chatgpt", appearance = "dark", onVisualThemeChange }: { value: "light" | "dark" | "system"; onChange: (value: string) => void; visualThemeId?: string; appearance?: Appearance; onVisualThemeChange?: (id: string) => void }) {
   const [opened, setOpened] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -17,11 +17,7 @@ export function AppearancePicker({ value, onChange }: { value: "light" | "dark" 
     cancelClose();
     timer.current = setTimeout(close, 200);
   };
-  function selectDefault() {
-    // Default is the only available visual theme. Keep its selection separate from appearance.
-    try { window.localStorage.setItem(VISUAL_THEME_KEY, "default"); } catch { /* Default remains selected when storage is unavailable. */ }
-  }
-  useEffect(() => { selectDefault(); return cancelClose; }, []);
+  useEffect(() => cancelClose, []);
   useEffect(() => {
     if (!opened) return;
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
@@ -36,10 +32,26 @@ export function AppearancePicker({ value, onChange }: { value: "light" | "dark" 
       <h2>Appearance</h2>
       <SegmentedControl fullWidth aria-label="Light and dark appearance" value={value} onChange={onChange} data={[{ value: "light", label: "DAY" }, { value: "dark", label: "NIGHT" }, { value: "system", label: "SYSTEM" }]} size="xs" />
       <h3>Theme</h3>
-      <div role="radiogroup" aria-label="Theme">
-        <button role="radio" aria-checked="true" className="next-appearance-theme" onClick={selectDefault}>
-          <span className="next-appearance-preview" aria-hidden="true"><i /><i /><i /></span><span>Default</span><IconCheck size={16} aria-hidden="true" />
-        </button>
+      <div className="next-theme-list" role="radiogroup" aria-label="Theme" onKeyDown={event => {
+        if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
+        const current = buttons.indexOf(event.target as HTMLButtonElement);
+        if (current < 0) return;
+        event.preventDefault();
+        const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[index].focus(); buttons[index].click();
+      }}>
+        {VISUAL_THEMES.filter(item => item.variants[appearance]).sort((a, b) => a.id === "chatgpt" ? -1 : b.id === "chatgpt" ? 1 : a.label.localeCompare(b.label)).map((item, index) => {
+          const colors = themeVariables(item, appearance);
+          return <div key={item.id}>
+            {index === 1 && <div className="next-theme-group">Codex themes</div>}
+            <button role="radio" tabIndex={visualThemeId === item.id ? 0 : -1} aria-checked={visualThemeId === item.id} className="next-appearance-theme" onClick={() => onVisualThemeChange?.(item.id)}>
+              <span className="next-appearance-preview" style={{ background: colors["--taskchef-page"], borderColor: colors["--taskchef-border"] }} aria-hidden="true">
+                {[0, 1, 2].map(value => <i key={value} style={{ background: colors["--taskchef-surface"], borderColor: colors["--taskchef-border"] }} />)}
+              </span><span>{item.label}</span>{visualThemeId === item.id && <IconCheck size={16} aria-hidden="true" />}
+            </button>
+          </div>;
+        })}
       </div>
     </section>}
   </div>;

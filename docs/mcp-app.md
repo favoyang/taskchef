@@ -253,6 +253,14 @@ The Waiting column is titled Waiting for review. Hovering the notification bell
 opens the center; moving into its panel keeps it open, and leaving closes it after
 a short delay. The button remains usable with a keyboard or touch.
 
-The palette icon after Refresh opens Appearance settings on hover, keyboard activation, or tap. DAY, NIGHT (default), and SYSTEM control light/dark appearance; the separate Theme list contains Default. Appearance and visual-theme selections use separate local-storage keys. Existing light/dark/system choices are preserved. System follows operating-system appearance.
+The palette icon after Refresh opens Appearance settings on hover, keyboard activation, or tap. DAY, NIGHT (default), and SYSTEM control light/dark appearance; the separate Theme list offers ChatGPT and 29 Codex presets. Only presets with a native variant for the current appearance are listed. Theme selections are remembered separately for Light and Dark in `taskchef.app.visualTheme.light` and `taskchef.app.visualTheme.dark`; appearance uses `taskchef.app.theme`. The previous Default selection maps to ChatGPT. Existing light/dark/system choices are preserved. System follows operating-system appearance.
 
 TaskChef's selected appearance takes priority over a host-applied inline `color-scheme`. Verify Light inside a dark host as well as in a standalone browser: the page, cards, and controls must change together.
+
+
+The palette seeds live in `src/mcp-app/react/themes.ts`. They mirror the desktop
+registry's surface, ink, accent, contrast, semantic colors, and font families. TaskChef derives
+its cards, controls, borders, and elevated surfaces from those seeds. Links and
+small muted text are adjusted when needed to meet a 4.5:1 contrast ratio on the
+UI surfaces. Native font families use locally available fonts with system fallbacks. Font assets are not copied from the desktop application. Palette definitions ship with TaskChef; opening the board does not
+read the installed desktop application or fetch theme files from the network.

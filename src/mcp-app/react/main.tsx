@@ -13,6 +13,7 @@ import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeT
 import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
 import { GitHubConnection, type GitHubAuth } from "./GitHubConnection";
 import { AppearancePicker } from "./AppearancePicker";
+import { savedVisualTheme, themeVariables, visualTheme, VISUAL_THEME_KEY } from "./themes";
 import { ProjectPicker } from "./ProjectPicker";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
@@ -78,10 +79,23 @@ export function TaskChefApp() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+  const [visualThemes, setVisualThemes] = useState(() => ({ light: savedVisualTheme("light"), dark: savedVisualTheme("dark") }));
+  const selectedTheme = visualTheme(visualThemes[colorScheme], colorScheme);
+  const variables = useMemo(() => themeVariables(selectedTheme, colorScheme), [selectedTheme, colorScheme]);
+  function chooseVisualTheme(id: string) {
+    setVisualThemes(current => ({ ...current, [colorScheme]: id }));
+    try { window.localStorage.setItem(`${VISUAL_THEME_KEY}.${colorScheme}`, id); } catch { /* Keep selection in memory. */ }
+  }
   useEffect(() => {
+    document.documentElement.dataset.taskchefPalette = selectedTheme.id;
+    for (const [key, value] of Object.entries(variables)) document.documentElement.style.setProperty(key, value);
     document.documentElement.dataset.taskchefTheme = colorScheme;
-    return () => { delete document.documentElement.dataset.taskchefTheme; };
-  }, [colorScheme]);
+    return () => {
+      delete document.documentElement.dataset.taskchefTheme;
+      delete document.documentElement.dataset.taskchefPalette;
+      for (const key of Object.keys(variables)) document.documentElement.style.removeProperty(key);
+    };
+  }, [colorScheme, selectedTheme, variables]);
   function chooseTheme(value: string | null) {
     const choice: ThemeChoice = value === "light" || value === "system" ? value : "dark";
     setThemeChoice(choice);
@@ -415,7 +429,7 @@ export function TaskChefApp() {
             catch (cause) { await actionError("settings", cause); }
           })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
           <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
-          <AppearancePicker value={themeChoice} onChange={chooseTheme} />
+          <AppearancePicker value={themeChoice} onChange={chooseTheme} visualThemeId={selectedTheme.id} appearance={colorScheme} onVisualThemeChange={chooseVisualTheme} />
           </Group>
         </header>
         {displayMode === "inline" ? <main className="taskchef-inline-main">

@@ -35,3 +35,16 @@ test("tap opens, appearance changes, and Escape restores focus", () => {
   expect(screen.queryByRole("region", { name: "Appearance settings" })).not.toBeInTheDocument();
   expect(button).toHaveFocus();
 });
+test("theme rows use native variants and keyboard selection", () => {
+  const onVisualThemeChange = vi.fn();
+  render(<MantineProvider><AppearancePicker value="light" appearance="light" visualThemeId="chatgpt" onChange={vi.fn()} onVisualThemeChange={onVisualThemeChange} /></MantineProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  expect(screen.queryByRole("radio", { name: "Dracula" })).not.toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: "Proof" })).toBeVisible();
+  const selected = screen.getByRole("radio", { name: "ChatGPT" });
+  selected.focus();
+  fireEvent.keyDown(selected, { key: "ArrowDown" });
+  expect(screen.queryByRole("radio", { name: "Ayu" })).not.toBeInTheDocument();
+  expect(onVisualThemeChange).toHaveBeenCalledWith("absolutely");
+  expect(screen.getByRole("radio", { name: "Absolutely" })).toHaveFocus();
+});

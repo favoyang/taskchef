@@ -571,13 +571,18 @@ test("appearance selection changes colors and survives reopening the view", asyn
   fireEvent.click(screen.getByRole("radio", { name: "DAY" }));
   expect(document.documentElement.dataset.taskchefTheme).toBe("light");
   expect(window.localStorage.getItem("taskchef.app.theme")).toBe("light");
-  fireEvent.click(screen.getByRole("radio", { name: "Default" }));
-  expect(window.localStorage.getItem("taskchef.app.visualTheme")).toBe("default");
+  fireEvent.click(screen.getByRole("radio", { name: "Catppuccin" }));
+  expect(window.localStorage.getItem("taskchef.app.visualTheme.light")).toBe("catppuccin");
+  fireEvent.click(screen.getByRole("radio", { name: "NIGHT" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Nord" }));
+  expect(document.documentElement.dataset.taskchefPalette).toBe("nord");
+  fireEvent.click(screen.getByRole("radio", { name: "DAY" }));
+  expect(document.documentElement.dataset.taskchefPalette).toBe("catppuccin");
   first.unmount();
   render(<TaskChefApp />);
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   expect(screen.getByRole("radio", { name: "DAY" })).toHaveAttribute("aria-checked", "true");
-  expect(screen.getByRole("radio", { name: "Default" })).toHaveAttribute("aria-checked", "true");
+  expect(screen.getByRole("radio", { name: "Catppuccin" })).toHaveAttribute("aria-checked", "true");
   expect(document.documentElement.dataset.taskchefTheme).toBe("light");
 });
 
