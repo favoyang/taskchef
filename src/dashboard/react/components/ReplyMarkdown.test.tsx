@@ -31,3 +31,18 @@ test("does not execute HTML, use unsafe links, or fetch saved images", () => {
   expect(screen.queryByRole("link", { name: "Bad" })).toBeNull();
   expect(screen.getByRole("link", { name: "Screenshot" })).toHaveAttribute("href", "https://example.com/private.png");
 });
+
+
+test.each(["## My request:\nFix the filter.", "## My requests:\nFix the filter.", "My requests:\n\nFix the filter.", "My requests: Fix the filter.", "My requests:\nFix the filter.", "My requests:  \nFix the filter.", "**My requests:** Fix the filter.", "## **My requests:**\nFix the filter.", "**My requests:**  \nFix the filter."])("card previews hide request labels: %s", text => {
+  const { container, rerender } = render(<ReplyMarkdown compact text={text} />);
+  expect(container).toHaveTextContent("Fix the filter.");
+  expect(container).not.toHaveTextContent(/My requests?:/i);
+  rerender(<ReplyMarkdown text={text} />);
+  expect(container).toHaveTextContent(/My requests?:/i);
+});
+
+test("card request-label cleanup preserves quoted and code examples", () => {
+  const { container } = render(<ReplyMarkdown compact text={"> ## My requests:\n\n```text\nMy requests:\n```"} />);
+  expect(container.querySelector("blockquote")).toHaveTextContent("My requests:");
+  expect(container.querySelector("pre code")).toHaveTextContent("My requests:");
+});
