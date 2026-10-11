@@ -1,9 +1,9 @@
+import { createRecordedUsageTracker } from "./recorded-usage-tracker.js";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
 import { acquireWorkspaceLock } from "./workspace.js";
 import {
-  readCcusageThreadUsage,
   readUsageStore,
   usageDelta,
   writeUsageStore,
@@ -47,10 +47,10 @@ function generationIsOlder(task, existing) {
 
 function publicReason(error) {
   const message = String(error?.message ?? "");
-  if (/not installed/i.test(message)) return "ccusage is not installed.";
+  if (/not installed/i.test(message)) return "Usage provider is not installed.";
   if (/could not resolve/i.test(message)) return "No matching Codex usage session was found.";
-  if (/timed out/i.test(message)) return "ccusage did not finish in time.";
-  return "Codex usage is unavailable from ccusage.";
+  if (/timed out/i.test(message)) return "Usage calculation did not finish in time.";
+  return "Codex usage is unavailable.";
 }
 
 function calculatingTask(task, existing = null, now = new Date().toISOString()) {
@@ -202,7 +202,7 @@ function snapshotCorrects(current, incoming) {
 function correctedRecord(task, snapshot) {
   const now = snapshot.sampledAt;
   const version = snapshot.provenance.version ? ` ${snapshot.provenance.version}` : "";
-  const reason = `ccusage${version} corrected an older cumulative total; reliable per-turn usage is unavailable.`;
+  const reason = `The usage provider${version} corrected an older cumulative total; reliable per-turn usage is unavailable.`;
   const turns = Object.fromEntries(task.turns.slice(-MAX_TRACKED_TURNS).map((turn) => [
     turn.turnRef,
     isAdministrativeTurn(turn)
@@ -328,7 +328,7 @@ function reconcileRecord(task, existing, snapshot, { boundaryReliable = true } =
 export function createUsageTracker({
   workspace,
   maxConcurrentJobs = 2,
-  readThreadUsage = readCcusageThreadUsage,
+  readThreadUsage,
   retryDelaysMs = [2_000, 3_000, 4_000, 1_000],
   retryCooldownMs = 60_000,
   setTimer = setTimeout,
@@ -336,6 +336,7 @@ export function createUsageTracker({
   if (!Number.isSafeInteger(maxConcurrentJobs) || maxConcurrentJobs < 1 || maxConcurrentJobs > 8) {
     throw new Error("usage tracker concurrency must be an integer from 1 to 8");
   }
+  if (!readThreadUsage) return createRecordedUsageTracker({ workspace, maxConcurrentJobs });
   const jobs = new Map();
   const observationChains = new Map();
   const readyJobs = [];

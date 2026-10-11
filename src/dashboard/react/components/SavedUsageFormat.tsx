@@ -10,12 +10,12 @@ export function compactTokens(value: number) {
 }
 
 export function savedUsageCost(value: SavedUsage) {
-  if (!value.samples || (value.costPartial && value.costUsd === 0)) return value.costPartial ? "—*" : "—";
-  return `$${value.costUsd.toFixed(2)}${value.costPartial ? "*" : ""}`;
+  if (!value.samples || (value.costPartial && value.costUsd === 0)) return "—";
+  return `$${value.costUsd.toFixed(2)}`;
 }
 
 export function turnUsageLabel(value: SavedUsage) {
-  return `${value.samples ? compactTokens(value.tokens.total_tokens) : "—"}${value.partial ? "*" : ""} / ${savedUsageCost(value)}`;
+  return `${value.samples ? compactTokens(value.tokens.total_tokens) : "—"} • ${savedUsageCost(value)}`;
 }
 
 export function TokenBreakdown({ value }: { value: SavedUsage }) {

@@ -90,7 +90,7 @@ unchanged compressed files use the same cache. A runtime without zstd support
 marks compressed histories partial. Concurrent views share this reader.
 
 Computed accounting results are saved under TaskChef's state directory in
-`usage-cache/`, with one hashed file per chat and duration-view variant. Files
+`cache/usage/`, with one hashed file per chat and duration-view variant. Files
 contain accounting totals and source metadata, not prompts or replies. Private
 file permissions and atomic writes protect the local cache. Before reusing it,
 the reader checks the latest turn ID, linked descendants, rollout metadata,
@@ -98,7 +98,11 @@ duration fallbacks, and pricing table. A new turn invalidates the old result;
 appended logs also invalidate it while a turn runs. An unchanged result survives
 an MCP restart without parsing the logs again. Damaged caches are rebuilt, and
 cache write failures do not prevent source accounting. Compact parsed records
-remain in memory for incremental updates.
+remain in memory for incremental updates. Saved source coverage also detects
+an older rollout that disappears from the inventory. Missing sources keep
+known historical totals as incomplete; corrections within the same logical
+rollout can still recalculate them. Moving a rollout into archived storage
+preserves its source identity.
 
 Work time sums finished turns across the parent's saved rollouts, deduplicated
 by turn ID, and joins known durations from the selected SQLite history. It adds
@@ -116,8 +120,9 @@ historical result; the UI never claims that the displayed subtotal is a bill.
 
 Cost uses each saved call's model and input/cache-read/cache-write/output
 counts. Reasoning tokens are already included in output tokens. Unknown models
-remain unpriced. Missing calls can leave tokens known but cost partial. A
-incomplete token or cost row has a superscript 2 on its label. Cost also has
+remain unpriced. Missing calls can leave tokens known but cost partial. An
+incomplete token or cost column has a superscript 2 on its label and a `≥`
+prefix on each known incomplete value. Cost also has
 superscript 1 for the API-price estimate note. The footnote explains why the
 estimate is incomplete.
 
@@ -144,3 +149,19 @@ unsupported, cleared, or ambiguous account/host mappings show no dot.
 The existing metadata file stamp detects changes during board polling even
 when the SQLite databases do not change. Opening TaskChef Details does not
 modify Codex read state; opening the chat in Codex lets Codex manage it.
+
+## Cache locations
+
+Board disk caches share the state directory's `cache/` folder:
+
+- `cache/usage/`: derived accounting results.
+- `cache/pricing.json`: cached official model pricing.
+- `cache/github-prs.json`: PR status results.
+
+The reader moves older caches into these locations on first use. It preserves
+an existing destination. Settings, Done marks, and authentication data remain
+outside `cache/` because they are persistent state, not rebuildable caches.
+The web dispatcher keeps its workspace-specific `.taskchef-usage.json` projection
+file for compatibility with existing task records.
+
+Usage caches retain normalized token counters for known rollout sources, without message content. If an older source disappears, those counters are reconciled with live counters so new usage continues to increase the known subtotal.

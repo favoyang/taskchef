@@ -103,3 +103,20 @@ test("merged PR Done consumes completion quietly and GitHub disconnect does not 
   await reconcile(store, [task("completed", "t1", { observed: { lastTurnEvent: "completed" } })]);
   assert.equal((await reconcile(store, [task("needs_input", "t1", { observed: { lastTurnEvent: "completed" } })])).items.length, 0);
 });
+
+test("slow snapshot reads do not hold the local action lock or replay an older baseline", async (t) => {
+  const { path, store } = await setup(t);
+  await reconcile(store,[task('working','t1')]);
+  let finish,started;const waiting=new Promise(resolve=>started=resolve);
+  const slow=store.reconcile(()=>{started();return new Promise(resolve=>finish=resolve);},settings);
+  await waiting;
+  const other=new NextNotifications(path);
+  await other.confirmation(task());
+  await reconcile(other,[task('needs_input','t2')]);
+  finish({healthy:true,tasks:[task('working','t1')]});await slow;
+  const saved=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(saved.chats[task().id].turn,'t2');
+  assert.equal(saved.items.filter(item=>item.kind==='confirmation').length,1);
+  assert.equal(saved.items.filter(item=>item.kind==='ready').length,1);
+  assert.equal((await reconcile(store,[task('needs_input','t2')])).items.filter(item=>item.kind==='ready').length,1);
+});

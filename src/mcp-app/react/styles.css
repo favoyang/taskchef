@@ -147,3 +147,5 @@ body { background: var(--taskchef-page); }
 .taskchef-detail-usage { width: 100%; border-collapse: collapse; font-size: var(--mantine-font-size-sm); }
 .taskchef-detail-usage th, .taskchef-detail-usage td { text-align: left; vertical-align: top; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--mantine-color-default-border); }
 .taskchef-detail-usage th { font-weight: 500; }
+
+.taskchef-detail-usage td, .taskchef-detail-usage thead th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }

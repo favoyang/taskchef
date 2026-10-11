@@ -7,15 +7,10 @@ Detailed setup, operation, recovery, and development reference for TaskChef.
 TaskChef requires Node.js 18 or newer, Git, Codex desktop, and local access to
 the projects that will receive work.
 
-TaskChef pins [`ccusage`](https://github.com/ccusage/ccusage) as an optional
-dependency for dashboard token and API-equivalent cost estimates. A normal npm
-installation uses that package-local executable; plugin-only installations use
-an npm-cache-friendly `npx` fallback to resolve the same exact version's native
-executable. `npx` never launches the analyzer against Codex data. TaskChef then
-requests ccusage's live-capable online pricing and falls back to its bundled
-offline snapshot, while never parsing Codex rollout files itself. Lifecycle
-reporting and the dashboard continue to work when ccusage, npm, or pricing is
-unavailable.
+TaskChef uses its own accounting engine for token usage and API-equivalent cost
+estimates. Usage requires Node.js 22.18+ and readable local Codex records.
+It includes linked subagents and uses the same pricing data as the board.
+Lifecycle reporting and the dashboard continue to work when usage is unavailable.
 
 ```sh
 codex plugin marketplace add favoyang/codex-plugins
@@ -49,7 +44,7 @@ The canonical workspace is `~/.agents/taskchef`. TaskChef owns only:
 AGENTS.md       managed dispatcher instructions plus user additions
 taskchef.json   schema-2 Codex project index, dashboard preference, and delegation metadata
 tasks.jsonl     one task snapshot per line (schema 10; schema 4-9 migration supported)
-.taskchef-usage.json   optional mode-0600 ccusage snapshot and turn-boundary cache
+.taskchef-usage.json   optional mode-0600 normalized usage cache
 ```
 
 To inspect or manually adjust the project index later, use the bootstrap skill:
@@ -356,24 +351,21 @@ will keep the feature disabled until Codex exposes a reliable supported
 app-callable archive interface or guarantees CLI compatibility. The dormant
 server path also rejects requests before discovering or invoking the CLI.
 
-Task details also show whole-task and per-turn token usage when `ccusage` can
-map the linked Codex thread. A completed turn briefly shows “Calculating token
-usage…” while TaskChef performs bounded deferred reconciliation, because
-the terminal lifecycle callback precedes Codex's final output write. The
-dashboard also preloads missing, interrupted, and retry-eligible usage in a
-bounded background queue at startup, after task changes, and on a periodic
-recovery pass; opening task details is not required to start collection. Historical
-tasks may show a trustworthy task total while older turns remain “Token usage
-unavailable” when no cumulative turn boundaries were recorded. Input, cached
-input, output, reasoning, and total counts retain ccusage's categories. Dollar
-figures are labeled API-equivalent estimates; provenance identifies the online
-pricing request or offline fallback mode, and zero-priced unknown models show
-cost unavailable rather than a misleading `$0.00`. Per-turn cost is also
-unavailable when its cumulative boundaries used different ccusage versions or
-pricing modes. TaskChef displays the cumulative estimate supplied by ccusage
-without applying a separate model-family or cache-write coverage policy.
+Task details show chat totals and native per-turn usage from saved Codex records.
+Historical tasks are read when needed, rather than scanned at startup. A turn
+without a matching native Codex turn ID shows usage unavailable; its chat total
+can still be shown. Missing logs and parent links make the known subtotal
+incomplete. Input, cached input, output, reasoning, and total counts use Codex's
+categories. Cached input and reasoning are subsets, not additional tokens.
+Dollar figures are API-equivalent estimates, using the board's pricing table.
+Unknown prices show cost unavailable or a known priced subtotal. Existing saved
+usage projections remain readable. A partial scan cannot replace a larger known
+historical subtotal; missing model prices cannot erase a saved priced subtotal.
+`.taskchef-usage.json` holds the web view's
+normalized projections; the underlying engine reuses the board disk caches.
+
 The same detail view reports lifecycle wall-clock elapsed time independently of
-ccusage. Each terminal turn shows **Elapsed** from `startedAt` to
+token accounting. Each terminal turn shows **Elapsed** from `startedAt` to
 `result.updatedAt`; **Total reported work** sums only valid terminal-turn
 durations, excluding idle gaps and unfinished work. A working turn shows live
 **Elapsed so far** without contributing to the total. This is reported
@@ -381,8 +373,7 @@ wall-clock elapsed time, not model compute time, and malformed or reversed
 timestamp ranges are shown as unavailable.
 The header shows the running TaskChef package version reported by the same
 bounded health identity used for compatible-listener checks.
-The Settings page shows the ccusage version reported by the executable that
-TaskChef resolves at runtime.
+The Settings page identifies TaskChef as the usage provider.
 The canonical port is normally owned by a dashboard session process initialized
 by the TaskChef MCP before its tool transport connects. MCP recovery reuses an
 exact-compatible same-workspace dashboard and reports its actual launcher;

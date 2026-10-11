@@ -311,8 +311,8 @@ export class CodexSessionScanner {
     this.projects = [];
     this.nodeVersion = nodeVersion;
     this.statePath = statePath;
-    this.sessionUsage = new CodexSessionUsage({ codexHome, now, cacheDir: join(dirname(statePath), "usage-cache"),
-      pricing: new CodexPricing({ cachePath: join(dirname(statePath), "pricing.json"), now }) });
+    this.sessionUsage = new CodexSessionUsage({ codexHome, now, cacheDir: join(dirname(statePath), "cache", "usage"), legacyCacheDir: join(dirname(statePath), "usage-cache"),
+      pricing: new CodexPricing({ cachePath: join(dirname(statePath), "cache", "pricing.json"), legacyCachePath: join(dirname(statePath), "pricing.json"), now }) });
     this.mutation = Promise.resolve();
     this.tasks = new Map();
     this.rolloutPaths = new Map();
@@ -354,7 +354,8 @@ export class CodexSessionScanner {
     this.doneCache = { stamp, marks };
     return marks;
   }
-  async databaseRecords(force) {
+  async openDatabases() {
+    if (!supportsReadOnlySqlite(this.nodeVersion)) throw new UnsupportedNodeVersionError(`TaskChef requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite (current: ${this.nodeVersion}).`);
     const paths = [join(this.codexHome, "state_5.sqlite"), join(this.codexHome, "thread_history_1.sqlite")];
     const identities = await Promise.all(paths.map(async (path) => {
       const info = await stat(path, { bigint: true });
@@ -370,7 +371,10 @@ export class CodexSessionScanner {
         this.connections = { state, history, identities };
       } catch (error) { state?.close(); throw error; }
     }
-    const { state, history } = this.connections;
+    return this.connections;
+  }
+  async databaseRecords(force) {
+    const { state, history } = await this.openDatabases();
     // Compare versions only on these same connections. Capture before querying:
     // a commit during a snapshot must trigger another read on the next poll.
     const versions = [state.prepare("PRAGMA data_version").get().data_version, history.prepare("PRAGMA data_version").get().data_version];
@@ -428,6 +432,24 @@ export class CodexSessionScanner {
       SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
     ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
     return this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations });
+  }
+  recordedUsage(id, turnId) {
+    const result = (this.recordedPending ?? Promise.resolve()).then(() => this.readRecordedUsage(id, turnId));
+    this.recordedPending = result.catch(() => {});
+    return result;
+  }
+  async readRecordedUsage(id, turnId) {
+    // Dispatcher chats can be exec/subagent sessions that the board intentionally hides.
+    // Read their linked family directly, without changing the board's inclusion rules.
+    await this.openDatabases();
+    const row = this.connections.state.prepare("SELECT id, rollout_path, history_mode FROM threads WHERE id = ?").get(id);
+    if (!row) throw new Error("No matching Codex usage session was found.");
+    const sessions = this.connections.state.prepare(`WITH RECURSIVE family(id) AS (
+      SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
+    ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
+    const matched = !!turnId && !!this.connections.history.prepare("SELECT 1 FROM thread_turns WHERE thread_id = ? AND turn_id = ?").get(historyId(row), turnId);
+    const usage = await this.sessionUsage.read({ id, latestTurnId: matched ? turnId : null, sessions });
+    return { ...usage, matchedTurn: matched };
   }
   async taskDetail(id) {
     const task = this.task(id);

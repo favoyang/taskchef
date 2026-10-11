@@ -1,3 +1,4 @@
+import { migrateCache } from "./next-cache.js";
 import { createReadStream } from "node:fs";
 import { readdir, stat, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
@@ -82,8 +83,8 @@ async function inventory(root, paths = []) {
 }
 
 export class CodexSessionUsage {
-  constructor({ codexHome, now = Date.now, pricing, cacheDir }) {
-    this.home = codexHome; this.now = now; this.pricing = pricing; this.cacheDir = cacheDir;
+  constructor({ codexHome, now = Date.now, pricing, cacheDir, legacyCacheDir }) {
+    this.home = codexHome; this.now = now; this.pricing = pricing; this.cacheDir = cacheDir; this.legacyCacheDir = legacyCacheDir;
     this.files = new Map(); this.paths = []; this.inventoryAt = -Infinity;
     this.pending = Promise.resolve();
     this.results = new Map();
@@ -95,6 +96,10 @@ export class CodexSessionUsage {
     return result;
   }
   async readOnce({ id, latestTurnId, sessions, savedDurations = [] }) {
+    if (this.legacyCacheDir && this.cacheDir) {
+      try { await migrateCache(this.legacyCacheDir, this.cacheDir); this.legacyCacheDir = null; }
+      catch { /* Optional caches never prevent reading source usage. */ }
+    }
     let inventoryFailed = false;
     if (this.now() - this.inventoryAt >= 60_000) {
       try {
@@ -126,10 +131,26 @@ export class CodexSessionUsage {
         if (value.version === 1 && validResult(value.result)) saved = value;
       } catch { /* An absent or damaged cache is rebuilt from source records. */ }
     }
-    if (saved?.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
+    const sourceKeys = (items) => items.flatMap(([sessionId, versions]) => versions
+      .filter(version => version.length > 2)
+      .map(version => JSON.stringify([sessionId, basename(version[0])])));
+    const currentSources = new Set(sourceKeys(sources));
+    let knownSources = [];
+    try {
+      // Older cache entries already contain source metadata in their signature.
+      knownSources = saved?.knownSources ?? sourceKeys(JSON.parse(saved.sourceSignature)[2]);
+      if (!Array.isArray(knownSources) || knownSources.some(key => {
+        if (typeof key !== "string") return true;
+        const parts = JSON.parse(key);
+        return !Array.isArray(parts) || parts.length !== 2 || parts.some(part => typeof part !== "string");
+      })) knownSources = [];
+    } catch { knownSources = []; /* No prior valid source coverage is available. */ }
+    const missingSources = knownSources.filter(key => !currentSources.has(key));
+    if (saved?.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
     const availablePaths = new Set(sources.flatMap(([, versions]) => versions.filter(version => version.length > 2).map(version => version[0])));
     let retryRead = false;
     const parsed = [];
+    const recordSources = {};
     for (const session of sessions) {
       const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
       if (session.rollout_path) paths.add(session.rollout_path);
@@ -140,10 +161,13 @@ export class CodexSessionUsage {
         try {
           const file = await this.readFile(path, session.id);
           for (const record of file.records) records.push(record);
+          recordSources[JSON.stringify([session.id, basename(path)])] = file.records;
           versions.push([path, file.identity, file.size, file.mtime]);
           timePartial ||= file.partial;
         } catch {
           failed = timePartial = true;
+          const sourceKey = JSON.stringify([session.id, basename(path)]);
+          if (Array.isArray(saved?.recordSources?.[sourceKey]) && !missingSources.includes(sourceKey)) missingSources.push(sourceKey);
           retryRead ||= availablePaths.has(path);
           latestFailed ||= session.id !== id || path === session.rollout_path;
           versions.push([path, "missing"]);
@@ -151,10 +175,27 @@ export class CodexSessionUsage {
       }
       parsed.push({ session, records, versions, failed, latestFailed, timePartial });
     }
+    const retainedSources = saved?.recordSources && typeof saved.recordSources === "object" ? saved.recordSources : {};
+    for (const key of missingSources) {
+      const rows = retainedSources[key];
+      if (Array.isArray(rows) && rows.every(row => row && Number.isFinite(row.time) && ["usage", "duration", "issue"].includes(row.kind))) recordSources[key] = rows;
+    }
     const result = { latest: bucket(), total: bucket(), subagents: sessions.length - 1, pricingDate: pricing.date,
       durationMs: 0, durationTurns: 0, partial: inventoryFailed };
     for (const { session, records, failed, latestFailed, timePartial } of parsed) {
       const summary = summarizeRecords(records, latestTurnId, pricing.models, session.id !== id);
+      const retained = missingSources.filter(key => JSON.parse(key)[0] === session.id).flatMap(key => recordSources[key] ?? []);
+      // Reconcile retained counters with live counters together. Adding file
+      // subtotals would double-count cumulative boundaries across rollouts.
+      if (retained.length) {
+        const combined = summarizeRecords([...records, ...retained], latestTurnId, pricing.models, session.id !== id);
+        const missing = summarizeRecords(retained, latestTurnId, pricing.models, session.id !== id);
+        summary.total = combined.total;
+        summary.latest = combined.latest;
+        summary.latest.partial ||= missing.latest.samples > 0 || missing.latest.partial;
+        summary.latest.costPartial ||= missing.latest.samples > 0 || missing.latest.costPartial;
+        summary.durations = combined.durations;
+      }
       for (const key of ["total", "latest"]) {
         add(result[key].tokens, summary[key].tokens);
         result[key].costUsd += summary[key].costUsd;
@@ -172,7 +213,27 @@ export class CodexSessionUsage {
         result.durationTurns = summary.durations.size;
       }
     }
-    const entry = { version: 1, sourceSignature, result };
+    if (missingSources.length) {
+      result.total.partial = result.total.costPartial = true;
+      const prior = saved?.result.total;
+      if (prior) {
+        for (const key of Object.keys(result.total.tokens)) result.total.tokens[key] = Math.max(result.total.tokens[key], prior.tokens[key]);
+        result.total.tokens.total_tokens = Math.max(result.total.tokens.total_tokens, result.total.tokens.input_tokens + result.total.tokens.output_tokens);
+        result.total.costUsd = Math.max(result.total.costUsd, prior.costUsd);
+        result.total.samples = Math.max(result.total.samples, prior.samples);
+      }
+      let sameTurn = false;
+      try { sameTurn = JSON.parse(saved.sourceSignature)[0] === latestTurnId; } catch { /* No prior turn identity. */ }
+      if (sameTurn && saved.result.latest.samples > 0) {
+        const previous = saved.result.latest;
+        for (const key of FIELDS) result.latest.tokens[key] = Math.max(result.latest.tokens[key], previous.tokens[key]);
+        result.latest.costUsd = Math.max(result.latest.costUsd, previous.costUsd);
+        result.latest.samples = Math.max(result.latest.samples, previous.samples);
+        result.latest.partial = result.latest.costPartial = true;
+      }
+      if (missingSources.some(key => JSON.parse(key)[0] === id)) result.partial = true;
+    }
+    const entry = { version: 1, sourceSignature, result, recordSources, knownSources: [...new Set([...knownSources, ...currentSources])] };
     // Retry readable-looking sources after I/O failures; do not freeze a transient
     // failure under an otherwise unchanged metadata fingerprint.
     if (!retryRead) this.results.set(resultKey, entry);
@@ -186,7 +247,7 @@ export class CodexSessionUsage {
     const info = await stat(path);
     if (!info.isFile() || info.size === 0) throw new Error("Rollout is empty or not a file.");
     let cached = this.files.get(path);
-    if (cached && cached.identity === `${info.dev}:${info.ino}` && cached.size === info.size && cached.mtime === info.mtimeMs) return cached;
+    if (cached && cached.identity === `${info.dev}:${info.ino}` && cached.size === info.size && cached.mtime === info.mtimeMs) return this.sourceView(cached, expectedId);
     const compressed = path.endsWith(".zst");
     if (!cached || compressed || cached.identity !== `${info.dev}:${info.ino}` || info.size < cached.size || info.size === cached.size) {
       cached = { identity: `${info.dev}:${info.ino}`, offset: 0, records: [], partial: false, turn: null, root: null, model: null, valid: false };
@@ -210,9 +271,19 @@ export class CodexSessionUsage {
       }
     }
     cached.size = info.size; cached.mtime = info.mtimeMs;
-    if (!cached.valid) throw new Error("Rollout belongs to a different chat.");
+    cached.tail = pending; cached.skipping = skipping;
+    const view = this.sourceView(cached, expectedId);
+    if (!view.valid) throw new Error("Rollout belongs to a different chat.");
     this.files.set(path, cached);
-    return cached;
+    return view;
+  }
+  sourceView(cached, expectedId) {
+    // EOF may contain a complete JSON record or a partially written line.
+    // Parse only in the view: the next append must retry from the last newline.
+    const view = { ...cached, records: [...cached.records] };
+    if (cached.tail?.length) this.line(view, cached.tail, expectedId);
+    if (cached.skipping) this.issue(view);
+    return view;
   }
   line(file, buffer, expectedId) {
     let row;

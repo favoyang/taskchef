@@ -1957,7 +1957,7 @@ test("dashboard preloads usage independently of detail requests and publishes ca
   }
 });
 
-test("dashboard settings reports pinned ccusage metadata without runtime resolution", async () => {
+test("dashboard settings reports the built-in usage engine without runtime resolution", async () => {
   const { workspace } = await fixture();
   const packageMetadata = JSON.parse(await readFile(
     new URL("../package.json", import.meta.url),
@@ -1976,8 +1976,8 @@ test("dashboard settings reports pinned ccusage metadata without runtime resolut
   try {
     const settings = await (await fetch(`${server.origin}/api/settings`)).json();
     assert.deepEqual(settings.usageProvider, {
-      provider: "ccusage",
-      version: packageMetadata.optionalDependencies.ccusage,
+      provider: "TaskChef",
+      version: packageMetadata.version,
     });
     assert.equal(runtimeResolutions, 0);
   } finally {
@@ -2850,4 +2850,12 @@ test("Open task controls use the shared authoritative Codex app assets", async (
 
   await assert.rejects(readFile(path.resolve("assets/codex.svg")), { code: "ENOENT" });
   assert.doesNotMatch(source, /codex\.svg|mask:\s*url\(|background:\s*currentColor/);
+});
+
+test("web list usage retains incomplete native accounting flags", () => {
+  const record = cachedUsageRecord();
+  record.task.partial = true; record.task.costPartial = true;
+  const usage = taskListUsageProjection({threadId:FIRST_THREAD_ID, status:'completed', latestTurn:{turnRef:FIRST_TURN_ID}},record);
+  assert.equal(usage.task.partial,true);assert.equal(usage.task.costPartial,true);
+  assert.equal(usage.task.totalTokens,record.task.totalTokens);assert.equal(usage.task.estimatedCostUsd,record.task.estimatedCostUsd);
 });

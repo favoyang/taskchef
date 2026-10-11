@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, appendFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, appendFile, rm, readFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { summarizeRecords, CodexSessionUsage } from '../src/codex-session-usage.js';
@@ -144,4 +144,69 @@ test('transient source read failures are retried instead of persisted',async t=>
  assert.equal((await create().read(options)).latest.tokens.total_tokens,110);
  fail=false;
  assert.equal((await reader.read(options)).latest.tokens.total_tokens,110);
+});
+
+test('deleted older rollouts retain known totals across restarts; archived moves preserve coverage',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-coverage-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const dir=join(home,'sessions'),archived=join(home,'archived_sessions'),cacheDir=join(home,'cache');
+ await mkdir(dir);await mkdir(archived);
+ const old=join(dir,'rollout-old-parent.jsonl'),current=join(dir,'rollout-current-parent.jsonl');
+ const line=(type,payload,time)=>JSON.stringify({timestamp:`2026-10-10T00:00:0${time}Z`,type,payload})+'\n';
+ const content=(input,turn,time)=>line('session_meta',{id:'parent'},time)+line('turn_context',{turn_id:turn,model:'gpt-6.1-sol'},time)+line('event_msg',{type:'token_count',info:{total_token_usage:tokens(input),last_token_usage:tokens(input)}},time);
+ await writeFile(old,content(500,'old',1));await writeFile(current,content(100,'new',2));
+ const options={id:'parent',latestTurnId:'new',sessions:[{id:'parent',rollout_path:current}]};
+ const create=()=>new CodexSessionUsage({codexHome:home,cacheDir,pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const before=await create().read(options);assert.equal(before.total.tokens.total_tokens,620);
+ await rename(old,join(archived,'rollout-old-parent.jsonl'));
+ const moved=await create().read(options);assert.equal(moved.total.tokens.total_tokens,620);assert.equal(moved.total.partial,before.total.partial);
+ await rm(join(archived,'rollout-old-parent.jsonl'));
+ const after=await create().read(options);assert.equal(after.total.tokens.total_tokens,620);assert.equal(after.total.partial,true);assert.equal(after.total.costPartial,true);
+ assert.equal(after.total.tokens.input_tokens,before.total.tokens.input_tokens);
+ assert.equal((await create().read(options)).total.tokens.total_tokens,620);
+ await appendFile(current,line('event_msg',{type:'token_count',info:{total_token_usage:tokens(120,20),last_token_usage:tokens(20)}},3));
+ const growing=await create().read(options);assert.equal(growing.total.tokens.total_tokens,650);assert.ok(growing.total.costUsd>after.total.costUsd);
+ assert.equal((await create().read(options)).total.tokens.total_tokens,650);
+});
+
+
+test('missing latest-turn rollouts retain known usage without reusing it for another turn',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-latest-coverage-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const dir=join(home,'sessions'),cacheDir=join(home,'cache');await mkdir(dir);
+ const path=join(dir,'rollout-date-parent.jsonl');
+ const rows=[{type:'session_meta',payload:{id:'parent'}},{type:'turn_context',payload:{turn_id:'a',model:'gpt-6.1-sol'}},{type:'event_msg',payload:{type:'token_count',info:{total_token_usage:tokens(100),last_token_usage:tokens(100)}}}];
+ await writeFile(path,rows.map(row=>JSON.stringify({timestamp:'2026-10-10T00:00:00Z',...row})+'\n').join(''));
+ const create=()=>new CodexSessionUsage({codexHome:home,cacheDir,pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const options={id:'parent',latestTurnId:'a',sessions:[{id:'parent',rollout_path:path}]};
+ const before=await create().read(options);
+ const failing=create();failing.readFile=async()=>{throw Error('temporary EIO');};
+ const unavailable=await failing.read(options); // unchanged signature uses the intact persisted snapshot
+ assert.equal(unavailable.latest.tokens.total_tokens,110);
+ await appendFile(path,'\n');
+ const failed=await failing.read(options);assert.equal(failed.latest.tokens.total_tokens,110);assert.equal(failed.latest.partial,true);
+ // Previously shipped entries have source metadata but no retained counters.
+ for(const name of await (await import('node:fs/promises')).readdir(cacheDir)) {
+   const cachePath=join(cacheDir,name),entry=JSON.parse(await (await import('node:fs/promises')).readFile(cachePath,'utf8'));
+   delete entry.recordSources;await writeFile(cachePath,JSON.stringify(entry));
+ }
+ await rm(path);
+ const after=await create().read(options);assert.equal(after.latest.tokens.total_tokens,before.latest.tokens.total_tokens);assert.equal(after.latest.partial,true);assert.equal(after.latest.costPartial,true);
+ assert.equal((await create().read(options)).latest.tokens.total_tokens,110);
+ assert.equal((await create().read({...options,latestTurnId:'b'})).latest.samples,0);
+});
+
+
+test('truncated EOF usage stays partial until completed; valid JSON needs no final newline',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-usage-eof-'));t.after(()=>rm(home,{recursive:true,force:true}));await mkdir(join(home,'sessions'));
+ const path=join(home,'sessions','rollout-date-parent.jsonl');
+ const line=(type,payload)=>JSON.stringify({timestamp:'2026-10-10T00:00:00Z',type,payload});
+ const count=(total,last)=>line('event_msg',{type:'token_count',info:{total_token_usage:tokens(total,total/10),last_token_usage:tokens(last,last/10)}});
+ const first=line('session_meta',{id:'parent'})+'\n'+line('turn_context',{turn_id:'a',model:'gpt-6.1-sol'})+'\n'+count(100,100)+'\n';
+ const second=count(200,100),split=Math.floor(second.length/2);await writeFile(path,first+second.slice(0,split));
+ const reader=new CodexSessionUsage({codexHome:home,cacheDir:join(home,'cache'),pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const options={id:'parent',latestTurnId:'a',sessions:[{id:'parent',rollout_path:path}]};
+ const partial=await reader.read(options);assert.equal(partial.total.tokens.total_tokens,110);assert.equal(partial.total.partial,true);assert.equal(partial.latest.costPartial,true);
+ assert.equal((await reader.read(options)).total.partial,true);
+ await appendFile(path,second.slice(split));
+ const complete=await reader.read(options);assert.equal(complete.total.tokens.total_tokens,220);assert.equal(complete.total.partial,false);assert.equal(complete.latest.costPartial,false);
+ await appendFile(path,'\n');assert.equal((await reader.read(options)).total.tokens.total_tokens,220);
 });

@@ -1,3 +1,4 @@
+import { migrateCache } from "./next-cache.js";
 import { readFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { writeDurableAtomic } from "./state-store.js";
@@ -35,8 +36,8 @@ export function estimateCallCost(usage, model, models) {
 }
 
 export class CodexPricing {
-  constructor({ cachePath, now = Date.now, fetchImpl = globalThis.fetch } = {}) {
-    this.cachePath = cachePath; this.now = now; this.fetch = fetchImpl;
+  constructor({ cachePath, legacyCachePath, now = Date.now, fetchImpl = globalThis.fetch } = {}) {
+    this.cachePath = cachePath; this.legacyCachePath = legacyCachePath; this.now = now; this.fetch = fetchImpl;
     this.pending = null; this.nextCheck = 0;
   }
   async get({ refresh = true } = {}) {
@@ -52,6 +53,7 @@ export class CodexPricing {
     this.table = JSON.parse(await readFile(new URL("./data/codex-pricing.json", import.meta.url), "utf8"));
     if (!this.cachePath) return;
     try {
+      await migrateCache(this.legacyCachePath, this.cachePath);
       const cached = JSON.parse(await readFile(this.cachePath, "utf8"));
       // Validate cached content with the same parser used for the live source.
       const models = parsePricing(cached.markdown);

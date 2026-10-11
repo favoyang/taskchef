@@ -36,6 +36,8 @@ export interface GitHubLink {
 }
 
 export interface UsageNumbers {
+  partial?: boolean;
+  costPartial?: boolean;
   inputTokens?: number;
   cachedInputTokens?: number;
   outputTokens?: number;

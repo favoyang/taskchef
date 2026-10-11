@@ -1,3 +1,4 @@
+import { migrateCache } from "./next-cache.js";
 import { filterTasks } from "./dashboard/state.js";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -34,14 +35,16 @@ export class NextGitHub {
     const release = await acquireWorkspaceLock(join(this.stateDir, "github-auth"));
     try { return await operation(); } finally { await release(); }
   }
-  get cachePath() { return join(this.stateDir, "github-auth", "pr-cache.json"); }
+  get cachePath() { return join(this.stateDir, "cache", "github-prs.json"); }
   async clearCache() {
     this.cache.clear();
     await rm(this.cachePath, { force: true });
+    await rm(join(this.stateDir, "github-auth", "pr-cache.json"), { force: true });
   }
   async loadCache(clientId, login) {
     this.cache.clear();
     try {
+      await migrateCache(join(this.stateDir, "github-auth", "pr-cache.json"), this.cachePath);
       const saved = JSON.parse(await readFile(this.cachePath, "utf8"));
       if (saved.version !== 1 || typeof saved.entries !== "object" || !saved.entries || Array.isArray(saved.entries)) throw new Error();
       if (saved.clientId !== clientId || saved.login !== login) return;
@@ -54,7 +57,7 @@ export class NextGitHub {
         this.cache.set(url, entry);
       }
     } catch (error) {
-      if (error.code !== "ENOENT") throw new Error("TaskChef cannot read its saved PR cache. Remove pr-cache.json and refresh.");
+      if (error.code !== "ENOENT") throw new Error("TaskChef cannot read its saved PR cache. Remove cache/github-prs.json and refresh.");
     }
   }
   async saveCache(clientId, login) {

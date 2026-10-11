@@ -86,9 +86,11 @@ Codex branch layout: a curved merged branch, a plus on the plain open icon,
 and colored status dots in place of the lower-right node. Cards and popup
 rows use the same glyphs. The whole status line shares
 one popup on hover or focus. It shows work duration, each linked PR title with
-its number first, known CI status, and the next scheduled run, each on a separate
-line with an icon. PR titles stay on one line and use an ellipsis. A final robot
-row shows the chat’s direct subagent count across its history when greater than zero. Missing information is omitted. Mergeability and check time are not shown.
+its number first, turn usage, and the next scheduled run, each on a separate
+line with an icon. PR titles stay on one line and use an ellipsis. CI state is
+represented by the PR icon; the popup has no separate CI row. Subagent count
+appears only in Details. Missing information is omitted. Mergeability and check
+time are not shown.
 Unknown PR status uses a neutral icon without an Unavailable label on the card.
 Repository access failures add a warning icon and a Grant access link to the
 TaskChef GitHub App installation page. Confirmed permission errors say Access
@@ -123,7 +125,7 @@ not specifically mean no CI, and green alone does not prove merge readiness.
 TaskChef reads PR state, title, draft state, head revision, merge conflicts,
 merge state, and the latest commit's combined check status. It treats CLEAN or
 HAS_HOOKS with MERGEABLE as ready to merge. The icon distinguishes Checks
-passed from Ready to merge; the shared popup shows CI without mergeability. GitHub can report an unknown merge state briefly;
+passed from Ready to merge; the shared popup uses the same state icon. GitHub can report an unknown merge state briefly;
 TaskChef checks that state again while the card is visible.
 
 ## Refresh and failure behavior
@@ -137,7 +139,7 @@ and loading more cards update this set. Offscreen cards do not start requests.
 Opening one chat's Details checks that chat on demand. New chats follow the same
 rule when their latest turn has an owned PR.
 
-PR results are saved in `github-auth/pr-cache.json` beside TaskChef settings,
+PR results are saved in `cache/github-prs.json` beside TaskChef settings,
 with restricted file permissions. This file contains no tokens. A shared local
 lock protects reads and writes across MCP processes. Results are tied to the
 GitHub account and client ID; disconnect and sign-in clear them.

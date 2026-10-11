@@ -19,18 +19,18 @@ vi.mock('@mantine/core', async () => {
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-test('shows the ccusage version pinned by TaskChef without an availability status', async () => {
+test('shows the built-in TaskChef usage engine without an availability status', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
       profiles: [],
-      usageProvider: { provider: 'ccusage', version: '20.0.21' },
+      usageProvider: { provider: 'TaskChef', version: '8.6.2' },
     }),
   }));
   render(<MantineProvider><ModelSettings /></MantineProvider>);
-  expect(await screen.findByText('ccusage 20.0.21')).toBeInTheDocument();
+  expect(await screen.findByText('TaskChef 8.6.2')).toBeInTheDocument();
   expect(screen.getByText('Usage provider')).toBeInTheDocument();
-  expect(screen.getByText(/Version pinned by TaskChef/)).toBeInTheDocument();
+  expect(screen.getByText(/TaskChef’s accounting engine/)).toBeInTheDocument();
   expect(screen.queryByText('available')).not.toBeInTheDocument();
 });
 

@@ -727,3 +727,33 @@ test("recorded chat duration sums finished turns only and updates with database 
   await scanner.refresh();
   assert.equal((await scanner.taskDetail(id)).observed.recordedChatDurationMs,210000);
 });
+
+test("web usage resolves native rollout identity and descendants without board inclusion", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  const rollout = '0199aabb-ccdd-7eef-8abc-0123456789ac';
+  state.prepare("INSERT INTO threads (id,rollout_path,source) VALUES (?,?,'exec')").run(id, join(home, `rollout-2026-10-05T00-00-00-${id}_${rollout}.jsonl`));
+  state.prepare("INSERT INTO threads (id) VALUES ('child')").run();
+  state.prepare("INSERT INTO thread_spawn_edges (parent_thread_id,child_thread_id) VALUES (?,'child')").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,turn_id,status) VALUES (?,'native','completed')").run(rollout);
+  const scanner = new CodexSessionScanner({codexHome:home}); t.after(()=>scanner.close());
+  let input;scanner.sessionUsage.read=async value=>{input=value;return {total:{samples:1},latest:{samples:1}};};
+  assert.equal((await scanner.recordedUsage(id,'native')).matchedTurn,true);
+  assert.equal(input.latestTurnId,'native');assert.deepEqual(input.sessions.map(row=>row.id).sort(),['child',id].sort());
+  assert.equal((await scanner.recordedUsage(id,'unknown')).matchedTurn,false);assert.equal(input.latestTurnId,null);
+});
+
+test("web usage ignores malformed unrelated board history and rejects a malformed target", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,history_mode) VALUES (?,'legacy')").run(id);
+  state.prepare("INSERT INTO threads (id,history_mode,rollout_path) VALUES ('unrelated','paginated','bad.jsonl')").run();
+  history.prepare("INSERT INTO thread_turns (thread_id,turn_id,status) VALUES (?,'native','completed')").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,turn_id,status) VALUES ('unrelated','native','completed')").run();
+  const scanner = new CodexSessionScanner({codexHome:home}); t.after(()=>scanner.close());
+  let reads=0; scanner.sessionUsage.read=async()=>{reads++;return {total:{samples:1},latest:{samples:1}};};
+  assert.equal((await scanner.recordedUsage(id,'native')).matchedTurn,true);assert.equal(reads,1);
+  state.prepare("UPDATE threads SET history_mode='paginated',rollout_path='bad.jsonl' WHERE id=?").run(id);
+  await assert.rejects(scanner.recordedUsage(id,'native'),/invalid selected rollout filename/);
+  assert.equal(reads,1);
+});

@@ -123,8 +123,5 @@
     "zod",
     "mdast-util-from-markdown",
     "@napi-rs/keyring"
-  ],
-  "optionalDependencies": {
-    "ccusage": "20.0.24"
-  }
+  ]
 }

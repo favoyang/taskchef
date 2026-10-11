@@ -99,25 +99,25 @@ test("Tab preserves the time control before handing focus to the PR link", () =>
 test("shows subagents and repository access action with number first", () => {
   render(<MantineProvider><CardStatusLine subagentCount={155} pullRequests={[{...pr,state:"unknown",checks:"unknown",accessIssue:"denied"}]}><span>Oct 7th</span></CardStatusLine></MantineProvider>);
   fireEvent.mouseEnter(screen.getByLabelText("Turn status details"));
-  expect(screen.getByText("155 subagents")).toBeInTheDocument();
+  expect(screen.queryByText("155 subagents")).toBeNull();
   expect(screen.getByText(/Access denied to example\/repo/)).toBeInTheDocument();
   expect(screen.getByRole("link",{name:"Grant access"})).toHaveAttribute("href","https://github.com/apps/taskchef/installations/new");
   expect(screen.getByRole("link",{name:"#12 Improve search"})).toHaveClass("taskchef-status-pr-title");
 });
 
- test("card and popup use latest turn usage and retain incomplete markers", () => {
+ test("card and popup use latest turn usage and omit incomplete markers", () => {
   const turnUsage = {tokens:{input_tokens:1000,cached_input_tokens:200,cache_write_input_tokens:0,output_tokens:100,reasoning_output_tokens:40,total_tokens:1100},costUsd:2.34,samples:1,partial:true,costPartial:true};
   render(<MantineProvider env="test"><CardStatusLine turnUsage={turnUsage}><span>1h</span></CardStatusLine></MantineProvider>);
-  expect(screen.getByText("1.10K* / $2.34*")).toBeVisible();
+  expect(screen.getByText("1.10K • $2.34")).toBeVisible();
   fireEvent.focus(screen.getByLabelText("Turn status details"));
-  expect(screen.getByText("Turn usage: 1.10K* / $2.34*")).toBeVisible();
+  expect(screen.getByText("Turn usage: 1.10K • $2.34")).toBeVisible();
 });
 
-test("missing turn records still show starred usage and an explanation", () => {
+test("missing turn records show plain placeholders without an explanation", () => {
  const turnUsage={tokens:{input_tokens:0,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:0,reasoning_output_tokens:0,total_tokens:0},costUsd:0,samples:0,partial:true,costPartial:true};
  render(<MantineProvider env="test"><CardStatusLine turnUsage={turnUsage}><span>1h</span></CardStatusLine></MantineProvider>);
- expect(screen.getByText("—* / —*")).toBeVisible();
+ expect(screen.getByText("— • —")).toBeVisible();
  fireEvent.focus(screen.getByLabelText("Turn status details"));
- expect(screen.getByText("Turn usage: —* / —*")).toBeVisible();
- expect(screen.getByText(/^\* Some usage records/)).toBeVisible();
+ expect(screen.getByText("Turn usage: — • —")).toBeVisible();
+ expect(screen.queryByText(/Some usage records/)).toBeNull();
 });

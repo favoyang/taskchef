@@ -3799,7 +3799,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     "mdast-util-from-markdown",
     "@napi-rs/keyring",
   ]);
-  assert.equal(packageJson.optionalDependencies.ccusage, "20.0.24");
+  assert.equal(packageJson.optionalDependencies?.ccusage, undefined);
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));
   const releasePluginNames = releaseConfig.plugins.map((plugin) =>
     Array.isArray(plugin) ? plugin[0] : plugin);

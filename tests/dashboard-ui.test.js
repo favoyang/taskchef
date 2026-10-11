@@ -594,7 +594,7 @@ test("dashboard renders a live notification with time and shared accessible desc
     assert.equal(taskUsage.children[0].textContent, "330 tokens · estimated $0.12");
     assert.match(
       taskUsage.children[2].textContent,
-      /Source: ccusage 20\.0\.24 · online pricing requested/,
+      /Source: ccusage \(historical\) 20\.0\.24 · online pricing requested/,
     );
     assert.match(taskUsage.children[2].textContent, /API-equivalent estimate/);
     assert.doesNotMatch(taskUsage.children[2].textContent, /cache-write charges/);

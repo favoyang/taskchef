@@ -75,9 +75,14 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
         </section>}
         {task.sessionUsage && <section aria-label="Usage">
           <Title order={5} mb="sm">Usage</Title>
-          <table className="taskchef-detail-usage"><thead><tr><th /><th>Latest turn</th><th>Total chat</th></tr></thead><tbody>
-            <tr><th scope="row">Tokens{tokenIncomplete && <sup>2</sup>}</th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={<TokenBreakdown value={value} />}><span>{value.samples ? compactTokens(value.tokens.total_tokens) : "—"}</span></Tooltip></td>)}</tr>
-            <tr><th scope="row">API-equivalent cost<sup>1{costIncomplete && ",2"}</sup></th>{[task.sessionUsage.latest, task.sessionUsage.total].map((value, i) => <td key={i}><Tooltip multiline w={280} label={value.costPartial ? "Some usage records or model prices are missing. This is the subtotal for the calls TaskChef can price." : "Estimated from saved calls at standard API prices."}><span>{usageCost(value)}</span></Tooltip></td>)}</tr>
+          <table className="taskchef-detail-usage"><thead><tr><th /><th scope="col">Tokens{tokenIncomplete && <sup>2</sup>}</th><th scope="col">API-equivalent cost<sup>1{costIncomplete && ",2"}</sup></th></tr></thead><tbody>
+            {(["Latest turn", "Total chat"] as const).map((label, i) => {
+              const value = i === 0 ? task.sessionUsage!.latest : task.sessionUsage!.total;
+              return <tr key={label}><th scope="row">{label}</th>
+                <td><Tooltip multiline w={280} label={<TokenBreakdown value={value} />}><span>{value.samples ? `${value.partial ? "≥" : ""}${compactTokens(value.tokens.total_tokens)}` : "—"}</span></Tooltip></td>
+                <td><Tooltip multiline w={280} label={value.costPartial ? "Some usage records or model prices are missing. This is the subtotal for the calls TaskChef can price." : "Estimated from saved calls at standard API prices."}><span>{usageCost(value)}</span></Tooltip></td>
+              </tr>;
+            })}
           </tbody></table>
           <Text size="xs" c="dimmed" mt={8}><sup>1</sup> Estimates use <Anchor size="xs" href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">OpenAI API pricing</Anchor>. Subscription users are not billed this amount.</Text>
           {[task.sessionUsage.latest, task.sessionUsage.total].some(value => value.partial || value.costPartial) && <Text size="xs" c="dimmed" mt={4}><sup>2</sup> Incomplete estimate: some usage records, turn links, or model prices are missing. Only known usage and prices are included.</Text>}
@@ -104,7 +109,7 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
 
 function usageCost(value: SavedUsage) {
   if (!value.samples || (value.costPartial && value.costUsd === 0)) return "—";
-  return `$${value.costUsd.toFixed(2)}`;
+  return `${value.costPartial ? "≥" : ""}$${value.costUsd.toFixed(2)}`;
 }
 
 function ActivityRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {

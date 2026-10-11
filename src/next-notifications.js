@@ -6,13 +6,13 @@ import { acquireWorkspaceLock } from "./workspace.js";
 import { writeDurableAtomic } from "./state-store.js";
 
 const itemSchema = z.object({ id: z.string(), taskId: z.string().nullable(), title: z.string(), detail: z.string(), kind: z.enum(["ready", "interrupted", "confirmation", "error"]), read: z.boolean(), timestamp: z.string() });
-const schema = z.object({ version: z.literal(1), revision: z.number().int().nonnegative(), initialized: z.boolean(), chats: z.record(z.string(), z.object({ turn: z.string().nullable(), status: z.string().nullable(), announced: z.array(z.string()) })), items: z.array(itemSchema) });
-const empty = () => ({ version: 1, revision: 0, initialized: false, chats: {}, items: [] });
+const schema = z.object({ version: z.literal(1), revision: z.number().int().nonnegative(), initialized: z.boolean(), observedAt: z.number().nonnegative().default(0), chats: z.record(z.string(), z.object({ turn: z.string().nullable(), status: z.string().nullable(), announced: z.array(z.string()) })), items: z.array(itemSchema) });
+const empty = () => ({ version: 1, revision: 0, initialized: false, observedAt: 0, chats: {}, items: [] });
 const publicState = (state) => ({ revision: state.revision, items: state.items });
 
 // Each operation locks and rereads the shared file. No process owns a stale copy.
 export class NextNotifications {
-  constructor(path, { now = () => new Date().toISOString() } = {}) { this.path = path; this.now = now; }
+  constructor(path, { now = () => new Date().toISOString(), clock = () => performance.timeOrigin + performance.now() } = {}) { this.path = path; this.now = now; this.clock = clock; }
   async update(operation) {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     const release = await acquireWorkspaceLock(dirname(this.path));
@@ -23,11 +23,13 @@ export class NextNotifications {
         if (error.code !== "ENOENT") throw new Error("TaskChef cannot read notifications.json. Repair the file and refresh.");
         state = empty();
       }
-      const before = JSON.stringify(state);
+      const before = JSON.stringify({ ...state, observedAt: 0 });
+      const beforeObservedAt = state.observedAt;
       await operation(state);
       state.items = state.items.slice(0, 100);
-      if (JSON.stringify(state) !== before) {
-        state.revision += 1;
+      const changed = JSON.stringify({ ...state, observedAt: 0 }) !== before;
+      if (changed) state.revision += 1;
+      if (changed || state.observedAt !== beforeObservedAt) {
         await writeDurableAtomic(this.path, JSON.stringify(state));
       }
       return publicState(state);
@@ -37,11 +39,13 @@ export class NextNotifications {
     state.items.unshift({ id: randomUUID(), taskId, title, detail, kind, read, timestamp: this.now() });
   }
   async reconcile(getSnapshot, settings) {
-    let snapshot;
-    const notifications = await this.update(async (state) => {
-      // Read the scanner while locked so two MCP processes cannot reconcile snapshots out of order.
-      snapshot = await getSnapshot();
-      if (snapshot.healthy === false) return;
+    const observedAt = this.clock();
+    // Network work must not hold the shared lock needed by local user actions.
+    const snapshot = await getSnapshot();
+    const notifications = await this.update((state) => {
+      // A slower earlier request must not replace a newer process’s baseline.
+      if (snapshot.healthy === false || observedAt <= state.observedAt) return;
+      state.observedAt = observedAt;
       const chats = {};
       for (const task of snapshot.tasks) {
         const turn = task.turnId ?? null;
