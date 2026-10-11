@@ -46,9 +46,7 @@ export function AppearancePicker({ value, onChange, visualThemeId = "chatgpt", a
           return <div key={item.id}>
             {index === 1 && <div className="next-theme-group">Codex themes</div>}
             <button role="radio" tabIndex={visualThemeId === item.id ? 0 : -1} aria-checked={visualThemeId === item.id} className="next-appearance-theme" onClick={() => onVisualThemeChange?.(item.id)}>
-              <span className="next-appearance-preview" style={{ background: colors["--taskchef-page"], borderColor: colors["--taskchef-border"] }} aria-hidden="true">
-                {[0, 1, 2].map(value => <i key={value} style={{ background: colors["--taskchef-surface"], borderColor: colors["--taskchef-border"] }} />)}
-              </span><span>{item.label}</span>{visualThemeId === item.id && <IconCheck size={16} aria-hidden="true" />}
+              <span className="next-appearance-preview" style={{ background: colors["--taskchef-surface"], color: colors["--taskchef-link"], borderColor: colors["--taskchef-border-heavy"], fontFamily: colors["--taskchef-font"] }} aria-hidden="true">Aa</span><span>{item.label}</span>{visualThemeId === item.id && <IconCheck size={16} aria-hidden="true" />}
             </button>
           </div>;
         })}

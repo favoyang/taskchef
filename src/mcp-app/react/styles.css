@@ -117,8 +117,7 @@ body { background: var(--taskchef-page); }
 .next-appearance-theme { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; color: inherit; font: inherit; font-size: 13px; cursor: pointer; background: var(--taskchef-page); border: 1px solid var(--taskchef-border); border-radius: 6px; }
 .next-appearance-theme > svg { margin-left: auto; }
 .next-appearance-theme:focus-visible { outline: 2px solid var(--taskchef-focus); outline-offset: 2px; }
-.next-appearance-preview { display: flex; align-items: flex-start; gap: 3px; padding: 5px; width: 42px; height: 28px; border-radius: 3px; background: var(--taskchef-surface-muted); border: 1px solid var(--taskchef-border); }
-.next-appearance-preview i { width: 8px; height: 13px; border-radius: 2px; background: var(--taskchef-page); border: 1px solid var(--taskchef-border); }
+.next-appearance-preview { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; font-weight: 500; line-height: 1; border: 1px solid var(--taskchef-border); }
 
 .taskchef-detail-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 28px; align-items: start; }
 .taskchef-detail-reply, .taskchef-detail-sidebar { min-width: 0; }
