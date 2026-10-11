@@ -77,7 +77,9 @@ async function readSchedules(codexHome) {
 }
 
 // Optional desktop queue. Keep attachment bytes out of board snapshots.
-async function readPromptQueue(codexHome) {
+async function readPromptQueue(codexHome, imageCache) {
+  const activePaths = new Set();
+  const resolvedSources = new Map();
   const prompts = new Map();
   const images = new Map();
   let database;
@@ -93,16 +95,58 @@ async function readPromptQueue(codexHome) {
         if (!Array.isArray(input?.content)) continue;
         const rawText = input.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text).join("\n");
         const text = displayUserPrompt(rawText);
-        const attachments = replyImages(text);
-        const media = attachments.map(image => ({ ...image, source: image.url }));
+        const media = [];
         for (const part of input.content) {
+          if (part.type === "text" && typeof part.text === "string") {
+            media.push(...replyImages(displayUserPrompt(part.text), text).map(image => ({ ...image, source: image.url })));
+            continue;
+          }
           if (part.type !== "image" || typeof part.image_url !== "string") continue;
           const data = part.image_url;
           // Queue images are already embedded by Codex. Never fetch remote media.
-          if (data.length > 6 * 1024 * 1024 || !/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) continue;
+          if (data.length > 8 * 1024 * 1024 + 64 || !/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) continue;
+          if (!resolvedSources.has(data)) {
+            const bytes = Buffer.from(data.slice(data.indexOf(",") + 1), "base64");
+            if (bytes.length > 6 * 1024 * 1024) continue;
+            resolvedSources.set(data, { source: data, identity: createHash("sha256").update(bytes).digest("hex") });
+          }
           media.push({ alt: `Queued image ${media.length + 1}`, source: data });
         }
-        const promptImages = media.map((image, index) => {
+        // Codex can supply the same attachment as a local reference and embedded
+        // bytes. Compare validated image bytes, preserving first occurrence order.
+        const uniqueMedia = [];
+        const seenMedia = new Set();
+        for (const image of media) {
+          let resolved = resolvedSources.get(image.source);
+          if (!resolved) {
+            let source = image.source;
+            let fingerprint;
+            if (!source.startsWith("data:")) {
+              activePaths.add(source);
+              try {
+                const info = await stat(source).catch(error => {
+                  if (error.code !== "ENOENT") throw error;
+                  return stat(decodeURIComponent(source));
+                });
+                fingerprint = JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs]);
+                const cached = imageCache.get(source);
+                if (cached?.fingerprint === fingerprint) resolved = cached;
+                else source = await localReplyImage(source, { maxBytes: 6 * 1024 * 1024 }) ?? source;
+              } catch { imageCache.delete(source); /* Retry unavailable local images on a later scan. */ }
+            }
+            if (!resolved) {
+              const identity = createHash("sha256").update(source.startsWith("data:") ? Buffer.from(source.slice(source.indexOf(",") + 1), "base64") : source).digest("hex");
+              resolved = { source, identity };
+              if (fingerprint && source.startsWith("data:")) imageCache.set(image.source, { ...resolved, fingerprint });
+            }
+            resolvedSources.set(image.source, resolved);
+          }
+          const { source, identity } = resolved;
+          if (seenMedia.has(identity)) continue;
+          seenMedia.add(identity);
+          uniqueMedia.push({ ...image, source });
+        }
+        const promptImages = uniqueMedia.map((image, index) => {
           const url = `taskchef-queue:${row.id}:${index}:${createHash("sha256").update(image.source).digest("hex").slice(0, 16)}`;
           images.set(`${row.thread_id}:${url}`, image.source);
           return { url, alt: image.alt };
@@ -113,7 +157,10 @@ async function readPromptQueue(codexHome) {
       } catch { errors += 1; }
     }
   } catch (error) { if (error.code !== "ENOENT") errors += 1; }
-  finally { database?.close(); }
+  finally {
+    database?.close();
+    for (const path of imageCache.keys()) if (!activePaths.has(path)) imageCache.delete(path);
+  }
   return { prompts, images, errors };
 }
 
@@ -486,7 +533,7 @@ export class CodexSessionScanner {
       const doneMarks = await this.doneMarks(force);
       const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
       const database = buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit);
-      const queue = await readPromptQueue(this.codexHome);
+      const queue = await readPromptQueue(this.codexHome, this.queueImageCache ??= new Map());
       this.queuedImages = queue.images;
       for (const task of database.tasks) task.queuedPrompts = queue.prompts.get(task.id) ?? [];
       database.scan.queueErrors = queue.errors;
@@ -696,5 +743,6 @@ export class CodexSessionScanner {
     this.databaseCache = null;
     this.doneCache = null;
     this.queuedImages = null;
+    this.queueImageCache?.clear();
   }
 }

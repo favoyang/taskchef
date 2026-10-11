@@ -4,7 +4,17 @@ import { open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 
 // Parse actual Markdown image nodes, excluding code examples and raw HTML.
-export function replyImages(text) {
+// Multipart queued prompts can define image references in another text part.
+export function replyImages(text, referenceText = text) {
+  if (referenceText !== text) {
+    const definitions = [];
+    const collectDefinitions = node => {
+      if (node.type === 'definition') definitions.push(referenceText.slice(node.position.start.offset, node.position.end.offset));
+      for (const child of node.children ?? []) collectDefinitions(child);
+    };
+    collectDefinitions(fromMarkdown(referenceText));
+    text += `\n\n${definitions.join('\n')}`;
+  }
   const tree = fromMarkdown(text);
   const definitions = new Map();
   const collect = (node) => { if (node.type === 'definition') definitions.set(node.identifier, node.url); for (const child of node.children ?? []) collect(child); };
@@ -23,7 +33,7 @@ export function replyImage(text) { return replyImages(text)[0] ?? null; }
 
 // Read only the image referenced by the selected reply. Never accept a path
 // supplied independently by the UI, fetch URLs, or serve active SVG content.
-export async function localReplyImage(path) {
+export async function localReplyImage(path, { maxBytes = 4 * 1024 * 1024 } = {}) {
   if (!isAbsolute(path) || path.startsWith('//')) return null;
   let file;
   try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); } catch (error) {
@@ -35,7 +45,7 @@ export async function localReplyImage(path) {
   }
   try {
     const info = await file.stat();
-    const limit = 4 * 1024 * 1024;
+    const limit = maxBytes;
     if (!info.isFile() || info.size > limit) return null;
     const bytes = Buffer.alloc(limit + 1);
     let length = 0;

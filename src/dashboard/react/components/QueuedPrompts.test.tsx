@@ -10,6 +10,7 @@ test('queue preserves execution order and removes started prompts on refresh',()
  const {rerender}=render(<MantineProvider><QueuedPrompts task={task} compact /></MantineProvider>);
  expect(screen.getByText('2 queued')).toBeVisible();
  expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('First follow-up');
+ for (const item of screen.getAllByRole('listitem')) expect(item.firstElementChild).toHaveClass('taskchef-queue-icon');
  rerender(<MantineProvider><QueuedPrompts task={{...task,queuedPrompts:prompts.slice(1)}} compact /></MantineProvider>);
  expect(screen.getByText('1 queued')).toBeVisible(); expect(screen.queryByText('First follow-up')).toBeNull();
  rerender(<MantineProvider><QueuedPrompts task={{...task,queuedPrompts:[]}} compact /></MantineProvider>);
@@ -22,6 +23,7 @@ test('Details provides expansion and clickable queued image thumbnails', async()
  const task={...fixtureTask(),queuedPrompts:[{...prompts[1],images:[{url:'taskchef-queue:second:0',alt:'Queued screenshot'}]}]};
  render(<MantineProvider><QueuedPrompts task={task} loadImage={load}/></MantineProvider>);
  expect(screen.getByText('Queued prompts (1)')).toBeVisible();
+ expect(screen.getByRole('listitem').firstElementChild).toHaveClass('taskchef-queue-icon');
  fireEvent.click(screen.getByRole('button',{name:'Show more…'}));
  expect(screen.getByRole('button',{name:'Show less'})).toHaveAttribute('aria-expanded','true');
  const thumbnail=await screen.findByRole('button',{name:'Enlarge Queued screenshot'});
