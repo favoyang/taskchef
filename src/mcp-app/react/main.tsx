@@ -444,7 +444,7 @@ export function TaskChefApp() {
         <Text size="sm">Open this chat in Codex. Use the top-right … menu and choose Archive.</Text>
         <Button mt="md" disabled={busy} onClick={() => { if (archiveHelp) void openChat(archiveHelp); }}>Open chat</Button>
       </Modal>
-      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} usageLoading={detailLoading} error={detailError} onClose={closeDetail} onOpenCodex={() => selected && void openChat(selected)} opened={opened} task={selected} />
+      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button variant="default" size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} usageLoading={detailLoading} error={detailError} onClose={closeDetail} onOpenCodex={() => selected && void openChat(selected)} opened={opened} task={selected} />
     </RelativeTimeProvider>
   </MantineProvider>;
 }

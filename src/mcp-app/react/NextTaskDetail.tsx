@@ -44,7 +44,7 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
       <Group gap="xs" mt={0} className="taskchef-detail-meta">
         <Tooltip label={task.project?.path || "No project"}><Text size="sm" c="dimmed" className="taskchef-detail-project"><IconFolder size={14} /><span>{task.project?.name || "No project"}</span></Text></Tooltip>
         {label && <Badge variant="light" color="gray">{label}</Badge>}
-        {task.status === "interrupted" && <Badge variant="light" color="yellow">Interrupted</Badge>}
+        {task.status === "interrupted" && <Badge variant="light" color="orange">Interrupted</Badge>}
       </Group>
       <Group gap="xs" wrap="nowrap" className="taskchef-detail-actions">
         {extraActions}
