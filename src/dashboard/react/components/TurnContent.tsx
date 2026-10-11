@@ -34,6 +34,6 @@ export function TurnContent({ task, compact = false }: { task: Task; compact?: b
       {task.inputSource === "scheduled" && <IconClock className="taskchef-schedule-clock taskchef-prompt-clock" size={14} stroke={1.5} aria-label="Scheduled prompt" />}
       <CollapsedMarkdown key={`prompt:${task.id}:${task.turnId}`} text={prompt} />
     </div>}
-    {reply && <div className="taskchef-turn-response" aria-label="Latest turn response"><CollapsedMarkdown key={`reply:${task.id}:${task.turnId}`} text={reply} /></div>}
+    {reply && <div className="taskchef-turn-response" aria-label="Latest turn response"><ReplyMarkdown text={reply} /></div>}
   </div>;
 }
