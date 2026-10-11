@@ -121,3 +121,16 @@ test("missing turn records show plain placeholders without an explanation", () =
  expect(screen.getByText("Turn usage: — • —")).toBeVisible();
  expect(screen.queryByText(/Some usage records/)).toBeNull();
 });
+
+test("earlier-turn PR is labeled in the popup and latest-turn PRs take priority", () => {
+  const earlier={...pr,state:"merged" as const};
+  const view=render(<MantineProvider><CardStatusLine earlierPullRequest={earlier}><span>1h</span></CardStatusLine></MantineProvider>);
+  expect(screen.getByLabelText("#12 Improve search: Merged")).toBeInTheDocument();
+  fireEvent.mouseEnter(screen.getByLabelText("Turn status details"));
+  expect(screen.getByText("Earlier turn PR")).toBeInTheDocument();
+  expect(screen.getByRole("link",{name:"#12 Improve search",hidden:true})).toHaveAttribute("href",url);
+  view.rerender(<MantineProvider><CardStatusLine earlierPullRequest={earlier} pullRequests={[{...pr,url:"https://github.com/example/repo/pull/13",title:"Current change"}]}><span>1h</span></CardStatusLine></MantineProvider>);
+  expect(screen.queryByText("Earlier turn PR")).toBeNull();
+  expect(screen.queryByRole("link",{name:"#12 Improve search",hidden:true})).toBeNull();
+  expect(screen.getByRole("link",{name:"#13 Current change",hidden:true})).toBeInTheDocument();
+});

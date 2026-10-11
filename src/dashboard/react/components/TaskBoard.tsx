@@ -238,7 +238,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
         {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
       </Text>
       <Box className="taskchef-board-card-footer">
-        <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={showCardUsage ? task.turnUsage : undefined} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
+        <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={showCardUsage ? task.turnUsage : undefined} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} earlierPullRequest={task.earlierPullRequest} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
         {task.observed && task.status === "working"
           ? <ElapsedTime tooltipEnabled={false} startedAt={task.observed.lastTurnEventAt} />
           : <RelativeTime tooltipEnabled={false} calendar={!!task.observed} icon={task.observed ? false : undefined} label="Updated time" value={task.meaningfulUpdatedAt ?? task.updatedAt} durationMs={task.observed ? task.observed.latestTurnDurationMs ?? null : undefined} />}

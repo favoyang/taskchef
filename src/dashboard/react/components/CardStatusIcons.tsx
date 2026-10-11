@@ -36,18 +36,21 @@ export function PullRequestIcons({ pullRequests = [] }: { pullRequests?: PullReq
   })}</Box>;
 }
 
-export function CardStatusLine({ children, pullRequests = [], scheduled, nextRunAt, durationMs, startedAt, subagentCount, turnUsage, turnId, animateUsage }: {
+export function CardStatusLine({ children, pullRequests = [], earlierPullRequest, scheduled, nextRunAt, durationMs, startedAt, subagentCount, turnUsage, turnId, animateUsage }: {
   subagentCount?: number;
   turnUsage?: SavedUsage;
   turnId?: string | null;
   animateUsage?: boolean;
   children: ReactNode;
   pullRequests?: PullRequestStatus[];
+  earlierPullRequest?: PullRequestStatus;
   scheduled?: boolean;
   nextRunAt?: string | null;
   durationMs?: number | null;
   startedAt?: string | null;
 }) {
+  const showEarlierPr = !pullRequests.length && !!earlierPullRequest;
+  const displayedPrs = showEarlierPr ? [earlierPullRequest!] : pullRequests;
   const descriptionId = useId();
   const [opened, setOpened] = useState(false);
   const [now, setNow] = useState(Date.now);
@@ -63,7 +66,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
   const duration = formatWorkedDuration(running ? Math.max(0, now - start) : durationMs);
   const hasNextRun = scheduled && !!nextRunAt && Number.isFinite(Date.parse(nextRunAt));
   const hasUsage = !!turnUsage && (!!turnUsage.samples || turnUsage.partial || turnUsage.costPartial);
-  const hasInfo = hasUsage || duration !== "—" || pullRequests.length > 0 || hasNextRun;
+  const hasInfo = hasUsage || duration !== "—" || displayedPrs.length > 0 || hasNextRun;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const target = useRef<HTMLDivElement>(null);
   const popup = useRef<HTMLDivElement>(null);
@@ -78,7 +81,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
   useEffect(() => { if (!hasInfo) setOpened(false); }, [hasInfo]);
   return <Popover opened={opened && hasInfo} onChange={setOpened} position="top" withArrow withinPortal width={300} zIndex={400}>
     <Popover.Target>
-      <Box ref={target} className="taskchef-card-stats" tabIndex={hasInfo ? 0 : undefined} aria-label="Turn status details" aria-describedby={pullRequests.length ? descriptionId : undefined}
+      <Box ref={target} className="taskchef-card-stats" tabIndex={hasInfo ? 0 : undefined} aria-label="Turn status details" aria-describedby={displayedPrs.length ? descriptionId : undefined}
         onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={leave} onClick={show}
         onKeyDown={event => {
           if (event.key === "Escape") { setOpened(false); event.stopPropagation(); }
@@ -90,8 +93,8 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
         {children}
         {hasUsage && <span className="taskchef-card-turn-usage">{turnUsageLabel(animatedUsage!)}</span>}
         {scheduled && <span className="taskchef-card-status-icon" aria-label="Active schedule"><IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} aria-hidden /></span>}
-        <PullRequestIcons pullRequests={pullRequests} />
-        {pullRequests.length > 0 && <VisuallyHidden id={descriptionId}>{pullRequests.map(pr => `${prTitle(pr)}: ${pr.state === "merged" ? "Merged" : pr.state === "closed" ? "Closed, not merged" : pr.state === "draft" ? "Draft" : pr.state === "unknown" ? "PR status not checked or unavailable" : pr.hasMergeConflicts ? "Open, merge conflicts" : "Open"}`).join(". ")}</VisuallyHidden>}
+        <PullRequestIcons pullRequests={displayedPrs} />
+        {displayedPrs.length > 0 && <VisuallyHidden id={descriptionId}>{showEarlierPr ? "Earlier turn PR. " : ""}{displayedPrs.map(pr => `${prTitle(pr)}: ${pr.state === "merged" ? "Merged" : pr.state === "closed" ? "Closed, not merged" : pr.state === "draft" ? "Draft" : pr.state === "unknown" ? "PR status not checked or unavailable" : pr.hasMergeConflicts ? "Open, merge conflicts" : "Open"}`).join(". ")}</VisuallyHidden>}
       </Box>
     </Popover.Target>
     <Popover.Dropdown className="taskchef-status-tooltip" p={9} ref={popup} onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={leave}
@@ -99,7 +102,8 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
       <Stack gap={5}>
         {duration !== "—" && <StatusRow icon={<IconHourglass size={15} stroke={1.5} />}>Worked for {duration}</StatusRow>}
         {hasUsage && <StatusRow icon={<IconChartBar size={15} stroke={1.5} />}>Turn usage: {turnUsageLabel(animatedUsage!)}</StatusRow>}
-        {pullRequests.map(pr => <PullRequestInfo key={pr.url} pr={pr} showChecks={false} />)}
+        {showEarlierPr && <Text size="xs" c="dimmed">Earlier turn PR</Text>}
+        {displayedPrs.map(pr => <PullRequestInfo key={pr.url} pr={pr} showChecks={false} />)}
         {hasNextRun && <StatusRow icon={<IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} />}>{nextRunLabel(nextRunAt)}</StatusRow>}
       </Stack>
     </Popover.Dropdown>

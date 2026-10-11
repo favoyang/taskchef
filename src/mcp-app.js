@@ -68,7 +68,14 @@ export function registerTaskChefApp(server, {
   const turnUsageCache = new Map();
   const usagePending = new Map();
   async function boardSnapshot(settings, force = false, scope = { date: "all", taskIds: [] }) {
-    const result = await github.enrich(await scanner.refresh({ force }), settings, { force, scope });
+    const snapshot = await scanner.refresh({ force });
+    const visibleIds = new Set(scope.taskIds ?? []);
+    const displayTasks = snapshot.tasks.map(task => {
+      if (!visibleIds.has(task.id) || task.pullRequests?.length || !scanner.earlierPullRequest) return task;
+      const earlierPullRequest = scanner.earlierPullRequest(task.id);
+      return earlierPullRequest ? { ...task, earlierPullRequest } : task;
+    });
+    const result = await github.enrich({ ...snapshot, tasks: displayTasks }, settings, { force, scope });
     githubAuth = result.auth;
     const visible = new Set(scope.taskIds ?? []);
     const tasks = [];
@@ -88,7 +95,7 @@ export function registerTaskChefApp(server, {
     const present = new Set(tasks.map(task => task.id));
     for (const id of turnUsageCache.keys()) if (!present.has(id)) turnUsageCache.delete(id);
     result.snapshot = { ...result.snapshot, tasks };
-    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests, task.turnUsage])]);
+    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests, task.earlierPullRequest, task.turnUsage])]);
     if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
     return { ...result.snapshot, revision: boardRevision };
   }

@@ -704,7 +704,14 @@ test("Details orders owned history PRs by latest occurrence without changing boa
   assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests.map(pr => pr.url), [urls[1], urls[0]]);
   for (let n = 101; n <= 1101; n++) insert.run(id, `recent-${n}`, JSON.stringify({ type: 'agentMessage', text: 'No PR' }), n);
   await scanner.refresh();
-  assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests, []);
+  assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests.map(pr => pr.url), [urls[1], urls[0]]);
+  for (let n = 3; n <= 30; n++) {
+    const url = `https://github.com/example/repo/pull/${n}`;
+    if (n > 3) state.prepare("INSERT INTO thread_attachments VALUES (?, 'pull_request', ?)").run(id, JSON.stringify({url}));
+    insert.run(id, `pr-${n}`, JSON.stringify({type:'agentMessage',text:url}), 1200+n);
+  }
+  await scanner.refresh();
+  assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests.map(pr => pr.url), Array.from({length:30},(_,i)=>`https://github.com/example/repo/pull/${30-i}`));
 });
 
 
@@ -756,4 +763,44 @@ test("web usage ignores malformed unrelated board history and rejects a malforme
   state.prepare("UPDATE threads SET history_mode='paginated',rollout_path='bad.jsonl' WHERE id=?").run(id);
   await assert.rejects(scanner.recordedUsage(id,'native'),/invalid selected rollout filename/);
   assert.equal(reads,1);
+});
+
+test("card fallback finds the newest owned PR in an earlier turn and refreshes after history changes", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const {home,state,history}=setup;
+  const now=Date.now();
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?,?,?,0,?,?,?)").run(id,"Follow-up","/project",now,now,now);
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  const urls=["https://github.com/example/repo/pull/11","https://github.com/example/repo/pull/12"];
+  for(const url of urls) state.prepare("INSERT INTO thread_attachments VALUES (?,'pull_request',?)").run(id,JSON.stringify({url}));
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,final_agent_item_id) VALUES (?,3,'completed','latest','final')").run(id);
+  const insert=history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json,item_type,rollout_ordinal) VALUES (?,?,?,?,?,?)");
+  const reply=(thread,turn,item,text,ordinal)=>insert.run(thread,turn,item,JSON.stringify({type:"agentMessage",text}),"agentMessage",ordinal);
+  reply(id,"old","one",urls[0],1);
+  reply(id,"old","two",urls[1],2);
+  reply(id,"middle","incidental","https://github.com/other/repo/pull/999",3);
+  reply(id,"latest","intermediate",urls[0],4);
+  reply(id,"latest","final","Please review this follow-up.",5);
+  reply("another-rollout","old","wrong",urls[0],100);
+  insert.run(id,"old","corrupt","malformed JSON","agentMessage",10);
+  insert.run(id,"old","null-json","null","agentMessage",11);
+  const scanner=new CodexSessionScanner({codexHome:home});t.after(()=>scanner.close());
+  const task=(await scanner.refresh()).tasks[0];
+  assert.deepEqual(task.pullRequests,[]);
+  assert.equal(task.status,"needs_input");
+  const fallback=scanner.earlierPullRequest(id);
+  assert.equal(fallback.url,urls[1]);
+  assert.strictEqual(scanner.earlierPullRequest(id),fallback);
+  assert.equal(scanner.snapshot().healthy,true);
+  assert.deepEqual((await scanner.taskDetail(id)).detailPullRequests.map(pr=>pr.url),[urls[0],urls[1]]);
+  // A newer mention in an earlier turn changes the display even if the current turn is unchanged.
+  reply(id,"middle","new",urls[0],6);
+  await scanner.refresh();
+  assert.equal(scanner.earlierPullRequest(id).url,urls[0]);
+  history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='final'").run(JSON.stringify({type:"agentMessage",text:urls[1]}));
+  assert.equal((await scanner.refresh()).tasks[0].pullRequests[0].url,urls[1]);
+  assert.equal(scanner.earlierPullRequest(id),null);
+  state.exec("DELETE FROM thread_attachments");
+  await scanner.refresh();
+  assert.equal(scanner.earlierPullRequest(id),null);
 });

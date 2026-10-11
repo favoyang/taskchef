@@ -200,3 +200,7 @@ TaskChef does not request Contents access. A CI error keeps the independently
 returned PR state. Empty legacy status lists do not count as pending CI.
 If more than 100 latest check runs are returned, TaskChef keeps CI unknown
 instead of claiming success from an incomplete page.
+
+### Earlier-turn PR on cards
+
+Card placement uses only the latest turn’s owned PRs. When that turn has no PR, a visible card can display the most recently mentioned owned PR from an earlier turn in the selected rollout. The status popup labels it **Earlier turn PR**. This display fallback never moves a chat to Done or restricts manual Done. History lookup is lazy and cached until the database records change; GitHub status uses the existing scoped cache. Details retains its full PR list.

@@ -418,6 +418,36 @@ export class CodexSessionScanner {
     return { healthy: this.stats?.mode !== "error", revision: this.revision, tasks: [...this.tasks.values()], projects: this.projects, scan: this.stats };
   }
   task(id) { return this.tasks.get(id); }
+  earlierPullRequest(id) {
+    const task = this.task(id);
+    if (!task || task.pullRequests?.length || !this.databaseCache?.records) return null;
+    const records = this.databaseCache.records;
+    const cache = records.earlierPullRequests ??= new Map();
+    if (cache.has(id)) return cache.get(id);
+    const row = records.rows.find(row => row.id === id);
+    const owned = new Set((records.attachments.get(id) ?? []).map(url => url.replace(/\/$/, "")));
+    let pr = null;
+    if (row && owned.size) {
+      // Read only this selected rollout, newest first, and stop at the first owned PR.
+      const items = this.connections.history.prepare(`SELECT item_json FROM thread_items
+        WHERE thread_id = ? AND turn_id != ? AND item_type IN ('userMessage', 'agentMessage', 'mcpToolCall')
+        ORDER BY rollout_ordinal DESC`).iterate(historyId(row), task.turnId);
+      for (const record of items) {
+        let item;
+        try { item = JSON.parse(record.item_json); } catch { continue; }
+        if (!item || typeof item !== "object") continue;
+        const text = item.type === "agentMessage" ? item.text
+          : item.type === "userMessage" ? (item.content ?? []).filter(part => part.type === "text").map(part => part.text).join("\n")
+            : item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError && item.arguments?.artifact_type === "pull_request" ? item.arguments.url : "";
+        if (typeof text !== "string") continue;
+        const url = [...text.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].reverse()
+          .map(match => match[0].replace(/\/$/, "")).find(url => owned.has(url));
+        if (url) { pr = { url, state: "unknown", checks: "unknown" }; break; }
+      }
+    }
+    cache.set(id, pr);
+    return pr;
+  }
   async taskImage(id, expectedTurnId, expectedUrl) {
     const snapshot = await this.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
@@ -463,11 +493,13 @@ export class CodexSessionScanner {
     let detailPullRequests = cachedDetails.get(id);
     if (!detailPullRequests) {
       const urls = new Set();
-      const items = this.connections.history.prepare(`SELECT item_json FROM thread_items
+      const items = owned.size ? this.connections.history.prepare(`SELECT item_json FROM thread_items
         WHERE thread_id = ? AND item_type IN ('userMessage', 'agentMessage', 'mcpToolCall')
-        ORDER BY rollout_ordinal DESC LIMIT 1000`).all(historyId(row));
+        ORDER BY rollout_ordinal DESC`).iterate(historyId(row)) : [];
       for (const record of items) {
-        const item = JSON.parse(record.item_json);
+        let item;
+        try { item = JSON.parse(record.item_json); } catch { continue; }
+        if (!item || typeof item !== "object") continue;
         const text = item.type === "agentMessage" ? item.text
           : item.type === "userMessage" ? (item.content ?? []).filter(part => part.type === "text").map(part => part.text).join("\n")
             : item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError && item.arguments?.artifact_type === "pull_request" ? item.arguments.url : "";
@@ -475,9 +507,8 @@ export class CodexSessionScanner {
         for (const match of [...text.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].reverse()) {
           const url = match[0].replace(/\/$/, "");
           if (owned.has(url)) urls.add(url);
-          if (urls.size === 25) break;
         }
-        if (urls.size === 25) break;
+        if (urls.size === owned.size) break;
       }
       detailPullRequests = [...urls].map(url => ({ url, state: "unknown", checks: "unknown" }));
       cachedDetails.set(id, detailPullRequests);

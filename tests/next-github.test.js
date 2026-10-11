@@ -428,3 +428,18 @@ test("reopening historical details retains disk-cached PR results across turns a
   await c.github.enrich(nextTurn, settings, { detail: true, force: true });
   assert.equal(c.requests.length, 2);
 });
+
+test("earlier PR status is fetched for display without completing a latest turn with no PR", async t => {
+  const {github,requests}=await setup(t,[response(true,"MERGED")],signedIn);
+  const earlier={url,state:"unknown",checks:"unknown"};
+  const input=task({pullRequests:[],earlierPullRequest:earlier});
+  const result=await github.enrich({healthy:true,tasks:[input]},settings,{scope:{taskIds:[input.id]}});
+  assert.equal(requests.length,1);
+  assert.equal(result.snapshot.tasks[0].earlierPullRequest.state,"merged");
+  assert.deepEqual(result.snapshot.tasks[0].pullRequests,[]);
+  assert.equal(result.snapshot.tasks[0].status,"needs_input");
+  const routine=await github.enrich({healthy:true,tasks:[{...input,scheduled:true,inputSource:"scheduled"}]},settings,{scope:{taskIds:[]}});
+  assert.equal(routine.snapshot.tasks[0].status,"scheduled");
+  assert.equal(routine.snapshot.tasks[0].earlierPullRequest.state,"merged");
+  assert.deepEqual(input.earlierPullRequest,earlier);
+});

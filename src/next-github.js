@@ -7,6 +7,7 @@ import { writeDurableAtomic } from "./state-store.js";
 
 const DEVICE_URL = "https://github.com/login/device";
 const CACHE_MS = 60_000;
+const displayPullRequests = task => task.pullRequests?.length ? task.pullRequests : task.earlierPullRequest ? [task.earlierPullRequest] : [];
 export function pullRequestIdentity(url) {
   const match = /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)\/?$/.exec(url);
   if (!match || !Number.isSafeInteger(Number(match[3]))) return null;
@@ -186,8 +187,8 @@ export class NextGitHub {
     const clientId = settings.githubClientId;
     const requestedIds = scope.taskIds === undefined ? null : new Set(scope.taskIds);
     const scopedTasks = filterTasks(snapshot.tasks, { date: scope.date ?? "all", now: this.now() }).filter((task) => (!requestedIds || requestedIds.has(task.id)) && (!scope.project || (task.project?.id || task.project?.path || task.project?.name) === scope.project) && (detail || !task.observed.archive && (settings.showCli || task.observed.source !== "cli") && (settings.showExec || task.observed.source !== "exec")));
-    const urls = [...new Set(scopedTasks.flatMap(task => (task.pullRequests ?? []).map(pr => pr.url)))];
-    const turnsFor = url => Object.fromEntries(scopedTasks.filter(task => task.pullRequests?.some(pr => pr.url === url)).map(task => [task.id, JSON.stringify([task.turnId ?? task.turnRef, task.observed.lastTurnEvent])]));
+    const urls = [...new Set(scopedTasks.flatMap(task => displayPullRequests(task).map(pr => pr.url)))];
+    const turnsFor = url => Object.fromEntries(scopedTasks.filter(task => displayPullRequests(task).some(pr => pr.url === url)).map(task => [task.id, JSON.stringify([task.turnId ?? task.turnRef, task.observed.lastTurnEvent])]));
     let auth = { configured: Boolean(clientId), connected: false, login: null };
     if (clientId) {
       try {
@@ -251,6 +252,7 @@ export class NextGitHub {
     } else this.cache.clear();
     const tasks = snapshot.tasks.map((task) => {
       const pullRequests = (task.pullRequests ?? []).map((pr) => this.cache.get(pr.url)?.pr ?? { ...pr, state: "unknown", checks: "unknown", error: pullRequestIdentity(pr.url) ? auth.connected ? "Waiting for the next GitHub check." : "Connect GitHub to read PR status." : "This GitHub host or PR URL is not supported." });
+      if (task.earlierPullRequest) task = { ...task, earlierPullRequest: this.cache.get(task.earlierPullRequest.url)?.pr ?? { ...task.earlierPullRequest, state: "unknown", checks: "unknown" } };
       if (detail || task.observed.lastTurnEvent !== "completed" || task.observed.archive || task.manualDone) return { ...task, pullRequests };
       // A routine completion returns to its schedule regardless of GitHub access or PR state.
       if (task.scheduled && (task.inputSource === "scheduled" || task.manualScheduled)) return {

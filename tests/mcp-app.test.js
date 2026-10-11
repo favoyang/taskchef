@@ -190,3 +190,30 @@ test("board usage is scoped to visible cards, revises with usage, and clears on 
   const newTurn=await read({revision:changed.snapshot.revision});
   assert.equal(newTurn.snapshot.tasks[0].turnUsage,undefined);
 });
+
+test("board looks up earlier PRs only for visible cards and tracks display-only changes", async t => {
+  const temp=await mkdtemp(join(tmpdir(),"taskchef-earlier-pr-"));t.after(()=>rm(temp,{recursive:true,force:true}));
+  const task={id:"01a00000-0000-7000-8000-000000000001",title:"Follow-up",status:"needs_input",turnId:"latest",project:{name:"Test",path:"/test"},pullRequests:[]};
+  let earlier={url:"https://github.com/example/repo/pull/1",state:"unknown",checks:"unknown"};
+  const reads=[];
+  const scanner={task:id=>id===task.id?task:null,refresh:async()=>({healthy:true,revision:1,tasks:[task],scan:{}}),earlierPullRequest:id=>{reads.push(id);return earlier;},close(){}};
+  const github={enrich:async snapshot=>({snapshot,auth:{connected:false}}),auth:async()=>({connected:false})};
+  const server=new McpServer({name:"earlier-test",version:"1"});
+  registerTaskChefApp(server,{createScanner:()=>scanner,createGitHub:()=>github,settingsPath:join(temp,"settings.json"),getSettingsUrl:async()=>null});
+  const client=new Client({name:"earlier-client",version:"1"});const [ct,st]=InMemoryTransport.createLinkedPair();await server.connect(st);await client.connect(ct);
+  t.after(async()=>{await client.close();await server.close();});
+  const read=async args=>(await client.callTool({name:"taskchef_app_snapshot",arguments:args})).structuredContent;
+  await read({});assert.deepEqual(reads,[]);
+  const first=await read({visibleTaskIds:[task.id]});
+  assert.equal(first.snapshot.tasks[0].earlierPullRequest.url,earlier.url);
+  assert.deepEqual(first.snapshot.tasks[0].pullRequests,[]);
+  assert.equal(first.snapshot.tasks[0].status,"needs_input");
+  assert.equal((await read({visibleTaskIds:[task.id],revision:first.snapshot.revision})).unchanged,true);
+  earlier={...earlier,url:"https://github.com/example/repo/pull/2"};
+  const changed=await read({visibleTaskIds:[task.id],revision:first.snapshot.revision});
+  assert.equal(changed.snapshot.tasks[0].earlierPullRequest.url,earlier.url);
+  task.pullRequests=[earlier];
+  const count=reads.length;
+  assert.equal((await read({visibleTaskIds:[task.id]})).snapshot.tasks[0].earlierPullRequest,undefined);
+  assert.equal(reads.length,count);
+});

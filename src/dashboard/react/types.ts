@@ -122,6 +122,7 @@ export interface Task {
   observed?: { unread?: boolean; source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; latestTurnDurationMs?: number | null; recordedChatDurationMs?: number | null; missingTurnDurations?: number; historicalTimePartial?: boolean; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
   pullRequests?: PullRequestStatus[];
   detailPullRequests?: PullRequestStatus[];
+  earlierPullRequest?: PullRequestStatus;
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;
