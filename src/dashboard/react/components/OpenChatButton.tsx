@@ -15,7 +15,8 @@ export function OpenChatButton({
       aria-label={`Open chat for ${taskTitle}`}
       className="taskchef-open-chat"
       leftSection={<IconArrowUpRight aria-hidden size={15} stroke={1.6} />}
-      loading={loading}
+      disabled={loading}
+      aria-busy={loading || undefined}
       onClick={onClick}
       size="compact-sm"
       variant="default"
