@@ -17,3 +17,11 @@ test("details use full text, and only actual scheduled input has a clock", () =>
   rerender(<TurnContent task={{...task,inputSource:'scheduled'}} />);
   expect(screen.getByLabelText('Scheduled prompt')).toBeVisible();
 });
+
+test("cards show only the prompt while running and only the response otherwise", () => {
+ const task={...fixtureTask(),status:"working" as const,promptExcerpt:"Current request",replyExcerpt:"Current response"};
+ const {rerender}=render(<TurnContent task={task} compact />);
+ expect(screen.getByText('Current request')).toBeVisible();expect(screen.queryByText('Current response')).toBeNull();
+ rerender(<TurnContent task={{...task,status:'needs_input'}} compact />);
+ expect(screen.queryByText('Current request')).toBeNull();expect(screen.getByText('Current response')).toBeVisible();
+});

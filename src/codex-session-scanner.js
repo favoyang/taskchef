@@ -1,3 +1,4 @@
+import { displayUserPrompt } from "./user-prompt.js";
 import { CodexProjects } from "./codex-projects.js";
 import { CodexSessionUsage } from "./codex-session-usage.js";
 import { CodexPricing } from "./codex-pricing.js";
@@ -170,7 +171,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
           const item = JSON.parse(raw);
           const text = inputText = (item.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
           const marker = /^\s*<heartbeat>\s*<automation_id>([^<]+)<\/automation_id>/.exec(text);
-          const inputSchedule = marker && !item.clientId && chatSchedules.find((schedule) => schedule.id === marker[1].trim());
+          const inputSchedule = marker && !item.clientId;
           if (inputSchedule) { inputSource = "scheduled"; }
           else if (!marker && item.clientId) inputSource = "ordinary";
         }
@@ -183,7 +184,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         replyText = /<message>([\s\S]*?)<\/message>/.exec(replyText)?.[1].trim() || "";
       }
       const promptText = inputSource === "scheduled"
-        ? (/<instructions>([\s\S]*?)<\/instructions>/.exec(inputText)?.[1].trim() || "") : inputText.trim();
+        ? (/<instructions>([\s\S]*?)<\/instructions>/.exec(inputText)?.[1].trim() || "") : displayUserPrompt(inputText);
       const promptExcerpt = promptText.slice(0, 2000) || null;
       const replyExcerpt = replyText.slice(0, 2000) || null;
       content.set(row.id, { promptText: promptText || null, replyText: replyText || null });

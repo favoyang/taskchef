@@ -193,7 +193,7 @@ export function registerTaskChefApp(server, {
     return { structuredContent: { snapshot, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
-    title: "Read Codex chat metadata", description: "Read one local chat's metadata without returning transcript text.",
+    title: "Read Codex chat metadata", description: "Read one local chat's metadata and its latest recorded request and response.",
     inputSchema: { taskId: taskIdSchema, refreshGithub: z.boolean().optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId, refreshGithub }) => {

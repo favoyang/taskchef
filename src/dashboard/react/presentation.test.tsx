@@ -25,7 +25,7 @@ afterEach(cleanup);
 
 test("Next cards show saved replies and keep diagnostics off the card", () => {
   const parent = fixtureTask({
-    updatedBy: "Local Codex database", replyExcerpt: "**CI passed.** The PR is ready for review.",
+    status: "needs_input", updatedBy: "Local Codex database", replyExcerpt: "**CI passed.** The PR is ready for review.",
     summary: "Latest turn ended. Chat remains open for input or review.",
     observed: { archive: false, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false, directChildCount: 133 },
   });
@@ -40,6 +40,16 @@ test("Next cards show saved replies and keep diagnostics off the card", () => {
   expect(screen.queryByText("No reply text to show for this turn.")).not.toBeInTheDocument();
   expect(screen.queryByText("Request")).not.toBeInTheDocument();
   expect(screen.queryByText("Result")).not.toBeInTheDocument();
+});
+
+test("observed list cards show the prompt while running and the response otherwise", () => {
+  const task = fixtureTask({ status: "working", promptExcerpt: "Current request", replyExcerpt: "Previous result", observed: { archive: false, lastTurnEvent: "inProgress", lastTurnEventAt: null, recentFileActivity: true, directChildCount: 0 } });
+  const { rerender } = render(<MantineProvider><TaskCard task={task} onOpenCodex={() => {}} onOpenDetail={() => {}} /></MantineProvider>);
+  expect(screen.getByText("Current request")).toBeInTheDocument();
+  expect(screen.queryByText("Previous result")).not.toBeInTheDocument();
+  rerender(<MantineProvider><TaskCard task={{ ...task, status: "needs_input" }} onOpenCodex={() => {}} onOpenDetail={() => {}} /></MantineProvider>);
+  expect(screen.getByText("Previous result")).toBeInTheDocument();
+  expect(screen.queryByText("Current request")).not.toBeInTheDocument();
 });
 
 describe("token and working presentation", () => {

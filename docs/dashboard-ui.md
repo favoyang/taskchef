@@ -26,13 +26,15 @@ control operation, reachable overflow, and a clean browser console.
 
 ### Latest-turn request and response
 
-Local Codex cards pair the latest turn's recorded request with that turn's
-response. The request appears in a right-aligned bubble, limited to three lines;
-the response appears below at full width, limited to two lines. A running turn
-without a recorded response shows only its request. Details shows both recorded
-texts in full, with Markdown rendering.
+Running local Codex cards show the current request. Other cards show the latest
+turn's response. Cards use a plain two-line preview without request bubbles.
+Details pairs the same turn's request and response, each initially capped at
+three lines with a Show more control. The request uses a right-aligned bubble.
+Actual scheduled requests show their recorded instructions with a clock;
+human follow-ups in scheduled chats use the normal request bubble.
+Quoted selections render as Markdown quotes. File and image references show
+attachment names, while generated request headings and context metadata are
+removed from the display. Recorded input remains unchanged.
 
-Actual scheduled inputs show the recorded heartbeat instructions with a clock
-icon. Human follow-ups in scheduled chats use the normal request bubble.
 Earlier-turn PR fallbacks remain separate from this content: the status popup
 shows `(Earlier turn PR)` below the PR link, aligned with the other row text.

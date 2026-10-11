@@ -818,7 +818,7 @@ test("latest-turn content never pairs a new prompt with an older response", asyn
   const scanner=new CodexSessionScanner({codexHome:home}); t.after(()=>scanner.close());
   let task=(await scanner.refresh()).tasks[0];
   assert.equal(task.status,'working'); assert.equal(task.promptExcerpt,prompt.slice(0,2000)); assert.equal(task.replyExcerpt,null);
-  assert.equal((await scanner.taskDetail(id)).promptText,prompt.trim());
+  assert.equal((await scanner.taskDetail(id)).promptText,prompt);
   add.run(id,'new','progress',JSON.stringify({type:'agentMessage',text:'Current progress'}),'agentMessage',3);
   task=(await scanner.refresh()).tasks[0]; assert.equal(task.replyExcerpt,'Current progress');
   const response='Finished **result** '+ 'long response '.repeat(220);
@@ -830,4 +830,7 @@ test("latest-turn content never pairs a new prompt with an older response", asyn
   await writeFile(join(home,'automations','routine','automation.toml'),`id = "routine"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "${id}"\n`);
   history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='new-user'").run(JSON.stringify({type:'userMessage',content:[{type:'text',text:'<heartbeat><automation_id>routine</automation_id><instructions>Run **checks**.</instructions></heartbeat>'}]}));
   task=(await scanner.refresh()).tasks[0]; assert.equal(task.inputSource,'scheduled'); assert.equal(task.promptExcerpt,'Run **checks**.');
+  await rm(join(home,'automations','routine'), {recursive:true});
+  task=(await scanner.refresh()).tasks[0]; assert.equal(task.scheduled,false); assert.equal(task.status,'needs_input'); assert.equal(task.inputSource,'scheduled'); assert.equal(task.promptExcerpt,'Run **checks**.');
+  assert.equal((await scanner.taskDetail(id)).promptText,'Run **checks**.');
 });
