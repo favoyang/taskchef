@@ -6,7 +6,7 @@ import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
 import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
 import { ReplyMarkdown } from "../../dashboard/react/components/ReplyMarkdown";
-import { compactTokens, TokenBreakdown } from "../../dashboard/react/components/SavedUsageFormat";
+import { compactTokens, TokenBreakdown, useAnimatedUsage } from "../../dashboard/react/components/SavedUsageFormat";
 import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
 import { formatWorkedDuration } from "../../dashboard/time.js";
 
@@ -22,6 +22,8 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [opened, task?.turnId, task?.observed?.lastTurnEvent]);
+  const latestUsage = useAnimatedUsage(task?.sessionUsage?.latest, task?.status === "working", task?.turnId);
+  const totalUsage = useAnimatedUsage(task?.sessionUsage?.total, task?.status === "working", task?.id);
   if (!task) return null;
   const start = Date.parse(task.observed?.lastTurnEventAt ?? "");
   const duration = task.observed?.lastTurnEvent === "inProgress" && Number.isFinite(start)
@@ -78,9 +80,10 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
           {task.sessionUsage && (task.sessionUsage.latest.samples > 0 || task.sessionUsage.total.samples > 0) ? <>
           <table className="taskchef-detail-usage"><thead><tr><th /><th scope="col">Tokens{tokenIncomplete && <sup>2</sup>}</th><th scope="col">API-equivalent cost<sup>1{costIncomplete && ",2"}</sup></th></tr></thead><tbody>
             {(["Latest turn", "Total chat"] as const).map((label, i) => {
-              const value = i === 0 ? task.sessionUsage!.latest : task.sessionUsage!.total;
+              const value = i === 0 ? latestUsage! : totalUsage!;
+              const raw = i === 0 ? task.sessionUsage!.latest : task.sessionUsage!.total;
               return <tr key={label}><th scope="row">{label}</th>
-                <td><Tooltip multiline w={280} label={<TokenBreakdown value={value} />}><span>{value.samples ? `${value.partial ? "≥" : ""}${compactTokens(value.tokens.total_tokens)}` : "—"}</span></Tooltip></td>
+                <td><Tooltip multiline w={280} label={<TokenBreakdown value={raw} />}><span>{value.samples ? `${value.partial ? "≥" : ""}${compactTokens(value.tokens.total_tokens)}` : "—"}</span></Tooltip></td>
                 <td><Tooltip multiline w={280} label={value.costPartial ? "Some usage records or model prices are missing. This is the subtotal for the calls TaskChef can price." : "Estimated from saved calls at standard API prices."}><span>{usageCost(value)}</span></Tooltip></td>
               </tr>;
             })}

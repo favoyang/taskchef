@@ -3,7 +3,7 @@ import { Anchor, Box, Popover, Stack, Text, VisuallyHidden } from "@mantine/core
 import { IconAlertTriangle, IconHourglass,  IconCircleCheck, IconCircleX, IconLoader, IconMinus, IconClock, IconChartBar } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { formatWorkedDuration } from "../../time.js";
-import { turnUsageLabel } from "./SavedUsageFormat";
+import { turnUsageLabel, useAnimatedUsage } from "./SavedUsageFormat";
 import type { SavedUsage, PullRequestStatus } from "../types";
 
 export function nextRunLabel(value?: string | null, now = new Date()) {
@@ -36,9 +36,11 @@ export function PullRequestIcons({ pullRequests = [] }: { pullRequests?: PullReq
   })}</Box>;
 }
 
-export function CardStatusLine({ children, pullRequests = [], scheduled, nextRunAt, durationMs, startedAt, subagentCount, turnUsage }: {
+export function CardStatusLine({ children, pullRequests = [], scheduled, nextRunAt, durationMs, startedAt, subagentCount, turnUsage, turnId, animateUsage }: {
   subagentCount?: number;
   turnUsage?: SavedUsage;
+  turnId?: string | null;
+  animateUsage?: boolean;
   children: ReactNode;
   pullRequests?: PullRequestStatus[];
   scheduled?: boolean;
@@ -51,6 +53,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
   const [now, setNow] = useState(Date.now);
   const start = startedAt ? Date.parse(startedAt) : NaN;
   const running = Number.isFinite(start);
+  const animatedUsage = useAnimatedUsage(turnUsage, animateUsage ?? running, turnId ?? startedAt);
   useEffect(() => {
     if (!running) return;
     setNow(Date.now());
@@ -85,7 +88,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
           }
         }}>
         {children}
-        {hasUsage && <span className="taskchef-card-turn-usage">{turnUsageLabel(turnUsage!)}</span>}
+        {hasUsage && <span className="taskchef-card-turn-usage">{turnUsageLabel(animatedUsage!)}</span>}
         {scheduled && <span className="taskchef-card-status-icon" aria-label="Active schedule"><IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} aria-hidden /></span>}
         <PullRequestIcons pullRequests={pullRequests} />
         {pullRequests.length > 0 && <VisuallyHidden id={descriptionId}>{pullRequests.map(pr => `${prTitle(pr)}: ${pr.state === "merged" ? "Merged" : pr.state === "closed" ? "Closed, not merged" : pr.state === "draft" ? "Draft" : pr.state === "unknown" ? "PR status not checked or unavailable" : pr.hasMergeConflicts ? "Open, merge conflicts" : "Open"}`).join(". ")}</VisuallyHidden>}
@@ -95,7 +98,7 @@ export function CardStatusLine({ children, pullRequests = [], scheduled, nextRun
       onKeyDown={event => { if (event.key === "Escape") { setOpened(false); target.current?.focus(); setOpened(false); event.stopPropagation(); } }}>
       <Stack gap={5}>
         {duration !== "—" && <StatusRow icon={<IconHourglass size={15} stroke={1.5} />}>Worked for {duration}</StatusRow>}
-        {hasUsage && <StatusRow icon={<IconChartBar size={15} stroke={1.5} />}>Turn usage: {turnUsageLabel(turnUsage!)}</StatusRow>}
+        {hasUsage && <StatusRow icon={<IconChartBar size={15} stroke={1.5} />}>Turn usage: {turnUsageLabel(animatedUsage!)}</StatusRow>}
         {pullRequests.map(pr => <PullRequestInfo key={pr.url} pr={pr} showChecks={false} />)}
         {hasNextRun && <StatusRow icon={<IconClock className="taskchef-schedule-clock" size={15} stroke={1.5} />}>{nextRunLabel(nextRunAt)}</StatusRow>}
       </Stack>

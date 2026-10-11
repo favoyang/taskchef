@@ -54,7 +54,7 @@ test("running details use Worked for rather than the finished-turn label", () =>
 
 test("usage keeps later-turn tokens visible when historical cost is partial", () => {
   const latest = {tokens: {input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 5, total_tokens: 110}, costUsd: 0.2, samples: 1, partial: false, costPartial: false};
-  const task = {...fixtureTask(), sessionUsage: {latest, total: {...latest,tokens: {...latest.tokens,total_tokens: 10000},costUsd: 3.2, partial: true,costPartial: true}, subagents: 3, pricingDate: "2026-10-10"}};
+  const task = {...fixtureTask(), status: "needs_input" as const, sessionUsage: {latest, total: {...latest,tokens: {...latest.tokens,total_tokens: 10000},costUsd: 3.2, partial: true,costPartial: true}, subagents: 3, pricingDate: "2026-10-10"}};
   render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={()=>{}} /></MantineProvider>);
   const usage=screen.getByRole("region",{name:"Usage"});
   expect(within(usage).getByText("Total chat")).toBeVisible();
