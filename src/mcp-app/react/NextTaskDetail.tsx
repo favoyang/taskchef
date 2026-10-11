@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
 import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
+import { QueuedPrompts } from "../../dashboard/react/components/QueuedPrompts";
 import { TurnContent } from "../../dashboard/react/components/TurnContent";
 import { compactTokens, TokenBreakdown, useAnimatedUsage } from "../../dashboard/react/components/SavedUsageFormat";
 import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
@@ -55,6 +56,7 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
       <Group gap="xs" mt={0} className="taskchef-detail-meta">
         <Tooltip label={task.project?.path || "No project"}><Text size="sm" c="dimmed" className="taskchef-detail-project"><IconFolder size={14} /><span>{task.project?.name || "No project"}</span></Text></Tooltip>
         {label && <Badge variant="light" color="gray">{label}</Badge>}
+        {task.needsAnswer && <Badge variant="light" color="blue">Needs answer</Badge>}
         {task.status === "interrupted" && <Badge variant="light" color="orange">Interrupted</Badge>}
       </Group>
       <Group gap="xs" wrap="nowrap" className="taskchef-detail-actions">
@@ -62,10 +64,12 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
         <OpenChatButton loading={busy} onClick={onOpenCodex} taskTitle={task.title} />
       </Group>
     </Group>
+    {task.needsAnswer && <Anchor component="button" type="button" size="sm" disabled={busy} onClick={onOpenCodex}>Open chat to answer.</Anchor>}
     {error && <Alert color="red">{error}</Alert>}
     <Box className="taskchef-detail-layout">
       <Box className="taskchef-detail-reply">
         <TurnContent task={task} loadImage={loadImage} workedDurationMs={duration} onLightboxChange={setLightboxOpen} onAnnotationChange={annotationChange} />
+        <QueuedPrompts task={task} loadImage={loadImage} onLightboxChange={setLightboxOpen} />
         <details className="taskchef-detail-technical">
           <summary>Technical details</summary>
           <Stack gap={8} mt="sm">

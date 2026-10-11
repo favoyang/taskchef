@@ -364,13 +364,14 @@ test("card usage is on by default and the setting removes usage data from the st
   expect(screen.queryByText(/Turn usage:/)).toBeNull();
 });
 
-test("running covers select the first prompt image instead of a response image", async () => {
+test("covers prefer response images and fall back to prompt images for every status", async () => {
  const running={...task(1,"working"),observed:{archive:false,lastTurnEvent:"inProgress",lastTurnEventAt:null,recentFileActivity:false},promptImage:{url:"/prompt-first.png",alt:"First prompt"},replyImage:{url:"/reply.png",alt:"Reply"}};
  const load=vi.fn().mockResolvedValue("data:image/png;base64,AAAA");
- const {rerender}=render(<MantineProvider><TaskBoard loadImage={load} tasks={[running]} lanes={[{status:"working",label:"Running"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+ const {rerender}=render(<MantineProvider><TaskBoard loadImage={load} tasks={[running]} lanes={[{status:"working",label:"Running"},{status:"needs_input",label:"Waiting"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
+ expect(await screen.findByAltText("Reply")).toBeVisible();
+ expect(load).toHaveBeenCalledWith(running,"/reply.png");
+ expect(screen.queryByAltText("First prompt")).toBeNull();
+ rerender(<MantineProvider><TaskBoard loadImage={load} tasks={[{...running,status:"needs_input",replyImage:null}]} lanes={[{status:"working",label:"Running"},{status:"needs_input",label:"Waiting"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
  expect(await screen.findByAltText("First prompt")).toBeVisible();
- expect(load).toHaveBeenCalledWith(running,"/prompt-first.png");
- expect(screen.queryByAltText("Reply")).toBeNull();
- rerender(<MantineProvider><TaskBoard loadImage={load} tasks={[{...running,promptImage:null}]} lanes={[{status:"working",label:"Running"}]} completedLimit={5} onMoreCompleted={vi.fn()} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()} /></MantineProvider>);
  expect(screen.queryByRole("img",{name:"Reply"})).toBeNull();
 });

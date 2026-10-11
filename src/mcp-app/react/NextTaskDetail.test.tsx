@@ -108,3 +108,13 @@ test("a resolved usage read with zero samples is unavailable", () => {
  render(<MantineProvider><NextTaskDetail task={{...fixtureTask(),sessionUsage:{latest:empty,total:empty,subagents:0,pricingDate:"2026-10-10"}}} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={()=>{}} /></MantineProvider>);
  const usage=screen.getByRole("region",{name:"Usage"});expect(within(usage).getByRole("status")).toHaveTextContent("Usage unavailable.");expect(within(usage).queryByRole("table")).toBeNull();
 });
+
+test('Needs answer adds an open-chat action without replacing the saved prompt or response', () => {
+ const open=vi.fn();
+ const task={...fixtureTask(),needsAnswer:true,promptText:'Run the scan.',replyText:'The connection failed. Approval requested.'};
+ render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={open}/></MantineProvider>);
+ expect(screen.getByText('Needs answer')).toBeInTheDocument();
+ expect(screen.getByText('Run the scan.')).toBeInTheDocument();
+ expect(screen.getByText('The connection failed. Approval requested.')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Open chat to answer.'}));expect(open).toHaveBeenCalledTimes(1);
+});

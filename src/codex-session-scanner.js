@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { normalizeUri } from "micromark-util-sanitize-uri";
 import { displayUserPrompt, responseAnnotations } from "./user-prompt.js";
 import { CodexProjects } from "./codex-projects.js";
@@ -75,6 +76,47 @@ async function readSchedules(codexHome) {
   return { schedules, errors };
 }
 
+// Optional desktop queue. Keep attachment bytes out of board snapshots.
+async function readPromptQueue(codexHome) {
+  const prompts = new Map();
+  const images = new Map();
+  let database;
+  let errors = 0;
+  try {
+    const path = join(codexHome, "queue_1.sqlite");
+    await stat(path);
+    const { DatabaseSync } = await sqlite();
+    database = new DatabaseSync(path, { readOnly: true });
+    for (const row of database.prepare("SELECT id, thread_id, payload_json FROM queued_items ORDER BY queue_order, created_at_ms, id").all()) {
+      try {
+        const input = JSON.parse(row.payload_json)?.UserInput;
+        if (!Array.isArray(input?.content)) continue;
+        const rawText = input.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text).join("\n");
+        const text = displayUserPrompt(rawText);
+        const attachments = replyImages(text);
+        const media = attachments.map(image => ({ ...image, source: image.url }));
+        for (const part of input.content) {
+          if (part.type !== "image" || typeof part.image_url !== "string") continue;
+          const data = part.image_url;
+          // Queue images are already embedded by Codex. Never fetch remote media.
+          if (data.length > 6 * 1024 * 1024 || !/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(data)) continue;
+          media.push({ alt: `Queued image ${media.length + 1}`, source: data });
+        }
+        const promptImages = media.map((image, index) => {
+          const url = `taskchef-queue:${row.id}:${index}:${createHash("sha256").update(image.source).digest("hex").slice(0, 16)}`;
+          images.set(`${row.thread_id}:${url}`, image.source);
+          return { url, alt: image.alt };
+        });
+        const list = prompts.get(row.thread_id) ?? [];
+        list.push({ id: row.id, text, images: promptImages });
+        prompts.set(row.thread_id, list);
+      } catch { errors += 1; }
+    }
+  } catch (error) { if (error.code !== "ENOENT") errors += 1; }
+  finally { database?.close(); }
+  return { prompts, images, errors };
+}
+
 async function readDoneMarks(path) {
   try {
     const marks = JSON.parse(await readFile(path, "utf8"));
@@ -110,6 +152,32 @@ function delegatedPrompt(item) {
   return match ? match[1] : null;
 }
 
+function hasUnansweredQuestion(records) {
+  const questions = new Set();
+  const answers = new Set();
+  for (const record of records) {
+    let item;
+    try { item = JSON.parse(record.item_json); } catch { continue; }
+    if (item.type === "agentMessage" && typeof item.id === "string" && Array.isArray(item.questions)) {
+      item.questions.forEach((question, index) => {
+        if (typeof question?.title === "string" && question.title.trim()) questions.add(JSON.stringify(["request_user_input_async", item.id, index]));
+      });
+    }
+    if (item.type !== "userMessage" && !(item.type === "steeringUserMessage" && item.status === "accepted")) continue;
+    const content = item.type === "userMessage" ? item.content : item.input;
+    if (!Array.isArray(content) || content.length !== 1 || content[0]?.type !== "text") continue;
+    const match = /^\s*<send_user_message_question_reply>([\s\S]*)<\/send_user_message_question_reply>\s*$/.exec(content[0].text ?? "");
+    if (!match) continue;
+    try {
+      const value = JSON.parse(match[1]);
+      for (const answer of Array.isArray(value) ? value : [value]) {
+        if (typeof answer?.questionItemId === "string" && typeof answer.answer === "string") answers.add(answer.questionItemId);
+      }
+    } catch { /* An unrecognized reply cannot prove that the question was answered. */ }
+  }
+  return [...questions].some(id => !answers.has(id));
+}
+
 function readDatabaseRecords(state, history) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
@@ -117,6 +185,7 @@ function readDatabaseRecords(state, history) {
     const latestTurn = history.prepare(`SELECT turn_id, status, started_at, duration_ms, first_user_item_id, final_agent_item_id
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
+    const needsAnswers = new Map();
     const rows = state.prepare(`SELECT id, name, title, cwd, archived, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode, project_id,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
       FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => {
@@ -130,12 +199,16 @@ function readDatabaseRecords(state, history) {
     const latestReply = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'agentMessage' ORDER BY rollout_ordinal DESC LIMIT 1");
     const attachCalls = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'mcpToolCall'");
     const delegationCalls = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'functionCallOutput' ORDER BY rollout_ordinal");
+    const questionItems = history.prepare(`SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ?
+      AND ((item_type = 'agentMessage' AND json_array_length(item_json, '$.questions') > 0)
+        OR (item_type IN ('userMessage', 'steeringUserMessage') AND instr(item_json, 'send_user_message_question_reply') > 0))`);
     const turnAttachments = new Map();
     const inputs = new Map();
     const replies = new Map();
     for (const row of rows) {
       const key = historyId(row);
       const turn = turns.get(key);
+      needsAnswers.set(key, hasUnansweredQuestion(questionItems.all(key, turn.turn_id)));
       turnAttachments.set(key, attachCalls.all(key, turn.turn_id).map((row) => JSON.parse(row.item_json))
         .filter((item) => item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError
           && item.arguments?.artifact_type === "pull_request" && typeof item.arguments.url === "string")
@@ -159,7 +232,7 @@ function readDatabaseRecords(state, history) {
         attachments.set(row.thread_id, urls);
       }
     }
-    return { rows, turns, inputs, replies, projects, attachments, turnAttachments };
+    return { rows, turns, inputs, replies, projects, attachments, turnAttachments, needsAnswers };
 }
 
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
@@ -221,7 +294,8 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: reason, promptExcerpt, replyExcerpt, annotations, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
+        summary: reason, promptExcerpt, replyExcerpt, annotations, promptImages, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
+        needsAnswer: !row.archived && records.needsAnswers.get(historyId(row)) === true,
         status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
@@ -408,6 +482,10 @@ export class CodexSessionScanner {
       const doneMarks = await this.doneMarks(force);
       const { schedules, errors: scheduleErrors } = await readSchedules(this.codexHome);
       const database = buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit);
+      const queue = await readPromptQueue(this.codexHome);
+      this.queuedImages = queue.images;
+      for (const task of database.tasks) task.queuedPrompts = queue.prompts.get(task.id) ?? [];
+      database.scan.queueErrors = queue.errors;
       let grouped;
       try { grouped = await this.projectCatalog.group(database.tasks, records.projects); }
       catch { throw new ProjectMetadataError("TaskChef cannot read Codex project metadata. Check .codex-global-state.json and the project worktree metadata, then refresh."); }
@@ -415,7 +493,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImage, task.replyImage, task.pullRequests,
+        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImages, task.promptImage, task.replyImage, task.queuedPrompts, task.needsAnswer, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;
@@ -472,6 +550,11 @@ export class CodexSessionScanner {
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const task = this.task(id);
     if (!task || task.turnId !== expectedTurnId) return null;
+    const queuedImage = this.queuedImages?.get(`${id}:${expectedUrl}`);
+    if (queuedImage) {
+      if (queuedImage.startsWith("data:")) return queuedImage;
+      try { return await localReplyImage(queuedImage); } catch { return null; }
+    }
     const content = this.databaseCache.records.latestContent.get(id);
     const images = [...(content?.promptImages ?? []), ...replyImages(content?.replyText ?? "")];
     const image = images.find(image => image.url === expectedUrl || normalizeUri(image.url) === expectedUrl);
@@ -608,5 +691,6 @@ export class CodexSessionScanner {
     this.connections = null;
     this.databaseCache = null;
     this.doneCache = null;
+    this.queuedImages = null;
   }
 }

@@ -72,3 +72,19 @@ test('Escape closes an annotation popup while keeping Details open', async () =>
  expect(screen.getByRole('dialog',{name:'Annotated chat'})).toBeVisible();
  expect(close).not.toHaveBeenCalled();
 });
+
+test('prompt gallery reserves space and reveals images together after concurrent loading', async () => {
+ let first!: (value:string) => void; let second!: (value:string) => void;
+ const load=vi.fn().mockImplementation((_task, url) => new Promise<string>(resolve => { if(url==='/first.png') first=resolve; else second=resolve; }));
+ const task={...fixtureTask(),promptText:'Review both.',promptImages:[{url:'/first.png',alt:'First'},{url:'/second.png',alt:'Second'}]};
+ render(<MantineProvider><TurnContent task={task} loadImage={load} /></MantineProvider>);
+ expect(screen.getByRole('status',{name:'Loading First'})).toBeVisible();
+ expect(screen.getByRole('status',{name:'Loading Second'})).toBeVisible();
+ await waitFor(()=>expect(load).toHaveBeenCalledTimes(2));
+ first(png);
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'Enlarge First'})).toBeNull());
+ second(png);
+ expect(await screen.findByRole('button',{name:'Enlarge First'})).toBeVisible();
+ expect(screen.getByRole('button',{name:'Enlarge Second'})).toBeVisible();
+ expect(load).toHaveBeenCalledTimes(2);
+});

@@ -1,3 +1,4 @@
+import { cachedImageLoader } from "../../dashboard/react/image-cache";
 import { App } from "@modelcontextprotocol/ext-apps";
 import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
@@ -56,10 +57,10 @@ function eligibleForView(task: Task, showCli: boolean, showArchived: boolean, sh
   return (showExec || task.observed?.source !== "exec") && (showCli || task.observed?.source !== "cli") && (showArchived || !task.observed?.archive);
 }
 
-async function loadReplyImage(task: Task, url = task.replyImage?.url): Promise<string | null> {
+const loadReplyImage = cachedImageLoader(async (task: Task, url = task.replyImage?.url): Promise<string | null> => {
   const result = await call<{ dataUrl: string | null }>("taskchef_app_image", { taskId: task.id, expectedTurnId: task.turnId, expectedUrl: url });
   return result.dataUrl;
-}
+});
 
 const NEXT_LANES = [{ status: "scheduled", label: "Scheduled", emptyMessage: "No scheduled chats" }, { status: "working", label: "Running", emptyMessage: "No chats running" }, { status: "needs_input", label: "Waiting for review", emptyMessage: "No chats waiting for review" }, { status: "completed", label: "Done", emptyMessage: "No completed chats" }, { status: "archived", label: "Archived", emptyMessage: "No archived chats" }, { status: null, label: "Unverified", emptyMessage: "No unverified chats" }] as const;
 

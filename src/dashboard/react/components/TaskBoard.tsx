@@ -1,11 +1,12 @@
 import { CardStatusLine } from "./CardStatusIcons";
-import { Badge, Box, Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { Badge, Box, Button, Paper, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { useLayoutEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { IconArrowUpRight, IconFolder } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
 import { TurnContent } from "./TurnContent";
+import { QueuedPrompts } from "./QueuedPrompts";
 import { ReplyCover } from "./ReplyCover";
 import { ElapsedTime, RelativeTime } from "./RelativeTime";
 
@@ -224,7 +225,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
   const latest = latestTurnPresentation(task);
   const excerpt = task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
-  const cover = task.status === "working" ? task.promptImage : task.replyImage;
+  const cover = task.replyImage ?? task.promptImage;
   return (
     <Paper draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onDragEnd={onDragEnd} data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
       {task.observed && cover && <ReplyCover key={`${task.turnId}:${cover.url}`} task={task} image={cover} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
@@ -233,8 +234,10 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
         {task.observed?.unread && <span className="taskchef-chat-unread-dot" role="img" aria-label="Unread chat" />}
       </Title>
       <Text className="taskchef-board-project" size="xs"><IconFolder size={14} stroke={1.5} aria-hidden /><span>{task.project.name}</span></Text>
+      {task.needsAnswer && <Tooltip label="Open chat to answer." ><Badge color="blue" size="xs" variant="light">Needs answer</Badge></Tooltip>}
       {task.status === "interrupted" && <Badge color="orange" size="xs" variant="light">Interrupted</Badge>}
       {task.observed ? <TurnContent task={task} compact /> : <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" size="sm"><LinkedText task={task} text={excerpt} /></Text>}
+      <QueuedPrompts task={task} compact loadImage={loadImage} onOpen={() => onOpenDetail(task)} />
       <Box className="taskchef-board-card-footer">
         <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={showCardUsage ? task.turnUsage : undefined} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} earlierPullRequest={task.earlierPullRequest} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
         {task.observed && task.status === "working"

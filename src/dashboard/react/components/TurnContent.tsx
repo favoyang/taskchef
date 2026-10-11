@@ -1,13 +1,14 @@
 import { IconClock } from "@tabler/icons-react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Task } from "../types";
+import { ImageGallery } from "./ImageGallery";
 import { ReplyImagePreview } from "./ReplyImagePreview";
 import { formatWorkedDuration } from "../../time.js";
 import { ReplyMarkdown } from "./ReplyMarkdown";
 
 const hidePromptImage = () => null;
 
-function CollapsedMarkdown({ text }: { text: string }) {
+export function CollapsedMarkdown({ text }: { text: string }) {
   const content = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [clipped, setClipped] = useState(false);
@@ -41,7 +42,7 @@ export function TurnContent({ task, compact = false, loadImage, workedDurationMs
   return <div className="taskchef-turn-content">
     {prompt && <div className="taskchef-turn-prompt" aria-label="Latest turn request">
       {task.inputSource === "scheduled" && <IconClock className="taskchef-schedule-clock taskchef-prompt-clock" size={14} stroke={1.5} aria-label="Scheduled prompt" />}
-      {loadImage && promptImages.length > 0 && <div className="taskchef-prompt-images">{promptImages.map((image, index) => <ReplyImagePreview key={`${task.id}:${task.turnId}:${image.url}:${index}`} task={task} url={image.url} alt={image.alt} loadImage={loadImage} onLightboxChange={onLightboxChange} />)}</div>}
+      {loadImage && promptImages.length > 0 && <ImageGallery task={task} images={promptImages} loadImage={loadImage} onLightboxChange={onLightboxChange} />}
       <CollapsedMarkdown key={`prompt:${task.id}:${task.turnId}`} text={prompt} />
     </div>}
     {reply && <>
