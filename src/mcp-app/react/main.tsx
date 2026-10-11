@@ -100,6 +100,7 @@ export function TaskChefApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [archiveHelp, setArchiveHelp] = useState<Task | null>(null);
   const [notifications, setNotifications] = useState<NextNotificationState>({ revision: 0, items: [] });
@@ -147,6 +148,8 @@ export function TaskChefApp() {
   const [archivedLimit, setArchivedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
   const selectedRef = useRef<Task | null>(null);
+  const detailPending = useRef(false);
+  function setDetailPending(value: boolean) { detailPending.current = value; setDetailLoading(value); }
   const selectionVersion = useRef(0);
   const notificationSelection = useRef(false);
   const detailRequestVersion = useRef(0);
@@ -200,17 +203,21 @@ export function TaskChefApp() {
       clearRemovedTask();
       return;
     }
+    if (detailPending.current && !force) return;
     const detailRequest = ++detailRequestVersion.current;
+    setDetailPending(true);
     try {
       const detail = await call<{ task: Task }>("taskchef_app_task", { taskId: selectedTask.id, ...(force ? { refreshGithub: true } : {}) });
-      if (version !== refreshVersion.current || selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current || selectedRef.current?.id !== detail.task.id) return;
+      if (selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current || selectedRef.current?.id !== detail.task.id) return;
       selectedRef.current = detail.task;
       setSelected(detail.task);
       setDetailError(null);
     } catch (cause) {
-      if (version !== refreshVersion.current || selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
+      if (selection !== selectionVersion.current || detailRequest !== detailRequestVersion.current) return;
       if (cause instanceof Error && cause.message === "Task not found.") clearRemovedTask();
       else setDetailError(String(cause));
+    } finally {
+      if (selection === selectionVersion.current && detailRequest === detailRequestVersion.current) setDetailPending(false);
     }
   }, [receiveNotifications, project, date]);
   const onVisibleTasksChange = useCallback((ids: string[]) => {
@@ -331,6 +338,7 @@ export function TaskChefApp() {
     selectedRef.current = task;
     setSelected(task);
     setOpened(true);
+    setDetailPending(true);
     setDetailError(null);
     try {
       const result = await call<{ task: Task }>("taskchef_app_task", { taskId: task.id });
@@ -339,6 +347,8 @@ export function TaskChefApp() {
       setSelected(result.task);
     } catch (cause) {
       if (selection === selectionVersion.current && detailRequest === detailRequestVersion.current) setDetailError(String(cause));
+    } finally {
+      if (selection === selectionVersion.current && detailRequest === detailRequestVersion.current) setDetailPending(false);
     }
   }
   async function openChat(task: Task) {
@@ -434,7 +444,7 @@ export function TaskChefApp() {
         <Text size="sm">Open this chat in Codex. Use the top-right … menu and choose Archive.</Text>
         <Button mt="md" disabled={busy} onClick={() => { if (archiveHelp) void openChat(archiveHelp); }}>Open chat</Button>
       </Modal>
-      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} error={detailError} onClose={closeDetail} onOpenCodex={() => selected && void openChat(selected)} opened={opened} task={selected} />
+      <NextTaskDetail extraActions={selected && !selected.scheduled && !selected.manualDone && !selected.pullRequests?.length && !selected.observed?.archive && selected.observed?.lastTurnEvent !== "inProgress" ? <Button size="compact-sm" disabled={busy} onClick={() => void markDone(selected)}>Mark Done</Button> : undefined} busy={busy} usageLoading={detailLoading} error={detailError} onClose={closeDetail} onOpenCodex={() => selected && void openChat(selected)} opened={opened} task={selected} />
     </RelativeTimeProvider>
   </MantineProvider>;
 }

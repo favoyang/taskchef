@@ -39,12 +39,12 @@ vi.mock("../../dashboard/react/components/TaskBoard", () => ({
   TaskBoard: ({ tasks, onOpenDetail, onOpenCodex, doneNotice, onVisibleTasksChange }: { onVisibleTasksChange?: (ids: string[]) => void; doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board"><button onClick={() => onVisibleTasksChange?.([tasks[0].id])}>Report card in view</button>{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
 vi.mock("./NextTaskDetail", () => ({
-  NextTaskDetail: ({ task, opened, onClose, onTransition, extraActions }: {
-    task: Task | null; opened: boolean; onClose: () => void; extraActions?: React.ReactNode;
+  NextTaskDetail: ({ task, opened, usageLoading, onClose, onTransition, extraActions }: {
+    task: Task | null; opened: boolean; usageLoading?: boolean; onClose: () => void; extraActions?: React.ReactNode;
     onTransition: (status: "completed" | "failed", actionId: string) => Promise<unknown>;
   }) => {
     const [confirm, setConfirm] = useState(false);
-    return opened && task ? <section aria-label="Task detail"><h2>{task.title}</h2><p>{task.status}</p>{extraActions}<button onClick={onClose}>Close</button><button onClick={() => setConfirm(true)}>Mark completed</button>{confirm && <button onClick={() => { void onTransition("completed", crypto.randomUUID()); setConfirm(false); }}>Confirm</button>}</section> : null;
+    return opened && task ? <section aria-label="Task detail"><h2>{task.title}</h2><p>{task.status}</p><section aria-label="Usage">{task.sessionUsage ? "Usage loaded" : usageLoading ? "Loading…" : "Usage unavailable."}</section>{extraActions}<button onClick={onClose}>Close</button><button onClick={() => setConfirm(true)}>Mark completed</button>{confirm && <button onClick={() => { void onTransition("completed", crypto.randomUUID()); setConfirm(false); }}>Confirm</button>}</section> : null;
   },
 }));
 
@@ -594,4 +594,25 @@ test("opening and reopening Details use cached PRs; explicit Refresh requests ne
   expect(server.call.mock.calls.filter(([request])=>request.name==="taskchef_app_task").every(([request])=>!request.arguments.refreshGithub)).toBe(true);
   fireEvent.click(screen.getByRole("button", {name:"Refresh"}));
   await waitFor(()=>expect(server.call).toHaveBeenCalledWith({name:"taskchef_app_task",arguments:{taskId:"one",refreshGithub:true}}));
+});
+
+test("a slow Details read finishes across successful and failed board refreshes", async () => {
+ const original=server.call.getMockImplementation()!;
+ let finish!: (value: unknown) => void, failSnapshot=false;
+ server.call.mockImplementation((args)=>{
+   if(args.name === "taskchef_app_task") return new Promise(resolve=>{finish=resolve;});
+   if(args.name === "taskchef_app_snapshot" && failSnapshot) return Promise.reject(new Error("Snapshot failed"));
+   return original(args);
+ });
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Task one"}));
+ expect(await screen.findByText("Loading…")).toBeVisible();
+ await act(async()=>{fireEvent(document,new Event("visibilitychange"));});
+ expect(server.call.mock.calls.filter(([args])=>args.name === "taskchef_app_task")).toHaveLength(1);
+ failSnapshot=true;
+ await act(async()=>{fireEvent(document,new Event("visibilitychange"));});
+ expect(screen.getByText("Loading…")).toBeVisible();
+ const value={tokens:{input_tokens:100,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:10,reasoning_output_tokens:0,total_tokens:110},samples:1,costUsd:0.1,partial:false,costPartial:false};
+ await act(async()=>finish({structuredContent:{task:{...task("one"),sessionUsage:{latest:value,total:value,subagents:0,pricingDate:"2026-10-10"}}}}));
+ expect(within(screen.getByRole("region",{name:"Usage"})).getByText("Usage loaded")).toBeVisible();
+ expect(screen.queryByText("Loading…")).toBeNull();
 });

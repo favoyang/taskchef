@@ -84,3 +84,27 @@ test("unpriced usage marks the cost label with the incomplete footnote", () => {
   render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={()=>{}} /></MantineProvider>);
   expect(within(screen.getByRole("region",{name:"Usage"})).getAllByText("—")).toHaveLength(2);
 });
+
+
+test("Usage stays visible while loading and when data is unavailable", () => {
+ const props={task:fixtureTask(),opened:true,busy:false,error:null,onClose:()=>{},onOpenCodex:()=>{}};
+ const view=render(<MantineProvider><NextTaskDetail {...props} usageLoading /></MantineProvider>);
+ const section=screen.getByRole("region",{name:"Usage"});
+ expect(within(section).getByRole("heading",{name:"Usage"})).toBeVisible();
+ expect(within(section).getByRole("status")).toHaveTextContent("Loading…");
+ view.rerender(<MantineProvider><NextTaskDetail {...props} usageLoading={false} /></MantineProvider>);
+ expect(screen.getByRole("region",{name:"Usage"})).toBe(section);
+ expect(within(section).getByRole("status")).toHaveTextContent("Usage unavailable.");
+ const value={tokens:{input_tokens:100,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:10,reasoning_output_tokens:0,total_tokens:110},samples:1,costUsd:0.1,costPartial:false,partial:false};
+ view.rerender(<MantineProvider><NextTaskDetail {...props} task={{...props.task,sessionUsage:{latest:value,total:value,subagents:0,pricingDate:"2026-10-10"}}} /></MantineProvider>);
+ expect(screen.getByRole("region",{name:"Usage"})).toBe(section);
+ expect(within(section).getByRole("table")).toBeVisible();
+ expect(within(section).queryByRole("status")).toBeNull();
+});
+
+
+test("a resolved usage read with zero samples is unavailable", () => {
+ const empty={tokens:{input_tokens:0,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:0,reasoning_output_tokens:0,total_tokens:0},samples:0,costUsd:0,costPartial:true,partial:true};
+ render(<MantineProvider><NextTaskDetail task={{...fixtureTask(),sessionUsage:{latest:empty,total:empty,subagents:0,pricingDate:"2026-10-10"}}} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={()=>{}} /></MantineProvider>);
+ const usage=screen.getByRole("region",{name:"Usage"});expect(within(usage).getByRole("status")).toHaveTextContent("Usage unavailable.");expect(within(usage).queryByRole("table")).toBeNull();
+});

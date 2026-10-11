@@ -10,8 +10,8 @@ import { compactTokens, TokenBreakdown } from "../../dashboard/react/components/
 import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
 import { formatWorkedDuration } from "../../dashboard/time.js";
 
-export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex, extraActions }: {
-  task: Task | null; opened: boolean; busy: boolean; error: string | null;
+export function NextTaskDetail({ task, opened, busy, usageLoading = false, error, onClose, onOpenCodex, extraActions }: {
+  task: Task | null; opened: boolean; busy: boolean; usageLoading?: boolean; error: string | null;
   onClose: () => void; onOpenCodex: () => void; extraActions?: ReactNode;
 }) {
   const mobile = useMediaQuery("(max-width: 48em)");
@@ -73,8 +73,9 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
             {count != null && <ActivityRow icon={<IconRobot size={15} />}>{count} {count === 1 ? "subagent" : "subagents"}</ActivityRow>}
           </Stack>
         </section>}
-        {task.sessionUsage && <section aria-label="Usage">
+        <section aria-label="Usage">
           <Title order={5} mb="sm">Usage</Title>
+          {task.sessionUsage && (task.sessionUsage.latest.samples > 0 || task.sessionUsage.total.samples > 0) ? <>
           <table className="taskchef-detail-usage"><thead><tr><th /><th scope="col">Tokens{tokenIncomplete && <sup>2</sup>}</th><th scope="col">API-equivalent cost<sup>1{costIncomplete && ",2"}</sup></th></tr></thead><tbody>
             {(["Latest turn", "Total chat"] as const).map((label, i) => {
               const value = i === 0 ? task.sessionUsage!.latest : task.sessionUsage!.total;
@@ -86,7 +87,8 @@ export function NextTaskDetail({ task, opened, busy, error, onClose, onOpenCodex
           </tbody></table>
           <Text size="xs" c="dimmed" mt={8}><sup>1</sup> Estimates use <Anchor size="xs" href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">OpenAI API pricing</Anchor>. Subscription users are not billed this amount.</Text>
           {[task.sessionUsage.latest, task.sessionUsage.total].some(value => value.partial || value.costPartial) && <Text size="xs" c="dimmed" mt={4}><sup>2</sup> Incomplete estimate: some usage records, turn links, or model prices are missing. Only known usage and prices are included.</Text>}
-        </section>}
+          </> : <Text size="sm" c="dimmed" role="status">{usageLoading ? "Loading…" : "Usage unavailable."}</Text>}
+        </section>
         {(prs.length > 0 || task.relatedGitHubLinks?.length) && <section aria-label="Pull requests">
           <Title order={5} mb="sm">Pull requests</Title>
           <Stack gap="md">{prs.map(pr => {
