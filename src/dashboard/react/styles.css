@@ -232,8 +232,11 @@ body {
 .taskchef-markdown pre code { padding: 0; background: none; }
 .taskchef-markdown blockquote { border-left: 3px solid var(--mantine-color-default-border); padding-left: 0.75em; }
 .taskchef-markdown-table { overflow-x: auto; max-width: 100%; }
-.taskchef-markdown table { border-collapse: collapse; }
-.taskchef-markdown th, .taskchef-markdown td { border: 1px solid var(--mantine-color-default-border); padding: 0.35em 0.6em; text-align: left; overflow-wrap: normal; }
+.taskchef-markdown table { border-collapse: collapse; width: 100%; }
+.taskchef-markdown th, .taskchef-markdown td { border: 0; padding: 0.75em 1.5em 0.75em 0; text-align: left; vertical-align: top; overflow-wrap: normal; }
+.taskchef-markdown th:last-child, .taskchef-markdown td:last-child { padding-right: 0; }
+.taskchef-markdown:not(.taskchef-markdown--compact) thead tr { border-bottom: 1px solid var(--mantine-color-default-border); }
+.taskchef-markdown:not(.taskchef-markdown--compact) tbody tr:not(:last-child) { border-bottom: 1px solid color-mix(in srgb, var(--mantine-color-default-border) 55%, transparent); }
 .taskchef-markdown--compact { display: inline; }
 .taskchef-markdown--compact :is(p,h1,h2,h3,h4,h5,h6,ul,ol,li,blockquote,pre,table,thead,tbody,tr,th,td,.taskchef-markdown-table) { display: inline; margin: 0; padding: 0; border: 0; font-size: inherit; white-space: normal; }
 .taskchef-markdown--compact :is(p,li,pre,blockquote,tr)::after { content: " "; }
