@@ -50,3 +50,24 @@ test("invalid desktop project metadata is reported rather than silently ignored"
   await writeFile(join(home, ".codex-global-state.json"), "broken");
   await assert.rejects(catalog.group([], []), SyntaxError);
 });
+
+test("unread dots follow the local live list and refresh without database changes", async (t) => {
+  const { home, catalog } = await fixture(t);
+  const file = join(home, ".codex-global-state.json");
+  const state = { version: 1, unreadByIdentity: { account: { localKey: ["one"], remoteKey: ["two"] } },
+    legacyMigration: { identityKey: "account", adoptedHostIds: { local: "localKey" }, unreadThreadIdsByHostId: { local: ["two"] } } };
+  const chats = ["one", "two"].map(id => ({ ...task(id, ""), observed: { archive: false } }));
+  await writeFile(file, JSON.stringify({ "electron-thread-read-state-v1": state }));
+  assert.deepEqual((await catalog.group(chats, [])).tasks.map(t => t.observed.unread), [true, false]);
+  state.unreadByIdentity.account.localKey = [];
+  await writeFile(file, JSON.stringify({ "electron-thread-read-state-v1": state }));
+  assert.deepEqual((await catalog.group(chats, [])).tasks.map(t => t.observed.unread), [false, false]);
+  state.unreadByIdentity.account.localKey = ["one"];
+  state.unreadByIdentity.other = { localKey: ["two"] };
+  await writeFile(file, JSON.stringify({ "electron-thread-read-state-v1": state }));
+  assert.deepEqual((await catalog.group(chats, [])).tasks.map(t => t.observed.unread), [false, false]);
+  delete state.unreadByIdentity.other;
+  state.legacyMigration.cleared = true;
+  await writeFile(file, JSON.stringify({ "electron-thread-read-state-v1": state }));
+  assert.equal((await catalog.group(chats, [])).tasks[0].observed.unread, false);
+});

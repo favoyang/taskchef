@@ -391,7 +391,7 @@ export class CodexSessionScanner {
       const nextTasks = new Map(grouped.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
-        task.observed.archive, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
+        task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
         task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;

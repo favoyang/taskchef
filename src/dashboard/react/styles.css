@@ -281,3 +281,7 @@ body {
 }
 
 .taskchef-card-turn-usage { font-size: 12px; white-space: nowrap; }
+
+.taskchef-board-title { position: relative; }
+.taskchef-board-title:has(.taskchef-chat-unread-dot) { padding-right: 16px; }
+.taskchef-chat-unread-dot { position: absolute; right: 0; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #2f81f7; }

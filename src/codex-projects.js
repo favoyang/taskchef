@@ -8,7 +8,7 @@ const contains = (root, cwd) => {
   return child === "" || (!child.startsWith(`..${sep}`) && child !== ".." && !isAbsolute(child));
 };
 
-// Only the project-related fields leave this reader. Never return the desktop's other saved settings.
+// Only project metadata and unread chat IDs leave this reader. Never return the desktop's other saved settings.
 export class CodexProjects {
   constructor(codexHome) { this.codexHome = codexHome; this.saved = null; }
   async desktopProjects() {
@@ -21,6 +21,7 @@ export class CodexProjects {
     if (this.saved?.stamp === stamp) return this.saved.data;
     const state = JSON.parse(await readFile(file, "utf8"));
     const data = {
+      unread: localUnreadChats(state["electron-thread-read-state-v1"]),
       assignments: state["thread-project-assignments"] ?? {},
       hints: state["thread-workspace-root-hints"] ?? {}, projectless: new Set(state["projectless-thread-ids"] ?? []),
       ids: state["app-server-project-id-by-legacy-project-id-by-host"]?.[`local:${this.codexHome}`] ?? {},
@@ -70,8 +71,20 @@ export class CodexProjects {
       if (!explicit && !noProject && !hinted && !origins.has(cwd)) origins.set(cwd, this.worktreeRoot(cwd));
       const origin = origins.has(cwd) ? await origins.get(cwd) : null;
       const project = noProject ? null : explicit ?? hinted ?? matchRoot(origin || cwd);
-      return { ...task, project: { ...task.project, id: project?.id ?? NO_PROJECT, name: project?.name ?? "No project" } };
+      return { ...task, ...(task.observed ? { observed: { ...task.observed, unread: saved.unread?.has(task.id) ?? false } } : {}), project: { ...task.project, id: project?.id ?? NO_PROJECT, name: project?.name ?? "No project" } };
     }));
     return { tasks: grouped, projects: projects.map(({ id, name, roots }) => ({ id, name, path: roots[0] ?? "", githubRepos: [] })) };
   }
+}
+
+// Codex scopes unread IDs by account identity and execution host. Do not combine
+// accounts or use the legacy unread lists, which are only migration snapshots.
+function localUnreadChats(state) {
+  const migration = state?.legacyMigration;
+  const identities = state?.unreadByIdentity;
+  if (state?.version !== 1 || !identities || typeof identities !== "object" || migration?.cleared
+    || Object.keys(identities).length !== 1 || !Object.hasOwn(identities, migration?.identityKey ?? "")) return new Set();
+  const host = migration?.adoptedHostIds?.local;
+  const ids = typeof host === "string" ? identities[migration.identityKey]?.[host] : null;
+  return new Set(Array.isArray(ids) ? ids.filter(id => typeof id === "string") : []);
 }

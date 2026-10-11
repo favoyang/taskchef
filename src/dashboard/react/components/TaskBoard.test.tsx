@@ -338,3 +338,16 @@ test("native image and link drags move the card while their clicks stay availabl
   }
   expect(within(card).getByRole("link", {name: "report"})).toHaveAttribute("href", "https://example.com/report");
 });
+
+test("unread dots follow Codex read state and do not mark a chat read on Details", () => {
+  const chat = task(1, "needs_input");
+  chat.observed = { archive: false, unread: true, lastTurnEvent: "completed", lastTurnEventAt: null, recentFileActivity: false };
+  const props = { completedLimit: 5, onMoreCompleted: vi.fn(), onOpenCodex: vi.fn(), onOpenDetail: vi.fn() };
+  const { rerender } = render(<MantineProvider><TaskBoard {...props} tasks={[chat]} /></MantineProvider>);
+  expect(screen.getByRole("img", {name: "Unread chat"})).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: chat.title }));
+  expect(props.onOpenDetail).toHaveBeenCalledWith(chat);
+  expect(screen.getByRole("img", {name: "Unread chat"})).toBeVisible();
+  rerender(<MantineProvider><TaskBoard {...props} tasks={[{...chat, observed: {...chat.observed, unread: false}}]} /></MantineProvider>);
+  expect(screen.queryByRole("img", {name: "Unread chat"})).toBeNull();
+});

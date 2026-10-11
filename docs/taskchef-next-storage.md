@@ -117,7 +117,8 @@ historical result; the UI never claims that the displayed subtotal is a bill.
 Cost uses each saved call's model and input/cache-read/cache-write/output
 counts. Reasoning tokens are already included in output tokens. Unknown models
 remain unpriced. Missing calls can leave tokens known but cost partial. A
-partial token or cost value has an asterisk. The footnote explains why the
+incomplete token or cost row has a superscript 2 on its label. Cost also has
+superscript 1 for the API-price estimate note. The footnote explains why the
 estimate is incomplete.
 
 The package ships a dated table of standard USD API prices from
@@ -131,3 +132,15 @@ format changes, the last valid prices remain in use.
 Estimates apply current standard API prices, including the published long
 context rates above 272K input tokens. They do not reproduce subscription
 charges, historic prices, fast-mode surcharges, regional fees, or tool fees.
+
+
+### Unread chats
+
+The board reads `electron-thread-read-state-v1` from Codex's
+`.codex-global-state.json`. It uses the live unread IDs for the single account
+and the local execution-host key recorded in `legacyMigration.adoptedHostIds`.
+Legacy unread lists are migration snapshots and are not used. Missing,
+unsupported, cleared, or ambiguous account/host mappings show no dot.
+The existing metadata file stamp detects changes during board polling even
+when the SQLite databases do not change. Opening TaskChef Details does not
+modify Codex read state; opening the chat in Codex lets Codex manage it.

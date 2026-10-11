@@ -227,6 +227,7 @@ function BoardCard({ task, onOpenCodex, onOpenDetail, loadImage, draggable, onDr
       {task.observed && task.replyImage && <ReplyCover key={`${task.turnId}:${task.replyImage.url}`} task={task} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
+        {task.observed?.unread && <span className="taskchef-chat-unread-dot" role="img" aria-label="Unread chat" />}
       </Title>
       <Text className="taskchef-board-project" size="xs"><IconFolder size={14} stroke={1.5} aria-hidden /><span>{task.project.name}</span></Text>
       {task.status === "interrupted" && <Badge color="orange" size="xs" variant="light">Interrupted</Badge>}
