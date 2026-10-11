@@ -297,3 +297,10 @@ body {
 .taskchef-turn-expand:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
 
 .taskchef-turn-collapsed .taskchef-markdown :is(p,ul,ol,blockquote) { margin-top: 0; margin-bottom: 0; }
+
+.taskchef-turn-divider { margin-top: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--mantine-color-default-border); color: var(--mantine-color-dimmed); font-size: var(--mantine-font-size-xs); }
+.taskchef-response-image { display: block; margin: 16px 0; }
+.taskchef-image-thumbnail { display: block; padding: 0; border: 1px solid var(--mantine-color-default-border); border-radius: 8px; background: transparent; overflow: hidden; cursor: zoom-in; max-width: 100%; }
+.taskchef-image-thumbnail img { display: block; max-width: 100%; width: auto; max-height: 160px; object-fit: contain; }
+.taskchef-image-thumbnail:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 3px; }
+.taskchef-image-lightbox img { display: block; max-width: calc(100vw - 64px); max-height: calc(100dvh - 140px); object-fit: contain; }

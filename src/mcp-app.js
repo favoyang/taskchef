@@ -204,7 +204,7 @@ export function registerTaskChefApp(server, {
     return { structuredContent: { task }, content: [] };
   });
   server.registerTool("taskchef_app_image", {
-    title: "Read reply cover image", description: "Read the local raster image referenced by the latest reply, up to 4 MiB.",
+    title: "Read reply image", description: "Read a local raster image referenced by the selected turn reply, up to 4 MiB.",
     inputSchema: { taskId: taskIdSchema, expectedTurnId: z.string().min(1), expectedUrl: z.string().min(1) }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ taskId, expectedTurnId, expectedUrl }) => ({

@@ -4,21 +4,22 @@ import { open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 
 // Parse actual Markdown image nodes, excluding code examples and raw HTML.
-export function replyImage(text) {
+export function replyImages(text) {
   const tree = fromMarkdown(text);
   const definitions = new Map();
   const collect = (node) => { if (node.type === 'definition') definitions.set(node.identifier, node.url); for (const child of node.children ?? []) collect(child); };
   collect(tree);
-  let image = null;
+  const images = [];
   const visit = (node) => {
-    if (image) return;
     const url = node.type === 'image' ? node.url : node.type === 'imageReference' ? definitions.get(node.identifier) : null;
-    if (typeof url === 'string' && isAbsolute(url) && !url.startsWith('//')) image = { url, alt: node.alt || 'Reply image' };
+    if (typeof url === 'string' && isAbsolute(url) && !url.startsWith('//')) images.push({ url, alt: node.alt || 'Reply image' });
     for (const child of node.children ?? []) visit(child);
   };
   visit(tree);
-  return image;
+  return images;
 }
+
+export function replyImage(text) { return replyImages(text)[0] ?? null; }
 
 // Read only the image referenced by the selected reply. Never accept a path
 // supplied independently by the UI, fetch URLs, or serve active SVG content.

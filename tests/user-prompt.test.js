@@ -84,3 +84,9 @@ test('accepts leading CRLF whitespace before supplied file context', () => {
  assert.match(displayUserPrompt(input),/Fix this\.$/);
  assert.doesNotMatch(displayUserPrompt(input),/My request:|Files mentioned/);
 });
+
+
+test('omits ambient-only context and the generated request heading', () => {
+ const input='\n<in-app-browser-context source="ambient-ui-state">\nGenerated browser context.\n</in-app-browser-context>\n\n## My request:\nKeep this request.';
+ assert.equal(displayUserPrompt(input),'Keep this request.');
+});

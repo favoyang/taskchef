@@ -493,6 +493,12 @@ test("Done-file cache notices rewrites, replacements, removal, and invalid conte
   const scanner=new CodexSessionScanner({codexHome:home});t.after(()=>scanner.close());
   const first=await scanner.refresh();assert.equal(first.tasks[0].replyImage.url,image);
   assert.match(await scanner.taskImage(id,"cover-turn",image),/^data:image\/png;base64,/);
+  const second=join(home,"second image (2).png");await writeFile(second, await readFile(image));
+  const current=history.prepare("SELECT item_json FROM thread_items WHERE item_type='agentMessage'").get();
+  const reply=JSON.parse(current.item_json);reply.text += `\n![Second](<${second}>)`;
+  history.prepare("UPDATE thread_items SET item_json=? WHERE item_type='agentMessage'").run(JSON.stringify(reply));
+  await scanner.refresh();assert.match(await scanner.taskImage(id,"cover-turn",second),/^data:image\/png;base64,/);
+  assert.match(await scanner.taskImage(id,"cover-turn",second.replaceAll(" ","%20")),/^data:image\/png;base64,/);
   assert.equal(await scanner.taskImage(id,"cover-turn",join(home,"other.png")),null);
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,2,'inProgress','new-turn')").run(id);
   const next=await scanner.refresh();assert.equal(next.tasks[0].replyImage,null);assert.notEqual(next.revision,first.revision);

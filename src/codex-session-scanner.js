@@ -1,8 +1,9 @@
+import { normalizeUri } from "micromark-util-sanitize-uri";
 import { displayUserPrompt } from "./user-prompt.js";
 import { CodexProjects } from "./codex-projects.js";
 import { CodexSessionUsage } from "./codex-session-usage.js";
 import { CodexPricing } from "./codex-pricing.js";
-import { replyImage, localReplyImage } from "./reply-image.js";
+import { replyImage, replyImages, localReplyImage } from "./reply-image.js";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { open, stat, readFile, readdir, mkdir } from "node:fs/promises";
@@ -468,8 +469,11 @@ export class CodexSessionScanner {
     const snapshot = await this.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const task = this.task(id);
-    if (!task || task.turnId !== expectedTurnId || task.replyImage?.url !== expectedUrl) return null;
-    try { return await localReplyImage(task.replyImage.url); } catch { return null; }
+    if (!task || task.turnId !== expectedTurnId) return null;
+    const reply = this.databaseCache.records.latestContent.get(id)?.replyText ?? "";
+    const image = replyImages(reply).find(image => image.url === expectedUrl || normalizeUri(image.url) === expectedUrl);
+    if (!image) return null;
+    try { return await localReplyImage(image.url); } catch { return null; }
   }
   async taskUsage(id, savedDurations = []) {
     const task = this.task(id);

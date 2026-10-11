@@ -10,11 +10,12 @@ import { compactTokens, TokenBreakdown, useAnimatedUsage } from "../../dashboard
 import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
 import { formatWorkedDuration } from "../../dashboard/time.js";
 
-export function NextTaskDetail({ task, opened, busy, usageLoading = false, error, onClose, onOpenCodex, extraActions }: {
+export function NextTaskDetail({ task, opened, busy, usageLoading = false, error, onClose, onOpenCodex, extraActions, loadImage }: {
   task: Task | null; opened: boolean; busy: boolean; usageLoading?: boolean; error: string | null;
-  onClose: () => void; onOpenCodex: () => void; extraActions?: ReactNode;
+  onClose: () => void; onOpenCodex: () => void; extraActions?: ReactNode; loadImage?: (task: Task, url?: string) => Promise<string | null>;
 }) {
   const mobile = useMediaQuery("(max-width: 48em)");
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!opened || task?.observed?.lastTurnEvent !== "inProgress") return;
@@ -54,7 +55,7 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
     {error && <Alert color="red">{error}</Alert>}
     <Box className="taskchef-detail-layout">
       <Box className="taskchef-detail-reply">
-        <TurnContent task={task} />
+        <TurnContent task={task} loadImage={loadImage} workedDurationMs={duration} onLightboxChange={setLightboxOpen} />
         <details className="taskchef-detail-technical">
           <summary>Technical details</summary>
           <Stack gap={8} mt="sm">
@@ -108,8 +109,8 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
     </Box>
   </Stack>;
   return mobile
-    ? <Drawer opened={opened} onClose={onClose} position="bottom" size="92%" title={task.title} classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
-    : <Modal opened={opened} onClose={onClose} title={task.title} size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
+    ? <Drawer opened={opened} onClose={onClose} closeOnEscape={!lightboxOpen} trapFocus={!lightboxOpen} position="bottom" size="92%" title={task.title} classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
+    : <Modal opened={opened} onClose={onClose} closeOnEscape={!lightboxOpen} trapFocus={!lightboxOpen} title={task.title} size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
 }
 
 function usageCost(value: SavedUsage) {

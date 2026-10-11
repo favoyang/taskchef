@@ -25,3 +25,12 @@ test("cards show only the prompt while running and only the response otherwise",
  rerender(<TurnContent task={{...task,status:'needs_input'}} compact />);
  expect(screen.queryByText('Current request')).toBeNull();expect(screen.getByText('Current response')).toBeVisible();
 });
+
+
+test("details hide generated request labels and put worked time before the complete reply", () => {
+ render(<TurnContent task={{...fixtureTask(),promptText:"## My request:\nPlease review.",replyText:"Full response.",observed:{archive:false,recentFileActivity:false,lastTurnEvent:"completed",lastTurnEventAt:null,latestTurnDurationMs:298000}}} />);
+ expect(screen.getByLabelText('Latest turn request')).toHaveTextContent('Please review.');
+ expect(screen.getByLabelText('Latest turn request')).not.toHaveTextContent('My request:');
+ expect(screen.getByRole('separator')).toHaveTextContent('Worked for 4m');
+ expect(screen.getByLabelText('Latest turn response')).toHaveTextContent('Full response.');
+});
