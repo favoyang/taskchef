@@ -966,13 +966,16 @@ test('Needs answer uses structured latest-turn questions and recorded answers, n
   assert.equal((await scanner.refresh()).tasks[0].needsAnswer,false);
   insert.run(id,'turn-1','question-call',JSON.stringify({type:'agentMessage',id:'question-call',delivery:'async',questions:[{title:'May I retry?',options:['Yes','No']},{title:'Which scope?'}]}),'agentMessage',2);
   const waiting=await scanner.refresh();assert.equal(waiting.tasks[0].needsAnswer,true);assert.equal(waiting.tasks[0].status,'needs_input');
+  assert.deepEqual(waiting.tasks[0].pendingQuestions.map(({title,options})=>({title,options})),[{title:'May I retry?',options:['Yes','No']},{title:'Which scope?',options:[]}]);
+  history.prepare('UPDATE thread_items SET item_json=? WHERE item_id=?').run(JSON.stringify({type:'agentMessage',id:'question-call',questions:[{title:'May I retry now?',options:['Yes','No']},{title:'Which scope?'}]}),'question-call');
+  const editedQuestion=await scanner.refresh();assert.ok(editedQuestion.revision>waiting.revision);assert.equal(editedQuestion.tasks[0].pendingQuestions[0].title,'May I retry now?');
   const answer=index=>'<send_user_message_question_reply>'+JSON.stringify({questionItemId:JSON.stringify(['request_user_input_async','question-call',index]),question:'May I retry?',answer:'No'})+'</send_user_message_question_reply>';
   insert.run(id,'turn-1','answer-first',JSON.stringify({type:'steeringUserMessage',status:'pending',input:[{type:'text',text:answer(0)}]}),'steeringUserMessage',3);
   assert.equal((await scanner.refresh()).tasks[0].needsAnswer,true);
   history.prepare('UPDATE thread_items SET item_json=? WHERE item_id=?').run(JSON.stringify({type:'steeringUserMessage',status:'accepted',input:[{type:'text',text:answer(0)}]}),'answer-first');
-  assert.equal((await scanner.refresh()).tasks[0].needsAnswer,true);
+  const partialAnswer=await scanner.refresh();assert.equal(partialAnswer.tasks[0].needsAnswer,true);assert.deepEqual(partialAnswer.tasks[0].pendingQuestions.map(q=>q.title),['Which scope?']);
   insert.run(id,'turn-1','answer-second',JSON.stringify({type:'userMessage',content:[{type:'text',text:answer(1)}]}),'userMessage',4);
-  const answered=await scanner.refresh();assert.equal(answered.tasks[0].needsAnswer,false);assert.ok(answered.revision>waiting.revision);
+  const answered=await scanner.refresh();assert.equal(answered.tasks[0].needsAnswer,false);assert.deepEqual(answered.tasks[0].pendingQuestions,[]);assert.ok(answered.revision>waiting.revision);
   history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,2,'inProgress','new-turn')").run(id);
   assert.equal((await scanner.refresh()).tasks[0].needsAnswer,false);
 });

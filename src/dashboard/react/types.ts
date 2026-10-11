@@ -122,6 +122,7 @@ export interface Task {
   replyExcerpt?: string | null;
   annotations?: { text: string; annotation: string }[];
   needsAnswer?: boolean;
+  pendingQuestions?: { id: string; title: string; options: string[] }[];
   queuedPrompts?: { id: string; text: string; images: { url: string; alt: string }[] }[];
   promptImage?: { url: string; alt: string } | null;
   promptImages?: { url: string; alt: string }[];

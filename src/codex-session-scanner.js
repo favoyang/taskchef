@@ -152,15 +152,18 @@ function delegatedPrompt(item) {
   return match ? match[1] : null;
 }
 
-function hasUnansweredQuestion(records) {
-  const questions = new Set();
+function unansweredQuestions(records) {
+  const questions = new Map();
   const answers = new Set();
   for (const record of records) {
     let item;
     try { item = JSON.parse(record.item_json); } catch { continue; }
     if (item.type === "agentMessage" && typeof item.id === "string" && Array.isArray(item.questions)) {
       item.questions.forEach((question, index) => {
-        if (typeof question?.title === "string" && question.title.trim()) questions.add(JSON.stringify(["request_user_input_async", item.id, index]));
+        if (typeof question?.title === "string" && question.title.trim()) {
+          const id = JSON.stringify(["request_user_input_async", item.id, index]);
+          questions.set(id, { id, title: question.title, options: Array.isArray(question.options) ? question.options.filter(option => typeof option === "string" && option.trim()) : [] });
+        }
       });
     }
     if (item.type !== "userMessage" && !(item.type === "steeringUserMessage" && item.status === "accepted")) continue;
@@ -175,7 +178,7 @@ function hasUnansweredQuestion(records) {
       }
     } catch { /* An unrecognized reply cannot prove that the question was answered. */ }
   }
-  return [...questions].some(id => !answers.has(id));
+  return [...questions.values()].filter(question => !answers.has(question.id));
 }
 
 function readDatabaseRecords(state, history) {
@@ -201,14 +204,14 @@ function readDatabaseRecords(state, history) {
     const delegationCalls = history.prepare("SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ? AND item_type = 'functionCallOutput' ORDER BY rollout_ordinal");
     const questionItems = history.prepare(`SELECT item_json FROM thread_items WHERE thread_id = ? AND turn_id = ?
       AND ((item_type = 'agentMessage' AND json_array_length(item_json, '$.questions') > 0)
-        OR (item_type IN ('userMessage', 'steeringUserMessage') AND instr(item_json, 'send_user_message_question_reply') > 0))`);
+        OR (item_type IN ('userMessage', 'steeringUserMessage') AND instr(item_json, 'send_user_message_question_reply') > 0)) ORDER BY rollout_ordinal`);
     const turnAttachments = new Map();
     const inputs = new Map();
     const replies = new Map();
     for (const row of rows) {
       const key = historyId(row);
       const turn = turns.get(key);
-      needsAnswers.set(key, hasUnansweredQuestion(questionItems.all(key, turn.turn_id)));
+      needsAnswers.set(key, unansweredQuestions(questionItems.all(key, turn.turn_id)));
       turnAttachments.set(key, attachCalls.all(key, turn.turn_id).map((row) => JSON.parse(row.item_json))
         .filter((item) => item.server === "codex_app" && item.tool === "attach_artifact" && item.status === "completed" && !item.error && !item.result?.isError
           && item.arguments?.artifact_type === "pull_request" && typeof item.arguments.url === "string")
@@ -295,7 +298,8 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
         summary: reason, promptExcerpt, replyExcerpt, annotations, promptImages, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
-        needsAnswer: !row.archived && records.needsAnswers.get(historyId(row)) === true,
+        needsAnswer: !row.archived && (records.needsAnswers.get(historyId(row))?.length ?? 0) > 0,
+        pendingQuestions: row.archived ? [] : records.needsAnswers.get(historyId(row)) ?? [],
         status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
@@ -493,7 +497,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImages, task.promptImage, task.replyImage, task.queuedPrompts, task.needsAnswer, task.pullRequests,
+        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImages, task.promptImage, task.replyImage, task.queuedPrompts, task.needsAnswer, task.pendingQuestions, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;

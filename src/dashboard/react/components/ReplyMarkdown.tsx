@@ -72,7 +72,7 @@ function AnnotationLink({ index }: { index: number }) {
   const popupId = useId();
   const label = annotation ? <div className="taskchef-annotation-popup">
     <div className="taskchef-annotation-label">Selected text:</div><div>{annotation.text}</div>
-    {annotation.annotation && <><div className="taskchef-annotation-label">User comment:</div><div>{annotation.annotation}</div></>}
+    <div className="taskchef-annotation-label">User comment:</div><div>{annotation.annotation.trim() || "—"}</div>
   </div> : "Annotation details unavailable.";
   const [opened, setOpened] = useState(false);
   useEffect(() => { onOpenChange?.(popupId, opened); return () => onOpenChange?.(popupId, false); }, [popupId, opened, onOpenChange]);

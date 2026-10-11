@@ -111,10 +111,14 @@ test("a resolved usage read with zero samples is unavailable", () => {
 
 test('Needs answer adds an open-chat action without replacing the saved prompt or response', () => {
  const open=vi.fn();
- const task={...fixtureTask(),needsAnswer:true,promptText:'Run the scan.',replyText:'The connection failed. Approval requested.'};
+ const task={...fixtureTask(),needsAnswer:true,pendingQuestions:[{id:'question',title:'May I retry the scan?',options:['Retry once','Stop']}],promptText:'Run the scan.',replyText:'The connection failed. Approval requested.'};
  render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={open}/></MantineProvider>);
  expect(screen.getByText('Needs answer')).toBeInTheDocument();
+ const questions=screen.getByRole('region',{name:'Pending questions'});
+ expect(within(questions).getByText('May I retry the scan?')).toBeVisible();
+ expect(within(questions).getAllByRole('listitem').map(item=>item.textContent)).toEqual(['Retry once','Stop']);
+ expect(within(questions).getByRole('button',{name:'Open chat to answer'})).toBeVisible();
  expect(screen.getByText('Run the scan.')).toBeInTheDocument();
  expect(screen.getByText('The connection failed. Approval requested.')).toBeInTheDocument();
- fireEvent.click(screen.getByRole('button',{name:'Open chat to answer.'}));expect(open).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByRole('button',{name:'Open chat to answer'}));expect(open).toHaveBeenCalledTimes(1);
 });

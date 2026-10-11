@@ -99,3 +99,10 @@ test('an open annotation survives same-turn refresh and closes without opening a
  fireEvent.keyDown(screen.getByRole('button',{name:'Annotation 1'}),{key:'Escape'});
  expect(screen.queryByRole('tooltip')).toBeNull();
 });
+
+ test("annotation popups keep fixed labels even without a comment", async () => {
+ render(<MantineProvider><ReplyMarkdown text={':codex-annotation{index="1"}'} annotations={[{text:"A selection",annotation:"   "}]} /></MantineProvider>);
+ fireEvent.mouseEnter(screen.getByRole("button",{name:"Annotation 1"}));
+ const popup=await screen.findByRole("tooltip");
+ expect(popup).toHaveTextContent("Selected text:A selectionUser comment:—");
+ });
