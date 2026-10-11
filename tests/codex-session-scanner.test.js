@@ -904,3 +904,18 @@ test("selected prompt images supply the running cover and allow all Details read
  assert.equal(scanner.task(id).promptImage,null);
  assert.equal(await scanner.taskImage(id,"next-turn",second),null);
 });
+
+test("annotation context belongs to the selected turn in board and Details", async (t) => {
+ const setup=await fixture(t);if(!setup)return;
+ const {home,state,history}=setup;
+ state.prepare("INSERT INTO threads (id,title,archived) VALUES (?,'Annotations',0)").run(id);
+ history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,1,'completed','annotated','prompt')").run(id);
+ const text='# Response annotations:\nEach item contains text selected from an earlier Codex response and may include a user comment.\n<response-annotations>[{"text":"Selected response","annotation":"Change it","source":{"messageId":"not-needed"}}]</response-annotations>\n## My request:\n';
+ history.prepare("INSERT INTO thread_items VALUES (?,?,?,?,?,?)").run(id,'annotated','prompt',JSON.stringify({type:'userMessage',clientId:'human',content:[{type:'text',text}]}),'userMessage',1);
+ const scanner=new CodexSessionScanner({codexHome:home});t.after(()=>scanner.close());
+ let snapshot=await scanner.refresh();
+ assert.deepEqual(snapshot.tasks[0].annotations,[{text:'Selected response',annotation:'Change it'}]);
+ assert.deepEqual((await scanner.taskDetail(id)).annotations,snapshot.tasks[0].annotations);
+ history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,2,'completed','later')").run(id);
+ snapshot=await scanner.refresh();assert.deepEqual(snapshot.tasks[0].annotations,[]);
+});

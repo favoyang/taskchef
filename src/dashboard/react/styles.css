@@ -310,3 +310,8 @@ body {
 .taskchef-prompt-images .taskchef-image-thumbnail img { max-height:120px; }
 
 .taskchef-turn-prompt .taskchef-markdown p:empty { display:none; }
+
+.taskchef-annotation-link { color: var(--mantine-color-anchor); font: inherit; padding: 0; border: 0; background: none; text-decoration: underline; cursor: pointer; }
+.taskchef-annotation-popup { font-size: var(--mantine-font-size-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; text-align: left; }
+.taskchef-annotation-label { color: var(--mantine-color-dimmed); margin-top: 8px; margin-bottom: 4px; }
+.taskchef-annotation-label:first-child { margin-top: 0; }

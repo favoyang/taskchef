@@ -1,7 +1,7 @@
 import { Alert, Anchor, Badge, Box, Drawer, Group, Modal, ScrollArea, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconClock, IconFolder, IconHourglass, IconRobot } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
 import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
@@ -16,6 +16,16 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
 }) {
   const mobile = useMediaQuery("(max-width: 48em)");
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [annotationPopups, setAnnotationPopups] = useState<Set<string>>(() => new Set());
+  const annotationChange = useCallback((id: string, opened: boolean) => {
+    setAnnotationPopups(current => {
+      if (current.has(id) === opened) return current;
+      const next = new Set(current);
+      if (opened) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
+  const overlayOpen = lightboxOpen || annotationPopups.size > 0;
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!opened || task?.observed?.lastTurnEvent !== "inProgress") return;
@@ -55,7 +65,7 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
     {error && <Alert color="red">{error}</Alert>}
     <Box className="taskchef-detail-layout">
       <Box className="taskchef-detail-reply">
-        <TurnContent task={task} loadImage={loadImage} workedDurationMs={duration} onLightboxChange={setLightboxOpen} />
+        <TurnContent task={task} loadImage={loadImage} workedDurationMs={duration} onLightboxChange={setLightboxOpen} onAnnotationChange={annotationChange} />
         <details className="taskchef-detail-technical">
           <summary>Technical details</summary>
           <Stack gap={8} mt="sm">
@@ -109,8 +119,8 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
     </Box>
   </Stack>;
   return mobile
-    ? <Drawer opened={opened} onClose={onClose} closeOnEscape={!lightboxOpen} trapFocus={!lightboxOpen} position="bottom" size="92%" title={task.title} classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
-    : <Modal opened={opened} onClose={onClose} closeOnEscape={!lightboxOpen} trapFocus={!lightboxOpen} title={task.title} size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
+    ? <Drawer opened={opened} onClose={onClose} closeOnEscape={!overlayOpen} trapFocus={!overlayOpen} position="bottom" size="92%" title={task.title} classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Drawer>
+    : <Modal opened={opened} onClose={onClose} closeOnEscape={!overlayOpen} trapFocus={!overlayOpen} title={task.title} size={960} centered classNames={{ content: "taskchef-detail-dialog" }} zIndex={300} scrollAreaComponent={ScrollArea.Autosize}>{content}</Modal>;
 }
 
 function usageCost(value: SavedUsage) {

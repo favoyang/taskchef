@@ -38,3 +38,18 @@ export function displayUserPrompt(text) {
   const formattedContext = result.trim();
   return formattedContext ? `${formattedContext}\n\n${request}` : request;
 }
+
+// Annotation indexes refer to the supplied context of this exact turn.
+export function responseAnnotations(text) {
+  const heading = /^##? My request:[ \t]*(?:\r?\n|$)/m.exec(text);
+  if (!heading || !/^(?:[ \t]*\r?\n)*(?:# Response annotations:|# Files mentioned by the user:|<in-app-browser-context source="ambient-ui-state">)\r?\n/.test(text)) return [];
+  const context = text.slice(0, heading.index);
+  if (!context.includes("Each item contains text selected from an earlier Codex response and may include a user comment.")) return [];
+  const match = /<response-annotations>\s*([\s\S]*?)\s*<\/response-annotations>/.exec(context);
+  if (!match) return [];
+  try {
+    const items = JSON.parse(match[1]);
+    if (!Array.isArray(items) || items.some(item => !item || typeof item.text !== "string" || (item.annotation !== undefined && typeof item.annotation !== "string"))) return [];
+    return items.map(item => ({ text: item.text, annotation: item.annotation ?? "" }));
+  } catch { return []; }
+}

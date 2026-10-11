@@ -120,6 +120,7 @@ export interface Task {
   promptText?: string | null;
   replyText?: string | null;
   replyExcerpt?: string | null;
+  annotations?: { text: string; annotation: string }[];
   promptImage?: { url: string; alt: string } | null;
   promptImages?: { url: string; alt: string }[];
   replyImage?: { url: string; alt: string } | null;

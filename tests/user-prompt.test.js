@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayUserPrompt } from '../src/user-prompt.js';
+import { displayUserPrompt, responseAnnotations } from '../src/user-prompt.js';
 test('renders selected quotes and feedback, keeping the actual request', () => {
  const input=`# Response annotations:\nEach item contains text selected from an earlier Codex response and may include a user comment.\n<response-annotations>\n${JSON.stringify([{text:'Selected **text**\nSecond line',annotation:'Change this.'}])}\n</response-annotations>\n\n## My request:\nKeep this request.`;
  assert.equal(displayUserPrompt(input),'> Selected **text**\n> Second line\n\nChange this.\n\nKeep this request.');
@@ -97,4 +97,13 @@ test('image lists handle CRLF and keep non-image files as attachments', () => {
  assert.match(result,/!\[first.png\]\(<\/tmp\/first%20image.png>\)/);
  assert.match(result,/!\[second.png\]/); assert.match(result,/📎 notes.md/);
  assert.doesNotMatch(result,/Image attachment|My request/);
+});
+
+const annotationContext = items => '# Response annotations:\nEach item contains text selected from an earlier Codex response and may include a user comment.\n<response-annotations>'+JSON.stringify(items)+'</response-annotations>\n## My request:\n';
+test('annotation data retains order without source metadata or wrong types', () => {
+ assert.deepEqual(responseAnnotations(annotationContext([{text:'Selected text',annotation:'Please change it.',source:{messageId:'private'}},{text:'Second'}])),[{text:'Selected text',annotation:'Please change it.'},{text:'Second',annotation:''}]);
+ for (const items of [[null],[{text:42}],[{text:'Text',annotation:42}]]) assert.deepEqual(responseAnnotations(annotationContext(items)),[]);
+ assert.deepEqual(responseAnnotations(annotationContext([])+'<response-annotations>[{"text":"Example"}]</response-annotations>'),[]);
+ assert.deepEqual(responseAnnotations('Example: <response-annotations>[{"text":"Example"}]</response-annotations>'),[]);
+ assert.deepEqual(responseAnnotations(annotationContext([]).replace('[]','{broken}')),[]);
 });

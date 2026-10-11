@@ -1,5 +1,5 @@
 import { normalizeUri } from "micromark-util-sanitize-uri";
-import { displayUserPrompt } from "./user-prompt.js";
+import { displayUserPrompt, responseAnnotations } from "./user-prompt.js";
 import { CodexProjects } from "./codex-projects.js";
 import { CodexSessionUsage } from "./codex-session-usage.js";
 import { CodexPricing } from "./codex-pricing.js";
@@ -199,6 +199,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       const promptExcerpt = promptText.slice(0, 2000) || null;
       const replyExcerpt = replyText.slice(0, 2000) || null;
       const promptImages = replyImages(promptText);
+      const annotations = responseAnnotations(inputText);
       content.set(row.id, { promptText: promptText || null, replyText: replyText || null, promptImages });
       if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
       // Ownership comes from the registry; latest-turn references only narrow that owned set.
@@ -220,7 +221,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: reason, promptExcerpt, replyExcerpt, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
+        summary: reason, promptExcerpt, replyExcerpt, annotations, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
         status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
@@ -414,7 +415,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.promptImage, task.replyImage, task.pullRequests,
+        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImage, task.replyImage, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;

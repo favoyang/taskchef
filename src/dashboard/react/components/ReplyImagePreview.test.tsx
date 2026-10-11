@@ -4,6 +4,24 @@ import { afterEach, expect, test, vi } from "vitest";
 import { fixtureTask } from "../fixtures";
 import { NextTaskDetail } from "../../../mcp-app/react/NextTaskDetail";
 import { TurnContent } from "./TurnContent";
+// Test TaskChef's rows and keyboard handlers without jsdom layout work.
+// Browser QA separately exercises Mantine's real popup and positioning.
+vi.mock("@mantine/core", async () => {
+  const actual = await vi.importActual<typeof import("@mantine/core")>("@mantine/core");
+  const React = await import("react");
+  const { createPortal } = await import("react-dom");
+  const Open = React.createContext(false);
+  const Popover = Object.assign(
+    ({opened, children}: {opened: boolean; children: React.ReactNode}) => <Open value={opened}>{children}</Open>,
+    {
+      Target: ({children}: {children: React.ReactNode}) => children,
+      Dropdown: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>((props, ref) =>
+        React.useContext(Open) ? createPortal(<div {...props} ref={ref} />, document.body) : null),
+    },
+  );
+  return {...actual, Popover};
+});
+
 afterEach(cleanup);
 const png = 'data:image/png;base64,iVBORw0KGgo=';
 test('reply thumbnails open above Details and close with Escape', async () => {
@@ -41,5 +59,16 @@ test('all prompt images stay visible beside capped prompt text and open in the l
  await waitFor(()=>expect(screen.getByRole('dialog',{name:'Second'})).toBeVisible());
  fireEvent.keyDown(screen.getByRole('dialog',{name:'Second'}),{key:'Escape'});
  await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Second'})).toBeNull());
+ expect(close).not.toHaveBeenCalled();
+});
+
+test('Escape closes an annotation popup while keeping Details open', async () => {
+ const close=vi.fn();
+ render(<MantineProvider><NextTaskDetail task={{...fixtureTask(),title:'Annotated chat',replyText:':codex-annotation{index="1"}',annotations:[{text:'Selected text',annotation:'User comment'}]}} opened busy={false} error={null} onClose={close} onOpenCodex={()=>{}} /></MantineProvider>);
+ fireEvent.click(screen.getByRole('button',{name:'Annotation 1'}));
+ await waitFor(()=>expect(screen.getByRole('tooltip')).toBeVisible());
+ fireEvent.keyDown(screen.getByRole('button',{name:'Annotation 1'}),{key:'Escape'});
+ await waitFor(()=>expect(screen.queryByRole('tooltip')).toBeNull());
+ expect(screen.getByRole('dialog',{name:'Annotated chat'})).toBeVisible();
  expect(close).not.toHaveBeenCalled();
 });
