@@ -5,6 +5,8 @@ import { ReplyImagePreview } from "./ReplyImagePreview";
 import { formatWorkedDuration } from "../../time.js";
 import { ReplyMarkdown } from "./ReplyMarkdown";
 
+const hidePromptImage = () => null;
+
 function CollapsedMarkdown({ text }: { text: string }) {
   const content = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -19,7 +21,7 @@ function CollapsedMarkdown({ text }: { text: string }) {
     return () => observer.disconnect();
   }, [text, expanded]);
   return <>
-    <div ref={content} className={expanded ? "" : "taskchef-turn-collapsed"}><ReplyMarkdown text={text} hideRequestLabels /></div>
+    <div ref={content} className={expanded ? "" : "taskchef-turn-collapsed"}><ReplyMarkdown text={text} hideRequestLabels renderImage={hidePromptImage} /></div>
     {(clipped || expanded) && <button type="button" className="taskchef-turn-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Show more…"}</button>}
   </>;
 }
@@ -32,12 +34,14 @@ export function TurnContent({ task, compact = false, loadImage, workedDurationMs
   const reply = compact ? task.replyExcerpt : task.replyText ?? task.replyExcerpt;
   if (compact) {
     const text = task.status === "working" ? prompt : reply;
-    return text ? <div className="taskchef-turn-card" aria-label={task.status === "working" ? "Latest turn request" : "Latest turn response"}><ReplyMarkdown compact hideRequestLabels={task.status === "working"} text={text} /></div> : null;
+    return text ? <div className="taskchef-turn-card" aria-label={task.status === "working" ? "Latest turn request" : "Latest turn response"}><ReplyMarkdown compact hideRequestLabels={task.status === "working"} text={text} renderImage={task.status === "working" ? hidePromptImage : undefined} /></div> : null;
   }
+  const promptImages = task.promptImages ?? (task.promptImage ? [task.promptImage] : []);
   const duration = workedDurationMs ?? task.observed?.latestTurnDurationMs;
   return <div className="taskchef-turn-content">
     {prompt && <div className="taskchef-turn-prompt" aria-label="Latest turn request">
       {task.inputSource === "scheduled" && <IconClock className="taskchef-schedule-clock taskchef-prompt-clock" size={14} stroke={1.5} aria-label="Scheduled prompt" />}
+      {loadImage && promptImages.length > 0 && <div className="taskchef-prompt-images">{promptImages.map((image, index) => <ReplyImagePreview key={`${task.id}:${task.turnId}:${image.url}:${index}`} task={task} url={image.url} alt={image.alt} loadImage={loadImage} onLightboxChange={onLightboxChange} />)}</div>}
       <CollapsedMarkdown key={`prompt:${task.id}:${task.turnId}`} text={prompt} />
     </div>}
     {reply && <>

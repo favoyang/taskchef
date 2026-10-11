@@ -28,3 +28,18 @@ test('missing local images are hidden and remote images stay links', async () =>
  expect(screen.queryByRole('img')).toBeNull();expect(screen.queryByRole('button',{name:/Enlarge/})).toBeNull();
  expect(screen.getByRole('link',{name:'Remote'})).toHaveAttribute('href','https://example.com/image.png');
 });
+
+test('all prompt images stay visible beside capped prompt text and open in the lightbox', async () => {
+ const load=vi.fn().mockResolvedValue(png); const close=vi.fn();
+ const task={...fixtureTask(),title:'Prompt images',promptText:'![First](/first.png)\n\n![Second](/second.png)\n\nPlease review both.',promptImages:[{url:'/first.png',alt:'First'},{url:'/second.png',alt:'Second'}]};
+ render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={close} onOpenCodex={()=>{}} loadImage={load} /></MantineProvider>);
+ expect(await screen.findByRole('button',{name:'Enlarge First'})).toBeVisible();
+ const second=await screen.findByRole('button',{name:'Enlarge Second'});
+ expect(second.closest('.taskchef-turn-collapsed')).toBeNull();
+ expect(screen.getAllByRole('img')).toHaveLength(2);
+ fireEvent.click(second);
+ await waitFor(()=>expect(screen.getByRole('dialog',{name:'Second'})).toBeVisible());
+ fireEvent.keyDown(screen.getByRole('dialog',{name:'Second'}),{key:'Escape'});
+ await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Second'})).toBeNull());
+ expect(close).not.toHaveBeenCalled();
+});

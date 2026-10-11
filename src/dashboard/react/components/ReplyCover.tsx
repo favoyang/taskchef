@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Task } from "../types";
 
-export function ReplyCover({ task, loadImage, onOpen }: { task: Task; loadImage?: (task: Task) => Promise<string | null>; onOpen: () => void }) {
-  const image = task.replyImage!;
+export function ReplyCover({ task, image = task.replyImage!, loadImage, onOpen }: { task: Task; image?: { url: string; alt: string }; loadImage?: (task: Task, url?: string) => Promise<string | null>; onOpen: () => void }) {
   const root = useRef<HTMLButtonElement>(null);
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -16,7 +15,7 @@ export function ReplyCover({ task, loadImage, onOpen }: { task: Task; loadImage?
       if (started) return;
       started = true;
       try {
-        const url = await loadImage?.(task);
+        const url = await loadImage?.(task, image.url);
         if (!cancelled) { setSrc(url || null); setFailed(!url); }
       } catch { if (!cancelled) setFailed(true); }
     };

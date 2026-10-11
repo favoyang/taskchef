@@ -304,3 +304,9 @@ body {
 .taskchef-image-thumbnail img { display: block; max-width: 100%; width: auto; max-height: 160px; object-fit: contain; }
 .taskchef-image-thumbnail:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 3px; }
 .taskchef-image-lightbox img { display: block; max-width: calc(100vw - 64px); max-height: calc(100dvh - 140px); object-fit: contain; }
+
+.taskchef-prompt-images { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+.taskchef-prompt-images .taskchef-response-image { margin:0; max-width:100%; }
+.taskchef-prompt-images .taskchef-image-thumbnail img { max-height:120px; }
+
+.taskchef-turn-prompt .taskchef-markdown p:empty { display:none; }

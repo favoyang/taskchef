@@ -198,7 +198,8 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         ? (/<instructions>([\s\S]*?)<\/instructions>/.exec(inputText)?.[1].trim() || "") : displayUserPrompt(inputText);
       const promptExcerpt = promptText.slice(0, 2000) || null;
       const replyExcerpt = replyText.slice(0, 2000) || null;
-      content.set(row.id, { promptText: promptText || null, replyText: replyText || null });
+      const promptImages = replyImages(promptText);
+      content.set(row.id, { promptText: promptText || null, replyText: replyText || null, promptImages });
       if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
       // Ownership comes from the registry; latest-turn references only narrow that owned set.
       const references = new Set([...`${inputText}\n${replyText}`.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].map((match) => match[0].replace(/\/$/, "")));
@@ -219,7 +220,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: reason, promptExcerpt, replyExcerpt, replyImage: images.get(row.id),
+        summary: reason, promptExcerpt, replyExcerpt, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
         status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
@@ -413,7 +414,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.replyImage, task.pullRequests,
+        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.promptImage, task.replyImage, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;
@@ -470,8 +471,9 @@ export class CodexSessionScanner {
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const task = this.task(id);
     if (!task || task.turnId !== expectedTurnId) return null;
-    const reply = this.databaseCache.records.latestContent.get(id)?.replyText ?? "";
-    const image = replyImages(reply).find(image => image.url === expectedUrl || normalizeUri(image.url) === expectedUrl);
+    const content = this.databaseCache.records.latestContent.get(id);
+    const images = [...(content?.promptImages ?? []), ...replyImages(content?.replyText ?? "")];
+    const image = images.find(image => image.url === expectedUrl || normalizeUri(image.url) === expectedUrl);
     if (!image) return null;
     try { return await localReplyImage(image.url); } catch { return null; }
   }

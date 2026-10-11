@@ -39,7 +39,7 @@ export function TaskBoard({
   groupInterruptedWithWaiting?: boolean;
   doneNotice?: ReactNode;
   onVisibleTasksChange?: (ids: string[]) => void;
-  loadImage?: (task: Task) => Promise<string | null>;
+  loadImage?: (task: Task, url?: string) => Promise<string | null>;
   lanes?: { status: TaskStatus; label: string; emptyMessage?: string }[];
   completedLimit: number;
   archivedLimit?: number;
@@ -216,7 +216,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
   draggable?: boolean;
   onDragStart?: React.DragEventHandler<HTMLElement>;
   onDragEnd?: React.DragEventHandler<HTMLElement>;
-  loadImage?: (task: Task) => Promise<string | null>;
+  loadImage?: (task: Task, url?: string) => Promise<string | null>;
   task: Task;
   onOpenCodex: (task: Task) => void;
   onOpenDetail: (task: Task) => void;
@@ -224,9 +224,10 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
   const latest = latestTurnPresentation(task);
   const excerpt = task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
+  const cover = task.status === "working" ? task.promptImage : task.replyImage;
   return (
     <Paper draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onDragEnd={onDragEnd} data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
-      {task.observed && task.replyImage && <ReplyCover key={`${task.turnId}:${task.replyImage.url}`} task={task} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
+      {task.observed && cover && <ReplyCover key={`${task.turnId}:${cover.url}`} task={task} image={cover} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
         {task.observed?.unread && <span className="taskchef-chat-unread-dot" role="img" aria-label="Unread chat" />}
