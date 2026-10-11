@@ -34,3 +34,11 @@ test("details hide generated request labels and put worked time before the compl
  expect(screen.getByRole('separator')).toHaveTextContent('Worked for 4m');
  expect(screen.getByLabelText('Latest turn response')).toHaveTextContent('Full response.');
 });
+
+test("card prompt cleanup does not change response headings", () => {
+ const task={...fixtureTask(),status:"working" as const,promptExcerpt:"## My request:\nReview this.",replyExcerpt:"## My requests:\nA response section."};
+ const {rerender}=render(<TurnContent task={task} compact />);
+ expect(screen.getByLabelText("Latest turn request")).not.toHaveTextContent("My request:");
+ rerender(<TurnContent task={{...task,status:"needs_input"}} compact />);
+ expect(screen.getByLabelText("Latest turn response")).toHaveTextContent("My requests:");
+});

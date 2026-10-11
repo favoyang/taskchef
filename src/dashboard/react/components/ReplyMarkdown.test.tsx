@@ -34,7 +34,7 @@ test("does not execute HTML, use unsafe links, or fetch saved images", () => {
 
 
 test.each(["## My request:\nFix the filter.", "## My requests:\nFix the filter.", "My requests:\n\nFix the filter.", "My requests: Fix the filter.", "My requests:\nFix the filter.", "My requests:  \nFix the filter.", "**My requests:** Fix the filter.", "## **My requests:**\nFix the filter.", "**My requests:**  \nFix the filter."])("card previews hide request labels: %s", text => {
-  const { container, rerender } = render(<ReplyMarkdown compact text={text} />);
+  const { container, rerender } = render(<ReplyMarkdown compact hideRequestLabels text={text} />);
   expect(container).toHaveTextContent("Fix the filter.");
   expect(container).not.toHaveTextContent(/My requests?:/i);
   rerender(<ReplyMarkdown text={text} />);
@@ -42,7 +42,13 @@ test.each(["## My request:\nFix the filter.", "## My requests:\nFix the filter."
 });
 
 test("card request-label cleanup preserves quoted and code examples", () => {
-  const { container } = render(<ReplyMarkdown compact text={"> ## My requests:\n\n```text\nMy requests:\n```"} />);
+  const { container } = render(<ReplyMarkdown compact hideRequestLabels text={"> ## My requests:\n\n```text\nMy requests:\n```"} />);
   expect(container.querySelector("blockquote")).toHaveTextContent("My requests:");
   expect(container.querySelector("pre code")).toHaveTextContent("My requests:");
+});
+
+test("prompt cleanup preserves later user headings", () => {
+ const { container } = render(<ReplyMarkdown hideRequestLabels text={"## My request:\nReview this.\n\n## My requests:\nA real later section."} />);
+ expect(container.querySelectorAll("h2")).toHaveLength(1);
+ expect(container.querySelector("h2")).toHaveTextContent("My requests:");
 });

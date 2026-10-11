@@ -495,7 +495,7 @@ test("Done-file cache notices rewrites, replacements, removal, and invalid conte
   assert.match(await scanner.taskImage(id,"cover-turn",image),/^data:image\/png;base64,/);
   const second=join(home,"second image (2).png");await writeFile(second, await readFile(image));
   const current=history.prepare("SELECT item_json FROM thread_items WHERE item_type='agentMessage'").get();
-  const reply=JSON.parse(current.item_json);reply.text += `\n![Second](<${second}>)`;
+  const reply=JSON.parse(current.item_json);reply.text += `\n![Second](<${second}>)\n![Encoded](${second.replaceAll(" ","%20")})`;
   history.prepare("UPDATE thread_items SET item_json=? WHERE item_type='agentMessage'").run(JSON.stringify(reply));
   await scanner.refresh();assert.match(await scanner.taskImage(id,"cover-turn",second),/^data:image\/png;base64,/);
   assert.match(await scanner.taskImage(id,"cover-turn",second.replaceAll(" ","%20")),/^data:image\/png;base64,/);

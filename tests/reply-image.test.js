@@ -18,6 +18,12 @@ test('local covers are bounded raster files; paths and active content are reject
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j/kcAAAAASUVORK5CYII=','base64');
     const path=join(root,'cover.png');await writeFile(path,png);
     assert.equal(await localReplyImage(path),`data:image/png;base64,${png.toString('base64')}`);
+    const spaced=join(root,"my chart.png"); await writeFile(spaced,png);
+    assert.equal(await localReplyImage(spaced.replaceAll(" ","%20")),`data:image/png;base64,${png.toString("base64")}`);
+    const reserved=join(root,"chart#1?.png"); await writeFile(reserved,png);
+    assert.equal(await localReplyImage(reserved.replace("#","%23").replace("?","%3F")),`data:image/png;base64,${png.toString("base64")}`);
+    const literal=join(root,"my%20chart.png"); await writeFile(literal,png);
+    assert.equal(await localReplyImage(literal),`data:image/png;base64,${png.toString("base64")}`);
     assert.equal(await localReplyImage('https://example.com/a.png'),null);
     assert.equal(await localReplyImage('relative.png'),null);
     await writeFile(path,'<svg><script>alert(1)</script></svg>');assert.equal(await localReplyImage(path),null);

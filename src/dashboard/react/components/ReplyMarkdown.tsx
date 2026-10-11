@@ -22,10 +22,9 @@ function requestLabelText(node: PhrasingContent): string | null {
 
 function hideCardRequestLabels() {
   return (tree: Root) => {
-    tree.children = tree.children.filter(node => !(
-      (node.type === "heading" || node.type === "paragraph") && node.children.length === 1
-      && /^My requests?:\s*$/i.test(requestLabelText(node.children[0]) ?? "")
-    ));
+    const leading = tree.children[0];
+    if (leading && (leading.type === "heading" || leading.type === "paragraph") && leading.children.length === 1
+      && /^My requests?:\s*$/i.test(requestLabelText(leading.children[0]) ?? "")) tree.children.shift();
     const first = tree.children[0];
     if (first?.type === "paragraph" && first.children[0]) {
       const label = first.children[0];
@@ -51,6 +50,6 @@ export function ReplyMarkdown({ text, compact = false, hideRequestLabels = false
       table: ({ children }) => <div className="taskchef-markdown-table"><table>{children}</table></div>,
   }), [renderImage]);
   return <div className={`taskchef-markdown${compact ? " taskchef-markdown--compact" : ""}`}>
-    <Markdown skipHtml remarkPlugins={compact || hideRequestLabels ? [remarkGfm, hideCardRequestLabels] : [remarkGfm]} urlTransform={(url, key) => key === "src" && renderImage && localImagePath(url) ? url : replyUrl(url)} components={components}>{text}</Markdown>
+    <Markdown skipHtml remarkPlugins={hideRequestLabels ? [remarkGfm, hideCardRequestLabels] : [remarkGfm]} urlTransform={(url, key) => key === "src" && renderImage && localImagePath(url) ? url : replyUrl(url)} components={components}>{text}</Markdown>
   </div>;
 }

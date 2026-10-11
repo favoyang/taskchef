@@ -32,7 +32,7 @@ export function TurnContent({ task, compact = false, loadImage, workedDurationMs
   const reply = compact ? task.replyExcerpt : task.replyText ?? task.replyExcerpt;
   if (compact) {
     const text = task.status === "working" ? prompt : reply;
-    return text ? <div className="taskchef-turn-card" aria-label={task.status === "working" ? "Latest turn request" : "Latest turn response"}><ReplyMarkdown compact text={text} /></div> : null;
+    return text ? <div className="taskchef-turn-card" aria-label={task.status === "working" ? "Latest turn request" : "Latest turn response"}><ReplyMarkdown compact hideRequestLabels={task.status === "working"} text={text} /></div> : null;
   }
   const duration = workedDurationMs ?? task.observed?.latestTurnDurationMs;
   return <div className="taskchef-turn-content">

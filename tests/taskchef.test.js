@@ -3798,6 +3798,7 @@ test("plugin manifest packages all skills and stays synchronized by release tool
     "zod",
     "mdast-util-from-markdown",
     "@napi-rs/keyring",
+    "micromark-util-sanitize-uri",
   ]);
   assert.equal(packageJson.optionalDependencies?.ccusage, undefined);
   const releaseConfig = JSON.parse(await readFile(path.resolve(".releaserc.json"), "utf8"));

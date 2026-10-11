@@ -25,7 +25,14 @@ export function replyImage(text) { return replyImages(text)[0] ?? null; }
 // supplied independently by the UI, fetch URLs, or serve active SVG content.
 export async function localReplyImage(path) {
   if (!isAbsolute(path) || path.startsWith('//')) return null;
-  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  let file;
+  try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); } catch (error) {
+    // Keep literal filenames working, then resolve Markdown URI escapes.
+    if (error.code !== "ENOENT") throw error;
+    const decoded = decodeURIComponent(path);
+    if (decoded === path || !isAbsolute(decoded) || decoded.startsWith("//")) throw error;
+    file = await open(decoded, constants.O_RDONLY | constants.O_NONBLOCK);
+  }
   try {
     const info = await file.stat();
     const limit = 4 * 1024 * 1024;
