@@ -37,7 +37,7 @@ test("Next cards show saved replies and keep diagnostics off the card", () => {
   expect(screen.getAllByText("CI passed.")).toHaveLength(2);
   expect(screen.queryByText(/direct subagent/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Latest turn ended/)).not.toBeInTheDocument();
-  expect(screen.getByText("No reply text to show for this turn.")).toBeVisible();
+  expect(screen.queryByText("No reply text to show for this turn.")).not.toBeInTheDocument();
   expect(screen.queryByText("Request")).not.toBeInTheDocument();
   expect(screen.queryByText("Result")).not.toBeInTheDocument();
 });

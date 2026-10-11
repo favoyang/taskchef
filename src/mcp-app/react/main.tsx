@@ -314,7 +314,7 @@ export function TaskChefApp() {
     const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     return filterTasks(projectTasks, { date, now }).filter((task: Task) => {
       const content = [
-        task.title, task.replyExcerpt ?? "", task.project.name,
+        task.title, task.promptExcerpt ?? "", task.replyExcerpt ?? "", task.project.name,
         ...(task.project.githubRepos ?? []),
         ...(task.pullRequests ?? []).flatMap((pr) => [pr.title ?? "", pr.url.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)/)?.[1] ?? ""]),
       ].join("\n").toLocaleLowerCase();

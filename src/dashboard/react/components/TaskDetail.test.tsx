@@ -244,3 +244,12 @@ test("read-only Details allows copying an ID without exposing manual status acti
   fireEvent.click(screen.getByRole("button", {name:"Copy Task ID"}));
   expect(onCopy).toHaveBeenCalledOnce();
 });
+
+test("observed web details show the full same-turn request and response", () => {
+  const task=fixtureTask({promptExcerpt:'Short request',promptText:'Full recorded request',replyExcerpt:'Short response',replyText:'Full recorded response',
+    observed:{archive:false,lastTurnEvent:'completed',lastTurnEventAt:null,recentFileActivity:false}});
+  render(<MantineProvider><TaskDetail task={task} opened readOnly busy={false} error={null} highlightTurnRef={null} onClose={()=>{}} onCopy={()=>{}} onOpenCodex={()=>{}} onTransition={async()=>({ok:true})} /></MantineProvider>);
+  expect(screen.getByLabelText('Latest turn request')).toHaveTextContent('Full recorded request');
+  expect(screen.getByLabelText('Latest turn response')).toHaveTextContent('Full recorded response');
+  expect(screen.queryByText('Latest saved reply (excerpt)')).toBeNull();
+});

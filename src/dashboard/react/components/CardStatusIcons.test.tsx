@@ -127,10 +127,20 @@ test("earlier-turn PR is labeled in the popup and latest-turn PRs take priority"
   const view=render(<MantineProvider><CardStatusLine earlierPullRequest={earlier}><span>1h</span></CardStatusLine></MantineProvider>);
   expect(screen.getByLabelText("#12 Improve search: Merged")).toBeInTheDocument();
   fireEvent.mouseEnter(screen.getByLabelText("Turn status details"));
-  expect(screen.getByText("Earlier turn PR")).toBeInTheDocument();
+  expect(screen.getByText("(Earlier turn PR)")).toBeInTheDocument();
   expect(screen.getByRole("link",{name:"#12 Improve search",hidden:true})).toHaveAttribute("href",url);
   view.rerender(<MantineProvider><CardStatusLine earlierPullRequest={earlier} pullRequests={[{...pr,url:"https://github.com/example/repo/pull/13",title:"Current change"}]}><span>1h</span></CardStatusLine></MantineProvider>);
-  expect(screen.queryByText("Earlier turn PR")).toBeNull();
+  expect(screen.queryByText("(Earlier turn PR)")).toBeNull();
   expect(screen.queryByRole("link",{name:"#12 Improve search",hidden:true})).toBeNull();
   expect(screen.getByRole("link",{name:"#13 Current change",hidden:true})).toBeInTheDocument();
+});
+
+test("earlier PR note stays directly below the link before an access warning", () => {
+  render(<MantineProvider><CardStatusLine earlierPullRequest={{...pr,accessIssue:'denied'}}><span>1h</span></CardStatusLine></MantineProvider>);
+  fireEvent.mouseEnter(screen.getByLabelText('Turn status details'));
+  const link=screen.getByRole('link',{name:'#12 Improve search',hidden:true});
+  const note=screen.getByText('(Earlier turn PR)');
+  const warning=screen.getByText(/Access denied to/);
+  expect(link.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(note.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

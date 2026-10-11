@@ -27,7 +27,7 @@ import type { Task } from "../types";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { GitHubLinks } from "./GitHubLinks";
 import { OpenChatButton } from "./OpenChatButton";
-import { ReplyMarkdown } from "./ReplyMarkdown";
+import { TurnContent } from "./TurnContent";
 import { RelativeTime } from "./RelativeTime";
 import { StatusBadge } from "./StatusBadge";
 import { UsagePanel } from "./UsagePanel";
@@ -152,10 +152,7 @@ export function TaskDetail({
         <Title id="instruction-heading" mb="xs" order={3} size="h5">Original instruction</Title>
         <Box className="taskchef-code-panel" component="pre">{task.instruction}</Box>
       </section>}
-      {task.observed && <section aria-labelledby="saved-reply-heading">
-        <Title id="saved-reply-heading" mb="xs" order={3} size="h5">Latest saved reply (excerpt)</Title>
-        <Text component="div" size="sm"><ReplyMarkdown text={task.replyExcerpt || "No reply text to show for this turn."} /></Text>
-      </section>}
+      {task.observed && <section aria-label="Latest turn"><TurnContent task={task} /></section>}
       <section aria-labelledby="metadata-heading">
         <Title id="metadata-heading" mb="xs" order={3} size="h5">Metadata</Title>
         <dl className="taskchef-metadata">

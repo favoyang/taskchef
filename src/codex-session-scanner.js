@@ -154,6 +154,7 @@ function readDatabaseRecords(state, history) {
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
     const { rows, turns, inputs, replies } = records;
     const images = records.images ??= new Map();
+    const content = records.latestContent ??= new Map();
     const tasks = rows.map((row) => {
       const turn = turns.get(historyId(row));
       const updatedMs = Math.max(row.updated_at_ms || 0, row.recency_at_ms || 0, row.created_at_ms || 0, (turn.started_at || 0) * 1000);
@@ -181,7 +182,11 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       if (/^<heartbeat>[\s\S]*<\/heartbeat>$/.test(replyText)) {
         replyText = /<message>([\s\S]*?)<\/message>/.exec(replyText)?.[1].trim() || "";
       }
+      const promptText = inputSource === "scheduled"
+        ? (/<instructions>([\s\S]*?)<\/instructions>/.exec(inputText)?.[1].trim() || "") : inputText.trim();
+      const promptExcerpt = promptText.slice(0, 2000) || null;
       const replyExcerpt = replyText.slice(0, 2000) || null;
+      content.set(row.id, { promptText: promptText || null, replyText: replyText || null });
       if (!images.has(row.id)) images.set(row.id, replyImage(replyText));
       // Ownership comes from the registry; latest-turn references only narrow that owned set.
       const references = new Set([...`${inputText}\n${replyText}`.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].map((match) => match[0].replace(/\/$/, "")));
@@ -202,7 +207,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: reason, replyExcerpt, replyImage: images.get(row.id),
+        summary: reason, promptExcerpt, replyExcerpt, replyImage: images.get(row.id),
         status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
         pullRequests: turnPrs.map((url) => ({ url, state: "unknown", checks: "unknown" })),
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
@@ -396,7 +401,7 @@ export class CodexSessionScanner {
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
         task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
-        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.replyExcerpt, task.replyImage, task.pullRequests,
+        task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.replyImage, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
       this.tasks = nextTasks;
@@ -484,7 +489,7 @@ export class CodexSessionScanner {
   async taskDetail(id) {
     const task = this.task(id);
     if (!task) return null;
-    // Details alone reads a bounded tail of the selected rollout history.
+    // Details reads the full owned PR history of the selected rollout.
     // Restrict links to owned PRs; incidental transcript links are not attachments.
     const records = this.databaseCache.records;
     const row = records.rows.find(row => row.id === id);
@@ -522,7 +527,7 @@ export class CodexSessionScanner {
         missing: saved.filter(turn => turn.duration_ms == null || turn.duration_ms < 0).length };
       durationCache.set(id, durations);
     }
-    let detail = { ...task, detailPullRequests, observed: { ...task.observed,
+    let detail = { ...task, ...records.latestContent.get(id), detailPullRequests, observed: { ...task.observed,
       recordedChatDurationMs: durations.total ?? 0, missingTurnDurations: durations.missing ?? 0 } };
     try {
       const sessionUsage = await this.taskUsage(id, durations.saved);

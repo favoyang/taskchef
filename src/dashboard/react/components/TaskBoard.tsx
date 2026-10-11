@@ -5,7 +5,7 @@ import { IconArrowUpRight, IconFolder } from "@tabler/icons-react";
 import { hasLinkedCodexThread, latestTurnPresentation } from "../../state.js";
 import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
-import { ReplyMarkdown } from "./ReplyMarkdown";
+import { TurnContent } from "./TurnContent";
 import { ReplyCover } from "./ReplyCover";
 import { ElapsedTime, RelativeTime } from "./RelativeTime";
 
@@ -222,8 +222,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
   onOpenDetail: (task: Task) => void;
 }) {
   const latest = latestTurnPresentation(task);
-  const excerpt = task.observed ? task.replyExcerpt || "No reply text to show for this turn."
-    : task.status === "working" ? latest.requestSummary : latest.resultSummary;
+  const excerpt = task.status === "working" ? latest.requestSummary : latest.resultSummary;
   const linked = hasLinkedCodexThread(task);
   return (
     <Paper draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onDragEnd={onDragEnd} data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
@@ -234,9 +233,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
       </Title>
       <Text className="taskchef-board-project" size="xs"><IconFolder size={14} stroke={1.5} aria-hidden /><span>{task.project.name}</span></Text>
       {task.status === "interrupted" && <Badge color="orange" size="xs" variant="light">Interrupted</Badge>}
-      <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" style={task.observed ? { WebkitLineClamp: 2, lineClamp: 2 } : undefined} size="sm">
-        {task.observed ? <ReplyMarkdown compact text={excerpt} /> : <LinkedText task={task} text={excerpt} />}
-      </Text>
+      {task.observed ? <TurnContent task={task} compact /> : <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" size="sm"><LinkedText task={task} text={excerpt} /></Text>}
       <Box className="taskchef-board-card-footer">
         <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={showCardUsage ? task.turnUsage : undefined} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} earlierPullRequest={task.earlierPullRequest} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>
         {task.observed && task.status === "working"

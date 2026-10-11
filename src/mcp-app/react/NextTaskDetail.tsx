@@ -5,7 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
 import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
-import { ReplyMarkdown } from "../../dashboard/react/components/ReplyMarkdown";
+import { TurnContent } from "../../dashboard/react/components/TurnContent";
 import { compactTokens, TokenBreakdown, useAnimatedUsage } from "../../dashboard/react/components/SavedUsageFormat";
 import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
 import { formatWorkedDuration } from "../../dashboard/time.js";
@@ -54,7 +54,7 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
     {error && <Alert color="red">{error}</Alert>}
     <Box className="taskchef-detail-layout">
       <Box className="taskchef-detail-reply">
-        {task.replyExcerpt && <ReplyMarkdown text={task.replyExcerpt} />}
+        <TurnContent task={task} />
         <details className="taskchef-detail-technical">
           <summary>Technical details</summary>
           <Stack gap={8} mt="sm">

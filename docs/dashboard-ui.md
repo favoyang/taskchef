@@ -23,3 +23,16 @@ rules.
 
 Check a dashboard page at desktop and narrow widths. Confirm keyboard focus,
 control operation, reachable overflow, and a clean browser console.
+
+### Latest-turn request and response
+
+Local Codex cards pair the latest turn's recorded request with that turn's
+response. The request appears in a right-aligned bubble, limited to three lines;
+the response appears below at full width, limited to two lines. A running turn
+without a recorded response shows only its request. Details shows both recorded
+texts in full, with Markdown rendering.
+
+Actual scheduled inputs show the recorded heartbeat instructions with a clock
+icon. Human follow-ups in scheduled chats use the normal request bubble.
+Earlier-turn PR fallbacks remain separate from this content: the status popup
+shows `(Earlier turn PR)` below the PR link, aligned with the other row text.

@@ -285,3 +285,12 @@ body {
 .taskchef-board-title { position: relative; }
 .taskchef-board-title:has(.taskchef-chat-unread-dot) { padding-right: 16px; }
 .taskchef-chat-unread-dot { position: absolute; right: 0; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #2f81f7; }
+
+.taskchef-turn-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: var(--mantine-font-size-sm); }
+.taskchef-turn-prompt { align-self: flex-end; max-width: 85%; min-width: 0; padding: 10px 12px; border-radius: 12px; background: light-dark(#eaf1fc, #1c3d69); color: light-dark(#202c3d, #edf3fc); overflow-wrap: anywhere; }
+.taskchef-prompt-clock { float: left; margin: 3px 6px 0 0; }
+.taskchef-turn-response { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.taskchef-turn-content--compact { margin: 8px 0; gap: 8px; }
+.taskchef-turn-content--compact .taskchef-turn-prompt { padding: 6px 9px; max-width: 90%; border-radius: 9px; }
+.taskchef-turn-content--compact .taskchef-turn-prompt .taskchef-markdown { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.taskchef-turn-content--compact .taskchef-turn-response .taskchef-markdown { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }

@@ -116,6 +116,9 @@ export interface Task {
   nextRunAt?: string | null;
   manualDone?: boolean;
   manualScheduled?: boolean;
+  promptExcerpt?: string | null;
+  promptText?: string | null;
+  replyText?: string | null;
   replyExcerpt?: string | null;
   replyImage?: { url: string; alt: string } | null;
   inputSource?: "scheduled" | "ordinary" | "unverified";

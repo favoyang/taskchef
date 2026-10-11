@@ -804,3 +804,30 @@ test("card fallback finds the newest owned PR in an earlier turn and refreshes a
   await scanner.refresh();
   assert.equal(scanner.earlierPullRequest(id),null);
 });
+
+test("latest-turn content never pairs a new prompt with an older response", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const {home,state,history}=setup;
+  state.prepare("INSERT INTO threads (id,name) VALUES (?, 'Prompt and result')").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id,final_agent_item_id) VALUES (?,1,'completed','old','old-user','old-result')").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,2,'inProgress','new','new-user')").run(id);
+  const add=history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_json,item_type,rollout_ordinal) VALUES (?,?,?,?,?,?)");
+  add.run(id,'old','old-result',JSON.stringify({type:'agentMessage',text:'Previous result'}),'agentMessage',1);
+  const prompt='Current **request** '+ 'long prompt '.repeat(220);
+  add.run(id,'new','new-user',JSON.stringify({type:'userMessage',clientId:'desktop',content:[{type:'text',text:prompt}]}),'userMessage',2);
+  const scanner=new CodexSessionScanner({codexHome:home}); t.after(()=>scanner.close());
+  let task=(await scanner.refresh()).tasks[0];
+  assert.equal(task.status,'working'); assert.equal(task.promptExcerpt,prompt.slice(0,2000)); assert.equal(task.replyExcerpt,null);
+  assert.equal((await scanner.taskDetail(id)).promptText,prompt.trim());
+  add.run(id,'new','progress',JSON.stringify({type:'agentMessage',text:'Current progress'}),'agentMessage',3);
+  task=(await scanner.refresh()).tasks[0]; assert.equal(task.replyExcerpt,'Current progress');
+  const response='Finished **result** '+ 'long response '.repeat(220);
+  add.run(id,'new','final',JSON.stringify({type:'agentMessage',text:response}),'agentMessage',4);
+  history.prepare("UPDATE thread_turns SET status='completed',final_agent_item_id='final' WHERE turn_id='new'").run();
+  await scanner.refresh();
+  assert.equal((await scanner.taskDetail(id)).replyText,response.trim());
+  await mkdir(join(home,'automations','routine'),{recursive:true});
+  await writeFile(join(home,'automations','routine','automation.toml'),`id = "routine"\nkind = "heartbeat"\nstatus = "ACTIVE"\ntarget_thread_id = "${id}"\n`);
+  history.prepare("UPDATE thread_items SET item_json=? WHERE item_id='new-user'").run(JSON.stringify({type:'userMessage',content:[{type:'text',text:'<heartbeat><automation_id>routine</automation_id><instructions>Run **checks**.</instructions></heartbeat>'}]}));
+  task=(await scanner.refresh()).tasks[0]; assert.equal(task.inputSource,'scheduled'); assert.equal(task.promptExcerpt,'Run **checks**.');
+});
