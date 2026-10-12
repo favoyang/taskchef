@@ -10,7 +10,7 @@ import { NextGitHub } from "./next-github.js";
 import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
-import { TASKCHEF_VERSION } from "./version.js";
+import { TASKCHEF_APP_NAME, TASKCHEF_VERSION } from "./version.js";
 
 // Release versions separate host UI cache entries; same-version preview edits
 // intentionally keep their URI and use the sidebar's explicit Refresh action.
@@ -174,7 +174,7 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => ({ structuredContent: { github: await github.auth((await readSettings()).githubClientId, "status") }, content: [] }));
   server.registerTool("open_taskchef_board", {
-    title: "TaskChef", description: "Show read-only local Codex session activity in the sidebar.", inputSchema: {},
+    title: TASKCHEF_APP_NAME, description: "Show read-only local Codex session activity in the sidebar.", inputSchema: {},
     _meta: { ui: { resourceUri: TASKCHEF_APP_URI }, "openai/ui": { entrypoints: [{ type: "global" }] } },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => {

@@ -3,6 +3,9 @@ import test from "node:test";
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir, unlink, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { prepareMcpAppPreview } from "../scripts/prepare-mcp-app-preview.js";
+import { TASKCHEF_APP_NAME } from "../src/version.js";
 import { updateMcpAppPreview } from "../scripts/update-mcp-app-preview.js";
 
 async function fixture(t) {
@@ -53,4 +56,26 @@ test("redirected preview files cannot overwrite another file", async (t) => {
   await symlink(outside, target);
   await assert.rejects(updateMcpAppPreview(root, source), /regular file inside/);
   assert.equal(await readFile(outside, "utf8"), "preserved");
+});
+
+
+test("development identity stays in the staging copy and leaves the release unchanged", async (t) => {
+  const { root } = await fixture(t);
+  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef", version: "8.7.0", interface: { displayName: "TaskChef" } }));
+  await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { taskchef: { command: "node", args: ["./mcp/server.js"] } } }));
+  await assert.rejects(prepareMcpAppPreview(root), /development identity/);
+  assert.equal(JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8")).name, "taskchef");
+  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-next", version: "8.7.0", interface: { displayName: "TaskChef" } }));
+  const result = await prepareMcpAppPreview(root);
+  assert.deepEqual(result, { name: "taskchef-next", displayName: "TaskChef Dev", version: "8.7.0" });
+  const mcp = JSON.parse(await readFile(join(root, ".mcp.json"), "utf8"));
+  assert.deepEqual(mcp.mcpServers, { "taskchef-next": { command: "node", args: ["./mcp/server.js"] } });
+  assert.deepEqual(await prepareMcpAppPreview(root), result);
+  await writeFile(join(root, "package.json"), JSON.stringify({ type: "module", version: "8.7.0" }));
+  await writeFile(join(root, "src/version.js"), await readFile(new URL("../src/version.js", import.meta.url)));
+  assert.equal((await import(pathToFileURL(join(root, "src/version.js")).href)).TASKCHEF_APP_NAME, "TaskChef Dev");
+  assert.equal(TASKCHEF_APP_NAME, "TaskChef");
+  await assert.rejects(prepareMcpAppPreview(new URL("../", import.meta.url).pathname), /release checkout/);
+  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "other" }));
+  await assert.rejects(prepareMcpAppPreview(root), /development identity/);
 });

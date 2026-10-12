@@ -35,7 +35,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (process.argv.length !== 3) throw new Error("Usage: npm run update:mcp-app-preview -- <installed-plugin-folder>");
     const result = await updateMcpAppPreview(process.argv[2]);
     console.log(`${result.changed ? "Updated" : "Already current"}: TaskChef ${result.version}`);
-    console.log("Right-click TaskChef in the Codex sidebar and choose Refresh to reload the UI.");
+    console.log("Right-click TaskChef Dev in the Codex sidebar and choose Refresh to reload the UI.");
     console.log("The app's own Refresh button updates data only. Server changes still need a plugin/runtime update.");
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

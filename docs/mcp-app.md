@@ -178,6 +178,23 @@ this feature does not send OS notifications. A damaged notification file fails
 visibly and is preserved for repair.
 
 
+## Development plugin identity
+
+Keep the released **TaskChef** plugin and a separate **TaskChef Dev** plugin.
+The development copy must already use the plugin ID `taskchef-next`.
+Before installing it through a local marketplace, run:
+
+```sh
+node scripts/prepare-mcp-app-preview.js /path/to/staging/plugin
+```
+
+The script sets the copied plugin’s display name to **TaskChef Dev** and
+normalizes its MCP server key to `taskchef-next`. It refuses release manifests. The sidebar tool reads its
+name from that manifest. The release checkout and release package keep
+**TaskChef**. Run this step again whenever rebuilding the development package.
+Do not register a standalone preview MCP server alongside these two plugins.
+Restart Codex after changes to plugin identity or backend code.
+
 ## Local UI review without restarting Codex
 
 For UI-only changes, update the HTML in the installation that the running MCP
@@ -195,7 +212,7 @@ npm run update:mcp-app-preview -- /path/to/the/running/taskchef-next/version
 The helper builds the UI, checks the target is TaskChef, and replaces only
 `src/mcp-app/dist/index.html` atomically. It preserves the plugin version, server
 code, dependencies, and local data. It refuses missing or redirected HTML paths.
-Then right-click **TaskChef** in the Codex sidebar and choose **Refresh**.
+Then right-click **TaskChef Dev** in the Codex sidebar and choose **Refresh**.
 Switching sidebar apps only hides the loaded view; it does not reload its HTML.
 
 Use the current installation’s version folder. If Refresh reports a missing
