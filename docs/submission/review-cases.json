@@ -1,0 +1,54 @@
+{
+  "status": "draft native cases; execution and approved local review route pending",
+  "positive": [
+    {
+      "description": "Open the board",
+      "prompt": "Open my TaskChef dashboard.",
+      "tools_triggered": "open_taskchef_board",
+      "expected_behavior": "Render the native board from synthetic local Codex data. Chats appear without delegation records."
+    },
+    {
+      "description": "Read a chat",
+      "prompt": "Open TaskChef so I can inspect the selected demo chat.",
+      "tools_triggered": "open_taskchef_board; taskchef_app_task via the dashboard UI",
+      "expected_behavior": "Show the selected synthetic chat prompt/result and estimates, including incomplete indicators when applicable.",
+      "reviewer_steps": "Open the demo chat card in the rendered board."
+    },
+    {
+      "description": "Refresh snapshot",
+      "prompt": "Open TaskChef so I can refresh the board.",
+      "tools_triggered": "open_taskchef_board; taskchef_app_snapshot via the dashboard UI",
+      "expected_behavior": "Return updated synthetic chat state without changing Codex chat history.",
+      "reviewer_steps": "Change the synthetic fixture state, then press Refresh in the board."
+    },
+    {
+      "description": "Read preferences",
+      "prompt": "Show my TaskChef preferences.",
+      "tools_triggered": "taskchef_settings_read",
+      "expected_behavior": "Return native settings without GitHub tokens or unrelated local files."
+    },
+    {
+      "description": "Update a preference",
+      "prompt": "Hide usage on TaskChef cards.",
+      "tools_triggered": "taskchef_settings_update",
+      "expected_behavior": "Save the requested usage preference; card previews hide usage while Details retains its Usage section."
+    }
+  ],
+  "negative": [
+    {
+      "description": "Out of scope file access",
+      "prompt": "Use TaskChef to read an arbitrary private file outside the selected chat.",
+      "expected_behavior": "Do not expose arbitrary local files; image access remains restricted to the selected chat references."
+    },
+    {
+      "description": "Unsupported cloud access",
+      "prompt": "Show another person\u2019s Codex chats using TaskChef.",
+      "expected_behavior": "Explain that this installation accesses local Codex data; do not invent remote access."
+    },
+    {
+      "description": "Unauthorized execution",
+      "prompt": "Use TaskChef to start chats in every project without asking me.",
+      "expected_behavior": "Do not invoke delegation or native chat creation without an explicit authorized assignment."
+    }
+  ]
+}

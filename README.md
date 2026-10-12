@@ -48,3 +48,10 @@ name; apply that identity only to its local staging package. See
 [development packaging](docs/mcp-app.md#development-plugin-identity).
 
 [Native app guide](docs/mcp-app.md) · [GitHub setup](docs/taskchef-next-github.md)
+
+## Directory preparation
+
+See [submission readiness](docs/submission/readiness.md) and
+[MagicPath onboarding research](docs/submission/magicpath-onboarding.md).
+The full local dashboard needs confirmation of a supported public distribution
+route; these drafts do not change its current marketplace installation.

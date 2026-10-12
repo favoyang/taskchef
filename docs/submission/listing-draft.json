@@ -1,0 +1,19 @@
+{
+  "status": "draft; local route and individual verification pending",
+  "displayName": "TaskChef",
+  "shortDescription": "Your Codex chats in one place",
+  "longDescription": "View local Codex chats in a native dashboard. See running work, chats waiting for input or review, recorded pending questions, queued prompts, turn usage estimates, schedules and pull request status. Open the original chat to continue. Delegate separate work through native Codex projects. Requires Codex desktop and a local Node runtime. API-equivalent costs are estimates, not subscription billing.",
+  "category": "Productivity",
+  "websiteURL": "https://taskchef.dev/",
+  "supportURL": "https://taskchef.dev/support/",
+  "privacyPolicyURL": "https://taskchef.dev/privacy/",
+  "termsOfServiceURL": "https://taskchef.dev/terms/",
+  "defaultPrompt": [
+    "Open my TaskChef dashboard.",
+    "Show the latest turn and usage for a chat.",
+    "$taskchef:delegate Investigate a bug in my selected project."
+  ],
+  "release_notes": "Native Codex dashboard with local chat discovery and lightweight delegation.",
+  "commerce": false,
+  "developerName": "Favo Yang"
+}
