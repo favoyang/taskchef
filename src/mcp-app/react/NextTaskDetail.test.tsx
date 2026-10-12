@@ -116,7 +116,7 @@ test('Needs answer adds an open-chat action without replacing the saved prompt o
  expect(screen.getByText('Needs answer')).toBeInTheDocument();
  const questions=screen.getByRole('region',{name:'Pending questions'});
  expect(within(questions).getByText('May I retry the scan?')).toBeVisible();
- expect(within(questions).getAllByRole('listitem').map(item=>item.textContent)).toEqual(['Retry once','Stop']);
+ expect(within(questions).getAllByRole('listitem').map(item=>item.textContent)).toEqual(['1Retry once','2Stop']);
  expect(within(questions).getByRole('button',{name:'Open chat to answer'})).toBeVisible();
  expect(screen.getByText('Run the scan.')).toBeInTheDocument();
  expect(screen.getByText('The connection failed. Approval requested.')).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { Alert, Anchor, Badge, Box, Drawer, Group, Modal, ScrollArea, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
-import { IconClock, IconFolder, IconHourglass, IconRobot } from "@tabler/icons-react";
+import { IconArrowUpRight, IconClock, IconFolder, IconHelpCircle, IconHourglass, IconRobot } from "@tabler/icons-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Task, SavedUsage } from "../../dashboard/react/types";
 import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
@@ -69,12 +69,12 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
       <Box className="taskchef-detail-reply">
         <TurnContent task={task} loadImage={loadImage} workedDurationMs={duration} onLightboxChange={setLightboxOpen} onAnnotationChange={annotationChange} />
         {task.needsAnswer && <section aria-label="Pending questions" className="taskchef-pending-questions">
-          <Title order={5} mb="sm">{task.pendingQuestions?.length === 1 ? "Question" : "Questions"}</Title>
+          <div className="taskchef-question-header"><IconHelpCircle size={14} aria-hidden /><span>{task.pendingQuestions?.length === 1 ? "Question" : "Questions"}</span></div>
           {(task.pendingQuestions ?? []).map(question => <Box key={question.id} mb="sm">
             <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>{question.title}</Text>
-            {question.options.length > 0 && <ol>{question.options.map((option, index) => <li key={index}>{option}</li>)}</ol>}
+            {question.options.length > 0 && <ol role="list">{question.options.map((option, index) => <li key={index}><span className="taskchef-question-number" aria-hidden>{index + 1}</span><span>{option}</span></li>)}</ol>}
           </Box>)}
-          <Anchor component="button" type="button" size="sm" disabled={busy} onClick={onOpenCodex}>Open chat to answer</Anchor>
+          <div className="taskchef-question-footer"><Anchor component="button" type="button" size="sm" disabled={busy} onClick={onOpenCodex}><IconArrowUpRight size={14} aria-hidden />Open chat to answer</Anchor></div>
         </section>}
         <QueuedPrompts task={task} loadImage={loadImage} onLightboxChange={setLightboxOpen} />
         <details className="taskchef-detail-technical">

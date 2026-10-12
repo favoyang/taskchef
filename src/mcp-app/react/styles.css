@@ -200,3 +200,13 @@ body { background: var(--taskchef-page); }
 :root[data-taskchef-palette] :is(.taskchef-title-button, .taskchef-github-link):focus-visible { outline: 2px solid var(--taskchef-focus); outline-offset: 2px; }
 :root[data-taskchef-palette] a.taskchef-status-pr-title { color: var(--taskchef-link); }
 :root[data-taskchef-palette] .taskchef-pending-questions button.mantine-Anchor-root { color: var(--taskchef-text); }
+.taskchef-pending-questions { margin: 20px 0; padding: 16px; border: 1px solid var(--taskchef-border-heavy); border-radius: 20px; background: var(--taskchef-surface-muted); }
+.taskchef-question-header { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; color: var(--taskchef-muted); font-size: 12px; font-weight: 400; }
+.taskchef-question-header svg { flex: none; }
+.taskchef-pending-questions ol { list-style: none; padding: 0; margin: 14px 0 0; }
+.taskchef-pending-questions li { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; }
+.taskchef-question-number { flex: 0 0 20px; width: 20px; height: 20px; display: inline-flex; justify-content: center; align-items: center; border: 1px solid var(--taskchef-border-heavy); border-radius: 5px; background: var(--taskchef-hover); color: var(--taskchef-muted); font-size: 12px; line-height: 1; }
+.taskchef-question-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+.taskchef-question-footer button.mantine-Anchor-root { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--taskchef-border-heavy); border-radius: 16px; font-size: 12px; text-decoration: none; }
+.taskchef-question-footer button.mantine-Anchor-root:hover { background: var(--taskchef-hover); text-decoration: none; }
+.taskchef-question-footer button.mantine-Anchor-root:focus-visible { outline: 2px solid var(--taskchef-focus); outline-offset: 2px; }
