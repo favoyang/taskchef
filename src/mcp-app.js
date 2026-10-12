@@ -12,8 +12,10 @@ import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
 import { TASKCHEF_VERSION } from "./version.js";
 
-export const TASKCHEF_GITHUB_URI = "ui://taskchef/github-settings/v1";
-export const TASKCHEF_APP_URI = "ui://taskchef/task-board/v3";
+// Release versions separate host UI cache entries; same-version preview edits
+// intentionally keep their URI and use the sidebar's explicit Refresh action.
+export const TASKCHEF_GITHUB_URI = `ui://taskchef/github-settings/v1/${TASKCHEF_VERSION}`;
+export const TASKCHEF_APP_URI = `ui://taskchef/task-board/v3/${TASKCHEF_VERSION}`;
 const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
 const htmlPath = fileURLToPath(new URL("./mcp-app/dist/index.html", import.meta.url));
 const taskIdSchema = z.string().uuid();

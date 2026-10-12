@@ -13,7 +13,8 @@ import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI, TASKCHEF_GITH
 const task = { turnId: "turn-one", observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
 test("TaskChef sidebar exposes database reads, local Done marks, and chat navigation", async (t) => {
-  assert.equal(TASKCHEF_APP_URI, "ui://taskchef/task-board/v3");
+  assert.equal(TASKCHEF_APP_URI, `ui://taskchef/task-board/v3/${TASKCHEF_VERSION}`);
+  assert.equal(TASKCHEF_GITHUB_URI, `ui://taskchef/github-settings/v1/${TASKCHEF_VERSION}`);
   let revision = 1;
   let scans = 0;
   let opened = null;
