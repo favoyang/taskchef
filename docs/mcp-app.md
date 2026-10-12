@@ -181,8 +181,25 @@ visibly and is preserved for repair.
 ## Development plugin identity
 
 Keep the released **TaskChef** plugin and a separate **TaskChef Dev** plugin.
-The development copy must already use the plugin ID `taskchef-next`.
-Before installing it through a local marketplace, run:
+Use this order for every development change:
+
+1. Work in a topic branch/worktree. Build and validate the current source.
+2. Copy the current runtime, built UI, skill, and production dependencies into
+   a separate local staging package. Update **TaskChef Dev** from that package
+   and test it before merging. Never copy development changes into TaskChef's
+   released installation.
+3. Pass independent review and the pull request checks, then merge when authorized.
+4. If the merge publishes a release, wait for the complete release workflow,
+   including its marketplace update. Update **TaskChef** from the published
+   package and verify its version. If no release is published, leave TaskChef
+   on its existing published version.
+
+For a full Dev update, give the staging package a unique development version
+in both `package.json` and `.codex-plugin/plugin.json` (and package-lock metadata
+if present), such as `9.0.0-dev.1`. Set only the staging manifest's plugin name
+to `taskchef-next`; keep the source release manifest named `taskchef`.
+Before installing the staging package through the local development marketplace,
+run:
 
 ```sh
 node scripts/prepare-mcp-app-preview.js /path/to/staging/plugin
@@ -209,7 +226,7 @@ From the source checkout, run:
 npm run update:mcp-app-preview -- /path/to/the/running/taskchef-next/version
 ```
 
-The helper builds the UI, checks the target is TaskChef, and replaces only
+The helper builds the UI, checks the development plugin ID is `taskchef-next`, and replaces only
 `src/mcp-app/dist/index.html` atomically. It preserves the plugin version, server
 code, dependencies, and local data. It refuses missing or redirected HTML paths.
 Then right-click **TaskChef Dev** in the Codex sidebar and choose **Refresh**.

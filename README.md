@@ -39,8 +39,12 @@ npm run check:mcp-app
 npm run build:mcp-app
 ```
 
-Keep the release plugin named **TaskChef** and the separately packaged
-`taskchef-next` plugin named **TaskChef Dev**. See
+Develop on a topic branch and update **TaskChef Dev** first. Keep **TaskChef**
+on the published release. After validation, independent review, merge, and a
+successful release workflow, update TaskChef from the released package when
+the merge publishes a release. Otherwise keep its existing published version.
+The Dev copy uses the separate `taskchef-next` plugin ID and **TaskChef Dev**
+name; apply that identity only to its local staging package. See
 [development packaging](docs/mcp-app.md#development-plugin-identity).
 
 [Native app guide](docs/mcp-app.md) · [GitHub setup](docs/taskchef-next-github.md)
