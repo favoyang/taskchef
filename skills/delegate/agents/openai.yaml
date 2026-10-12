@@ -1,0 +1,4 @@
+interface:
+  display_name: "Delegate"
+  short_description: "Delegate work to a native Codex project chat"
+  default_prompt: "Use $delegate to start this work in the right Codex project."

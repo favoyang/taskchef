@@ -1,8 +1,8 @@
 import { migrateCache } from "./next-cache.js";
-import { filterTasks } from "./dashboard/state.js";
+import { filterTasks } from "./ui/state.js";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { acquireWorkspaceLock } from "./workspace.js";
+import { acquireFileLock } from "./file-lock.js";
 import { writeDurableAtomic } from "./state-store.js";
 
 const DEVICE_URL = "https://github.com/login/device";
@@ -33,7 +33,7 @@ export class NextGitHub {
   }
   async locked(operation) {
     await mkdir(join(this.stateDir, "github-auth"), { recursive: true, mode: 0o700 });
-    const release = await acquireWorkspaceLock(join(this.stateDir, "github-auth"));
+    const release = await acquireFileLock(join(this.stateDir, "github-auth"));
     try { return await operation(); } finally { await release(); }
   }
   get cachePath() { return join(this.stateDir, "cache", "github-prs.json"); }

@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { acquireWorkspaceLock } from "./workspace.js";
+import { acquireFileLock } from "./file-lock.js";
 import { writeDurableAtomic } from "./state-store.js";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
@@ -150,7 +150,7 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: true },
   }, async ({ set }) => {
     await mkdir(dirname(settingsPath), { recursive: true, mode: 0o700 });
-    const release = await acquireWorkspaceLock(dirname(settingsPath));
+    const release = await acquireFileLock(dirname(settingsPath));
     try {
       const values = { ...await readSettings(), ...set };
       await writeDurableAtomic(settingsPath, JSON.stringify(values));

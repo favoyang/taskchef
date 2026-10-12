@@ -161,7 +161,7 @@ Board disk caches share the state directory's `cache/` folder:
 The reader moves older caches into these locations on first use. It preserves
 an existing destination. Settings, Done marks, and authentication data remain
 outside `cache/` because they are persistent state, not rebuildable caches.
-The web dispatcher keeps its workspace-specific `.taskchef-usage.json` projection
-file for compatibility with existing task records.
+Legacy dispatcher workspaces and `.taskchef-usage.json` files remain on disk
+for historical reference; the native product does not read or update them.
 
 Usage caches retain normalized token counters for known rollout sources, without message content. If an older source disappears, those counters are reconciled with live counters so new usage continues to increase the known subtotal.

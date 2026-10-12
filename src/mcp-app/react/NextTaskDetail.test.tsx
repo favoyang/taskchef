@@ -1,7 +1,7 @@
 import { MantineProvider } from "@mantine/core";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { fixtureTask } from "../../dashboard/react/fixtures";
+import { fixtureTask } from "../../ui/fixtures";
 import { NextTaskDetail } from "./NextTaskDetail";
 
 afterEach(cleanup);
