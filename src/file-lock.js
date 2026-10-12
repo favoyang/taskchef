@@ -23,4 +23,3 @@ export async function acquireFileLock(workspaceRoot, {
   }
   throw new Error("workspace lock retry loop ended unexpectedly");
 }
-
