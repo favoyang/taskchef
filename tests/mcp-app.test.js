@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { NextGitHub } from "../src/next-github.js";
+import { TASKCHEF_VERSION } from "../src/version.js";
 import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI, TASKCHEF_GITHUB_URI } from "../src/mcp-app.js";
 
 const task = { turnId: "turn-one", observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
@@ -94,11 +95,12 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     assert.equal(initial.structuredContent.taskCount, 1);
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });
     assert.equal(snapshot.structuredContent.snapshot.scan.indexedFiles, 1);
+    assert.equal(snapshot.structuredContent.version, TASKCHEF_VERSION);
     assert.deepEqual(scopes.at(-1), { date: "all", project: undefined, taskIds: [] });
     await client.callTool({ name: "taskchef_app_snapshot", arguments: { visibleTaskIds: [task.id] } });
     assert.deepEqual(scopes.at(-1).taskIds, [task.id]);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: true, connected: false, login: null } });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: true, connected: false, login: null }, version: TASKCHEF_VERSION });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);

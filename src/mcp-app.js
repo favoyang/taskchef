@@ -10,6 +10,7 @@ import { NextGitHub } from "./next-github.js";
 import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
+import { TASKCHEF_VERSION } from "./version.js";
 
 export const TASKCHEF_GITHUB_URI = "ui://taskchef/github-settings/v1";
 export const TASKCHEF_APP_URI = "ui://taskchef/task-board/v3";
@@ -188,9 +189,9 @@ export function registerTaskChefApp(server, {
     const settingsUrl = await getSettingsUrl();
     const { snapshot, notifications } = await notificationStore.reconcile(() => boardSnapshot(settings, force, { project, date: date ?? "all", taskIds: visibleTaskIds ?? [] }), settings);
     if (!force && revision !== undefined && revision === snapshot.revision && snapshot.healthy !== false) {
-      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth }, content: [] };
+      return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth, version: TASKCHEF_VERSION }, content: [] };
     }
-    return { structuredContent: { snapshot, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth }, content: [] };
+    return { structuredContent: { snapshot, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth, version: TASKCHEF_VERSION }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata and its latest recorded request and response.",

@@ -107,6 +107,7 @@ export function TaskChefApp() {
   const [githubAuth, setGitHubAuth] = useState<GitHubAuth>({ configured: false, connected: false, login: null });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [taskchefVersion, setTaskchefVersion] = useState<string | null>(null);
   const [registeredProjects, setRegisteredProjects] = useState<Project[]>([]);
   const [{ showExec, showCli, showArchived, showCalendarDates = false, showCardUsage = true }, setVisibility] = useState<VisibilitySettings>({ showExec: false, showCli: false, showArchived: false });
   const [scan, setScan] = useState<ScanStats | null>(null);
@@ -178,10 +179,11 @@ export function TaskChefApp() {
   const refresh = useCallback(async (force = false) => {
     const version = ++refreshVersion.current;
     const initialSelection = selectionVersion.current;
-    const data = await call<{ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats; projects?: Project[] }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth }>(
+    const data = await call<({ snapshot: DashboardSnapshot & { revision: number; scan: ScanStats; projects?: Project[] }; unchanged?: never; scan?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth } | { unchanged: true; revision: number; scan: ScanStats; snapshot?: never; settings: VisibilitySettings; settingsUrl?: string | null; notifications?: NextNotificationState; github?: GitHubAuth }) & { version?: string }>(
       "taskchef_app_snapshot", { project, date, visibleTaskIds: visibleTaskIds.current, ...(revisionRef.current === null ? {} : { revision: revisionRef.current }), ...(force ? { force: true } : {}) },
     );
     if (version !== refreshVersion.current) return;
+    if (data.version) setTaskchefVersion(data.version);
     setLoading(false);
     receiveNotifications(data.notifications);
     if (data.github) setGitHubAuth(data.github);
@@ -454,6 +456,7 @@ export function TaskChefApp() {
             </Stack>)}
         </main>
         </>}
+        {taskchefVersion && displayMode !== "inline" && <footer className="taskchef-app-version" aria-label="TaskChef version">v{taskchefVersion}</footer>}
       </Box>
       <Modal opened={!!archiveHelp} onClose={() => setArchiveHelp(null)} title="Archive in Codex" centered>
         <Text size="sm">Open this chat in Codex. Use the top-right … menu and choose Archive.</Text>
