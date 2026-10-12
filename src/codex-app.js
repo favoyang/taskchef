@@ -153,9 +153,28 @@ export async function openThreadInCodex(threadId, options = {}) {
   if (!isCodexThreadDeepLinkId(threadId)) {
     throw new Error("Codex thread ID is not supported by the desktop deep link");
   }
+  const url = `codex://threads/${encodeURIComponent(threadId)}`;
+  await openDesktopLink(url, options);
+  return { status: "requested", mechanism: "codex-deep-link", threadId, url };
+}
+
+export async function openPluginSettingsInCodex(url, options = {}) {
+  if (typeof url !== "string") throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef from Plugins.");
+  const link = new URL(url);
+  if (link.protocol !== "codex:" || link.hostname !== "plugins" || !/^\/[^/]+$/.test(link.pathname)
+    || link.username || link.password || link.port || link.hash
+    || [...link.searchParams.keys()].some((key) => key !== "marketplacePath")
+    || link.searchParams.getAll("marketplacePath").length !== 1
+    || !path.isAbsolute(link.searchParams.get("marketplacePath"))) {
+    throw new Error("Cannot resolve the installed plugin settings page. Open TaskChef from Plugins.");
+  }
+  await openDesktopLink(url, options);
+  return { status: "requested", mechanism: "codex-deep-link", url };
+}
+
+async function openDesktopLink(url, options) {
   const run = options.run ?? execFile;
   const platform = options.platform ?? process.platform;
-  const url = `codex://threads/${encodeURIComponent(threadId)}`;
   if (platform === "darwin") {
     await runCodex(run, "/usr/bin/open", [url]);
   } else if (platform === "win32") {
@@ -163,7 +182,6 @@ export async function openThreadInCodex(threadId, options = {}) {
   } else {
     await runCodex(run, "xdg-open", [url]);
   }
-  return { status: "requested", mechanism: "codex-deep-link", threadId, url };
 }
 
 export async function archiveThreadInCodex(threadId, options = {}) {

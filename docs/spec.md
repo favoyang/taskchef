@@ -159,75 +159,30 @@ without backup payload contents.
 
 ## Optional usage projection
 
-TaskChef MUST pin one tested `ccusage` version as an optional dependency. It
-MUST prefer that package-local executable and MAY use an exact-version,
-cache-friendly `npx` invocation when a plugin-only installation has no local
-dependency. The `npx` invocation MUST only resolve the pinned native executable
-and MUST NOT launch the analyzer against Codex data. TaskChef MUST execute that
-native binary directly. The adapter MUST first request structured Codex output
-with live-capable online pricing and retry with ccusage's bundled offline
-pricing after a bounded failure. TaskChef MUST NOT parse, store, or serve raw
-Codex rollout files, prompts, responses, transcripts, or reasoning. Analyzer,
-npm, network, timeout, malformed output, unknown pricing, or an unresolved
-thread MUST NOT block lifecycle tools or dashboard loading.
+TaskChef MUST use its own saved-record accounting engine for the board and web
+dashboard. Usage requires Node.js 22.18+ and readable local Codex records.
+Unavailable usage MUST NOT block lifecycle tools or dashboard loading.
 
-Dashboard-manual turns are administrative events, not Codex executions. They
-MUST immediately report per-turn usage as unavailable, MUST NOT schedule or
-store a cumulative usage boundary, and MUST NOT receive a token or cost delta.
-A later executor turn MUST use the nearest preceding reliable executor
-boundary, skipping any intervening dashboard-manual turns.
+Per-turn usage MUST match the native Codex turn ID. A dispatcher turn without
+that match MUST show unavailable turn usage, while its chat total MAY remain
+available. Administrative dashboard turns MUST NOT receive execution usage.
+Historical tasks MUST remain lazy; opening Details reads their usage. Requests
+MUST be deduplicated and bounded, and queued work MUST stop on dashboard close.
 
-The mode-0600 `.taskchef-usage.json` schema 2 cache stores only normalized cumulative
-token boundaries, per-turn deltas, model names, estimated cost, source version,
-and freshness. It is independent of task-log schema versions so legacy logs remain
-readable. Schema 1 usage caches MUST migrate in memory by discarding their
-TaskChef-specific cost-coverage classification while preserving valid ccusage
-cumulative estimates. Writes MUST use the workspace lock and atomic replacement. Symlinked
-or unsupported cache files MUST be rejected. Writes MUST compact the derived
-cache to recent task projections, recent per-turn results, and the latest
-cumulative boundary. An oversized legacy cache MUST be treated as rebuildable
-derived data so it cannot permanently disable usage reporting.
+The engine MUST include descendant usage once, preserve input, cached input,
+output, reasoning, and total categories, and avoid counting cached input or
+reasoning subsets twice. Missing logs or parent-turn links MUST mark known
+subtotals incomplete. Dollar values MUST be API-equivalent estimates using
+known model prices. Unknown model prices MUST NOT imply a zero-dollar cost.
 
-A linked Codex thread MAY map to multiple ccusage session segments. TaskChef
-MUST aggregate only records whose primary durable thread UUID is that exact
-identity; a UUID appearing only as a nested suffix MUST NOT be attributed to
-the parent or child TaskChef task. It MUST retain input, cached-input, output,
-reasoning-output, and total fields without adding cached or reasoning subsets
-into totals a second time.
-
-After a terminal report, TaskChef MUST mark the turn `calculating` and perform
-bounded deferred reconciliation without delaying the lifecycle response.
-The dashboard MUST also preload eligible derived usage in its existing service
-lifecycle without requiring a task-detail request. Startup, task-log changes,
-and periodic recovery passes MUST consider missing, interrupted, and
-cooldown-expired records; successful current-generation records MUST remain
-cached. Background work MUST be deduplicated, MUST enforce a small global
-concurrency limit, MUST use bounded delayed retries, and MUST stop when the
-dashboard closes.
-Per-turn usage MUST be a non-negative delta between adjacent reliable cumulative
-boundaries. A first recorded turn MAY use zero as its baseline. Historical
-turns without boundaries and decreasing or ambiguous snapshots MUST be labeled
-`unavailable`, never zero or estimated. A historical task MAY still show its
-resolvable cumulative total. A boundary is reliable only after two consecutive
-samples agree. Exhausted unstable sampling and a newer turn beginning before
-stabilization MUST leave that turn unavailable and MUST NOT establish a delta
-baseline. Zero is valid for the first turn only when TaskChef observed that turn
-in progress before its terminal report; a first historical terminal turn MUST
-remain unavailable even when its cumulative task total is resolvable.
-
-Every available projection MUST identify ccusage, its version when available,
-the requested online or fallback offline pricing mode, and usage freshness.
-The online mode records TaskChef's request, not a claim about ccusage's internal
-cache. Dollar values MUST be labeled API-equivalent estimates. Positive token
-usage with a zero or missing analyzer cost MUST display cost unavailable, not
-`$0.00`. A per-turn dollar delta MUST be unavailable when its adjacent
-cumulative boundaries use different analyzer versions or requested pricing
-modes. When ccusage supplies a valid cumulative estimate, TaskChef MUST display
-it without applying its own model-family or cache-write coverage policy. A model
-family change between otherwise compatible boundaries MUST NOT prevent TaskChef
-from deriving the per-turn estimate.
-The dashboard Settings response MUST report the provider version returned by
-the executable resolved for runtime use, not merely copy the dependency pin.
+Board accounting caches MUST live under the TaskChef state directory's `cache/`
+folder. The web dashboard MUST retain normalized usage in the mode-0600
+`.taskchef-usage.json` cache. Writes MUST use the workspace lock and atomic
+replacement. Existing schema-2 projections from the previous provider MUST
+remain readable. Cache files MUST contain accounting data and source metadata,
+not prompts, replies, or reasoning text. Source changes MUST invalidate derived
+accounting results. Cache errors MUST allow source accounting to continue.
+The dashboard Settings response MUST identify TaskChef and its package version.
 
 Task IDs and non-null thread identities MUST be unique. The immutable intent
 fields MUST NOT change after recording.

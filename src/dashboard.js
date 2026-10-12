@@ -26,7 +26,6 @@ import {
 } from "./workspace.js";
 import {
   DASHBOARD_SERVER_VERSION,
-  PINNED_CCUSAGE_VERSION,
   TASKCHEF_VERSION,
 } from "./version.js";
 import { taskGitHubProjection } from "./dashboard/github-links.js";
@@ -239,6 +238,8 @@ function cachedUsageSummary(record) {
     ...(record.task ? {
       task: Object.freeze({
         totalTokens: record.task.totalTokens,
+        ...(record.task.partial === true ? { partial: true } : {}),
+        ...(record.task.costPartial === true ? { costPartial: true } : {}),
         estimatedCostUsd: record.task.estimatedCostUsd ?? null,
         sampledAt: record.task.sampledAt ?? null,
         sourceUpdatedAt: record.task.sourceUpdatedAt ?? null,
@@ -991,8 +992,8 @@ export async function createDashboardServer({
     if (url.pathname === "/api/settings" && method === "GET") {
       const profiles = [{ id: "personal", project: "Personal", ...await resolveRoles({ includeCatalog: true }) }];
       const usageProvider = {
-        provider: "ccusage",
-        version: PINNED_CCUSAGE_VERSION,
+        provider: "TaskChef",
+        version: TASKCHEF_VERSION,
       };
       sendJson(response, 200, { profiles, usageProvider });
       return;

@@ -36,7 +36,7 @@ export function UsagePanel({ task }: { task: Task }) {
       animated: usage.kind === "pending" || usage.kind === "calculating" || ready?.knownSoFar,
       label: "Tokens",
       title: ready ? `${formatFullTokens(ready.usage.totalTokens)} tokens` : usage.label,
-      value: ready ? formatCompactTokens(ready.usage.totalTokens) : stateValue,
+      value: ready ? `${ready.usage.partial ? "≥" : ""}${formatCompactTokens(ready.usage.totalTokens)}` : stateValue,
     },
     {
       accessibleValue: ready
@@ -54,7 +54,7 @@ export function UsagePanel({ task }: { task: Task }) {
         ? "Estimated cost unavailable"
         : `Unrounded estimate: $${ready.usage.estimatedCostUsd}`,
       value: ready
-        ? ready.usage.estimatedCostUsd == null ? "n/a" : formatEstimatedCost(ready.usage.estimatedCostUsd)
+        ? ready.usage.estimatedCostUsd == null ? "n/a" : `${ready.usage.costPartial ? "≥" : ""}${formatEstimatedCost(ready.usage.estimatedCostUsd)}`
         : stateValue,
     },
     {

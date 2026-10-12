@@ -478,10 +478,10 @@ export function usagePresentation(usage, { wholeTask = false } = {}) {
   const pricingMode = usage.provenance?.pricingMode
     ? ` · ${usage.provenance.pricingMode === "online"
       ? "online pricing requested"
-      : "offline pricing fallback"}`
+      : usage.provenance.pricingMode === "standard" ? "standard API pricing" : "offline pricing fallback"}`
     : "";
   const freshness = usage.sourceUpdatedAt ?? usage.sampledAt;
-  provenance.textContent = `Source: ccusage${version}${pricingMode}${freshness ? ` · updated ${formatRelativeTime(freshness)}` : ""}. Dollar cost is an API-equivalent estimate${wholeTask ? " for the task" : " for this turn"}.`;
+  provenance.textContent = `Source: ${usage.provenance?.provider === "taskchef" ? "TaskChef" : "ccusage (historical)"}${version}${pricingMode}${freshness ? ` · updated ${formatRelativeTime(freshness)}` : ""}. Dollar cost is an API-equivalent estimate${wholeTask ? " for the task" : " for this turn"}.`;
   container.append(provenance);
   return container;
 }

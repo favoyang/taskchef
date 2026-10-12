@@ -27,8 +27,10 @@ start, upgrade, shutdown, and security rationale.
 | `src/dashboard-manager.js` | Concurrent session ensure, exact health reuse, bounded version replacement, and safe conflicts. |
 | `src/dashboard-session-process.js` | Independent loopback server, signals, and in-memory Codex-session lease. |
 | `src/dashboard-session.js` | Exact registered-PID liveness checks and grace-period expiry. |
-| `src/usage.js` | Optional bounded ccusage execution, exact primary-thread mapping, normalized aggregation, and the private usage cache. |
-| `src/usage-tracker.js` | Deferred sampling, cumulative boundaries, historical availability, and per-turn deltas. |
+| `src/usage.js` | Normalized private usage projections and historical cache compatibility. |
+| `src/usage-tracker.js` | Usage-provider factory and compatibility with injected cumulative readers. |
+| `src/recorded-usage-tracker.js` | Lazy native-turn projections, descendant totals, bounded requests, and persistent web usage. |
+| `src/codex-session-usage.js` | Saved Codex accounting, incremental file reads, derived disk caches, and shared pricing. |
 
 The MCP process resolves `TASKCHEF_WORKSPACE` once and never accepts a model
 supplied path. The CLI resolves `--workspace`, then the environment, then the

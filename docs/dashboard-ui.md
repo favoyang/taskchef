@@ -23,3 +23,18 @@ rules.
 
 Check a dashboard page at desktop and narrow widths. Confirm keyboard focus,
 control operation, reachable overflow, and a clean browser console.
+
+### Latest-turn request and response
+
+Running local Codex cards show the current request. Other cards show the latest
+turn's response. Cards use a plain two-line preview without request bubbles.
+Details pairs the same turn's request and response, each initially capped at
+three lines with a Show more control. The request uses a right-aligned bubble.
+Actual scheduled requests show their recorded instructions with a clock;
+human follow-ups in scheduled chats use the normal request bubble.
+Quoted selections render as Markdown quotes. File and image references show
+attachment names, while generated request headings and context metadata are
+removed from the display. Recorded input remains unchanged.
+
+Earlier-turn PR fallbacks remain separate from this content: the status popup
+shows `(Earlier turn PR)` below the PR link, aligned with the other row text.

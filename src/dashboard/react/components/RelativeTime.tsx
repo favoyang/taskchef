@@ -1,40 +1,75 @@
 import { Tooltip, UnstyledButton } from "@mantine/core";
-import { IconClock } from "@tabler/icons-react";
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { formatExactTime, formatRelativeTime } from "../../time.js";
+import { IconClock, IconHourglass } from "@tabler/icons-react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { formatCardAge, formatCardTime, formatExactTime, formatRelativeTime, formatWorkedDuration } from "../../time.js";
 
+const CardCalendarDates = createContext(false);
 const RelativeTimeClock = createContext<number | null>(null);
 
-export function RelativeTimeProvider({ children, now }: { children: ReactNode; now: number }) {
-  return <RelativeTimeClock value={now}>{children}</RelativeTimeClock>;
+export function RelativeTimeProvider({ children, now, showCalendarDates = false }: { children: ReactNode; now: number; showCalendarDates?: boolean }) {
+  return <RelativeTimeClock value={now}><CardCalendarDates value={showCalendarDates}>{children}</CardCalendarDates></RelativeTimeClock>;
+}
+
+export function ElapsedTime({ startedAt, tooltipEnabled = true }: { startedAt: string | null | undefined; tooltipEnabled?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  const start = startedAt ? Date.parse(startedAt) : NaN;
+  const available = Number.isFinite(start);
+  useEffect(() => {
+    if (!available) return;
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [available, startedAt]);
+  const text = available ? formatWorkedDuration(Math.max(0, now - start)) : "—";
+  const tooltip = available ? `Worked for ${text} · Started ${formatExactTime(startedAt)}` : "Turn start time unavailable";
+  return <Tooltip disabled={!tooltipEnabled} events={{ focus: true, hover: true, touch: false }} label={tooltip}>
+    <span aria-label={`Elapsed time: ${text}. ${tooltip}`} className="taskchef-time" tabIndex={0}>
+      <IconHourglass aria-hidden size={12} />
+      <bdi className="taskchef-time-label">{text}</bdi>
+    </span>
+  </Tooltip>;
 }
 
 export function RelativeTime({
   icon,
+  calendar = false,
   label,
   value,
+  durationMs,
+  tooltipEnabled = true,
 }: {
   icon?: ReactNode;
+  calendar?: boolean;
   label: string;
   value: string | null | undefined;
+  durationMs?: number | null;
+  tooltipEnabled?: boolean;
 }) {
   const [exact, setExact] = useState(false);
-  useContext(RelativeTimeClock);
-  const text = exact ? formatExactTime(value) : formatRelativeTime(value);
+  const now = useContext(RelativeTimeClock) ?? Date.now();
+  const showCalendarDates = useContext(CardCalendarDates);
+  const shortText = calendar
+    ? showCalendarDates ? formatCardTime(value, { now }) : formatCardAge(value, { now })
+    : formatRelativeTime(value, { now });
+  const text = exact ? formatExactTime(value) : shortText;
   const exactText = formatExactTime(value);
   const unavailable = exactText === "—";
-  const tooltip = unavailable ? "Updated time unavailable" : exact ? formatRelativeTime(value) : exactText;
+  const duration = formatWorkedDuration(durationMs);
+  const tooltip = durationMs !== undefined
+    ? duration === "—" ? "Run duration unavailable" : `Worked for ${duration}`
+    : unavailable ? "Updated time unavailable" : exact ? shortText : exactText;
   return (
-    <Tooltip events={{ focus: true, hover: true, touch: false }} label={tooltip}>
+    <Tooltip disabled={!tooltipEnabled} events={{ focus: true, hover: true, touch: false }} label={tooltip}>
       <UnstyledButton
         aria-label={unavailable
           ? `${label}: unavailable.`
-          : `${label}: ${text}. ${exact ? "Show relative time" : "Show exact time"}`}
+          : `${label}: ${text}. ${exact ? calendar && showCalendarDates ? "Show card date" : "Show relative time" : "Show exact time"}`}
         className="taskchef-time"
         disabled={unavailable}
         onClick={() => setExact((value) => !value)}
       >
-        {icon ?? <IconClock aria-hidden size={12} />}
+        {icon === undefined ? <IconClock aria-hidden size={12} /> : icon}
         <bdi className="taskchef-time-label">{text}</bdi>
       </UnstyledButton>
     </Tooltip>

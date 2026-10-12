@@ -7,16 +7,16 @@ import test from "node:test";
 import {
   aggregateCcusageSessions,
   compactUsageStore,
-  ensureCcusageExecutable,
-  managedCcusageInvocation,
   readUsageStore,
-  readCcusageThreadUsage,
-  readCcusageRuntimeInfo,
-  runBoundedProcess,
   usageDelta,
   writeUsageStore,
 } from "../src/usage.js";
-import { createUsageTracker } from "../src/usage-tracker.js";
+import { createUsageTracker as createTracker } from "../src/usage-tracker.js";
+
+// These fixtures exercise the historical cumulative-reader contract.
+function createUsageTracker(options) {
+  return createTracker({ readThreadUsage: async () => { throw new Error("No fixture analyzer"); }, ...options });
+}
 
 const THREAD_ID = "01a047b4-b28e-7fe3-8d08-92311bcaad9e";
 const FIRST_TURN = "ce886d09-f19a-4299-a6d0-6190ac1b77cb";
@@ -173,139 +173,6 @@ test("ccusage model names cannot mutate object prototypes", () => {
   const usage = aggregateCcusageSessions({ sessions: [crafted] }, THREAD_ID);
   assert.deepEqual(Object.keys(usage.models).sort(), ["__proto__", "constructor", "prototype"]);
   assert.equal(({}).inputTokens, undefined);
-});
-
-test("managed ccusage resolution prefers the pinned package and has a pinned npx fallback", () => {
-  const local = managedCcusageInvocation({
-    platform: "darwin",
-    arch: "arm64",
-    resolvePath: (id) => `/managed/${id}`,
-  });
-  assert.equal(
-    local.command,
-    "/managed/@ccusage/ccusage-darwin-arm64/bin/ccusage",
-  );
-  assert.deepEqual(local.args, []);
-  assert.equal(local.version, "20.0.24");
-  const missing = () => { throw new Error("missing"); };
-  const fallback = managedCcusageInvocation({
-    platform: "darwin",
-    arch: "arm64",
-    resolvePath: missing,
-  });
-  assert.equal(fallback.command, "npx");
-  assert.deepEqual(fallback.args.slice(0, 4), [
-    "--yes", "--prefer-offline", "--package=ccusage@20.0.24", "node",
-  ]);
-  assert.match(fallback.args[4], /resolve-ccusage\.js$/u);
-  assert.deepEqual(fallback.args.slice(5), [
-    "@ccusage/ccusage-darwin-arm64", "ccusage",
-  ]);
-  assert.equal(fallback.version, "20.0.24");
-  assert.equal(fallback.resolvesNative, true);
-  const windows = managedCcusageInvocation({
-    platform: "win32",
-    arch: "x64",
-    resolvePath: missing,
-    npxCliPath: "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
-    exists: () => true,
-  });
-  assert.equal(windows.command, process.execPath);
-  assert.deepEqual(windows.args.slice(0, 5), [
-    "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
-    "--yes", "--prefer-offline", "--package=ccusage@20.0.24", "node",
-  ]);
-  assert.match(windows.args[5], /resolve-ccusage\.js$/u);
-  assert.deepEqual(windows.args.slice(6), [
-    "@ccusage/ccusage-win32-x64", "ccusage.exe",
-  ]);
-  assert.equal(windows.resolvesNative, true);
-});
-
-test("managed ccusage makes an npx-cached native binary executable", {
-  skip: process.platform === "win32",
-}, async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-ccusage-mode-"));
-  const binary = path.join(workspace, "ccusage");
-  await writeFile(binary, "fixture");
-  await chmod(binary, 0o640);
-  ensureCcusageExecutable(binary);
-  assert.equal((await stat(binary)).mode & 0o777, 0o740);
-
-  const linkedBinary = path.join(workspace, "ccusage-link");
-  await symlink(binary, linkedBinary);
-  assert.throws(() => ensureCcusageExecutable(linkedBinary));
-  assert.equal((await stat(binary)).mode & 0o777, 0o740);
-});
-
-test("bounded native analyzer execution stops the process before rejecting a timeout", {
-  skip: process.platform === "win32",
-}, async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "taskchef-usage-process-"));
-  const heartbeatFile = path.join(workspace, "analyzer-heartbeat");
-  const program = [
-    'const { writeFileSync } = require("node:fs");',
-    `const file = ${JSON.stringify(heartbeatFile)};`,
-    'let beat = 0;',
-    'const write = () => writeFileSync(file, String(beat += 1));',
-    'write();',
-    'setInterval(write, 20);',
-  ].join("\n");
-  await assert.rejects(
-    runBoundedProcess(process.execPath, ["-e", program], { timeout: 200 }),
-    /timed out/,
-  );
-  const stoppedAt = await readFile(heartbeatFile, "utf8");
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(await readFile(heartbeatFile, "utf8"), stoppedAt);
-});
-
-test("ccusage execution prefers online pricing and remains bounded and structured", async () => {
-  const calls = [];
-  const run = async (_command, args, options) => {
-    calls.push({ args, options });
-    if (args[0] === "--version") return { stdout: "ccusage 20.0.24\n" };
-    return { stdout: JSON.stringify({ sessions: [session("")] }) };
-  };
-  const usage = await readCcusageThreadUsage(THREAD_ID, { command: "ccusage", run });
-  assert.equal(usage.provenance.version, "20.0.24");
-  assert.equal(usage.provenance.pricingMode, "online");
-  assert.deepEqual(calls[1].args, ["codex", "session", "--json", "--no-offline"]);
-  assert.equal(calls[1].options.timeout, 8_000);
-  await assert.rejects(
-    readCcusageThreadUsage(THREAD_ID, {
-      command: "ccusage",
-      run: async () => { const error = new Error(); error.code = "ENOENT"; throw error; },
-    }),
-    /not installed/,
-  );
-});
-
-test("ccusage execution falls back to bundled offline pricing when online pricing fails", async () => {
-  const calls = [];
-  const run = async (_command, args) => {
-    calls.push(args);
-    if (args[0] === "--version") return { stdout: "ccusage 20.0.24\n" };
-    if (args.includes("--no-offline")) throw new Error("pricing network unavailable");
-    return { stdout: JSON.stringify({ sessions: [session("")] }) };
-  };
-  const usage = await readCcusageThreadUsage(THREAD_ID, { command: "ccusage", run });
-  assert.equal(usage.provenance.pricingMode, "offline");
-  assert.deepEqual(calls.slice(1).map((args) => args.at(-1)), ["--no-offline", "--offline"]);
-});
-
-test("ccusage runtime metadata uses the executable's reported version", async () => {
-  const info = await readCcusageRuntimeInfo({
-    run: async (_command, args) => {
-      assert.deepEqual(args, ["--version"]);
-      return { stdout: "ccusage 20.0.21\n" };
-    },
-  });
-  assert.deepEqual(info, {
-    provider: "ccusage",
-    status: "available",
-    version: "20.0.21",
-  });
 });
 
 test("GPT-5.6 cumulative estimates use the cost supplied by ccusage", () => {
@@ -858,7 +725,7 @@ test("a stable ccusage correction replaces the task total and invalidates old tu
         generationTerminal: true,
         zeroBaselineTurnRef: FIRST_TURN,
         status: "unavailable",
-        reason: "Codex usage is unavailable from ccusage.",
+        reason: "Codex usage is unavailable.",
         updatedAt: oldSnapshot.sampledAt,
         retryAfter: "2026-08-28T13:01:00.000Z",
         task: oldSnapshot,

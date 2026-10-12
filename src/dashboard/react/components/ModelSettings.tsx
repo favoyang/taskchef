@@ -99,7 +99,7 @@ export function ModelSettings() {
       <Stack gap="xs">
         <Title order={3} size="h5">Usage provider</Title>
         <Text size="sm">{usageProvider.provider}{usageProvider.version ? ` ${usageProvider.version}` : ' version unavailable'}</Text>
-        <Text c="dimmed" size="sm">Version pinned by TaskChef for token and cost estimates.</Text>
+        <Text c="dimmed" size="sm">Reads saved Codex usage with TaskChef’s accounting engine.</Text>
       </Stack>
     </Paper>}
   </Stack>;

@@ -1,6 +1,7 @@
-export type TaskStatus = "working" | "needs_input" | "completed" | "failed" | null;
+export type TaskStatus = "working" | "needs_input" | "completed" | "failed" | "scheduled" | "interrupted" | "archived" | null;
 
 export interface Project {
+  id?: string;
   name: string;
   path: string;
   description?: string;
@@ -35,6 +36,8 @@ export interface GitHubLink {
 }
 
 export interface UsageNumbers {
+  partial?: boolean;
+  costPartial?: boolean;
   inputTokens?: number;
   cachedInputTokens?: number;
   outputTokens?: number;
@@ -65,6 +68,21 @@ export interface ReportedWorkSummary {
   totalMilliseconds: number | null;
 }
 
+export interface PullRequestStatus {
+  url: string;
+  state: "unknown" | "open" | "draft" | "closed" | "merged";
+  checks: "unknown" | "none" | "passed" | "failed" | "pending";
+  title?: string;
+  headRevision?: string;
+  canMerge?: boolean;
+  hasMergeConflicts?: boolean;
+  mergeState?: string | null;
+  mergeable?: string;
+  checkedAt?: string;
+  accessIssue?: "denied" | "not_found";
+  error?: string;
+}
+
 export interface Task {
   schemaVersion?: number;
   id: string;
@@ -86,9 +104,45 @@ export interface Task {
   results?: TaskResult[];
   reportedWork?: ReportedWorkSummary;
   usage?: UsageProjection | null;
+  turnUsage?: SavedUsage;
+  sessionUsage?: {
+    latest: SavedUsage;
+    total: SavedUsage;
+    subagents: number;
+    pricingDate: string;
+  };
+  statusLabel?: string;
+  scheduled?: boolean;
+  nextRunAt?: string | null;
+  manualDone?: boolean;
+  manualScheduled?: boolean;
+  promptExcerpt?: string | null;
+  promptText?: string | null;
+  replyText?: string | null;
+  replyExcerpt?: string | null;
+  annotations?: { text: string; annotation: string }[];
+  needsAnswer?: boolean;
+  pendingQuestions?: { id: string; title: string; options: string[] }[];
+  queuedPrompts?: { id: string; text: string; images: { url: string; alt: string }[] }[];
+  promptImage?: { url: string; alt: string } | null;
+  promptImages?: { url: string; alt: string }[];
+  replyImage?: { url: string; alt: string } | null;
+  inputSource?: "scheduled" | "ordinary" | "unverified";
+  observed?: { unread?: boolean; source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; latestTurnDurationMs?: number | null; recordedChatDurationMs?: number | null; missingTurnDurations?: number; historicalTimePartial?: boolean; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
+  pullRequests?: PullRequestStatus[];
+  detailPullRequests?: PullRequestStatus[];
+  earlierPullRequest?: PullRequestStatus;
   relatedGitHubLinks?: GitHubLink[];
   relatedGitHubLinksTruncated?: boolean;
   relatedGitHubRepository?: string | null;
+}
+
+export interface SavedUsage {
+  tokens: { input_tokens: number; cached_input_tokens: number; cache_write_input_tokens: number; output_tokens: number; reasoning_output_tokens: number; total_tokens: number };
+  costUsd: number;
+  samples: number;
+  partial: boolean;
+  costPartial: boolean;
 }
 
 export interface NotificationSnapshot {

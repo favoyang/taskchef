@@ -104,11 +104,11 @@ body {
 }
 .taskchef-board:focus-visible { outline: 2px solid var(--mantine-color-teal-6); outline-offset: 2px; }
 .taskchef-board-dragging { scroll-snap-type: none; user-select: none; cursor: grabbing; }
-.taskchef-board-lane { min-width: 0; scroll-snap-align: start; cursor: grab; }
+.taskchef-board-lane { min-width: 0; scroll-snap-align: start; cursor: grab; padding: 8px; border-radius: 10px; }
 .taskchef-board-lane-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 13px 6px; margin-bottom: 6px; }
 .taskchef-board-lane-heading h2 { font-size: var(--mantine-font-size-sm); font-weight: 680; }
 .taskchef-board-empty { padding: 12px 4px; }
-.taskchef-board-card { display: flex; flex-direction: column; min-width: 0; cursor: auto; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
+.taskchef-board-card { display: flex; flex-direction: column; min-width: 0; cursor: grab; background: light-dark(#fff, #202421); border-color: var(--taskchef-border); box-shadow: 0 1px 2px light-dark(rgb(22 31 25 / 3%), transparent); }
 .taskchef-board-card:hover { border-color: light-dark(#bdc8c0, #5b685e); }
 .taskchef-board-project { color: var(--taskchef-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .taskchef-board-title { line-height: 1.3; }
@@ -218,3 +218,127 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .taskchef-refresh-spinning { animation: none; }
 }
+
+/* Markdown replies share the same renderer in the board and Details. */
+.taskchef-markdown { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+.taskchef-markdown > :first-child { margin-top: 0; }
+.taskchef-markdown > :last-child { margin-bottom: 0; }
+.taskchef-markdown p, .taskchef-markdown ul, .taskchef-markdown ol, .taskchef-markdown blockquote { margin: 0.6em 0; }
+.taskchef-markdown h1, .taskchef-markdown h2, .taskchef-markdown h3, .taskchef-markdown h4, .taskchef-markdown h5, .taskchef-markdown h6 { font-size: 1.05em; margin: 1em 0 0.4em; }
+.taskchef-markdown ul, .taskchef-markdown ol { padding-left: 1.5em; }
+.taskchef-markdown a { color: var(--mantine-color-anchor); }
+.taskchef-markdown code { background: var(--mantine-color-default-hover); border-radius: 3px; padding: 0.1em 0.25em; font-size: 0.9em; }
+.taskchef-markdown pre { overflow-x: auto; max-width: 100%; padding: 0.75em; background: var(--mantine-color-default-hover); border-radius: 6px; white-space: pre; }
+.taskchef-markdown pre code { padding: 0; background: none; }
+.taskchef-markdown blockquote { border-left: 3px solid var(--mantine-color-default-border); padding-left: 0.75em; }
+.taskchef-markdown-table { overflow-x: auto; max-width: 100%; }
+.taskchef-markdown table { border-collapse: collapse; width: 100%; }
+.taskchef-markdown th, .taskchef-markdown td { border: 0; padding: 0.75em 1.5em 0.75em 0; text-align: left; vertical-align: top; overflow-wrap: normal; }
+.taskchef-markdown th:last-child, .taskchef-markdown td:last-child { padding-right: 0; }
+.taskchef-markdown:not(.taskchef-markdown--compact) thead tr { border-bottom: 1px solid var(--mantine-color-default-border); }
+.taskchef-markdown:not(.taskchef-markdown--compact) tbody tr:not(:last-child) { border-bottom: 1px solid color-mix(in srgb, var(--mantine-color-default-border) 55%, transparent); }
+.taskchef-markdown--compact { display: inline; }
+.taskchef-markdown--compact :is(p,h1,h2,h3,h4,h5,h6,ul,ol,li,blockquote,pre,table,thead,tbody,tr,th,td,.taskchef-markdown-table) { display: inline; margin: 0; padding: 0; border: 0; font-size: inherit; white-space: normal; }
+.taskchef-markdown--compact :is(p,li,pre,blockquote,tr)::after { content: " "; }
+.taskchef-markdown--compact li::before { content: "• "; }
+.taskchef-markdown--compact :is(th,td)::after { content: " | "; }
+
+.taskchef-reply-cover { display: flex; align-items: center; justify-content: center; width: calc(100% + 24px); height: 150px; margin: -12px -12px 10px; padding: 0; border: 0; border-radius: var(--mantine-radius-default) var(--mantine-radius-default) 0 0; overflow: hidden; background: light-dark(#eef1ee, #151a17); color: var(--mantine-color-dimmed); cursor: pointer; flex-shrink: 0; }
+.taskchef-reply-cover img { width: 100%; height: 100%; object-fit: contain; }
+.taskchef-reply-cover span { font-size: var(--mantine-font-size-xs); padding: 12px; }
+.taskchef-reply-cover:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
+
+.taskchef-board-project { display: flex; align-items: center; gap: 5px; }
+.taskchef-board-project > svg { flex-shrink: 0; }
+.taskchef-board-project > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskchef-card-stats, .taskchef-card-pr-icons { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.taskchef-card-pr-icons { flex-wrap: wrap; }
+.taskchef-card-pr-icons:empty { display: none; }
+.taskchef-card-status-icon { display: inline-flex; position: relative; align-items: center; justify-content: center; width: 20px; height: 22px; padding: 0; flex-shrink: 0; background: none; border: 0; color: var(--taskchef-muted); cursor: pointer; }
+.taskchef-card-status-icon:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; border-radius: 3px; }
+
+.taskchef-status-tooltip { background: var(--taskchef-surface-muted); color: var(--taskchef-text); border: 1px solid var(--taskchef-border); }
+
+.taskchef-status-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; line-height: 1.5; }
+.taskchef-status-row-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; flex: 0 0 18px; color: var(--taskchef-muted); }
+.taskchef-status-row-content { min-width: 0; flex: 1; }
+.taskchef-status-pr-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: inherit; color: inherit; }
+.taskchef-popup-pr-icon { position: relative; display: inline-flex; width: 18px; height: 18px; align-items: center; }
+
+.taskchef-pr-access-warning { position: absolute; right: -6px; top: -3px; color: #eac54f; }
+
+.taskchef-schedule-clock { transform: scaleX(-1); }
+
+.taskchef-pr-access-alert { box-shadow: inset 0 0 0 1px #eac54f; border-radius: 4px; padding: 6px 8px 6px 0; }
+
+.taskchef-board-lane-title { display: flex; align-items: center; gap: 4px; }
+/* Codex desktop's default spinner geometry and animation cadence. */
+.taskchef-running-spinner { flex-shrink: 0; color: var(--mantine-color-dimmed); animation: taskchef-running-spin 2s steps(60, end) infinite; }
+@keyframes taskchef-running-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .taskchef-running-spinner { animation: none; } }
+
+.taskchef-board-card:active { cursor: grabbing; }
+.taskchef-board-lane-drop-target {
+  background: light-dark(rgba(47, 158, 68, 0.08), rgba(81, 207, 102, 0.08));
+  box-shadow: inset 0 0 0 1px light-dark(rgba(47, 158, 68, 0.5), rgba(81, 207, 102, 0.4));
+}
+
+.taskchef-card-turn-usage { font-size: 12px; white-space: nowrap; }
+
+.taskchef-board-title { position: relative; }
+.taskchef-board-title:has(.taskchef-chat-unread-dot) { padding-right: 16px; }
+.taskchef-chat-unread-dot { position: absolute; right: 0; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #2f81f7; }
+
+.taskchef-turn-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: var(--mantine-font-size-sm); }
+.taskchef-turn-prompt { align-self: flex-end; max-width: 85%; min-width: 0; padding: 10px 12px; border-radius: 12px; background: light-dark(#eaf1fc, #1c3d69); color: light-dark(#202c3d, #edf3fc); overflow-wrap: anywhere; }
+.taskchef-prompt-clock { float: left; margin: 3px 6px 0 0; }
+.taskchef-turn-response { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.taskchef-turn-card { margin: 8px 0; font-size: var(--mantine-font-size-sm); }
+.taskchef-turn-card .taskchef-markdown { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.taskchef-turn-collapsed { line-height: 1.55; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; max-height: calc(3 * 1.55em); overflow: hidden; }
+.taskchef-turn-expand { padding: 0; margin-top: 5px; border: 0; background: transparent; color: inherit; text-decoration: underline; font: inherit; font-size: var(--mantine-font-size-xs); cursor: pointer; }
+.taskchef-turn-expand:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
+
+.taskchef-turn-collapsed .taskchef-markdown :is(p,ul,ol,blockquote) { margin-top: 0; margin-bottom: 0; }
+
+.taskchef-turn-divider { margin-top: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--mantine-color-default-border); color: var(--mantine-color-dimmed); font-size: var(--mantine-font-size-xs); }
+.taskchef-response-image { display: block; margin: 16px 0; }
+.taskchef-image-thumbnail { display: block; padding: 0; border: 1px solid var(--mantine-color-default-border); border-radius: 8px; background: transparent; overflow: hidden; cursor: zoom-in; max-width: 100%; }
+.taskchef-image-thumbnail img { display: block; max-width: 100%; width: auto; max-height: 160px; object-fit: contain; }
+.taskchef-image-thumbnail:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 3px; }
+.taskchef-image-lightbox img { display: block; max-width: calc(100vw - 64px); max-height: calc(100dvh - 140px); object-fit: contain; }
+
+.taskchef-prompt-images { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+.taskchef-prompt-images .taskchef-response-image { margin:0; max-width:100%; }
+.taskchef-prompt-images .taskchef-image-thumbnail img { max-height:120px; }
+
+.taskchef-turn-prompt .taskchef-markdown p:empty { display:none; }
+
+.taskchef-annotation-link { color: var(--mantine-color-anchor); font: inherit; padding: 0; border: 0; background: none; text-decoration: underline; cursor: pointer; }
+.taskchef-annotation-popup { font-size: var(--mantine-font-size-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; text-align: left; }
+.taskchef-annotation-label { color: var(--mantine-color-dimmed); margin-top: 8px; margin-bottom: 4px; }
+.taskchef-annotation-label:first-child { margin-top: 0; }
+
+.taskchef-image-placeholder { display: inline-block; width: 180px; height: 120px; max-width: 100%; border-radius: 8px; background: var(--mantine-color-default-hover); }
+.taskchef-queued-prompts { margin-top: 16px; }
+.taskchef-queued-heading { font-size: 12px; color: var(--mantine-color-dimmed); margin-bottom: 8px; }
+.taskchef-queued-prompts > ol { list-style: none; padding: 0; margin: 0; }
+.taskchef-queued-prompts > ol > li { display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid var(--mantine-color-default-border); padding: 10px 0; }
+.taskchef-queued-prompts.is-compact { margin-top: 8px; }
+.taskchef-queued-prompts.is-compact > ol > li { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; }
+.taskchef-queued-prompts.is-compact > ol > li > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.taskchef-queued-prompts.is-compact .taskchef-markdown { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.taskchef-queued-prompts.is-compact .taskchef-reply-cover { flex: 0 0 28px; width: 28px; height: 22px; min-height: 22px; margin: 0; border-radius: 3px; }
+.taskchef-queued-prompts.is-compact .taskchef-reply-cover span { font-size: 0; }
+
+.taskchef-prompt-images .taskchef-image-thumbnail { width: 180px; height: 120px; display: flex; align-items: center; justify-content: center; }
+.taskchef-prompt-images .taskchef-image-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
+
+.taskchef-queued-prompts.is-compact .taskchef-markdown * { white-space: nowrap; }
+
+.taskchef-pending-questions { margin: 20px 0; padding: 16px 0; border-top: 1px solid var(--mantine-color-default-border); border-bottom: 1px solid var(--mantine-color-default-border); }
+.taskchef-pending-questions ol { padding-left: 24px; margin: 8px 0 0; font-size: var(--mantine-font-size-sm); }
+.taskchef-pending-questions li { padding: 4px 0; white-space: pre-wrap; }
+
+.taskchef-queue-icon { flex: 0 0 16px; color: var(--mantine-color-dimmed); margin-top: 2px; }
+.taskchef-queue-content { flex: 1; min-width: 0; }
