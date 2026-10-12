@@ -2,9 +2,9 @@
 
 The public app name is **TaskChef**. “TaskChef Next” remains the internal project name.
 
-TaskChef requires Node.js 22.18+, 23.2+, or 24+ for read-only SQLite connections. The rest of TaskChef continues to support the package's Node.js 18 minimum. An unsupported Node runtime produces a fatal version error before TaskChef opens a database.
+The native dashboard requires Node.js 22.18+, 23.2+, or 24+ for local Codex SQLite access.
 
-Call `open_taskchef_board` in Codex to open **TaskChef**. In a sidebar or fullscreen host view, it shows the read-only board, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not modify the TaskChef dispatcher workspace.
+Call `open_taskchef_board` in Codex to open **TaskChef**. In a sidebar or fullscreen host view, it shows the read-only board, filters, and chat details. In an inline chat view, it shows a short recent-chat list with direct **Open chat** actions. The app uses local Codex metadata and does not require a dispatcher workspace.
 
 The server reads all eligible top-level chats from `~/.codex/state_5.sqlite` and their latest turn from `~/.codex/thread_history_1.sqlite`. Both SQLite connections are read-only. It excludes typed subagents and Guardian reviews, JSON subagent sources, known `thread_spawn_edges` children, chats with no turn record. Standalone `source=exec` and regular `source=cli` chats remain eligible in the collector, but the view hides them by default. The plugin details page has native switches for Show exec sessions, Show CLI sessions, and Show archived chats. The MCP server stores these choices in `~/.agents/taskchef-next/settings.json`, shared by all TaskChef views. Each visible poll reads the current settings, even when the database snapshot is unchanged. These choices apply to the board, counts, project choices, Details eligibility, and the compact inline view. Archived chats are hidden by default and use their own Archived column when shown. Details shows the recorded lifetime direct child count. Names and titles can contain user text; the app prefers name, then title, then a chat ID fallback.
 
@@ -49,7 +49,7 @@ Cards show the chat title, project, a plain two-line preview, activity time, and
 
 Details pairs the full recorded latest-turn request and response, each initially capped at three lines with independent Show more/Show less controls. Selected quotes render as Markdown quotes and file/image references as named attachments. Generated request headings and context metadata are hidden in the display. Recorded input remains unchanged. Raw HTML is ignored and relative file links appear as text.
 
-Time labels use compact relative dates by default, with calendar dates available in settings. Schedule and PR icons appear in the status line. Queue reasons and lifetime subagent counts remain in Details. See [dashboard UI](dashboard-ui.md) for the presentation contract.
+Time labels use compact relative dates by default, with calendar dates available in settings. Schedule and PR icons appear in the status line. Queue reasons and lifetime subagent counts remain in Details. See [the native contract](spec.md) for the product boundary.
 
 
 

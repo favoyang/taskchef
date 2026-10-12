@@ -8,7 +8,7 @@ import { replyImage, replyImages, localReplyImage } from "./reply-image.js";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { open, stat, readFile, readdir, mkdir } from "node:fs/promises";
-import { acquireWorkspaceLock } from "./workspace.js";
+import { acquireFileLock } from "./file-lock.js";
 import { writeDurableAtomic } from "./state-store.js";
 import { dirname } from "node:path";
 import { parse as parseToml } from "smol-toml";
@@ -718,7 +718,7 @@ export class CodexSessionScanner {
       if (!scheduled && done && task.pullRequests?.some(pr => !mergedPrUrls.includes(pr.url))) throw new Error("Chats with attached PRs require confirmed merge status before marking Done.");
       if (task.observed.archive || task.observed.lastTurnEvent === "inProgress") throw new Error("Archived or in-progress chats cannot be marked from TaskChef.");
       await mkdir(dirname(this.statePath), { recursive: true, mode: 0o700 });
-      const release = await acquireWorkspaceLock(dirname(this.statePath));
+      const release = await acquireFileLock(dirname(this.statePath));
       try {
         const marks = await readDoneMarks(this.statePath);
         const key = scheduled ? `scheduled:${id}` : id;

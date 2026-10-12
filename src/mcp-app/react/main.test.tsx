@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
 import { useState } from "react";
-import type { Task } from "../../dashboard/react/types";
+import type { Task } from "../../ui/types";
 
 const server = vi.hoisted(() => ({ call: vi.fn(), openLink: vi.fn(), displayMode: "unknown", hostContextChanged: undefined as undefined | ((context: { displayMode: string }) => void), teardown: undefined as undefined | (() => object) }));
 vi.mock("./ProjectPicker", () => ({ ProjectPicker: ({ data, value, onChange }: { data: Array<{label: string; value: string}>; value: string; onChange: (value: string) => void }) => <select aria-label="Project" value={value} onChange={(event) => onChange(event.target.value)}>{data.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select> }));
@@ -32,10 +32,10 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
     set onteardown(handler: () => object) { server.teardown = handler; }
   },
 }));
-vi.mock("../../dashboard/react/components/TaskCard", () => ({
+vi.mock("../../ui/components/TaskCard", () => ({
   TaskCard: ({ task, onOpenCodex, onOpenDetail }: { task: Task; onOpenCodex: (task: Task) => void; onOpenDetail: (task: Task) => void }) => <article><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>,
 }));
-vi.mock("../../dashboard/react/components/TaskBoard", () => ({
+vi.mock("../../ui/components/TaskBoard", () => ({
   TaskBoard: ({ showCardUsage, tasks, onOpenDetail, onOpenCodex, doneNotice, onVisibleTasksChange }: { showCardUsage?: boolean; onVisibleTasksChange?: (ids: string[]) => void; doneNotice?: React.ReactNode; tasks: Task[]; onOpenDetail: (task: Task) => void; onOpenCodex: (task: Task) => void }) => <section aria-label="Task board" data-card-usage={String(showCardUsage)}><button onClick={() => onVisibleTasksChange?.([tasks[0].id])}>Report card in view</button>{doneNotice}{tasks.map((task) => <article key={task.id}><button onClick={() => onOpenDetail(task)}>{task.title}</button><button onClick={() => onOpenCodex(task)}>Open chat for {task.title}</button></article>)}</section>,
 }));
 vi.mock("./NextTaskDetail", () => ({

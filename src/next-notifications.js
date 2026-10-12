@@ -2,7 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { acquireWorkspaceLock } from "./workspace.js";
+import { acquireFileLock } from "./file-lock.js";
 import { writeDurableAtomic } from "./state-store.js";
 
 const itemSchema = z.object({ id: z.string(), taskId: z.string().nullable(), title: z.string(), detail: z.string(), kind: z.enum(["ready", "interrupted", "confirmation", "error"]), read: z.boolean(), timestamp: z.string() });
@@ -15,7 +15,7 @@ export class NextNotifications {
   constructor(path, { now = () => new Date().toISOString(), clock = () => performance.timeOrigin + performance.now() } = {}) { this.path = path; this.now = now; this.clock = clock; }
   async update(operation) {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-    const release = await acquireWorkspaceLock(dirname(this.path));
+    const release = await acquireFileLock(dirname(this.path));
     try {
       let state;
       try { state = schema.parse(JSON.parse(await readFile(this.path, "utf8"))); }

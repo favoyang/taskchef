@@ -17,35 +17,15 @@ import { parse as parseYaml } from "yaml";
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const execFile = promisify(execFileCallback);
-const SKILL_NAMES = [
-  "taskchef-bootstrap",
-  "taskchef-dashboard",
-  "taskchef-delegate",
-  "taskchef-executor",
-  "taskchef-copilot",
-];
+const SKILL_NAMES = ["delegate"];
 const REQUIRED_PLUGIN_FILES = [
-  "skills/taskchef-bootstrap/references/project-index.md",
-  "skills/taskchef-executor/references/compatibility.md",
-  "skills/taskchef-executor/references/ending-actions.md",
-  ".codex-plugin/plugin.json",
-  ".mcp.json",
-  "assets/taskchef-dark.svg",
-  "assets/taskchef.svg",
-  "bin/taskchef.js",
-  "mcp/server.js",
+  ".codex-plugin/plugin.json", ".mcp.json", "assets/taskchef.svg",
+  "assets/taskchef-dark.svg", "assets/taskchef-sidebar.svg", "mcp/server.js",
   "node_modules/@modelcontextprotocol/sdk/package.json",
-  "node_modules/proper-lockfile/package.json",
-  "node_modules/zod/package.json",
-  "src/cli.js",
-  "src/delegation.js",
-  "src/mcp.js",
-  "src/workspace-path.js",
-  "src/workspace.js",
-  ...SKILL_NAMES.flatMap((name) => [
-    `skills/${name}/SKILL.md`,
-    `skills/${name}/agents/openai.yaml`,
-  ]),
+  "node_modules/proper-lockfile/package.json", "node_modules/zod/package.json",
+  "src/mcp.js", "src/mcp-app.js", "src/file-lock.js", "src/codex-session-scanner.js",
+  "src/mcp-app/dist/index.html", "src/data/codex-pricing.json",
+  "skills/delegate/SKILL.md", "skills/delegate/agents/openai.yaml",
 ];
 
 function requireVersion(version) {
@@ -106,8 +86,8 @@ export function validatePublishedPluginPackage(packages, version) {
       throw new Error(`published taskchef@${version} is missing ${requiredPath}`);
     }
   }
-  if ((files.get("bin/taskchef.js").mode & 0o111) === 0) {
-    throw new Error(`published taskchef@${version} bin/taskchef.js is not executable`);
+  for (const retiredPath of ["bin/taskchef.js", "mcp/dashboard-session.js", "src/cli.js", "src/dashboard.js", "src/workspace.js", "assets/taskchef-dispatcher-instructions.md"]) {
+    if (files.has(retiredPath)) throw new Error(`published taskchef@${version} contains retired entrypoint ${retiredPath}`);
   }
   return packed;
 }
@@ -156,12 +136,10 @@ export async function validateExtractedPlugin(pluginRoot, version, execFileImpl 
   }
   const { stdout } = await execFileImpl(
     process.execPath,
-    [path.join(pluginRoot, "bin", "taskchef.js"), "help"],
+    ["--input-type=module", "-e", "const { createTaskChefMcpServer } = await import('./src/mcp.js'); const server = createTaskChefMcpServer(); console.log('native-mcp-ready'); await server.close();"],
     { cwd: pluginRoot, maxBuffer: 1024 * 1024 },
   );
-  if (!stdout.includes("taskchef workspace init")) {
-    throw new Error("published TaskChef CLI help smoke test failed");
-  }
+  if (!stdout.includes("native-mcp-ready")) throw new Error("published native MCP smoke test failed");
   return manifest;
 }
 

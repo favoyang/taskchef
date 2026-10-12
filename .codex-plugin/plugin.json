@@ -1,7 +1,7 @@
 {
   "name": "taskchef",
   "version": "8.7.1",
-  "description": "Dispatch work from a data-only workspace to visible Codex project tasks.",
+  "description": "Native Codex dashboard with lightweight project delegation.",
   "author": {
     "name": "Favo Yang",
     "url": "https://github.com/favoyang"
@@ -11,16 +11,16 @@
   "license": "Apache-2.0",
   "keywords": [
     "codex",
-    "delegation",
-    "dispatcher",
+    "dashboard",
+    "usage",
     "tasks"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "TaskChef",
-    "shortDescription": "Dispatch work to the right Codex project task.",
-    "longDescription": "Route work to visible Codex project tasks, monitor them in the dashboard, and get concise cached-first coordination briefs.",
+    "shortDescription": "See your Codex chats, usage, and pull requests.",
+    "longDescription": "A native dashboard for local Codex chats with usage estimates, pull request status, queued prompts, and schedules. Delegate work through native Codex project tools.",
     "developerName": "Favo Yang",
     "category": "Productivity",
     "capabilities": [
@@ -29,10 +29,7 @@
     ],
     "websiteURL": "https://github.com/favoyang/taskchef",
     "defaultPrompt": [
-      "$taskchef-bootstrap Set up TaskChef and index my local Codex projects.",
-      "$taskchef-delegate Do X in Y project.",
-      "$taskchef-dashboard Ensure and open the TaskChef dashboard.",
-      "$taskchef-copilot Summarize recent delegated work and tell me what needs attention."
+      "$taskchef:delegate Do X in Y project."
     ],
     "brandColor": "#D97706",
     "composerIcon": "./assets/taskchef.svg",

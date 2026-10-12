@@ -10,7 +10,7 @@ import {
   normalizeGitHubRepository,
   referenceSegments,
   taskGitHubProjection,
-} from "../src/dashboard/github-links.js";
+} from "../src/ui/github-links.js";
 
 function links(segments) {
   return segments.filter(({ kind }) => kind === "link");

@@ -2,14 +2,14 @@ import { Alert, Anchor, Badge, Box, Drawer, Group, Modal, ScrollArea, Stack, Tex
 import { useMediaQuery } from "@mantine/hooks";
 import { IconArrowUpRight, IconClock, IconFolder, IconHelpCircle, IconHourglass, IconRobot } from "@tabler/icons-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { Task, SavedUsage } from "../../dashboard/react/types";
-import { PullRequestInfo, nextRunLabel } from "../../dashboard/react/components/CardStatusIcons";
-import { OpenChatButton } from "../../dashboard/react/components/OpenChatButton";
-import { QueuedPrompts } from "../../dashboard/react/components/QueuedPrompts";
-import { TurnContent } from "../../dashboard/react/components/TurnContent";
-import { compactTokens, TokenBreakdown, useAnimatedUsage } from "../../dashboard/react/components/SavedUsageFormat";
-import { GitHubLinks } from "../../dashboard/react/components/GitHubLinks";
-import { formatWorkedDuration } from "../../dashboard/time.js";
+import type { Task, SavedUsage } from "../../ui/types";
+import { PullRequestInfo, nextRunLabel } from "../../ui/components/CardStatusIcons";
+import { OpenChatButton } from "../../ui/components/OpenChatButton";
+import { QueuedPrompts } from "../../ui/components/QueuedPrompts";
+import { TurnContent } from "../../ui/components/TurnContent";
+import { compactTokens, TokenBreakdown, useAnimatedUsage } from "../../ui/components/SavedUsageFormat";
+import { GitHubLinks } from "../../ui/components/GitHubLinks";
+import { formatWorkedDuration } from "../../ui/time.js";
 
 export function NextTaskDetail({ task, opened, busy, usageLoading = false, error, onClose, onOpenCodex, extraActions, loadImage }: {
   task: Task | null; opened: boolean; busy: boolean; usageLoading?: boolean; error: string | null;

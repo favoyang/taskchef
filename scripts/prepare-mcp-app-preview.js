@@ -21,6 +21,9 @@ export async function prepareMcpAppPreview(pluginRoot) {
   if (!server || Object.keys(mcp.mcpServers).length !== 1) throw new Error("Expected one TaskChef MCP server.");
   manifest.name = "taskchef-next";
   manifest.interface = { ...manifest.interface, displayName: "TaskChef Dev" };
+  if (manifest.interface.defaultPrompt) {
+    manifest.interface.defaultPrompt = manifest.interface.defaultPrompt.map(prompt => prompt.replaceAll("$taskchef:", "$taskchef-next:"));
+  }
   mcp.mcpServers = { "taskchef-next": server };
   await writeDurableAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   await writeDurableAtomic(mcpPath, `${JSON.stringify(mcp, null, 2)}\n`);

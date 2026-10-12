@@ -1,15 +1,15 @@
-import { cachedImageLoader } from "../../dashboard/react/image-cache";
+import { cachedImageLoader } from "../../ui/image-cache";
 import { App } from "@modelcontextprotocol/ext-apps";
 import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DashboardSnapshot, Task, Project } from "../../dashboard/react/types";
-import { filterTasks } from "../../dashboard/state.js";
-import { TaskBoard } from "../../dashboard/react/components/TaskBoard";
-import { TaskCard } from "../../dashboard/react/components/TaskCard";
+import type { DashboardSnapshot, Task, Project } from "../../ui/types";
+import { filterTasks } from "../../ui/state.js";
+import { TaskBoard } from "../../ui/components/TaskBoard";
+import { TaskCard } from "../../ui/components/TaskCard";
 import { NextTaskDetail } from "./NextTaskDetail";
-import { RelativeTimeProvider } from "../../dashboard/react/components/RelativeTime";
+import { RelativeTimeProvider } from "../../ui/components/RelativeTime";
 import { NextNotificationCenter, type NextNotification, type NextNotificationState } from "./NextNotificationCenter";
 import { GitHubConnection, type GitHubAuth } from "./GitHubConnection";
 import { AppearancePicker } from "./AppearancePicker";
@@ -17,7 +17,7 @@ import { savedVisualTheme, themeVariables, visualTheme, VISUAL_THEME_KEY } from 
 import { ProjectPicker } from "./ProjectPicker";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
-import "../../dashboard/react/styles.css";
+import "../../ui/styles.css";
 import "./styles.css";
 
 const theme = createTheme({

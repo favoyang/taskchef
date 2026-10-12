@@ -65,9 +65,11 @@ test("development identity stays in the staging copy and leaves the release unch
   await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { taskchef: { command: "node", args: ["./mcp/server.js"] } } }));
   await assert.rejects(prepareMcpAppPreview(root), /development identity/);
   assert.equal(JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8")).name, "taskchef");
-  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-next", version: "8.7.0", interface: { displayName: "TaskChef" } }));
+  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-next", version: "8.7.0", interface: { displayName: "TaskChef", defaultPrompt: ["$taskchef:delegate Do X"] } }));
   const result = await prepareMcpAppPreview(root);
   assert.deepEqual(result, { name: "taskchef-next", displayName: "TaskChef Dev", version: "8.7.0" });
+  const prepared = JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8"));
+  assert.deepEqual(prepared.interface.defaultPrompt, ["$taskchef-next:delegate Do X"]);
   const mcp = JSON.parse(await readFile(join(root, ".mcp.json"), "utf8"));
   assert.deepEqual(mcp.mcpServers, { "taskchef-next": { command: "node", args: ["./mcp/server.js"] } });
   assert.deepEqual(await prepareMcpAppPreview(root), result);
