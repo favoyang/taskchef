@@ -107,3 +107,19 @@ test('annotation data retains order without source metadata or wrong types', () 
  assert.deepEqual(responseAnnotations('Example: <response-annotations>[{"text":"Example"}]</response-annotations>'),[]);
  assert.deepEqual(responseAnnotations(annotationContext([]).replace('[]','{broken}')),[]);
 });
+
+const questionReply = replies => `<send_user_message_question_reply>\n${JSON.stringify(replies)}\n</send_user_message_question_reply>`;
+test('renders a selected option without question or call identifiers', () => {
+ const input=questionReply([{questionItemId:'["request_user_input_async","call-private",0]',question:'Which format should I use?',answer:'PDF (Recommended)'}]);
+ assert.equal(displayUserPrompt(input),'> Which format should I use?\n\nPDF (Recommended)');
+});
+
+test('renders written answers and multiple replies in order, preserving Unicode and line breaks', () => {
+ const replies=[{questionItemId:'first',question:'请选择格式。\n需要保留哪些内容？',answer:'保留中文。\n以及 emoji 🐱。'},{questionItemId:'second',question:'When should I start?',answer:'明天'}];
+ assert.equal(displayUserPrompt(questionReply(replies)),'> 请选择格式。\n> 需要保留哪些内容？\n\n保留中文。\n以及 emoji 🐱。\n\n> When should I start?\n\n明天');
+ assert.equal(displayUserPrompt(questionReply(replies[0])),'> 请选择格式。\n> 需要保留哪些内容？\n\n保留中文。\n以及 emoji 🐱。');
+});
+
+test('preserves malformed question replies and wrappers quoted in ordinary prompts', () => {
+ for (const input of [questionReply([]),questionReply([null]),questionReply([{question:'Question',answer:42}]),questionReply([{question:'First',answer:'Yes'},{answer:'No'}]),'<send_user_message_question_reply>{broken}</send_user_message_question_reply>','Keep this example: '+questionReply([{question:'Question',answer:'Yes'}])]) assert.equal(displayUserPrompt(input),input);
+});

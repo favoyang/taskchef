@@ -1028,3 +1028,18 @@ test('Needs answer uses structured latest-turn questions and recorded answers, n
   assert.equal(references.tasks[0].queuedPrompts[0].images[1].alt,'Screenshot');
   queue.prepare('DELETE FROM queued_items').run();await scanner.refresh();assert.equal(scanner.queueImageCache.size,0);
  });
+
+test('question answers use the same readable prompt in card excerpts and Details', async t => {
+ const setup=await fixture(t); if (!setup) return;
+ const {home,state,history}=setup;
+ state.prepare("INSERT INTO threads (id,name) VALUES (?, 'Question reply')").run(id);
+ history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id,first_user_item_id) VALUES (?,1,'inProgress','question-turn','answer')").run(id);
+ const replies=[{questionItemId:'private-call-1',question:'Which format?',answer:'PDF (Recommended)'},{questionItemId:'private-call-2',question:'需要保留什么？',answer:'中文和 emoji 🐱。'}];
+ const input='<send_user_message_question_reply>'+JSON.stringify(replies)+'</send_user_message_question_reply>';
+ history.prepare('INSERT INTO thread_items VALUES (?,?,?,?,?,?)').run(id,'question-turn','answer',JSON.stringify({type:'userMessage',clientId:'desktop',content:[{type:'text',text:input}]}),'userMessage',1);
+ const scanner=new CodexSessionScanner({codexHome:home}); t.after(()=>scanner.close());
+ const task=(await scanner.refresh()).tasks[0];
+ const expected='> Which format?\n\nPDF (Recommended)\n\n> 需要保留什么？\n\n中文和 emoji 🐱。';
+ assert.equal(task.status,'working'); assert.equal(task.promptExcerpt,expected); assert.equal(task.replyExcerpt,null);
+ assert.equal((await scanner.taskDetail(id)).promptText,expected);
+});
