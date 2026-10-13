@@ -20,9 +20,9 @@ for (const [key, value] of Object.entries(themeVariables(visualTheme('codex', 'd
 }
 
 registerRoot(() => <>
-  <Composition id="TaskChefOpening" component={OpeningStudy} durationInFrames={336} fps={30} width={1920} height={1080} />
-  <Composition id="TaskChefLaunch" component={Launch} durationInFrames={1350} fps={30} width={1920} height={1080} />
-  <Folder name="Scenes">
+  <Composition id="TaskChefLaunch" component={Launch} durationInFrames={1020} fps={30} width={1920} height={1080} />
+  <Folder name="Drafts">
+    <Composition id="TaskChefOpening" component={OpeningStudy} durationInFrames={336} fps={30} width={1920} height={1080} />
     <Composition id="ParallelProjects" component={Opening} durationInFrames={180} fps={30} width={1920} height={1080} />
     <Composition id="RunningToReview" component={Review} durationInFrames={330} fps={30} width={1920} height={1080} />
     <Composition id="TurnAndChatUsage" component={Usage} durationInFrames={300} fps={30} width={1920} height={1080} />

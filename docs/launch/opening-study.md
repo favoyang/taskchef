@@ -1,6 +1,7 @@
 # Opening study
 
-Review this 11.2-second composition before rebuilding the full launch film.
+This archived 11.2-second opening study remains in the Drafts folder.
+The approved full film is documented in [video-script.md](video-script.md).
 
 ```sh
 npm ci
@@ -9,7 +10,7 @@ npm run video:preview
 ```
 
 Open `http://localhost:8090/TaskChefOpening` and press Play with sound on.
-The existing `TaskChefLaunch` cut is unchanged.
+Use `TaskChefLaunch` to review the current 34-second full film.
 
 When an export is requested, `npm --prefix video run render:opening` exports
 this opening to `video/out/taskchef-opening.mp4`. `npm run video:render`

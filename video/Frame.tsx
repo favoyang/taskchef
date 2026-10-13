@@ -8,7 +8,8 @@ import { RelativeTimeProvider } from '../src/ui/components/RelativeTime';
 import { ProjectPicker } from '../src/mcp-app/react/ProjectPicker';
 import { themeVariables, visualTheme } from '../src/mcp-app/react/themes';
 const mark = staticFile('taskchef-dark.svg');
-import { DEMO_NOW, HERO_ID, LANES, PROJECTS, demoTasks, type Phase } from './demo';
+import { DEMO_NOW, HERO_ID, LANES, PROJECTS, demoTasks, usage, type Phase } from './demo';
+import type { SavedUsage } from '../src/ui/types';
 
 const theme = createTheme({ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', headings: { fontFamily: 'inherit' }, colors: { dark: ['#dcdcdc', '#cdcdcd', '#afafaf', '#808080', '#414141', '#353535', '#282828', '#212121', '#181818', '#131313'] },
   components: { Modal: { defaultProps: { withinPortal: false, lockScroll: false, transitionProps: { duration: 0 } } } } });
@@ -29,9 +30,16 @@ export function FilmFrame({ eyebrow, title, children }: { eyebrow: string; title
   </AbsoluteFill>;
 }
 
-export function ProductBoard({ phase, project = '', moveProgress, children, highlightProject = false }: { phase: Phase; project?: string; moveProgress?: number; children?: ReactNode; highlightProject?: boolean }) {
+export function ProductBoard({ phase, project = '', moveProgress, children, highlightProject = false, heroUsage, filterProgress }: { phase: Phase; project?: string; moveProgress?: number; children?: ReactNode; highlightProject?: boolean; heroUsage?: SavedUsage; filterProgress?: number }) {
   const frame = useCurrentFrame();
   const tasks = demoTasks(phase, project);
+  if (heroUsage) {
+    const hero = tasks.find(task => task.id === HERO_ID);
+    if (hero) {
+      hero.turnUsage = heroUsage;
+      if (hero.sessionUsage) hero.sessionUsage = { ...hero.sessionUsage, latest: heroUsage, total: usage(4_080_000 + heroUsage.tokens.total_tokens, 2.86 + heroUsage.costUsd) };
+    }
+  }
   // Fix wall-clock labels and suppress the product's real-time FLIP animation.
   // The same destination card moves by a frame-driven transform in this film.
   const transform = moveProgress == null ? 'none' : `translate(${-312 * (1 - moveProgress)}px, ${-10 * Math.sin(Math.PI * moveProgress)}px)`;
@@ -39,6 +47,7 @@ export function ProductBoard({ phase, project = '', moveProgress, children, high
     <style>{`
       .film-product .taskchef-board-card { transform: none !important; }
       .film-product [data-chat-id="${HERO_ID}"] { transform: ${transform} !important; position: relative; z-index: 5; ${moveProgress != null && moveProgress < 1 ? 'box-shadow: 0 16px 35px #0008; border-color: #75b8ff;' : ''} }
+      ${filterProgress == null ? '' : `.film-product [data-chat-id="00000000-0000-7000-8000-000000000003"] { transform: translateY(${176 * (1 - filterProgress)}px) !important; }`}
       ${moveProgress == null ? '' : tasks.filter(task => task.id !== HERO_ID).map(task => {
         const offset = phase === 'review'
           ? task.status === 'working' ? 176 : task.status === 'needs_input' ? -176 : 0

@@ -45,6 +45,9 @@ export function demoTasks(phase: Phase, project = ''): Task[] {
   hero.sessionUsage = { latest: hero.turnUsage, total: usage(5_320_000, 3.72), subagents: 0, pricingDate: '2026-01-01' };
   hero.pullRequests = phase === 'running' ? [] : [{ url: 'https://github.com/example/atlas/pull/42', title: 'Add project search', state: phase === 'merged' ? 'merged' : 'open', checks: 'passed' }];
   hero.detailPullRequests = hero.pullRequests;
+  if (phase !== 'running') {
+    hero.replyText = hero.replyExcerpt = hero.summary = `[PR #42](https://github.com/example/atlas/pull/42) is ${phase === 'merged' ? 'merged. Project search is complete.' : 'open. Project search is ready for review.'}`;
+  }
   const tasks = [hero,
     chat(2, 'Improve checkout validation', 'beacon', 'working', 'Check the payment form and add clear validation for incomplete addresses.', 'Checkout validation is ready for review.'),
     chat(3, 'Improve keyboard navigation', 'atlas', 'working', 'Add keyboard shortcuts for switching projects.', 'Project shortcuts are ready for review.'),

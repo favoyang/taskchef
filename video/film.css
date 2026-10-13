@@ -49,6 +49,10 @@
 .opening-board-stage .film-product { box-shadow: 0 40px 100px #0009, 0 0 0 1px #8eaffb22; }
 .opening-section-title { position: absolute; z-index: 3; left: 100px; top: 330px; font-size: 144px; line-height: 1.03; font-weight: 600; letter-spacing: -6px; }
 .opening-section-title span { color: #a9cbff; }
+.launch-title { font-size: 124px; }
+.launch-film .film-closing h1 { font-size: 132px; }
+.launch-film .film-closing p { font-size: 54px; }
+.launch-film .film-url { font-size: 44px; }
 .opening-fragment { position: absolute; width: 300px; height: 164px; scale: 1.2; transform-origin: top left; pointer-events: none; }
 .opening-fragment .film-product { width: 300px; height: 164px; border: 0; background: transparent; }
 .opening-fragment .taskchef-app-shell { min-height: 0; background: transparent; }

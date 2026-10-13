@@ -1,39 +1,30 @@
 # TaskChef launch video — final script
 
-**Length:** 45 seconds. **Format:** 1920 × 1080, 30 fps.
-**Positioning:** Keep parallel AI work in view.
+**Length:** 34 seconds. **Format:** 1920 × 1080, 30 fps.
+**Positioning:** Dashboard for Codex. Keep every project in view.
 
-The preview is a silent, text-led film. The narration below is ready to record
-if a voice track is wanted. All product views use TaskChef's React components,
-styles, and Codex dark palette. All chats, projects, usage, and PRs are synthetic.
+The film uses the actual TaskChef React components, controls, mark and Codex
+palette. All chats, projects, usage and PRs are synthetic. Music is included;
+there is no narration or screen recording.
 
-| Time | Narration | Picture and on-screen text |
+| Time | Title | Picture and action |
 | --- | --- | --- |
-| 00–06 | AI lets you work on several projects at once. Keeping track gets harder. | The actual four-column board fades in with nine fully visible chats from Atlas, Beacon, and Studio. Scheduled stays on the left. **More projects. More moving parts.** |
-| 06–11 | TaskChef keeps scheduled runs and Codex chats on one board. | Start wide on Scheduled, Running, Waiting for review, Done. Push into Running and Waiting for review. **See what is running.** The main chat is “Build project search” in Running. |
-| 11–17 | When a run finishes, its card moves to Waiting for review. | Animate the same card across the board. Its prompt becomes its result. Neighboring cards make room. Pull back to the nine-chat board. **Ready for your review.** |
-| 17–27 | Check tokens and estimated API cost for the latest turn—and the whole chat. | Open the real Details popup. Zoom into the Usage table: Latest turn **1.24M · $0.86**; Total chat **5.32M · $3.72**. Keep the API estimate footnote visible, then pull back to the popup. **Know the usage behind the work.** |
-| 27–30 | Review it. Merge it. | Start wide, then zoom into Waiting for review and Done. The main card is in Waiting for review. Latest turn PR #42 is open, with passing checks. |
-| 30–35 | Merge the pull request. Watch the card move to Done. | The PR glyph changes to merged. Animate the same card into Done, then pull back to the full board. **Merged. Moved to Done.** |
-| 35–41 | Filter by project when you need to focus. | Zoom into and highlight the real project picker. Change All projects to Atlas. Other projects disappear. Pull back to Atlas's scheduled, running, and done chats. **One project. Your full attention.** |
-| 41–45 | TaskChef. Keep parallel AI work in view. | Product mark, TaskChef, positioning line, **taskchef.dev**. |
+| 0–2s | TaskChef · Dashboard for Codex | Logo, name, descriptor and native cards visible from frame zero. Cards move gently beside the identity. |
+| 2–6s | Keep every project in view. | Large title beside the board, then move into its full view. Scheduled, Running, Waiting for review and Done remain visible with nine chats. No Running close-up in this chapter. |
+| 6–11s | See what’s running. | Move into Running. Follow Build project search as latest-turn tokens rise from 600K to 1.24M and estimated API-equivalent cost rises from $0.40 to $0.86. |
+| 11–16s | Ready for your review. | The chat finishes. Follow the same card into Waiting for review while neighboring cards make room. Its prompt becomes its result. |
+| 16–21s | Usage, turn by turn. | Open the native Details popup. Highlight Latest turn (1.24M · $0.86), then Total chat (5.32M · $3.72). Keep the native API estimate note visible. |
+| 21–26s | Merged. Done. | Latest-turn PR #42 changes from open to merged. Its native link, result text and glyph update as the card moves into Done. |
+| 26–31s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
+| 31–34s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
 
-The end card uses the intended new home, `taskchef.dev`. The website is still
-being prepared. Publish this cut only after its homepage is live.
+Each chapter title stays fully readable for about two seconds before exiting
+into the product view. The camera carries directly from a feature close-up
+into the right-side board pose for the next title. There is no intermediate
+full-board stop between feature chapters. The board overview is a separate
+chapter; Running and live usage have their own close-up.
 
-## Production rules
-
-- Render the UI from code. Use no screen recordings or screenshot stand-ins.
-- Keep the main chat's identity throughout both moves and the usage close-up.
-- Only the latest turn's confirmed merged PR drives the move to Done.
-- “Merged” describes the PR. Do not claim that merging deploys the change.
-- API-equivalent cost is an estimate. It is not a subscription charge.
-- Use no real chat text, private project names, account data, or personal images.
-- Do not add explanatory UI helper text for ordinary interactions.
-
-## Preview and editing
-
-From the repository root:
+## Preview
 
 ```sh
 npm ci
@@ -42,44 +33,60 @@ npm run video:check
 npm run video:preview
 ```
 
-Open `http://localhost:8090/TaskChefLaunch`. Play or scrub the 45-second
-composition. The Scenes folder also exposes each chapter independently.
-Frame 330 starts Running → Waiting for review; frame 900 starts
-Waiting for review → Done. Each move lasts 30 frames.
+Open `http://localhost:8090/TaskChefLaunch` and press Play with sound enabled.
+The full composition is 1,020 frames. Studio exposes each chapter title as a
+named timeline item. The Drafts folder retains earlier scene studies; those
+are not the current full cut.
 
-Remotion has a separate, locked development package in `video/`. This avoids
-changing the plugin's dependencies. The source is in `video/`. It imports
-`TaskBoard`, `ProjectPicker`,
-`NextTaskDetail`, their providers, the product mark, and the production CSS.
-The header uses the same Mantine controls as the native app. The host bridge is
-not mounted; the film makes no MCP or GitHub requests.
+Key review points at 30 fps:
 
-The film uses a fixed four-column viewport (1280 × 648 UI pixels). Its overview
-fits all nine chats, including the third card row. Frame-driven camera poses
-push from the 1.14× overview into 2.4× card pairs, the 2.3× usage table, and the
-2.8× project picker, then pull back between features. The viewport masks the
-close-ups so they do not cover the headline or footer. Product controls are
-noninteractive within the film; use the Studio playback controls.
+- Frame 0: complete product identity, without fade-in.
+- Frame 153: full board with nine chats and Scheduled.
+- Frames 270 and 318: changing native card token/cost values.
+- Frames 420–441: Running → Waiting for review.
+- Frames 585 and 609: latest-turn and total-chat usage highlights.
+- Frames 714–735: PR merged → Done.
+- Frames 847–876: project selection, fading and repositioning.
+- Frame 960: ending.
 
-Card dimensions, frame-driven
-transforms, and synthetic clock/usage labels keep playback and scrubbing
-repeatable. These overrides apply only inside `.film-product`. The product's
-280 ms live animation is slowed to one second in the film so the move is easy
-to follow. No product behavior or installed plugin is changed.
+The shared camera and board preserve spatial continuity. `ProductBoard` reuses
+`TaskBoard`, `ProjectPicker`, Mantine controls, native theme and production CSS;
+`NextTaskDetail` supplies the actual usage table. Frame-driven overrides keep
+motion, spinner rotation, clock labels and usage values repeatable. They apply
+only to the video. The host bridge is not mounted and the film makes no MCP or
+GitHub requests. No product behavior or installed plugin changes.
 
-The preview has no music or voice track. To export the current silent cut:
+## Music and export
+
+**Tech House vibes**, Alejandro Magaña (A. M.), from the
+[official Mixkit catalog](https://mixkit.co/free-stock-music/electronica/).
+The [Stock Music Free License](https://mixkit.co/license/modal/musicFree/)
+allows commercial online videos and marketing ads. Raw audio downloads into
+ignored `video/public/` with a fixed checksum; it is not committed or included
+in the plugin package. `video/prepare-assets.mjs` reuses the local copy. First
+preview startup needs network access. Do not claim authorship or register the
+music with a rights-management service.
+
+When an export is requested:
 
 ```sh
 npm run video:render
 ```
 
-Output: `video/out/taskchef-launch.mp4` (ignored by Git and excluded from the
-published plugin). Remotion may download its render browser on the first export.
-Review Remotion's current [license terms](https://www.remotion.dev/docs/license)
-before commercial distribution if the producer's eligibility changes.
+Output: `video/out/taskchef-launch.mp4`, ignored by Git. The isolated locked
+`video/` package and launch docs are excluded from the published plugin. Review
+Remotion's [license terms](https://www.remotion.dev/docs/license) before
+commercial distribution if the producer's eligibility changes.
 
-## Visual reference
+## Publication and accuracy
 
-The [Strata launch video](https://x.com/l0gicgate/status/2109739837435814207)
-informed the alternation between overview and enlarged feature shots. TaskChef
-keeps its own UI and its own story. No footage or assets are copied from it.
+- Publish the video only after the taskchef.dev homepage is live.
+- The latest turn's confirmed merged PR drives the move to Done.
+- Merged describes the PR; it does not claim deployment.
+- API-equivalent cost is an estimate, not a subscription charge. Preserve the
+  native estimate note in the detail view.
+- Use no private chats, real account data, personal images or screen recordings.
+- Add no explanatory UI helper text for ordinary interactions.
+
+The [Strata reference](https://x.com/l0gicgate/status/2109739837435814207)
+informed framing and pacing. No footage or assets are copied from it.

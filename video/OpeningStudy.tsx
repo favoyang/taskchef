@@ -3,13 +3,14 @@ import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame, us
 import type { CSSProperties } from 'react';
 import { ProductBoard } from './Frame';
 import { themeVariables, visualTheme } from '../src/mcp-app/react/themes';
+import type { SavedUsage } from '../src/ui/types';
 
 // Four-beat phrases from the chosen track; no change to the full film yet.
 const phrase = 240 / 122;
 const ease = Easing.bezier(.16, 1, .3, 1);
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
-function FloatingChats({ time }: { time: number }) {
+export function FloatingChats({ time, heroUsage }: { time: number; heroUsage?: SavedUsage }) {
   return <div className="opening-floating-chats" inert>
     {[1, 2, 3].map((id, index) => <div key={id} className={`opening-fragment opening-fragment-${id}`} style={{
       top: 235 + index * 225,
@@ -17,7 +18,7 @@ function FloatingChats({ time }: { time: number }) {
       rotate: `${[-7, 5, -4][index] + Math.sin(time * 1.7 + index) * 1.5}deg`,
       translate: `${Math.sin(time * 1.2 + index) * 18 + 30}px ${Math.cos(time * 1.5 + index) * 12}px`,
       opacity: 1,
-    }}><ProductBoard phase="running" /></div>)}
+    }}><ProductBoard phase="running" heroUsage={heroUsage} /></div>)}
   </div>;
 }
 
