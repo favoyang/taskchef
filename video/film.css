@@ -36,16 +36,19 @@
 .opening-brand { position: absolute; z-index: 4; left: 100px; top: 65px; display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 600; }
 .opening-brand img { width: 40px; height: 40px; }
 .opening-brand span { color: #8995a9; font-size: 26px; font-weight: 400; margin-left: 8px; }
-.opening-type { position: absolute; z-index: 3; left: 180px; top: 250px; font-size: 180px; line-height: .96; letter-spacing: -10px; font-weight: 650; }
+.opening-type { position: absolute; z-index: 3; left: 180px; top: 340px; font-size: 144px; line-height: 1.03; letter-spacing: -7px; font-weight: 650; }
 .opening-type span { color: #a9cbff; }
-.opening-projects { position: absolute; z-index: 3; left: 190px; top: 735px; display: flex; gap: 18px; font-size: 32px; color: #b9c5d7; }
-.opening-projects span { padding: 16px 30px; border: 1px solid #8191a938; border-radius: 80px; background: #141e30; }
+.opening-identity > div { display: flex; align-items: center; gap: 24px; }
+.opening-identity img { width: 138px; height: 138px; }
+.opening-identity > div span { color: #f1f4f8; font-size: 174px; }
+.opening-identity p { color: #a9cbff; font-size: 72px; letter-spacing: -2.5px; font-weight: 450; margin: 32px 0 0; }
 .opening-rails { position: absolute; left: 1000px; top: -100px; display: flex; gap: 36px; }
 .opening-rails i { display: block; width: 130px; height: 1500px; background: linear-gradient(#689bd908, #6099f02b, #6099f005); border: 1px solid #84a7d516; border-radius: 80px; }
-.opening-board-mask { position: absolute; inset: 220px 0 0; overflow: hidden; }
+.opening-board-mask { position: absolute; inset: 0; overflow: hidden; }
 .opening-board-stage { position: absolute; width: 1280px; height: 648px; transform-origin: top left; pointer-events: none; }
 .opening-board-stage .film-product { box-shadow: 0 40px 100px #0009, 0 0 0 1px #8eaffb22; }
-.opening-board-title { position: absolute; z-index: 3; left: 100px; top: 140px; font-size: 64px; line-height: 1.1; font-weight: 550; letter-spacing: -2.5px; }
+.opening-section-title { position: absolute; z-index: 3; left: 100px; top: 330px; font-size: 144px; line-height: 1.03; font-weight: 600; letter-spacing: -6px; }
+.opening-section-title span { color: #a9cbff; }
 .opening-fragment { position: absolute; width: 300px; height: 164px; scale: 1.2; transform-origin: top left; pointer-events: none; }
 .opening-fragment .film-product { width: 300px; height: 164px; border: 0; background: transparent; }
 .opening-fragment .taskchef-app-shell { min-height: 0; background: transparent; }

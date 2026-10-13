@@ -28,37 +28,44 @@ export function OpeningStudy() {
   const shot = time < phrase ? 0 : time < phrase * 2 ? 1 : 2;
   const local = frame - shot * phrase * fps;
   const boardStart = phrase * 2;
-  const board = Math.max(0, time - boardStart);
-  const focus = interpolate(board, [0, .75, phrase, phrase + .6, phrase * 2 - .2, phrase * 2 + .55, phrase * 4], [0, 0, 0, 1, 1, 0, 0], { ...clamp, easing: Easing.bezier(.65, 0, .2, 1) });
-  const reveal = interpolate(board, [0, .75], [0, 1], { ...clamp, easing: ease });
-  // Wide shot fits all four lanes and all nine cards. Close-up follows Running.
-  const scale = 1.22 + focus * 1.28;
-  const x = 179 - focus * 945;
-  const y = 20 - focus * 160 + (1 - reveal) * 180;
+  // Title → full board → detail. At nine seconds, carry into the review chapter.
+  const cameraTimes = [boardStart, 4.75, 6.05, 6.65, 7.5, 8.1, 8.85, 9.65, 10.1, 10.65, 11.8];
+  const cameraEase = { ...clamp, easing: Easing.bezier(.65, 0, .2, 1) };
+  const scale = interpolate(time, cameraTimes, [.62, 1.22, 1.22, 2.5, 2.5, 1.22, 1.22, .62, .62, 2.4, 2.4], cameraEase);
+  const x = interpolate(time, cameraTimes, [1050, 179, 179, -766, -766, 179, 179, 1050, 1050, -575, -575], cameraEase);
+  const y = interpolate(time, cameraTimes, [320, 240, 240, 80, 80, 240, 240, 320, 320, 80, 80], cameraEase);
+  const review = time >= 10.65;
+  const move = interpolate(time, [10.65, 11.25], [0, 1], { ...clamp, easing: ease });
+  const nextTitle = time >= 8.85;
+  const titleTime = time - (nextTitle ? 8.85 : boardStart);
   return <AbsoluteFill className="film opening-study" style={themeVariables(visualTheme('codex', 'dark'), 'dark') as CSSProperties}>
-    <Audio name="Tech House vibes — Mixkit" src={staticFile('tech-house-vibes.mp3')} trimBefore={Math.round(1.52 * fps)} durationInFrames={Math.round(phrase * 6 * fps)} premountFor={fps}
-      volume={interpolate(frame, [0, .1 * fps, 11.1 * fps, 11.8 * fps], [0, .8, .8, 0], clamp)} />
+    <Audio
+      name="Tech House vibes — Mixkit"
+      src={staticFile('tech-house-vibes.mp3')}
+      trimBefore={Math.round(1.52 * fps)}
+      durationInFrames={Math.round(phrase * 6 * fps)}
+      premountFor={fps}
+      volume={interpolate(frame, [0, .1 * fps, 11.1 * fps, 11.8 * fps], [0, .8, .8, 0], clamp)}
+    />
     <div className="opening-halo" style={{ translate: `${Math.sin(time * .7) * 90}px ${Math.cos(time * .5) * 35}px`, scale: 1 + Math.sin(time * .8) * .08 }} />
-    <div className="opening-brand"><Img src={staticFile('taskchef-dark.svg')} alt="" />TaskChef <span>for Codex</span></div>
+    {shot !== 0 && <div className="opening-brand"><Img src={staticFile('taskchef-dark.svg')} alt="" />TaskChef <span>Dashboard for Codex</span></div>}
     {shot < 2 && <>
       <div className="opening-type" key={shot} style={{ opacity: interpolate(local, [0, .12 * fps, (phrase - .12) * fps, phrase * fps], [0, 1, 1, 0], clamp),
         translate: `0 ${interpolate(local, [0, .45 * fps], [80, 0], { ...clamp, easing: ease })}px`,
         scale: interpolate(local, [0, phrase * fps], [1.06, 1], { ...clamp, easing: ease }) }}>
-        {shot === 0 ? <>More<br /><span>projects.</span></> : <>All<br /><span>moving.</span></>}
-      </div>
-      <div className="opening-projects" style={{ opacity: interpolate(local, [.1 * fps, .35 * fps], [0, 1], clamp), translate: `${interpolate(local, [0, phrase * fps], [60, -30], clamp)}px 0` }}>
-        <span>Atlas</span><span>Beacon</span><span>Studio</span>
+        {shot === 0 ? <div className="opening-identity"><div><Img src={staticFile('taskchef-dark.svg')} alt="" /><span>TaskChef</span></div><p>Dashboard for Codex</p></div> : <>Every project.<br /><span>In view.</span></>}
       </div>
       <div className="opening-rails" style={{ rotate: `${shot === 0 ? -12 : 12}deg`, translate: `${interpolate(local, [0, phrase * fps], [-240, 160], clamp)}px 0` }}><i /><i /><i /></div>
       <FloatingChats time={time} shot={shot} />
     </>}
     <div className="opening-board-mask" style={{ opacity: shot === 2 ? 1 : 0 }}>
-      <div className="opening-board-stage" inert style={{ left: x, top: y, scale, rotate: `${(1 - reveal) * -5}deg`, opacity: reveal }}>
-        <ProductBoard phase="running" />
+      <div className="opening-board-stage" inert style={{ left: x, top: y, scale, rotate: `${interpolate(time, [boardStart, 4.75], [-4, 0], { ...clamp, easing: ease })}deg` }}>
+        <ProductBoard phase={review ? 'review' : 'running'} moveProgress={review ? move : undefined} />
       </div>
     </div>
-    {shot === 2 && <div className="opening-board-title" style={{ opacity: interpolate(board, [0, .2], [0, 1], clamp), translate: `0 ${interpolate(board, [0, .6], [35, 0], { ...clamp, easing: ease })}px` }}>
-      {time < phrase * 3 ? 'One clear view.' : time < phrase * 4 ? 'See what’s running.' : 'Keep your bearings.'}
+    {shot === 2 && <div className="opening-section-title" style={{ opacity: interpolate(titleTime, [0, .15, nextTitle ? 1.05 : .55, nextTitle ? 1.45 : 1], [0, 1, 1, 0], clamp),
+      translate: `${interpolate(titleTime, [0, .4, nextTitle ? 1.05 : .55, nextTitle ? 1.45 : 1], [40, 0, 0, -110], { ...clamp, easing: ease })}px 0` }}>
+      {nextTitle ? <>Ready for<br /><span>review.</span></> : <>See what’s<br /><span>running.</span></>}
     </div>}
   </AbsoluteFill>;
 }

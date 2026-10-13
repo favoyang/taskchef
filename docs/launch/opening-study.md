@@ -19,11 +19,13 @@ continues to export the full film. This review deliverable is the Studio preview
 
 | Time | Picture |
 | --- | --- |
-| 0–1.97s | “More projects.” Large type enters; three native Running cards float into the frame. |
-| 1.97–3.93s | “All moving.” A fast title cut changes the rhythm and card positions. |
-| 3.93–5.90s | “One clear view.” The actual board arrives and settles, including Scheduled and nine chats. |
-| 5.90–7.87s | “See what’s running.” Camera pushes into Running. |
-| 7.87–11.80s | “Keep your bearings.” Camera pulls back; all nine chats remain visible for the closing hold. |
+| 0–1.97s | Large logo and “TaskChef — Dashboard for Codex.” Three native Running cards float on the right. |
+| 1.97–3.93s | “Every project. In view.” A short statement of the board’s value; no example project-name tags. |
+| 3.93–4.93s | Large “See what’s running” on the left, board on the right. The title exits while the board grows into full view. |
+| 4.75–6.05s | Full board, including Scheduled and all nine chats. |
+| 6.05–8.10s | Push into Running, brief hold, then pull back to the board. |
+| 8.85–10.30s | Move into the next chapter: large “Ready for review” on the left; the board recedes to the right. |
+| 10.10–11.80s | Move into the review columns; the featured chat finishes and moves into Waiting for review. |
 
 All data is synthetic. Native `TaskBoard`, project picker, controls, mark,
 theme and card styling come from product code. Film typography and camera
@@ -31,10 +33,12 @@ motion are separate from product behavior. No screen recording is used.
 
 ## Pacing
 
-The approximately two-second phrases follow four musical beats at about
-122 BPM. This is an editorial choice, not a universal industry standard.
+The opening identity and slogan follow four-beat phrases at about 122 BPM.
+Camera and title transitions then overlap to keep the edit moving. This is
+an editorial choice, not a universal industry standard.
 Google recommends early action, tight framing, large text and faster pacing
-for video ads. The longer final hold lets viewers read the board.
+for video ads. Wide views show the full board; the next chapter begins before
+nine seconds, without a long static ending.
 
 [Google creative guidance](https://business.google.com/de/think/search-and-video/aufmerksamkeit-gewinnen-youtube-ads/)
 
