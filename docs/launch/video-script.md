@@ -1,6 +1,6 @@
 # TaskChef launch video — final script
 
-**Length:** 34 seconds. **Format:** 1920 × 1080, 30 fps.
+**Length:** 36⅓ seconds. **Format:** 1920 × 1080, 30 fps.
 **Positioning:** Dashboard for Codex. Keep every project in view.
 
 The film uses the actual TaskChef React components, controls, mark and Codex
@@ -9,16 +9,21 @@ there is no narration or screen recording.
 
 | Time | Title | Picture and action |
 | --- | --- | --- |
-| 0–2s | TaskChef · Dashboard for Codex | Logo, name, descriptor and native cards visible from frame zero. Cards move gently beside the identity. |
-| 2–6s | Keep every project in view. | Large title overlays the full board, then fades to reveal it. Scheduled, Running, Waiting for review and Done remain visible with nine chats. No Running close-up in this chapter. |
-| 6–11s | See what’s running. | Move into Running. Follow Build project search as latest-turn tokens rise from 600K to 1.24M and estimated API-equivalent cost rises from $0.40 to $0.86. |
-| 11–16s | Ready for your review. | The chat finishes. Follow the same card into Waiting for review while neighboring cards make room. Its prompt becomes its result. |
-| 16–21s | Usage, turn by turn. | Open the native Details popup. Highlight Latest turn (1.24M · $0.86), then Total chat (5.32M · $3.72). Keep the native API estimate note visible. |
-| 21–26s | Merged. Done. | Latest-turn PR #42 changes from open to merged. Its native link, result text and glyph update as the card moves into Done. |
-| 26–31s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
-| 31–34s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
+| 0–1.33s | TaskChef · Dashboard for Codex | Logo, name, descriptor and native cards visible from frame zero. Cards move gently beside the identity. |
+| 1.33–3.83s | Keep every project in view. | Large title overlays the full board, then fades to reveal it. Scheduled, Running, Waiting for review and Done remain visible with nine chats and three synthetic image covers. No Running close-up in this chapter. |
+| 3.83–8.83s | See what’s running. | Move into Running. Follow Build project search as latest-turn tokens rise from 600K to 1.24M and estimated API-equivalent cost rises from $0.40 to $0.86. |
+| 8.83–13.83s | Ready for your review. | The chat finishes. Follow the same card into Waiting for review while neighboring cards make room. Its prompt becomes its result. |
+| 13.83–18.83s | Usage, turn by turn. | Open the native Details popup. Highlight Latest turn (1.24M · $0.86), then Total chat (5.32M · $3.72). Keep the native API estimate note visible. |
+| 18.83–23.83s | Merged. Done. | Latest-turn PR #42 changes from open to merged. Its native link, result text and glyph update as the card moves into Done. |
+| 23.83–28.83s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
+| 28.83–33.33s | Make it your own. | Show the native appearance controls. Switch ChatGPT Day → Catppuccin Night → Codex Night, then return to the full board. |
+| 33.33–36.33s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
 
-Each chapter title uses one line with white and blue emphasis. It stays fully readable for about two seconds over a dark
+The opening holds for 1⅓ seconds. The overview moves straight into Running
+after its title fades, without an idle hold.
+
+Each chapter title uses one line with white and blue emphasis. It stays fully
+readable for about two seconds over a dark
 gradient, then fades. The board remains the visual background. The camera
 moves directly from Running to review and from usage to Done. It returns to
 the full board for overview and project filtering, without resetting to a
@@ -34,24 +39,28 @@ npm run video:preview
 ```
 
 Open `http://localhost:8090/TaskChefLaunch` and press Play with sound enabled.
-The full composition is 1,020 frames. Studio exposes each chapter title as a
+The full composition is 1,090 frames. Studio exposes each chapter title as a
 named timeline item. The Drafts folder retains earlier scene studies; those
 are not the current full cut.
 
 Key review points at 30 fps:
 
 - Frame 0: complete product identity, without fade-in.
-- Frame 153: full board with nine chats and Scheduled.
-- Frames 270 and 318: changing native card token/cost values.
-- Frames 420–441: Running → Waiting for review.
-- Frames 585 and 609: latest-turn and total-chat usage highlights.
-- Frames 714–735: PR merged → Done.
-- Frames 847–876: project selection, fading and repositioning.
-- Frame 960: ending.
+- Frame 114: full board with nine chats and Scheduled.
+- Frames 205 and 253: changing native card token/cost values.
+- Frames 355–376: Running → Waiting for review.
+- Frames 520 and 544: latest-turn and total-chat usage highlights.
+- Frames 649–670: PR merged → Done.
+- Frames 782–811: project selection, fading and repositioning.
+- Frames 945 and 970: light and dark theme switches.
+- Frame 1040: ending.
 
 The shared camera and board preserve spatial continuity. `ProductBoard` reuses
 `TaskBoard`, `ProjectPicker`, Mantine controls, native theme and production CSS;
-`NextTaskDetail` supplies the actual usage table. Frame-driven overrides keep
+`NextTaskDetail` supplies the actual usage table. The video uses the native
+cover loader and appearance icon, controls, Aa previews and theme variables.
+Its frame-controlled theme panel shows three choices from the native list.
+Cover illustrations are local SVG fixtures authored in code. Frame-driven overrides keep
 motion, spinner rotation, clock labels and usage values repeatable. They apply
 only to the video. The host bridge is not mounted and the film makes no MCP or
 GitHub requests. No product behavior or installed plugin changes.

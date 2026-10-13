@@ -10,7 +10,7 @@ npm run video:preview
 ```
 
 Open `http://localhost:8090/TaskChefOpening` and press Play with sound on.
-Use `TaskChefLaunch` to review the current 34-second full film.
+Use `TaskChefLaunch` to review the current 36⅓-second full film.
 
 When an export is requested, `npm --prefix video run render:opening` exports
 this opening to `video/out/taskchef-opening.mp4`. `npm run video:render`

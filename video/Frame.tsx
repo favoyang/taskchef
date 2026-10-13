@@ -1,12 +1,13 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
-import { ActionIcon, Group, MantineProvider, Select, TextInput, Title, createTheme } from '@mantine/core';
-import { IconRefresh, IconSearch, IconSettings } from '@tabler/icons-react';
+import { ActionIcon, Group, MantineProvider, Select, SegmentedControl, TextInput, Title, createTheme } from '@mantine/core';
+import { IconCheck, IconRefresh, IconSearch, IconSettings } from '@tabler/icons-react';
 import { TaskBoard } from '../src/ui/components/TaskBoard';
 import { turnUsageLabel } from '../src/ui/components/SavedUsageFormat';
 import { RelativeTimeProvider } from '../src/ui/components/RelativeTime';
 import { ProjectPicker } from '../src/mcp-app/react/ProjectPicker';
-import { themeVariables, visualTheme } from '../src/mcp-app/react/themes';
+import { AppearancePicker } from '../src/mcp-app/react/AppearancePicker';
+import { themeVariables, visualTheme, type Appearance } from '../src/mcp-app/react/themes';
 const mark = staticFile('taskchef-dark.svg');
 import { DEMO_NOW, HERO_ID, LANES, PROJECTS, demoTasks, usage, type Phase } from './demo';
 import type { SavedUsage } from '../src/ui/types';
@@ -15,6 +16,26 @@ const theme = createTheme({ fontFamily: '-apple-system, BlinkMacSystemFont, "Seg
   components: { Modal: { defaultProps: { withinPortal: false, lockScroll: false, transitionProps: { duration: 0 } } } } });
 const palette = themeVariables(visualTheme('codex', 'dark'), 'dark');
 const noop = () => {};
+const loadDemoImage = async (_task: unknown, url?: string) => url ?? null;
+
+// Frame-controlled presentation of the native appearance panel and its controls.
+function FilmThemePanel({ themeId, appearance }: { themeId: string; appearance: Appearance }) {
+  return <section className="next-appearance-panel" aria-label="Appearance settings">
+    <h2>Appearance</h2>
+    <SegmentedControl key={appearance} transitionDuration={0} fullWidth value={appearance} onChange={noop} data={[{ value: 'light', label: 'DAY' }, { value: 'dark', label: 'NIGHT' }, { value: 'system', label: 'SYSTEM' }]} size="xs" />
+    <h3>Theme</h3><div className="next-theme-list" role="radiogroup" aria-label="Theme">
+      {['chatgpt', 'catppuccin', 'codex'].map((id, index) => {
+        const item = visualTheme(id, appearance);
+        const colors = themeVariables(item, appearance);
+        return <div key={id}>{index === 1 && <div className="next-theme-group">Codex themes</div>}
+          <button className="next-appearance-theme" role="radio" aria-checked={id === themeId}>
+            <span className="next-appearance-preview" style={{ background: colors['--taskchef-surface'], color: colors['--taskchef-link'], borderColor: colors['--taskchef-border-heavy'] }}>Aa</span>
+            <span>{item.label}</span>{id === themeId && <IconCheck size={16} />}
+          </button></div>;
+      })}
+    </div>
+  </section>;
+}
 
 export function FilmFrame({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   const frame = useCurrentFrame();
@@ -30,7 +51,7 @@ export function FilmFrame({ eyebrow, title, children }: { eyebrow: string; title
   </AbsoluteFill>;
 }
 
-export function ProductBoard({ phase, project = '', moveProgress, children, highlightProject = false, heroUsage, filterProgress }: { phase: Phase; project?: string; moveProgress?: number; children?: ReactNode; highlightProject?: boolean; heroUsage?: SavedUsage; filterProgress?: number }) {
+export function ProductBoard({ phase, project = '', moveProgress, children, highlightProject = false, heroUsage, filterProgress, themeId = 'codex', appearance = 'dark', showThemePanel = false }: { phase: Phase; project?: string; moveProgress?: number; children?: ReactNode; highlightProject?: boolean; heroUsage?: SavedUsage; filterProgress?: number; themeId?: string; appearance?: Appearance; showThemePanel?: boolean }) {
   const frame = useCurrentFrame();
   const tasks = demoTasks(phase, project);
   if (heroUsage) {
@@ -43,7 +64,7 @@ export function ProductBoard({ phase, project = '', moveProgress, children, high
   // Fix wall-clock labels and suppress the product's real-time FLIP animation.
   // The same destination card moves by a frame-driven transform in this film.
   const transform = moveProgress == null ? 'none' : `translate(${-312 * (1 - moveProgress)}px, ${-10 * Math.sin(Math.PI * moveProgress)}px)`;
-  return <div className={`film-product${highlightProject ? " film-product-highlight-project" : ""}`}>
+  return <div style={themeVariables(visualTheme(themeId, appearance), appearance) as CSSProperties} className={`film-product${highlightProject ? " film-product-highlight-project" : ""}`}>
     <style>{`
       .film-product .taskchef-board-card { transform: none !important; }
       .film-product [data-chat-id="${HERO_ID}"] { transform: ${transform} !important; position: relative; z-index: 5; ${moveProgress != null && moveProgress < 1 ? 'box-shadow: 0 16px 35px #0008; border-color: #75b8ff;' : ''} }
@@ -59,7 +80,7 @@ export function ProductBoard({ phase, project = '', moveProgress, children, high
       ${tasks.filter(task => task.status === 'working').map(task => `.film-product [data-chat-id="${task.id}"] .taskchef-card-turn-usage { font-size: 0; } .film-product [data-chat-id="${task.id}"] .taskchef-card-turn-usage::after { content: ${JSON.stringify(turnUsageLabel(task.turnUsage!))}; font-size: 12px; }`).join('\n')}
       .film-product .taskchef-running-spinner { animation: none; transform: rotate(${frame * 8}deg); }
     `}</style>
-    <MantineProvider theme={theme} forceColorScheme="dark">
+    <MantineProvider theme={theme} forceColorScheme={appearance}>
       <RelativeTimeProvider now={DEMO_NOW}>
         <div className="taskchef-app-shell">
           <header className="taskchef-app-header">
@@ -68,9 +89,9 @@ export function ProductBoard({ phase, project = '', moveProgress, children, high
               <ProjectPicker data={PROJECTS} value={project} onChange={noop} />
               <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "All time", value: "all" }]} value="all" onChange={noop} size="xs" /><TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} />} value="" onChange={noop} size="xs" />
             </Group>
-            <Group className="taskchef-app-actions" gap="xs"><ActionIcon aria-label="Settings" variant="subtle"><IconSettings size={17} /></ActionIcon><ActionIcon aria-label="Refresh" variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
+            <Group className="taskchef-app-actions" gap="xs"><div className="next-appearance"><AppearancePicker value={appearance} appearance={appearance} visualThemeId={themeId} onChange={noop} onVisualThemeChange={noop} />{showThemePanel && <FilmThemePanel themeId={themeId} appearance={appearance} />}</div><ActionIcon aria-label="Settings" variant="subtle"><IconSettings size={17} /></ActionIcon><ActionIcon aria-label="Refresh" variant="subtle"><IconRefresh size={17} /></ActionIcon></Group>
           </header>
-          <main className="taskchef-app-main"><TaskBoard tasks={tasks} lanes={LANES} completedLimit={5} groupInterruptedWithWaiting onMoreCompleted={noop} onOpenCodex={noop} onOpenDetail={noop} /></main>
+          <main className="taskchef-app-main"><TaskBoard loadImage={loadDemoImage} tasks={tasks} lanes={LANES} completedLimit={5} groupInterruptedWithWaiting onMoreCompleted={noop} onOpenCodex={noop} onOpenDetail={noop} /></main>
         </div>
         {children}
       </RelativeTimeProvider>

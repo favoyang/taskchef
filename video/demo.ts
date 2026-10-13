@@ -1,3 +1,4 @@
+import { staticFile } from 'remotion';
 import type { SavedUsage, Task, TaskStatus } from '../src/ui/types';
 
 // Synthetic fixtures only. The video never reads local chats or calls MCP/GitHub.
@@ -58,5 +59,9 @@ export function demoTasks(phase: Phase, project = ''): Task[] {
     chat(8, 'Weekly dependency review', 'beacon', 'scheduled', 'Review dependency updates every Monday.', 'The dependency report is up to date. Next run is scheduled.'),
     chat(9, 'Add export presets', 'studio', 'completed', 'Add portrait and landscape export presets.', 'Export presets added. PR merged.'),
   ];
+  for (const [id, name] of [[5, 'onboarding'], [6, 'notifications'], [7, 'regression']] as const) {
+    const task = tasks.find(item => item.id.endsWith(String(id).padStart(12, '0')))!;
+    task.replyImage = { url: staticFile(`${name}.svg`), alt: `${task.title} preview` };
+  }
   return project ? tasks.filter(task => task.project.id === project) : tasks;
 }

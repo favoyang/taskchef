@@ -5,6 +5,9 @@ import { createHash } from 'node:crypto';
 const directory = new URL('./public/', import.meta.url);
 await mkdir(directory, { recursive: true });
 await copyFile(new URL('../assets/taskchef-dark.svg', import.meta.url), new URL('taskchef-dark.svg', directory));
+for (const name of ['onboarding', 'notifications', 'regression']) {
+  await copyFile(new URL(`./assets/${name}.svg`, import.meta.url), new URL(`${name}.svg`, directory));
+}
 const target = new URL('tech-house-vibes.mp3', directory);
 const expected = '95972c602ff0686e298792f45b384f0e15477f3cf983f05dd98fd5e5d965eed6';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
