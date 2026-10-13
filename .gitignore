@@ -9,3 +9,4 @@ node_modules/
 
 # Generated launch video exports
 /video/out/
+/video/public/

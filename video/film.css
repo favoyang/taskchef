@@ -31,3 +31,29 @@
 .film-closing h1 { font-size: 102px; letter-spacing: -5px; font-weight: 550; margin: 24px 0; }
 .film-closing p { font-size: 35px; color: #bac5d4; margin: 0; }
 .film-url { font-size: 26px; color: #8cc9ff; margin-top: 50px; }
+.opening-study { background: #080b12; }
+.opening-halo { position: absolute; inset: -350px; background: radial-gradient(ellipse at 66% 52%, #253c6b70, transparent 48%); }
+.opening-brand { position: absolute; z-index: 4; left: 100px; top: 65px; display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 600; }
+.opening-brand img { width: 40px; height: 40px; }
+.opening-brand span { color: #8995a9; font-size: 26px; font-weight: 400; margin-left: 8px; }
+.opening-type { position: absolute; z-index: 3; left: 180px; top: 250px; font-size: 180px; line-height: .96; letter-spacing: -10px; font-weight: 650; }
+.opening-type span { color: #a9cbff; }
+.opening-projects { position: absolute; z-index: 3; left: 190px; top: 735px; display: flex; gap: 18px; font-size: 32px; color: #b9c5d7; }
+.opening-projects span { padding: 16px 30px; border: 1px solid #8191a938; border-radius: 80px; background: #141e30; }
+.opening-rails { position: absolute; left: 1000px; top: -100px; display: flex; gap: 36px; }
+.opening-rails i { display: block; width: 130px; height: 1500px; background: linear-gradient(#689bd908, #6099f02b, #6099f005); border: 1px solid #84a7d516; border-radius: 80px; }
+.opening-board-mask { position: absolute; inset: 220px 0 0; overflow: hidden; }
+.opening-board-stage { position: absolute; width: 1280px; height: 648px; transform-origin: top left; pointer-events: none; }
+.opening-board-stage .film-product { box-shadow: 0 40px 100px #0009, 0 0 0 1px #8eaffb22; }
+.opening-board-title { position: absolute; z-index: 3; left: 100px; top: 140px; font-size: 64px; line-height: 1.1; font-weight: 550; letter-spacing: -2.5px; }
+.opening-fragment { position: absolute; width: 300px; height: 164px; scale: 1.2; transform-origin: top left; pointer-events: none; }
+.opening-fragment .film-product { width: 300px; height: 164px; border: 0; background: transparent; }
+.opening-fragment .taskchef-app-shell { min-height: 0; background: transparent; }
+.opening-fragment .taskchef-app-header, .opening-fragment .taskchef-board-lane-heading { display: none; }
+.opening-fragment .taskchef-app-main { padding: 0; }
+.opening-fragment .taskchef-board { display: block; min-height: 0; }
+.opening-fragment .taskchef-board-lane { display: none; }
+.opening-fragment .taskchef-board-lane:nth-child(2) { display: block; }
+.opening-fragment-1 .taskchef-board-card:not([data-chat-id="00000000-0000-7000-8000-000000000001"]),
+.opening-fragment-2 .taskchef-board-card:not([data-chat-id="00000000-0000-7000-8000-000000000002"]),
+.opening-fragment-3 .taskchef-board-card:not([data-chat-id="00000000-0000-7000-8000-000000000003"]) { display: none; }
