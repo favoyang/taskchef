@@ -1,0 +1,18 @@
+{
+  "name": "taskchef-launch-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "remotion studio index.tsx --port 8090 --no-open --public-dir=../assets",
+    "render": "remotion render index.tsx TaskChefLaunch out/taskchef-launch.mp4 --public-dir=../assets"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.535",
+    "remotion": "4.0.535",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "4.5.4",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9"
+  }
+}

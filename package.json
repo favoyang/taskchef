@@ -61,7 +61,10 @@
     "test": "npm run test:node && npm run test:dashboard",
     "test:node": "node --test tests/*.test.js",
     "test:dashboard": "vitest run --config vitest.config.ts",
-    "prepack": "node scripts/prepare-github-keyring.js"
+    "prepack": "node scripts/prepare-github-keyring.js",
+    "video:preview": "npm --prefix video run preview",
+    "video:check": "tsc --noEmit -p video/tsconfig.json",
+    "video:render": "npm --prefix video run render"
   },
   "dependencies": {
     "@mantine/core": "9.5.2",
