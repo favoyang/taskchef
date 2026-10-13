@@ -1,6 +1,6 @@
 # Opening study
 
-Review this 10.8-second composition before rebuilding the full launch film.
+Review this 11.2-second composition before rebuilding the full launch film.
 
 ```sh
 npm ci
@@ -19,13 +19,13 @@ continues to export the full film. This review deliverable is the Studio preview
 
 | Time | Picture |
 | --- | --- |
-| 0–1.97s | Large logo and “TaskChef — Dashboard for Codex.” Three native Running cards float on the right. |
-| 1.97–3.93s | “Every project. In view.” A short statement of the board’s value; no example project-name tags. |
-| 3.93–4.93s | Large “Keep every project in view” on the left, board on the right. The title exits while the board grows into full view. |
-| 4.75–6.05s | Full board, including Scheduled and all nine chats. |
-| 6.05–7.50s | Push into a tighter close-up centered on Running, then briefly hold. |
-| 7.50–8.60s | One continuous pull-back into the next chapter; no intermediate full-board stop. Large “Ready for review” enters at 8.10s as the board moves to the right. |
-| 9.10–10.80s | Move into the review columns; the featured chat finishes and moves into Waiting for review. |
+| 0–1.97s | Logo, TaskChef, Dashboard for Codex and native cards are visible from frame zero. No fade-in. |
+| 1.97–4.37s | Large “Keep every project in view” beside the board; fully readable for about 1.9 seconds before exiting. No duplicate slogan screen. |
+| 4.00–5.50s | Move into the full board, including Scheduled and nine chats. |
+| 5.50–6.70s | Tight close-up centered on Running. |
+| 6.70–7.70s | One continuous pull-back into the right-side next-title pose. |
+| 7.45–9.75s | Large “Ready for review”; fully readable for about 1.8 seconds before exiting into the next zoom. |
+| 9.40–11.20s | Zoom into review; the featured card moves into Waiting for review. |
 
 All data is synthetic. Native `TaskBoard`, project picker, controls, mark,
 theme and card styling come from product code. Film typography and camera
@@ -33,7 +33,7 @@ motion are separate from product behavior. No screen recording is used.
 
 ## Pacing
 
-The opening identity and slogan follow four-beat phrases at about 122 BPM.
+The opening identity follows a four-beat phrase at about 122 BPM.
 Camera and title transitions then overlap to keep the edit moving. This is
 an editorial choice, not a universal industry standard.
 Google recommends early action, tight framing, large text and faster pacing
