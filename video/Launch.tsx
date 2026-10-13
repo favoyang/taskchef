@@ -28,8 +28,8 @@ export function Launch() {
   const time = elapsed + (frame >= 115 ? 65 / 30 : 20 / 30);
   const themeScene = frame >= 865 && frame < 1000;
   const themeTime = (frame - 865) / fps;
-  const themeId = themeScene && themeTime >= 2 && themeTime < 3 ? 'chatgpt' : themeScene && themeTime >= 3 && themeTime < 4 ? 'catppuccin' : 'codex';
-  const appearance = themeId === 'chatgpt' ? 'light' : 'dark';
+  const themeId = !themeScene || themeTime < 1.8 || themeTime >= 4.05 ? 'codex' : themeTime < 2.55 ? 'chatgpt' : themeTime < 3.3 ? 'catppuccin' : 'dracula';
+  const appearance = 'dark';
   // One camera and one board preserve spatial continuity across chapters.
   const times = [2, 6.7, 7.6, 11.7, 12.7, 15.7, 17.1, 18.2, 19, 20.9, 22.2, 25.8, 27, 28, 28.7, 29.2, 30, 31];
   const scales = [1.22, 1.22, 3, 3, 2.4, 2.4, 1.22, 1.22, 2.3, 2.3, 2.4, 2.4, 1.22, 1.22, 2.8, 2.8, 1.22, 1.22];
@@ -72,7 +72,7 @@ export function Launch() {
     <Sequence name="Turn and chat usage" from={415} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Usage, <span>turn by turn.</span></ChapterTitle></Sequence>
     <Sequence name="Merged PR moves to Done" from={565} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Merged. <span>Done.</span></ChapterTitle></Sequence>
     <Sequence name="Project filtering" from={715} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Focus on <span>one project.</span></ChapterTitle></Sequence>
-    <Sequence name="Theme switching" from={865} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Make it <span>your own.</span></ChapterTitle></Sequence>
+    <Sequence name="Theme switching" from={865} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Choose <span>your theme.</span></ChapterTitle></Sequence>
     <Sequence name="TaskChef closing" from={1000} durationInFrames={3 * fps} premountFor={fps}>
       <AbsoluteFill className="film film-closing"><div className="film-glow" /><div><Img src={staticFile('taskchef-dark.svg')} alt="" /><h1>TaskChef</h1><p>Dashboard for Codex</p><div className="film-url">taskchef.dev</div></div></AbsoluteFill>
     </Sequence>

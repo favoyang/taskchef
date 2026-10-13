@@ -16,7 +16,7 @@ there is no narration or screen recording.
 | 13.83–18.83s | Usage, turn by turn. | Open the native Details popup. Highlight Latest turn (1.24M · $0.86), then Total chat (5.32M · $3.72). Keep the native API estimate note visible. |
 | 18.83–23.83s | Merged. Done. | Latest-turn PR #42 changes from open to merged. Its native link, result text and glyph update as the card moves into Done. |
 | 23.83–28.83s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
-| 28.83–33.33s | Make it your own. | Show the native appearance controls. Switch ChatGPT Day → Catppuccin Night → Codex Night, then return to the full board. |
+| 28.83–33.33s | Choose your theme. | Show the native appearance controls. Switch ChatGPT Night → Catppuccin Night → Dracula Night → Codex Night, then return to the full board. |
 | 33.33–36.33s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
 
 The opening holds for 1⅓ seconds. The overview moves straight into Running
@@ -52,15 +52,15 @@ Key review points at 30 fps:
 - Frames 520 and 544: latest-turn and total-chat usage highlights.
 - Frames 649–670: PR merged → Done.
 - Frames 782–811: project selection, fading and repositioning.
-- Frames 945 and 970: light and dark theme switches.
+- Frames 945 and 970: dark theme switches.
 - Frame 1040: ending.
 
 The shared camera and board preserve spatial continuity. `ProductBoard` reuses
 `TaskBoard`, `ProjectPicker`, Mantine controls, native theme and production CSS;
 `NextTaskDetail` supplies the actual usage table. The video uses the native
 cover loader and appearance icon, controls, Aa previews and theme variables.
-Its frame-controlled theme panel shows three choices from the native list.
-Cover illustrations are local SVG fixtures authored in code. Frame-driven overrides keep
+Its frame-controlled theme panel shows four choices from the native list.
+Cover images are local SVG UI previews: project setup, notifications, and regression results. Frame-driven overrides keep
 motion, spinner rotation, clock labels and usage values repeatable. They apply
 only to the video. The host bridge is not mounted and the film makes no MCP or
 GitHub requests. No product behavior or installed plugin changes.

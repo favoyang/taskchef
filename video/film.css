@@ -69,4 +69,4 @@
 
 .film-product .taskchef-board-card:has(.taskchef-reply-cover) .taskchef-turn-card { display: none; }
 .film-product .taskchef-reply-cover { height: 54px; margin-bottom: 6px; background: var(--taskchef-surface-muted); }
-.film-product .taskchef-reply-cover img { object-fit: cover; }
+.film-product .taskchef-reply-cover img { object-fit: contain; }

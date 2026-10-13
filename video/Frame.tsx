@@ -24,7 +24,7 @@ function FilmThemePanel({ themeId, appearance }: { themeId: string; appearance: 
     <h2>Appearance</h2>
     <SegmentedControl key={appearance} transitionDuration={0} fullWidth value={appearance} onChange={noop} data={[{ value: 'light', label: 'DAY' }, { value: 'dark', label: 'NIGHT' }, { value: 'system', label: 'SYSTEM' }]} size="xs" />
     <h3>Theme</h3><div className="next-theme-list" role="radiogroup" aria-label="Theme">
-      {['chatgpt', 'catppuccin', 'codex'].map((id, index) => {
+      {['chatgpt', 'catppuccin', 'dracula', 'codex'].map((id, index) => {
         const item = visualTheme(id, appearance);
         const colors = themeVariables(item, appearance);
         return <div key={id}>{index === 1 && <div className="next-theme-group">Codex themes</div>}
