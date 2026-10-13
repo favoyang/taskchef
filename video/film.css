@@ -68,5 +68,9 @@
 .opening-fragment-3 .taskchef-board-card:not([data-chat-id="00000000-0000-7000-8000-000000000003"]) { display: none; }
 
 .film-product .taskchef-board-card:has(.taskchef-reply-cover) .taskchef-turn-card { display: none; }
-.film-product .taskchef-reply-cover { height: 54px; margin-bottom: 6px; background: var(--taskchef-surface-muted); }
+.film-product .taskchef-reply-cover { height: auto; aspect-ratio: 16 / 9; margin-bottom: 6px; background: var(--taskchef-surface-muted); }
 .film-product .taskchef-reply-cover img { object-fit: contain; }
+
+.launch-film .film-product { height: 720px; }
+.launch-film .film-product .taskchef-app-shell { min-height: 718px; }
+.film-product .taskchef-board-card:has(.taskchef-reply-cover) { height: 268px; min-height: 268px; }

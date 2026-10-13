@@ -1,6 +1,6 @@
 # TaskChef launch video — final script
 
-**Length:** 36⅓ seconds. **Format:** 1920 × 1080, 30 fps.
+**Length:** 37⅓ seconds. **Format:** 1920 × 1080, 30 fps.
 **Positioning:** Dashboard for Codex. Keep every project in view.
 
 The film uses the actual TaskChef React components, controls, mark and Codex
@@ -10,14 +10,14 @@ there is no narration or screen recording.
 | Time | Title | Picture and action |
 | --- | --- | --- |
 | 0–1.33s | TaskChef · Dashboard for Codex | Logo, name, descriptor and native cards visible from frame zero. Cards move gently beside the identity. |
-| 1.33–3.83s | Keep every project in view. | Large title overlays the full board, then fades to reveal it. Scheduled, Running, Waiting for review and Done remain visible with nine chats and three synthetic image covers. No Running close-up in this chapter. |
+| 1.33–3.83s | Keep every project in view. | Large title overlays the full board, then fades to reveal it. Scheduled, Running, Waiting for review and Done remain visible with nine chats and three synthetic 16:9 image covers. No Running close-up in this chapter. |
 | 3.83–8.83s | See what’s running. | Move into Running. Follow Build project search as latest-turn tokens rise from 600K to 1.24M and estimated API-equivalent cost rises from $0.40 to $0.86. |
 | 8.83–13.83s | Ready for your review. | The chat finishes. Follow the same card into Waiting for review while neighboring cards make room. Its prompt becomes its result. |
 | 13.83–18.83s | Usage, turn by turn. | Open the native Details popup. Highlight Latest turn (1.24M · $0.86), then Total chat (5.32M · $3.72). Keep the native API estimate note visible. |
 | 18.83–23.83s | Merged. Done. | Latest-turn PR #42 changes from open to merged. Its native link, result text and glyph update as the card moves into Done. |
 | 23.83–28.83s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
-| 28.83–33.33s | Choose your theme. | Show the native appearance controls. Switch ChatGPT Night → Catppuccin Night → Dracula Night → Codex Night, then return to the full board. |
-| 33.33–36.33s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
+| 28.83–34.33s | Choose your theme. | Show the native appearance controls. Switch ChatGPT Night → Catppuccin Night → Dracula Night → Codex Night, hold Codex Night for about 1.45 seconds, then close. |
+| 34.33–37.33s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
 
 The opening holds for 1⅓ seconds. The overview moves straight into Running
 after its title fades, without an idle hold.
@@ -39,7 +39,7 @@ npm run video:preview
 ```
 
 Open `http://localhost:8090/TaskChefLaunch` and press Play with sound enabled.
-The full composition is 1,090 frames. Studio exposes each chapter title as a
+The full composition is 1,120 frames. Studio exposes each chapter title as a
 named timeline item. The Drafts folder retains earlier scene studies; those
 are not the current full cut.
 
@@ -53,7 +53,7 @@ Key review points at 30 fps:
 - Frames 649–670: PR merged → Done.
 - Frames 782–811: project selection, fading and repositioning.
 - Frames 945 and 970: dark theme switches.
-- Frame 1040: ending.
+- Frame 1070: ending.
 
 The shared camera and board preserve spatial continuity. `ProductBoard` reuses
 `TaskBoard`, `ProjectPicker`, Mantine controls, native theme and production CSS;
