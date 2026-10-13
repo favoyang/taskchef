@@ -10,6 +10,7 @@ export const PROJECTS = [
   { value: 'studio', label: 'Studio' },
 ];
 export const LANES: { status: TaskStatus; label: string; emptyMessage: string }[] = [
+  { status: 'scheduled', label: 'Scheduled', emptyMessage: 'No scheduled chats' },
   { status: 'working', label: 'Running', emptyMessage: 'No chats running' },
   { status: 'needs_input', label: 'Waiting for review', emptyMessage: 'No chats waiting for review' },
   { status: 'completed', label: 'Done', emptyMessage: 'No completed chats' },
@@ -28,7 +29,9 @@ function chat(id: number, title: string, project: string, status: TaskStatus, pr
     createdAt: updatedAt, updatedAt, status, summary: response,
     lastResult: null, latestTurn: null,
     promptText: prompt, promptExcerpt: prompt, replyText: response, replyExcerpt: response,
-    inputSource: 'ordinary',
+    inputSource: status === 'scheduled' ? 'scheduled' : 'ordinary',
+    scheduled: status === 'scheduled',
+    nextRunAt: status === 'scheduled' ? new Date(DEMO_NOW + (id === 8 ? 4 : 1) * 24 * 60 * 60_000).toISOString() : null,
     observed: { archive: false, source: 'vscode', lastTurnEvent: status === 'working' ? 'inProgress' : 'completed', lastTurnEventAt: updatedAt, latestTurnDurationMs: 4 * 60_000, recordedChatDurationMs: 28 * 60_000, recentFileActivity: status === 'working' },
     turnUsage: latest, sessionUsage: { latest, total: usage(latest.tokens.total_tokens * 4, latest.costUsd * 4), subagents: 0, pricingDate: '2026-01-01' },
   };
@@ -44,8 +47,13 @@ export function demoTasks(phase: Phase, project = ''): Task[] {
   hero.detailPullRequests = hero.pullRequests;
   const tasks = [hero,
     chat(2, 'Improve checkout validation', 'beacon', 'working', 'Check the payment form and add clear validation for incomplete addresses.', 'Checkout validation is ready for review.'),
+    chat(3, 'Improve keyboard navigation', 'atlas', 'working', 'Add keyboard shortcuts for switching projects.', 'Project shortcuts are ready for review.'),
+    chat(4, 'Refine payment errors', 'beacon', 'needs_input', 'Make payment errors easier to resolve.', 'Payment errors now explain how to retry. Tests passed.'),
     chat(5, 'Update onboarding', 'studio', 'needs_input', 'Simplify the first project setup.', 'The new onboarding flow is ready. Preview and tests passed.'),
     chat(6, 'Fix notification layout', 'atlas', 'completed', 'Fix the notification layout on small screens.', 'Notification layout fixed. PR merged.'),
+    chat(7, 'Daily regression sweep', 'atlas', 'scheduled', 'Check the main flows each morning.', 'The last regression sweep passed. Next run is scheduled.'),
+    chat(8, 'Weekly dependency review', 'beacon', 'scheduled', 'Review dependency updates every Monday.', 'The dependency report is up to date. Next run is scheduled.'),
+    chat(9, 'Add export presets', 'studio', 'completed', 'Add portrait and landscape export presets.', 'Export presets added. PR merged.'),
   ];
   return project ? tasks.filter(task => task.project.id === project) : tasks;
 }

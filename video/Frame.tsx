@@ -29,19 +29,22 @@ export function FilmFrame({ eyebrow, title, children }: { eyebrow: string; title
   </AbsoluteFill>;
 }
 
-export function ProductBoard({ phase, project = '', moveProgress, children, style }: { phase: Phase; project?: string; moveProgress?: number; children?: ReactNode; style?: CSSProperties }) {
+export function ProductBoard({ phase, project = '', moveProgress, children, highlightProject = false }: { phase: Phase; project?: string; moveProgress?: number; children?: ReactNode; highlightProject?: boolean }) {
   const frame = useCurrentFrame();
   const tasks = demoTasks(phase, project);
   // Fix wall-clock labels and suppress the product's real-time FLIP animation.
   // The same destination card moves by a frame-driven transform in this film.
   const transform = moveProgress == null ? 'none' : `translate(${-312 * (1 - moveProgress)}px, ${-10 * Math.sin(Math.PI * moveProgress)}px)`;
-  return <div className="film-product" style={style}>
+  return <div className={`film-product${highlightProject ? " film-product-highlight-project" : ""}`}>
     <style>{`
       .film-product .taskchef-board-card { transform: none !important; }
       .film-product [data-chat-id="${HERO_ID}"] { transform: ${transform} !important; position: relative; z-index: 5; ${moveProgress != null && moveProgress < 1 ? 'box-shadow: 0 16px 35px #0008; border-color: #75b8ff;' : ''} }
-      ${moveProgress != null ? phase === 'review'
-        ? `.film-product [data-chat-id="00000000-0000-7000-8000-000000000002"] { transform: translateY(${176 * (1 - moveProgress)}px) !important; } .film-product [data-chat-id="00000000-0000-7000-8000-000000000005"] { transform: translateY(${-176 * (1 - moveProgress)}px) !important; }`
-        : `.film-product [data-chat-id="00000000-0000-7000-8000-000000000005"] { transform: translateY(${176 * (1 - moveProgress)}px) !important; } .film-product [data-chat-id="00000000-0000-7000-8000-000000000006"] { transform: translateY(${-176 * (1 - moveProgress)}px) !important; }` : ''}
+      ${moveProgress == null ? '' : tasks.filter(task => task.id !== HERO_ID).map(task => {
+        const offset = phase === 'review'
+          ? task.status === 'working' ? 176 : task.status === 'needs_input' ? -176 : 0
+          : task.status === 'needs_input' ? 176 : task.status === 'completed' ? -176 : 0;
+        return `.film-product [data-chat-id="${task.id}"] { transform: translateY(${offset * (1 - moveProgress)}px) !important; }`;
+      }).join('\n')}
       .film-product [aria-label^="Elapsed time"] .taskchef-time-label { font-size: 0; }
       .film-product [aria-label^="Elapsed time"] .taskchef-time-label::after { content: "4m"; font-size: 12px; }
       ${tasks.filter(task => task.status === 'working').map(task => `.film-product [data-chat-id="${task.id}"] .taskchef-card-turn-usage { font-size: 0; } .film-product [data-chat-id="${task.id}"] .taskchef-card-turn-usage::after { content: ${JSON.stringify(turnUsageLabel(task.turnUsage!))}; font-size: 12px; }`).join('\n')}
