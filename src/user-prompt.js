@@ -3,6 +3,17 @@ import { normalizeUri } from "micromark-util-sanitize-uri";
 // Convert Codex's supplied prompt context to readable Markdown. Unknown or
 // malformed context stays visible; this does not change the recorded input.
 export function displayUserPrompt(text) {
+  const questionReply = /^\s*<send_user_message_question_reply>([\s\S]*)<\/send_user_message_question_reply>\s*$/.exec(text);
+  if (questionReply) {
+    try {
+      const value = JSON.parse(questionReply[1]);
+      const replies = Array.isArray(value) ? value : [value];
+      if (replies.length && replies.every(reply => reply && typeof reply.question === "string" && typeof reply.answer === "string")) {
+        return replies.map(reply => `${reply.question.split('\n').map(line => `> ${line}`).join('\n')}\n\n${reply.answer}`).join('\n\n');
+      }
+    } catch { /* Preserve unrecognized input rather than losing the user's prompt. */ }
+    return text;
+  }
   const requestHeading = /^##? My request:[ \t]*(?:\r?\n|$)/m.exec(text);
   if (!requestHeading || !/^(?:[ \t]*\r?\n)*(?:# Response annotations:|# Files mentioned by the user:|<in-app-browser-context source="ambient-ui-state">)\r?\n/.test(text)) return text;
   const context = text.slice(0, requestHeading.index);
