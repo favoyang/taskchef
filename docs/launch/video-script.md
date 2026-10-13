@@ -10,7 +10,7 @@ there is no narration or screen recording.
 | Time | Title | Picture and action |
 | --- | --- | --- |
 | 0–2s | TaskChef · Dashboard for Codex | Logo, name, descriptor and native cards visible from frame zero. Cards move gently beside the identity. |
-| 2–6s | Keep every project in view. | Large title beside the board, then move into its full view. Scheduled, Running, Waiting for review and Done remain visible with nine chats. No Running close-up in this chapter. |
+| 2–6s | Keep every project in view. | Large title overlays the full board, then fades to reveal it. Scheduled, Running, Waiting for review and Done remain visible with nine chats. No Running close-up in this chapter. |
 | 6–11s | See what’s running. | Move into Running. Follow Build project search as latest-turn tokens rise from 600K to 1.24M and estimated API-equivalent cost rises from $0.40 to $0.86. |
 | 11–16s | Ready for your review. | The chat finishes. Follow the same card into Waiting for review while neighboring cards make room. Its prompt becomes its result. |
 | 16–21s | Usage, turn by turn. | Open the native Details popup. Highlight Latest turn (1.24M · $0.86), then Total chat (5.32M · $3.72). Keep the native API estimate note visible. |
@@ -18,11 +18,11 @@ there is no narration or screen recording.
 | 26–31s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
 | 31–34s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
 
-Each chapter title stays fully readable for about two seconds before exiting
-into the product view. The camera carries directly from a feature close-up
-into the right-side board pose for the next title. There is no intermediate
-full-board stop between feature chapters. The board overview is a separate
-chapter; Running and live usage have their own close-up.
+Each chapter title stays fully readable for about two seconds over a dark
+gradient, then fades. The board remains the visual background. The camera
+moves directly from Running to review and from usage to Done. It returns to
+the full board for overview and project filtering, without resetting to a
+small board on the right.
 
 ## Preview
 

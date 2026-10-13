@@ -49,7 +49,9 @@
 .opening-board-stage .film-product { box-shadow: 0 40px 100px #0009, 0 0 0 1px #8eaffb22; }
 .opening-section-title { position: absolute; z-index: 3; left: 100px; top: 330px; font-size: 144px; line-height: 1.03; font-weight: 600; letter-spacing: -6px; }
 .opening-section-title span { color: #a9cbff; }
-.launch-title { font-size: 124px; }
+.launch-title-overlay { position: absolute; z-index: 3; inset: 220px 0 0; pointer-events: none; background: linear-gradient(0deg, #080b12f5, #080b12cc 25%, #080b1200 65%); }
+.launch-title { position: absolute; left: 100px; bottom: 70px; font-size: 98px; line-height: 1.04; font-weight: 600; letter-spacing: -4px; text-shadow: 0 3px 24px #0008; }
+.launch-title span { color: #a9cbff; }
 .launch-film .film-closing h1 { font-size: 132px; }
 .launch-film .film-closing p { font-size: 54px; }
 .launch-film .film-url { font-size: 44px; }

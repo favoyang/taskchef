@@ -14,10 +14,10 @@ const noop = () => {};
 function ChapterTitle({ children }: { children: ReactNode }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  return <div className="opening-section-title launch-title" style={{
+  return <div className="launch-title-overlay" style={{
     opacity: interpolate(frame / fps, [0, .15, 2.1, 2.45], [0, 1, 1, 0], clamp),
     translate: `${interpolate(frame / fps, [0, .4, 2.1, 2.45], [35, 0, 0, -100], { ...clamp, easing: ease })}px 0`,
-  }}>{children}</div>;
+  }}><div className="launch-title">{children}</div></div>;
 }
 
 export function Launch() {
@@ -25,10 +25,10 @@ export function Launch() {
   const { fps } = useVideoConfig();
   const time = frame / fps;
   // One camera and one board preserve spatial continuity across chapters.
-  const times = [2, 4.2, 4.8, 5.6, 6.8, 8.1, 8.7, 10.7, 11.5, 13.2, 13.8, 15.6, 16.4, 18.2, 19, 20.7, 21.5, 23.2, 23.7, 25.6, 26.4, 28.2, 28.7, 29.2, 29.9, 31];
-  const scales = [.62, .62, 1.22, 1.22, .62, .62, 3, 3, .62, .62, 2.4, 2.4, .62, .62, 2.3, 2.3, .62, .62, 2.4, 2.4, .62, .62, 2.8, 2.8, 1.22, 1.22];
-  const xs = [1050, 1050, 179, 179, 1050, 1050, -470, -470, 1050, 1050, -575, -575, 1050, 1050, -1157, -1157, 1050, 1050, -1325, -1325, 1050, 1050, 3, 3, 179, 179];
-  const ys = [320, 320, 240, 240, 320, 320, 30, 30, 320, 320, 80, 80, 320, 320, -422, -422, 320, 320, 80, 80, 320, 320, 220, 220, 240, 240];
+  const times = [2, 6.7, 7.6, 11.7, 12.7, 15.7, 17.1, 18.2, 19, 20.9, 22.2, 25.8, 27, 28, 28.7, 29.2, 30, 31];
+  const scales = [1.22, 1.22, 3, 3, 2.4, 2.4, 1.22, 1.22, 2.3, 2.3, 2.4, 2.4, 1.22, 1.22, 2.8, 2.8, 1.22, 1.22];
+  const xs = [179, 179, -470, -470, -575, -575, 179, 179, -1157, -1157, -1325, -1325, 179, 179, 3, 3, 179, 179];
+  const ys = [240, 240, 30, 30, 80, 80, 240, 240, -422, -422, 80, 80, 240, 240, 220, 220, 240, 240];
   const pose = (values: number[]) => interpolate(time, times, values, { ...clamp, easing: ease });
   const phase = time >= 23.8 ? 'merged' : time >= 14 ? 'review' : 'running';
   const move = phase === 'review' && time < 14.7 ? interpolate(time, [14, 14.7], [0, 1], { ...clamp, easing: ease })
@@ -60,7 +60,7 @@ export function Launch() {
         </ProductBoard>
       </div>
     </div>}
-    <Sequence name="Full board" from={2 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Keep every<br />project<br /><span>in view.</span></ChapterTitle></Sequence>
+    <Sequence name="Full board" from={2 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Keep every project<br /><span>in view.</span></ChapterTitle></Sequence>
     <Sequence name="Running and live usage" from={6 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>See what’s<br /><span>running.</span></ChapterTitle></Sequence>
     <Sequence name="Finished chat moves to review" from={11 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Ready for<br /><span>your review.</span></ChapterTitle></Sequence>
     <Sequence name="Turn and chat usage" from={16 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Usage,<br /><span>turn by turn.</span></ChapterTitle></Sequence>
