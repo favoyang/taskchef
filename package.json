@@ -27,7 +27,6 @@
     "scripts/prepare-github-keyring.js",
     "src",
     "skills/delegate",
-    "docs/taskchef-next-status-research.md",
     "docs/diagrams/taskchef-next-storage.drawio",
     "docs/diagrams/taskchef-next-storage.drawio.png",
     "docs/diagrams/taskchef-next-reply-lookup.drawio",
@@ -61,10 +60,7 @@
     "test": "npm run test:node && npm run test:dashboard",
     "test:node": "node --test tests/*.test.js",
     "test:dashboard": "vitest run --config vitest.config.ts",
-    "prepack": "node scripts/prepare-github-keyring.js",
-    "video:preview": "npm --prefix video run preview",
-    "video:check": "tsc --noEmit -p video/tsconfig.json",
-    "video:render": "npm --prefix video run render"
+    "prepack": "node scripts/prepare-github-keyring.js"
   },
   "dependencies": {
     "@mantine/core": "9.5.2",

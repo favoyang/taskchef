@@ -6,7 +6,3 @@ node_modules/
 /reports/
 /research/
 /.taskchef/
-
-# Generated launch video exports
-/video/out/
-/video/public/

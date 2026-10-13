@@ -40,11 +40,6 @@ jobs:
           npm run build:mcp-app
           git diff --quiet -- src/mcp-app/dist/index.html
 
-      - name: Validate launch video source
-        run: |
-          npm ci --prefix video
-          npm run video:check
-
       - name: Validate package contents
         run: npm pack --dry-run
 
