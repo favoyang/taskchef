@@ -44,7 +44,7 @@
 .opening-identity p { color: #a9cbff; font-size: 72px; letter-spacing: -2.5px; font-weight: 450; margin: 32px 0 0; }
 .opening-rails { position: absolute; left: 1000px; top: -100px; display: flex; gap: 36px; }
 .opening-rails i { display: block; width: 130px; height: 1500px; background: linear-gradient(#689bd908, #6099f02b, #6099f005); border: 1px solid #84a7d516; border-radius: 80px; }
-.opening-board-mask { position: absolute; inset: 0; overflow: hidden; }
+.opening-board-mask { position: absolute; inset: 220px 0 0; overflow: hidden; }
 .opening-board-stage { position: absolute; width: 1280px; height: 648px; transform-origin: top left; pointer-events: none; }
 .opening-board-stage .film-product { box-shadow: 0 40px 100px #0009, 0 0 0 1px #8eaffb22; }
 .opening-section-title { position: absolute; z-index: 3; left: 100px; top: 330px; font-size: 144px; line-height: 1.03; font-weight: 600; letter-spacing: -6px; }
