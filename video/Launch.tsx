@@ -60,12 +60,12 @@ export function Launch() {
         </ProductBoard>
       </div>
     </div>}
-    <Sequence name="Full board" from={2 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Keep every project<br /><span>in view.</span></ChapterTitle></Sequence>
-    <Sequence name="Running and live usage" from={6 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>See what’s<br /><span>running.</span></ChapterTitle></Sequence>
-    <Sequence name="Finished chat moves to review" from={11 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Ready for<br /><span>your review.</span></ChapterTitle></Sequence>
-    <Sequence name="Turn and chat usage" from={16 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Usage,<br /><span>turn by turn.</span></ChapterTitle></Sequence>
-    <Sequence name="Merged PR moves to Done" from={21 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Merged.<br /><span>Done.</span></ChapterTitle></Sequence>
-    <Sequence name="Project filtering" from={26 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Focus on<br /><span>one project.</span></ChapterTitle></Sequence>
+    <Sequence name="Full board" from={2 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Keep every project <span>in view.</span></ChapterTitle></Sequence>
+    <Sequence name="Running and live usage" from={6 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>See what’s <span>running.</span></ChapterTitle></Sequence>
+    <Sequence name="Finished chat moves to review" from={11 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Ready for <span>your review.</span></ChapterTitle></Sequence>
+    <Sequence name="Turn and chat usage" from={16 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Usage, <span>turn by turn.</span></ChapterTitle></Sequence>
+    <Sequence name="Merged PR moves to Done" from={21 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Merged. <span>Done.</span></ChapterTitle></Sequence>
+    <Sequence name="Project filtering" from={26 * fps} durationInFrames={2.5 * fps} premountFor={fps}><ChapterTitle>Focus on <span>one project.</span></ChapterTitle></Sequence>
     <Sequence name="TaskChef closing" from={31 * fps} durationInFrames={3 * fps} premountFor={fps}>
       <AbsoluteFill className="film film-closing"><div className="film-glow" /><div><Img src={staticFile('taskchef-dark.svg')} alt="" /><h1>TaskChef</h1><p>Dashboard for Codex</p><div className="film-url">taskchef.dev</div></div></AbsoluteFill>
     </Sequence>

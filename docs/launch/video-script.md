@@ -18,7 +18,7 @@ there is no narration or screen recording.
 | 26–31s | Focus on one project. | Highlight the real project picker. Change All projects to Atlas. Other projects fade out and matching cards reposition. Scheduled remains visible. |
 | 31–34s | TaskChef · Dashboard for Codex | Logo, identity and taskchef.dev. Music fades to the ending. |
 
-Each chapter title stays fully readable for about two seconds over a dark
+Each chapter title uses one line with white and blue emphasis. It stays fully readable for about two seconds over a dark
 gradient, then fades. The board remains the visual background. The camera
 moves directly from Running to review and from usage to Done. It returns to
 the full board for overview and project filtering, without resetting to a
