@@ -182,8 +182,10 @@ async function readLatestVersion(execFileImpl = execFile) {
 }
 
 export async function resolveExpectedPublishedPlugin(expectedVersion, {
-  attempts = 12,
-  delayMs = 5000,
+  // npm can accept a publish before processing makes latest and its archive available.
+  // Poll for roughly ten minutes, returning as soon as the plugin validates.
+  attempts = 60,
+  delayMs = 10000,
   readVersionImpl = readLatestVersion,
   verifyVersionImpl = verifyPublishedPluginArchive,
   waitImpl = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),

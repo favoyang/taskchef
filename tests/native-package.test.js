@@ -1,8 +1,49 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { validatePublishedPluginPackage, validateExtractedPlugin, validateSkillFrontmatter } from "../scripts/update-shared-marketplace.js";
+import { resolveExpectedPublishedPlugin, validatePublishedPluginPackage, validateExtractedPlugin, validateSkillFrontmatter } from "../scripts/update-shared-marketplace.js";
 import { TASKCHEF_VERSION } from "../src/version.js";
+
+test("release readiness waits for npm processing beyond the first minute", async () => {
+  let elapsedMs = 0;
+  const verified = [];
+  const version = await resolveExpectedPublishedPlugin(TASKCHEF_VERSION, {
+    readVersionImpl: async () => elapsedMs < 180000 ? "0.0.0" : TASKCHEF_VERSION,
+    verifyVersionImpl: async (value) => { verified.push(value); },
+    waitImpl: async (duration) => { elapsedMs += duration; },
+  });
+  assert.equal(version, TASKCHEF_VERSION);
+  assert.equal(elapsedMs, 180000);
+  assert.deepEqual(verified, [TASKCHEF_VERSION]);
+});
+
+test("release readiness stops polling when npm remains stale", async () => {
+  const waits = [];
+  let reads = 0;
+  await assert.rejects(resolveExpectedPublishedPlugin(TASKCHEF_VERSION, {
+    readVersionImpl: async () => { reads += 1; return "0.0.0"; },
+    verifyVersionImpl: async () => { assert.fail("stale latest must not be verified"); },
+    waitImpl: async (duration) => { waits.push(duration); },
+  }), /after 60 attempts: npm latest is 0\.0\.0/);
+  assert.equal(reads, 60);
+  assert.equal(waits.length, 59);
+  assert.equal(waits.reduce((total, duration) => total + duration, 0), 590000);
+});
+
+test("release readiness retries archive validation before accepting npm latest", async () => {
+  let verifications = 0;
+  const waits = [];
+  assert.equal(await resolveExpectedPublishedPlugin(TASKCHEF_VERSION, {
+    readVersionImpl: async () => TASKCHEF_VERSION,
+    verifyVersionImpl: async () => {
+      verifications += 1;
+      if (verifications === 1) throw new Error("archive is still processing");
+    },
+    waitImpl: async (duration) => { waits.push(duration); },
+  }), TASKCHEF_VERSION);
+  assert.equal(verifications, 2);
+  assert.deepEqual(waits, [10000]);
+});
 
 test("release validation accepts the native plugin without the retired CLI", async () => {
   const manifest = await validateExtractedPlugin(new URL("../", import.meta.url).pathname, TASKCHEF_VERSION);
