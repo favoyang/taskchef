@@ -375,3 +375,14 @@ test("covers prefer response images and fall back to prompt images for every sta
  expect(await screen.findByAltText("First prompt")).toBeVisible();
  expect(screen.queryByRole("img",{name:"Reply"})).toBeNull();
 });
+
+test("interrupted cards show the recorded capacity reason even without a reply", () => {
+  const interrupted = { ...task(1, "interrupted"), replyExcerpt: null, turnError: "Selected model is at capacity. Please try a different model.", observed: { archive: false, lastTurnEvent: "failed", lastTurnEventAt: null, recentFileActivity: false } };
+  const props = { completedLimit: 5, onMoreCompleted: vi.fn(), onOpenCodex: vi.fn(), onOpenDetail: vi.fn() };
+  const { rerender } = render(<MantineProvider><TaskBoard {...props} tasks={[interrupted]} groupInterruptedWithWaiting /></MantineProvider>);
+  expect(screen.getByLabelText("Latest turn error")).toHaveTextContent(interrupted.turnError);
+  fireEvent.click(screen.getByRole("button", { name: interrupted.title }));
+  expect(props.onOpenDetail).toHaveBeenCalledWith(interrupted);
+  rerender(<MantineProvider><TaskBoard {...props} tasks={[{ ...interrupted, status: "working" }]} /></MantineProvider>);
+  expect(screen.queryByLabelText("Latest turn error")).toBeNull();
+});

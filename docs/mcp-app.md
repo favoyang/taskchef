@@ -45,7 +45,7 @@ See the [storage schema](taskchef-next-storage.md), including the editable diagr
 
 ### TaskChef card content
 
-Cards show the chat title, project, a plain two-line preview, activity time, and Open chat. Running cards show the current request; other cards show the latest response. Excerpts are capped at 2,000 characters. Actual scheduled inputs display the recorded heartbeat instructions, even after the schedule is removed. No model summarizes or judges the text.
+Cards show the chat title, project, a plain two-line preview, activity time, and Open chat. Running cards show the current request; other cards show the latest response. Interrupted cards also show the latest turn’s recorded error message, when available. Details show the same message in a rounded notice after the response. A new running or completed turn clears the notice. Excerpts are capped at 2,000 characters. Actual scheduled inputs display the recorded heartbeat instructions, even after the schedule is removed. No model summarizes or judges the text.
 
 Details pairs the full recorded latest-turn request and response, each initially capped at three lines with independent Show more/Show less controls. Selected quotes render as Markdown quotes and file/image references as named attachments. Generated request headings and context metadata are hidden in the display. Recorded input remains unchanged. Raw HTML is ignored and relative file links appear as text.
 

@@ -1043,3 +1043,31 @@ test('question answers use the same readable prompt in card excerpts and Details
  assert.equal(task.status,'working'); assert.equal(task.promptExcerpt,expected); assert.equal(task.replyExcerpt,null);
  assert.equal((await scanner.taskDetail(id)).promptText,expected);
 });
+
+test("latest selected turn exposes recorded errors and clears them on recovery", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  history.exec("ALTER TABLE thread_turns ADD COLUMN error_json TEXT");
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Capacity demo', '/repo', 0, 1, 1, 1)").run(id);
+  const message = "Selected model is at capacity. Please try a different model.";
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,error_json) VALUES (?,1,'failed',?)").run(id, JSON.stringify({ message, codexErrorInfo: "serverOverloaded" }));
+  const scanner = new CodexSessionScanner({ codexHome: home });
+  t.after(() => scanner.close());
+  const initial = await scanner.refresh();
+  assert.equal(initial.tasks[0].turnError, message);
+  history.prepare("UPDATE thread_turns SET error_json=?").run(JSON.stringify({ message: "A different failure." }));
+  const changed = await scanner.refresh();
+  assert.equal(changed.tasks[0].turnError, "A different failure.");
+  assert.ok(changed.revision > initial.revision);
+  for (const error of ['{invalid', '{}', '{"message":42}', '{"message":" "}']) {
+    history.prepare("UPDATE thread_turns SET error_json=?").run(error);
+    const snapshot = await scanner.refresh(true);
+    assert.equal(snapshot.healthy, true);
+    assert.equal(snapshot.tasks[0].turnError, null);
+  }
+  history.prepare("UPDATE thread_turns SET error_json=?").run(JSON.stringify({ message }));
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,2,'inProgress','turn-2')").run(id);
+  assert.equal((await scanner.refresh(true)).tasks[0].turnError, null);
+  history.prepare("UPDATE thread_turns SET status='completed',error_json=? WHERE rollout_ordinal=2").run(JSON.stringify({ message }));
+  assert.equal((await scanner.refresh(true)).tasks[0].turnError, null);
+});

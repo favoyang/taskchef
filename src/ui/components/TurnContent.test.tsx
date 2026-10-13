@@ -42,3 +42,16 @@ test("card prompt cleanup does not change response headings", () => {
  rerender(<TurnContent task={{...task,status:"needs_input"}} compact />);
  expect(screen.getByLabelText("Latest turn response")).toHaveTextContent("My requests:");
 });
+
+
+test("compact errors keep the full message accessible and details show it without a clamp", () => {
+  const turnError = Array.from({ length: 20 }, (_, i) => `Recorded failure detail ${i}.`).join("\n");
+  const task = { ...fixtureTask(), status: "interrupted" as const, turnError, replyExcerpt: null };
+  const { rerender } = render(<TurnContent task={task} compact />);
+  const compact = screen.getByLabelText("Latest turn error");
+  expect(compact).toHaveClass("taskchef-turn-error-compact");
+  expect(compact.querySelector("span")).toHaveAttribute("title", turnError);
+  rerender(<TurnContent task={task} />);
+  expect(screen.getByLabelText("Latest turn error")).not.toHaveClass("taskchef-turn-error-compact");
+  expect(screen.getByLabelText("Latest turn error").textContent).toBe(turnError);
+});
