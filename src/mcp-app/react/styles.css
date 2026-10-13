@@ -210,3 +210,10 @@ body { background: var(--taskchef-page); }
 .taskchef-question-footer button.mantine-Anchor-root { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--taskchef-border-heavy); border-radius: 16px; font-size: 12px; text-decoration: none; }
 .taskchef-question-footer button.mantine-Anchor-root:hover { background: var(--taskchef-hover); text-decoration: none; }
 .taskchef-question-footer button.mantine-Anchor-root:focus-visible { outline: 2px solid var(--taskchef-focus); outline-offset: 2px; }
+
+.taskchef-turn-error { display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; padding: 18px 20px; border: 1px solid var(--taskchef-border); border-radius: 20px; background: var(--taskchef-surface); color: var(--taskchef-text); font-size: var(--mantine-font-size-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.taskchef-turn-error > svg { flex: none; margin-top: 2px; }
+.taskchef-turn-error > span { min-width: 0; white-space: pre-wrap; }
+.taskchef-turn-error-compact { gap: 6px; margin-top: 8px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: var(--mantine-font-size-xs); }
+
+.taskchef-turn-error-compact > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }

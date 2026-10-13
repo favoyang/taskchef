@@ -122,3 +122,17 @@ test('Needs answer adds an open-chat action without replacing the saved prompt o
  expect(screen.getByText('The connection failed. Approval requested.')).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Open chat to answer'}));expect(open).toHaveBeenCalledTimes(1);
 });
+
+test("interrupted details show the recorded error after the response and clear it on recovery", () => {
+  const task = { ...fixtureTask(), status: "interrupted" as const, turnError: "Selected model is at capacity. Please try a different model.", replyText: "Progress before the error." };
+  const props = { opened: true, busy: false, error: null, onClose: () => {}, onOpenCodex: () => {} };
+  const { rerender } = render(<MantineProvider><NextTaskDetail {...props} task={task} /></MantineProvider>);
+  const notice = screen.getByLabelText("Latest turn error");
+  expect(notice).toHaveTextContent(task.turnError);
+  expect(notice).toHaveClass("taskchef-turn-error");
+  expect(screen.getByLabelText("Latest turn response").compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  rerender(<MantineProvider><NextTaskDetail {...props} task={{ ...task, replyText: null, replyExcerpt: null }} /></MantineProvider>);
+  expect(screen.getByLabelText("Latest turn error")).toBeVisible();
+  rerender(<MantineProvider><NextTaskDetail {...props} task={{ ...task, status: "working" }} /></MantineProvider>);
+  expect(screen.queryByLabelText("Latest turn error")).toBeNull();
+});

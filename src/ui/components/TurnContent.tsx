@@ -1,4 +1,4 @@
-import { IconClock } from "@tabler/icons-react";
+import { IconAlertCircle, IconClock } from "@tabler/icons-react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Task } from "../types";
 import { ImageGallery } from "./ImageGallery";
@@ -33,9 +33,11 @@ export function TurnContent({ task, compact = false, loadImage, workedDurationMs
   const renderImage = useCallback((url: string, alt: string) => loadImage ? <ReplyImagePreview key={`${task.id}:${task.turnId}:${url}`} task={currentTask.current} url={url} alt={alt} loadImage={loadImage} onLightboxChange={onLightboxChange} /> : null, [task.id, task.turnId, loadImage, onLightboxChange]);
   const prompt = compact ? task.promptExcerpt : task.promptText ?? task.promptExcerpt;
   const reply = compact ? task.replyExcerpt : task.replyText ?? task.replyExcerpt;
+  const errorNotice = task.status === "interrupted" && task.turnError
+    ? <div role="status" aria-label="Latest turn error" className={compact ? "taskchef-turn-error taskchef-turn-error-compact" : "taskchef-turn-error"}><IconAlertCircle size={16} stroke={1.7} aria-hidden /><span title={compact ? task.turnError : undefined}>{task.turnError}</span></div> : null;
   if (compact) {
     const text = task.status === "working" ? prompt : reply;
-    return text ? <div className="taskchef-turn-card" aria-label={task.status === "working" ? "Latest turn request" : "Latest turn response"}><ReplyMarkdown key={`${task.id}:${task.turnId}`} compact annotations={task.annotations} hideRequestLabels={task.status === "working"} text={text} renderImage={task.status === "working" ? hidePromptImage : undefined} /></div> : null;
+    return <>{errorNotice}{text ? <div className="taskchef-turn-card" aria-label={task.status === "working" ? "Latest turn request" : "Latest turn response"}><ReplyMarkdown key={`${task.id}:${task.turnId}`} compact annotations={task.annotations} hideRequestLabels={task.status === "working"} text={text} renderImage={task.status === "working" ? hidePromptImage : undefined} /></div> : null}</>;
   }
   const promptImages = task.promptImages ?? (task.promptImage ? [task.promptImage] : []);
   const duration = workedDurationMs ?? task.observed?.latestTurnDurationMs;
@@ -49,5 +51,6 @@ export function TurnContent({ task, compact = false, loadImage, workedDurationMs
       <div className="taskchef-turn-divider" role="separator">{duration != null && Number.isFinite(duration) && duration >= 0 ? `Worked for ${formatWorkedDuration(duration)}` : null}</div>
       <div className="taskchef-turn-response" aria-label="Latest turn response"><ReplyMarkdown key={`${task.id}:${task.turnId}`} onAnnotationChange={onAnnotationChange} annotations={task.annotations} text={reply} renderImage={loadImage ? renderImage : undefined} /></div>
     </>}
+    {errorNotice}
   </div>;
 }

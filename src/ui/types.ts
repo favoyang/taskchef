@@ -95,6 +95,7 @@ export interface Task {
   updatedBy?: string;
   status: TaskStatus;
   summary: string | null;
+  turnError?: string | null;
   threadId: string | null;
   turnRef: string | null;
   turnId: string | null;

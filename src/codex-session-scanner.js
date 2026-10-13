@@ -232,7 +232,8 @@ function readDatabaseRecords(state, history) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
-    const latestTurn = history.prepare(`SELECT turn_id, status, started_at, duration_ms, first_user_item_id, final_agent_item_id
+    const hasTurnError = history.prepare("PRAGMA table_info(thread_turns)").all().some(column => column.name === "error_json");
+    const latestTurn = history.prepare(`SELECT turn_id, status, started_at, duration_ms, first_user_item_id, final_agent_item_id, ${hasTurnError ? "error_json" : "NULL AS error_json"}
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
     const needsAnswers = new Map();
@@ -334,6 +335,13 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       const status = row.archived ? "archived" : manualDone ? "completed" : manualScheduled ? "scheduled" : active ? "working"
         : ["failed", "interrupted"].includes(turn.status) ? "interrupted"
           : turn.status === "completed" ? scheduled && inputSource === "scheduled" ? "scheduled" : "needs_input" : null;
+      let turnError = null;
+      if (status === "interrupted" && turn.error_json) {
+        try {
+          const error = JSON.parse(turn.error_json);
+          if (typeof error?.message === "string") turnError = error.message.trim() || null;
+        } catch { /* Invalid optional error metadata must not hide the chat. */ }
+      }
       const statusLabel = status === "archived" ? "Archived" : status === "completed" ? "Done" : status === "working" ? "Running" : status === "needs_input" ? "Waiting for input/review" : status === "scheduled" ? "Scheduled" : status === "interrupted" ? "Interrupted" : "Unverified";
       const reason = row.archived ? "Chat is archived." : manualDone ? "Marked Done in TaskChef. A new turn resets this mark."
         : active ? "Latest selected turn is in progress."
@@ -344,7 +352,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       return {
         id: row.id, title: row.name?.trim() || row.title?.trim() || `Codex chat ${row.id.slice(0, 8)}`,
         instruction: "Chat name and title are local metadata and can contain user text.",
-        summary: reason, promptExcerpt, replyExcerpt, annotations, promptImages, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
+        summary: reason, turnError, promptExcerpt, replyExcerpt, annotations, promptImages, promptImage: promptImages[0] ?? null, replyImage: images.get(row.id),
         needsAnswer: !row.archived && (records.needsAnswers.get(historyId(row))?.length ?? 0) > 0,
         pendingQuestions: row.archived ? [] : records.needsAnswers.get(historyId(row)) ?? [],
         status, statusLabel, scheduled, nextRunAt, manualDone, manualScheduled, inputSource,
@@ -542,7 +550,7 @@ export class CodexSessionScanner {
       catch { throw new ProjectMetadataError("TaskChef cannot read Codex project metadata. Check .codex-global-state.json and the project worktree metadata, then refresh."); }
       const nextTasks = new Map(grouped.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
-        task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary,
+        task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary, task.turnError,
         task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
         task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImages, task.promptImage, task.replyImage, task.queuedPrompts, task.needsAnswer, task.pendingQuestions, task.pullRequests,
       ]));
