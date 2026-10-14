@@ -1118,3 +1118,39 @@ test("desktop pin changes refresh revisions even when the database is unchanged"
   assert.equal(cleared.tasks[0].observed.pinned, false);
   assert.ok(cleared.revision > pinned.revision);
 });
+
+test('optional log samples survive compression, stale selected paths, and restoration', async t => {
+  const zlib = await import('node:zlib');
+  if (!zlib.zstdCompressSync) { t.skip('zstd is unavailable'); return; }
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  const path = join(home, 'selected.jsonl');
+  state.prepare("INSERT INTO threads (id,title,cwd,rollout_path) VALUES (?, 'Compressed detail', '/example', ?)").run(id, path);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?,1,'completed')").run(id);
+  const message = role => line('response_item', { type: 'message', role, content: [] });
+  const small = line('session_meta', { id, cwd: '/example' }) + message('user') + message('assistant');
+  const large = line('session_meta', { id, cwd: '/example', padding: 'x'.repeat(40000) }) + message('user')
+    + line('response_item', { type: 'message', role: 'user', content: [{ text: 'x'.repeat(2 * 1024 * 1024) }] })
+    + message('assistant');
+  const scanner = new CodexSessionScanner({ codexHome: home }); t.after(() => scanner.close());
+  for (const contents of [small, large]) {
+    state.prepare('UPDATE threads SET rollout_path=? WHERE id=?').run(path, id);
+    await writeFile(path, contents); await scanner.refresh({ force: true });
+    const plain = (await scanner.taskDetail(id)).observed;
+    assert.equal(plain.userMessages, 1); assert.equal(plain.assistantMessages, 1);
+    await writeFile(path + '.zst', zlib.zstdCompressSync(contents)); await rm(path);
+    const stale = (await scanner.taskDetail(id)).observed;
+    for (const key of ['userMessages', 'assistantMessages', 'sampledBytes', 'fileBytes']) assert.equal(stale[key], plain[key]);
+    state.prepare('UPDATE threads SET rollout_path=? WHERE id=?').run(path + '.zst', id);
+    await scanner.refresh({ force: true });
+    const compressed = await scanner.taskDetail(id);
+    assert.equal(compressed.status, scanner.task(id).status);
+    assert.equal(compressed.observed.userMessages, 1); assert.equal(compressed.observed.assistantMessages, 1);
+    await writeFile(path, contents + message('assistant'));
+    await writeFile(path + '.zst', 'invalid zstd'); // Prefer the newly restored plain file.
+    const restored = (await scanner.taskDetail(id)).observed;
+    assert.equal(restored.assistantMessages, 2);
+    await rm(path + '.zst');
+    assert.equal((await scanner.taskDetail(id)).observed.assistantMessages, 2);
+  }
+});
