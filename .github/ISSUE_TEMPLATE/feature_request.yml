@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an improvement to TaskChef.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What would you like to do?
+      description: Describe the workflow or problem you want TaskChef to help with.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested improvement
+      description: Explain how you would like it to work.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples or screenshots if they help. Remove private information.

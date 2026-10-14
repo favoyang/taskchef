@@ -21,6 +21,11 @@ if (
 }
 
 const tag = `v${manifest.version}`;
-const { stdout } = await execFile("git", ["tag", "--points-at", "HEAD", "--list", tag]);
+// A manual run may repair a failed catalog update after main has advanced.
+// npm archive verification still gates the catalog write.
+const args = process.env.RETRY_PUBLISHED_VERSION === "true"
+  ? ["tag", "--list", tag]
+  : ["tag", "--points-at", "HEAD", "--list", tag];
+const { stdout } = await execFile("git", args);
 const releasedVersion = stdout.trim() === tag ? manifest.version : "";
 await appendFile(outputPath, `version=${releasedVersion}\n`, "utf8");

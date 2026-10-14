@@ -1,0 +1,22 @@
+{
+  "name": "taskchef",
+  "interface": {
+    "displayName": "TaskChef"
+  },
+  "plugins": [
+    {
+      "name": "taskchef",
+      "source": {
+        "source": "npm",
+        "package": "taskchef",
+        "version": "9.2.0",
+        "registry": "https://registry.npmjs.org"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

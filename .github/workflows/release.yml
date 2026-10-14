@@ -82,6 +82,8 @@ jobs:
       - name: Capture expected release version
         id: expected-version
         if: always()
+        env:
+          RETRY_PUBLISHED_VERSION: ${{ github.event_name == 'workflow_dispatch' }}
         run: node scripts/write-release-version-output.js
 
   marketplace:
@@ -98,9 +100,14 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout TaskChef
         uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -112,34 +119,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Checkout shared plugin marketplace
-        uses: actions/checkout@v5
-        with:
-          repository: favoyang/codex-plugins
-          path: shared-marketplace
-          ssh-key: ${{ secrets.MARKETPLACE_DEPLOY_KEY }}
-
-      - name: Update shared plugin marketplace
-        id: marketplace-update
+      - name: Update TaskChef marketplace
         env:
           EXPECTED_VERSION: ${{ needs.release.outputs.expected-version }}
-        run: node scripts/update-shared-marketplace.js shared-marketplace/.agents/plugins/marketplace.json "$EXPECTED_VERSION"
+        run: node scripts/update-plugin-marketplace.js .agents/plugins/marketplace.json "$EXPECTED_VERSION"
 
-      - name: Publish shared plugin marketplace update
-        working-directory: shared-marketplace
+      - name: Publish TaskChef marketplace update
         run: |
           git add .agents/plugins/marketplace.json
           if git diff --cached --quiet; then
             exit 0
           fi
-          source=$(node -p "const source = require('./.agents/plugins/marketplace.json').plugins.find(plugin => plugin.name === 'taskchef').source; source.version ?? source.ref")
+          source=$(node -p "require('./.agents/plugins/marketplace.json').plugins.find(plugin => plugin.name === 'taskchef').source.version")
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: update taskchef source to ${source}"
+          git commit -m "chore: update TaskChef marketplace to ${source} [skip ci]"
           git push origin HEAD:main
-
-      - name: Require latest npm plugin
-        if: steps.marketplace-update.outputs.npm_ready != 'true'
-        run: |
-          echo "npm latest is not a valid TaskChef plugin; the installable catalog source was preserved."
-          exit 1

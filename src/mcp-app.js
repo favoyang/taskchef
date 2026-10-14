@@ -43,9 +43,13 @@ export async function pluginSettingsUrl({ pluginRoot = fileURLToPath(new URL("..
   const marketplace = basename(dirname(dirname(pluginRoot)));
   try {
     const config = parseToml(await readFile(join(codexHome, "config.toml"), "utf8"));
-    const source = config.marketplaces?.[marketplace]?.source;
-    if (typeof source === "string" && isAbsolute(source)) {
-      const marketplacePath = join(source, ".agents", "plugins", "marketplace.json");
+    const entry = config.marketplaces?.[marketplace];
+    const source = entry?.source;
+    const root = entry?.source_type === "git"
+      ? join(codexHome, ".tmp", "marketplaces", marketplace)
+      : source;
+    if (typeof source === "string" && typeof root === "string" && isAbsolute(root)) {
+      const marketplacePath = join(root, ".agents", "plugins", "marketplace.json");
       const catalog = JSON.parse(await readFile(marketplacePath, "utf8"));
       if (catalog.name !== marketplace || !catalog.plugins?.some((entry) => entry.name === plugin)) return null;
       return `codex://plugins/${encodeURIComponent(plugin)}?${new URLSearchParams({ marketplacePath })}`;

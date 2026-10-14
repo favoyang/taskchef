@@ -61,16 +61,6 @@ export function pinTaskChefNpmSource(marketplace, version) {
   });
 }
 
-export function preserveTaskChefInstallableSource(marketplace) {
-  const entry = taskChefEntry(marketplace);
-  if (entry.source?.source === "npm") return { marketplace, changed: false };
-  return replaceSource(marketplace, {
-    source: "url",
-    url: "https://github.com/favoyang/taskchef.git",
-    ref: "main",
-  });
-}
-
 export function validatePublishedPluginPackage(packages, version) {
   requireVersion(version);
   if (!Array.isArray(packages) || packages.length !== 1) {
@@ -214,20 +204,12 @@ async function writeMarketplace(marketplacePath, marketplace) {
   await writeFile(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`, "utf8");
 }
 
-export async function updateSharedMarketplaceFile(marketplacePath, version) {
+export async function updatePluginMarketplaceFile(marketplacePath, version) {
   if (!marketplacePath) throw new Error("marketplace path is required");
   const marketplace = JSON.parse(await readFile(marketplacePath, "utf8"));
   const updated = pinTaskChefNpmSource(marketplace, version);
   if (updated.changed) await writeMarketplace(marketplacePath, updated.marketplace);
   return { changed: updated.changed, version };
-}
-
-export async function preserveSharedMarketplaceFile(marketplacePath) {
-  if (!marketplacePath) throw new Error("marketplace path is required");
-  const marketplace = JSON.parse(await readFile(marketplacePath, "utf8"));
-  const updated = preserveTaskChefInstallableSource(marketplace);
-  if (updated.changed) await writeMarketplace(marketplacePath, updated.marketplace);
-  return { changed: updated.changed };
 }
 
 function setOutput(name, value) {
@@ -239,26 +221,21 @@ async function main() {
   const marketplacePath = process.argv[2];
   const expectedVersion = process.argv[3];
   if (!marketplacePath || !expectedVersion) {
-    throw new Error("usage: update-shared-marketplace.js <marketplace.json> <expected-version>");
+    throw new Error("usage: update-plugin-marketplace.js <marketplace.json> <expected-version>");
   }
   try {
     const version = await resolveExpectedPublishedPlugin(expectedVersion);
-    const result = await updateSharedMarketplaceFile(marketplacePath, version);
+    const result = await updatePluginMarketplaceFile(marketplacePath, version);
     await setOutput("npm_ready", "true");
     process.stdout.write(
       result.changed
-        ? `Updated shared marketplace to taskchef ${result.version}.\n`
-        : `Shared marketplace already uses taskchef ${result.version}.\n`,
+        ? `Updated TaskChef marketplace to taskchef ${result.version}.\n`
+        : `TaskChef marketplace already uses taskchef ${result.version}.\n`,
     );
   } catch (error) {
-    const fallback = await preserveSharedMarketplaceFile(marketplacePath);
     await setOutput("npm_ready", "false");
-    process.stderr.write(`${error.message}\n`);
-    process.stdout.write(
-      fallback.changed
-        ? "Preserved TaskChef availability through Git main.\n"
-        : "Preserved the existing installable TaskChef source.\n",
-    );
+    process.stderr.write(`${error.message}\nThe existing marketplace pin was preserved.\n`);
+    process.exitCode = 1;
   }
 }
 
