@@ -129,7 +129,7 @@ export interface Task {
   promptImages?: { url: string; alt: string }[];
   replyImage?: { url: string; alt: string } | null;
   inputSource?: "scheduled" | "ordinary" | "unverified";
-  observed?: { unread?: boolean; source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; latestTurnDurationMs?: number | null; recordedChatDurationMs?: number | null; missingTurnDurations?: number; historicalTimePartial?: boolean; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
+  observed?: { pinned?: boolean; unread?: boolean; source?: string | null; archive: boolean; lastTurnEvent: string | null; lastTurnEventAt: string | null; latestTurnDurationMs?: number | null; recordedChatDurationMs?: number | null; missingTurnDurations?: number; historicalTimePartial?: boolean; recentFileActivity: boolean; directChildCount?: number; userMessages?: number; assistantMessages?: number; sampledBytes?: number; fileBytes?: number };
   pullRequests?: PullRequestStatus[];
   detailPullRequests?: PullRequestStatus[];
   earlierPullRequest?: PullRequestStatus;

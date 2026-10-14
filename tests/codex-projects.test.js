@@ -71,3 +71,17 @@ test("unread dots follow the local live list and refresh without database change
   await writeFile(file, JSON.stringify({ "electron-thread-read-state-v1": state }));
   assert.equal((await catalog.group(chats, [])).tasks[0].observed.unread, false);
 });
+
+
+test("current desktop pin list overrides database flags and excludes stale migration lists", async (t) => {
+  const { home, catalog } = await fixture(t);
+  const chats = ["one", "two"].map(id => ({ ...task(id, ""), observed: { archive: false, pinned: id === "two" } }));
+  const file = join(home, ".codex-global-state.json");
+  assert.deepEqual((await catalog.group(chats, [])).tasks.map(t => t.observed.pinned), [false, true]);
+  const state = { "pinned-thread-ids": ["two"], "electron-persisted-atom-state": { "app-server-pinned-thread-order-v1": ["one", null, 123] } };
+  await writeFile(file, JSON.stringify(state));
+  assert.deepEqual((await catalog.group(chats, [])).tasks.map(t => t.observed.pinned), [true, false]);
+  state["electron-persisted-atom-state"]["app-server-pinned-thread-order-v1"] = [];
+  await writeFile(file, JSON.stringify(state));
+  assert.deepEqual((await catalog.group(chats, [])).tasks.map(t => t.observed.pinned), [false, false]);
+});

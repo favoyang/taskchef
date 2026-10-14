@@ -1072,6 +1072,53 @@ test("latest selected turn exposes recorded errors and clears them on recovery",
   assert.equal((await scanner.refresh(true)).tasks[0].turnError, null);
 });
 
+
+test("pin changes update scanner revisions without a new turn, with older schema support", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Pinned chat', 0, 1, 1, 1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, 1, 'completed')").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home });
+  t.after(() => scanner.close());
+  const legacy = await scanner.refresh();
+  assert.equal(legacy.healthy, true);
+  assert.equal(legacy.tasks[0].observed.pinned, false);
+  state.exec("ALTER TABLE threads ADD COLUMN is_pinned INTEGER DEFAULT 0");
+  state.prepare("UPDATE threads SET is_pinned=1 WHERE id=?").run(id);
+  const pinned = await scanner.refresh();
+  assert.equal(pinned.tasks[0].observed.pinned, true);
+  assert.ok(pinned.revision > legacy.revision);
+  state.prepare("UPDATE threads SET is_pinned=0 WHERE id=?").run(id);
+  const unpinned = await scanner.refresh();
+  assert.equal(unpinned.tasks[0].observed.pinned, false);
+  assert.ok(unpinned.revision > pinned.revision);
+  assert.equal(unpinned.tasks[0].turnId, legacy.tasks[0].turnId);
+});
+
+
+test("desktop pin changes refresh revisions even when the database is unchanged", async (t) => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,title,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Chat', 0, 1, 1, 1)").run(id);
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status) VALUES (?, 1, 'completed')").run(id);
+  const scanner = new CodexSessionScanner({ codexHome: home });
+  t.after(() => scanner.close());
+  const file = join(home, ".codex-global-state.json");
+  const savePins = pins => writeFile(file, JSON.stringify({
+    "pinned-thread-ids": [id],
+    "app-server-migrated-pinned-thread-ids-by-host": { [`local:${home}`]: [id] },
+    "electron-persisted-atom-state": { "app-server-pinned-thread-order-v1": pins },
+  }));
+  await savePins([id]);
+  const pinned = await scanner.refresh();
+  assert.equal(pinned.tasks[0].observed.pinned, true);
+  await savePins([]);
+  const cleared = await scanner.refresh();
+  assert.equal(cleared.scan.cacheHit, true);
+  assert.equal(cleared.tasks[0].observed.pinned, false);
+  assert.ok(cleared.revision > pinned.revision);
+});
+
 test('optional log samples survive compression, stale selected paths, and restoration', async t => {
   const zlib = await import('node:zlib');
   if (!zlib.zstdCompressSync) { t.skip('zstd is unavailable'); return; }

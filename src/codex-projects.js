@@ -8,7 +8,7 @@ const contains = (root, cwd) => {
   return child === "" || (!child.startsWith(`..${sep}`) && child !== ".." && !isAbsolute(child));
 };
 
-// Only project metadata and unread chat IDs leave this reader. Never return the desktop's other saved settings.
+// Only project metadata, pin state, and unread chat IDs leave this reader. Never return the desktop's other saved settings.
 export class CodexProjects {
   constructor(codexHome) { this.codexHome = codexHome; this.saved = null; }
   async desktopProjects() {
@@ -20,7 +20,9 @@ export class CodexProjects {
     } catch (error) { if (error.code === "ENOENT") return {}; throw error; }
     if (this.saved?.stamp === stamp) return this.saved.data;
     const state = JSON.parse(await readFile(file, "utf8"));
+    const pinned = state["electron-persisted-atom-state"]?.["app-server-pinned-thread-order-v1"];
     const data = {
+      pinned: Array.isArray(pinned) ? new Set(pinned.filter(id => typeof id === "string")) : null,
       unread: localUnreadChats(state["electron-thread-read-state-v1"]),
       assignments: state["thread-project-assignments"] ?? {},
       hints: state["thread-workspace-root-hints"] ?? {}, projectless: new Set(state["projectless-thread-ids"] ?? []),
@@ -71,7 +73,7 @@ export class CodexProjects {
       if (!explicit && !noProject && !hinted && !origins.has(cwd)) origins.set(cwd, this.worktreeRoot(cwd));
       const origin = origins.has(cwd) ? await origins.get(cwd) : null;
       const project = noProject ? null : explicit ?? hinted ?? matchRoot(origin || cwd);
-      return { ...task, ...(task.observed ? { observed: { ...task.observed, unread: saved.unread?.has(task.id) ?? false } } : {}), project: { ...task.project, id: project?.id ?? NO_PROJECT, name: project?.name ?? "No project" } };
+      return { ...task, ...(task.observed ? { observed: { ...task.observed, pinned: saved.pinned ? saved.pinned.has(task.id) : task.observed.pinned ?? false, unread: saved.unread?.has(task.id) ?? false } } : {}), project: { ...task.project, id: project?.id ?? NO_PROJECT, name: project?.name ?? "No project" } };
     }));
     return { tasks: grouped, projects: projects.map(({ id, name, roots }) => ({ id, name, path: roots[0] ?? "", githubRepos: [] })) };
   }
