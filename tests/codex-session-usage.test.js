@@ -210,3 +210,86 @@ test('truncated EOF usage stays partial until completed; valid JSON needs no fin
  const complete=await reader.read(options);assert.equal(complete.total.tokens.total_tokens,220);assert.equal(complete.total.partial,false);assert.equal(complete.latest.costPartial,false);
  await appendFile(path,'\n');assert.equal((await reader.read(options)).total.tokens.total_tokens,220);
 });
+
+test('compression and restoration keep one complete source across inventory refreshes and cache restarts', async t => {
+ const zlib = await import('node:zlib');
+ if (!zlib.zstdCompressSync) { t.skip('zstd is unavailable'); return; }
+ const home = await mkdtemp(join(tmpdir(), 'taskchef-format-transition-'));
+ t.after(() => rm(home, { recursive: true, force: true }));
+ await mkdir(join(home, 'sessions'));
+ const cacheDir = join(home, 'cache'), path = join(home, 'sessions', 'rollout-old-parent.jsonl');
+ const row = (type, payload) => JSON.stringify({ timestamp: '2026-10-10T00:00:00Z', type, payload }) + '\n';
+ const contents = row('session_meta', { id: 'parent' }) + row('turn_context', { turn_id: 'turn', model: 'gpt-6.1-sol' })
+  + row('event_msg', { type: 'token_count', info: { total_token_usage: tokens(100), last_token_usage: tokens(100) } })
+  + row('event_msg', { type: 'task_complete', turn_id: 'turn', duration_ms: 1234 });
+ await writeFile(path, contents);
+ let now = 0;
+ const create = () => new CodexSessionUsage({ codexHome: home, cacheDir, now: () => now, pricing: { get: async () => ({ date: '2026-10-10', models }) } });
+ let reader = create();
+ const opts = { id: 'parent', latestTurnId: 'turn', sessions: [{ id: 'parent', rollout_path: path }] };
+ const check = async () => {
+  const result = await reader.read(opts);
+  assert.equal(result.total.tokens.total_tokens, 110);
+  assert.equal(result.latest.tokens.total_tokens, 110);
+  assert.equal(result.total.samples, 1);
+  assert.equal(result.durationMs, 1234);
+  assert.equal(result.total.partial, false);
+  assert.equal(result.latest.partial, false);
+  assert.equal(result.partial, false);
+  return result;
+ };
+ await check();
+ await writeFile(path + '.zst', zlib.zstdCompressSync(contents));
+ await rm(path);
+ await check(); // Stale inventory and plain database path resolve the compressed sibling.
+ now += 61000; await check();
+ opts.sessions[0].rollout_path = path + '.zst'; await check();
+ reader = create(); await check(); // Persisted coverage survives an MCP restart.
+ await writeFile(path, contents);
+ // Prefer plain JSONL while both representations exist, even if compressed is corrupt.
+ await writeFile(path + '.zst', 'invalid zstd');
+ now += 61000; await check();
+ await rm(path + '.zst');
+ await appendFile(path, row('event_msg', { type: 'token_count', info: { total_token_usage: tokens(200,20), last_token_usage: tokens(100) } }));
+ const restored = await reader.read(opts); // Stale compressed database path resolves appended plain history.
+ assert.equal(restored.total.tokens.total_tokens, 220);
+ assert.equal(restored.latest.tokens.total_tokens, 220);
+ assert.equal(restored.total.partial, false);
+ assert.equal(restored.latest.partial, false);
+ assert.equal(restored.partial, false);
+ reader = create();
+ const restarted = await reader.read(opts);
+ assert.deepEqual(restarted, restored);
+});
+
+test('legacy compressed cache source names become the same logical source after restoration', async t => {
+ const zlib = await import('node:zlib');
+ if (!zlib.zstdCompressSync) { t.skip('zstd is unavailable'); return; }
+ const home = await mkdtemp(join(tmpdir(), 'taskchef-legacy-compression-'));
+ t.after(() => rm(home, { recursive: true, force: true }));
+ await mkdir(join(home, 'sessions'));
+ const path = join(home, 'sessions', 'rollout-old-parent.jsonl'), cacheDir = join(home, 'cache');
+ const row = (type, payload) => JSON.stringify({ timestamp: '2026-10-10T00:00:00Z', type, payload }) + '\n';
+ const contents = row('session_meta', { id: 'parent' }) + row('turn_context', { turn_id: 'turn', model: 'gpt-6.1-sol' })
+  + row('event_msg', { type: 'token_count', info: { total_token_usage: tokens(100), last_token_usage: tokens(100) } });
+ await writeFile(path + '.zst', zlib.zstdCompressSync(contents));
+ const opts = { id: 'parent', latestTurnId: 'turn', sessions: [{ id: 'parent', rollout_path: path + '.zst' }] };
+ const create = () => new CodexSessionUsage({ codexHome: home, cacheDir, pricing: { get: async () => ({ date: '2026-10-10', models }) } });
+ await create().read(opts);
+ const { readdir } = await import('node:fs/promises');
+ const cachePath = join(cacheDir, (await readdir(cacheDir))[0]);
+ const saved = JSON.parse(await readFile(cachePath, 'utf8'));
+ const key = saved.knownSources[0], legacyKey = JSON.stringify(['parent', 'rollout-old-parent.jsonl.zst']);
+ saved.knownSources = [legacyKey];
+ saved.recordSources = { [legacyKey]: saved.recordSources[key] };
+ const signature = JSON.parse(saved.sourceSignature);
+ signature[2][0][1][0][0] = path + '.zst';
+ saved.sourceSignature = JSON.stringify(signature);
+ await writeFile(cachePath, JSON.stringify(saved));
+ await writeFile(path, contents); await rm(path + '.zst');
+ const restored = await create().read(opts);
+ assert.equal(restored.total.tokens.total_tokens, 110);
+ assert.equal(restored.total.partial, false);
+ assert.equal(restored.latest.partial, false);
+ assert.equal(restored.partial, false);
+});

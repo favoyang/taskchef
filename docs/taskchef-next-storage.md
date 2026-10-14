@@ -88,6 +88,16 @@ not read again. Appended files are read from the last complete line; replaced
 or truncated files are read again. Changed compressed files are decoded again;
 unchanged compressed files use the same cache. A runtime without zstd support
 marks compressed histories partial. Concurrent views share this reader.
+Plain and compressed siblings share one cache identity. Reads prefer the plain
+file when both exist and retry briefly during format transitions. A stale
+selected path can resolve its sibling, so compression or restoration alone does
+not mark accounting partial. Existing compressed cache identities are normalized
+when loaded.
+
+Optional Details message counts use the same path resolution. Compressed logs
+are decoded as a stream, retaining bounded head and tail samples. Their
+`fileBytes` and `sampledBytes` describe decoded JSONL bytes, as for plain files.
+Compression does not change database-derived board status or replies.
 
 Computed accounting results are saved under TaskChef's state directory in
 `cache/usage/`, with one hashed file per chat and duration-view variant. Files
