@@ -1,3 +1,4 @@
+import { openRollout, rolloutChunks } from "./codex-rollout.js";
 import { createHash } from "node:crypto";
 import { normalizeUri } from "micromark-util-sanitize-uri";
 import { displayUserPrompt, responseAnnotations } from "./user-prompt.js";
@@ -7,7 +8,7 @@ import { CodexPricing } from "./codex-pricing.js";
 import { replyImage, replyImages, localReplyImage } from "./reply-image.js";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
-import { open, stat, readFile, readdir, mkdir } from "node:fs/promises";
+import { stat, readFile, readdir, mkdir } from "node:fs/promises";
 import { acquireFileLock } from "./file-lock.js";
 import { writeDurableAtomic } from "./state-store.js";
 import { dirname } from "node:path";
@@ -392,18 +393,37 @@ async function readSlice(handle, start, bytes) {
 }
 
 async function readSession(file, now) {
-  const handle = await open(file.path, "r");
+  const source = await openRollout(file.path);
+  const { handle } = source;
   try {
-    const size = (await handle.stat()).size;
-    let headEnd = Math.min(size, HEAD_BYTES);
-    let head = await readSlice(handle, 0, headEnd);
-    if (!head.includes("\n") && headEnd < size) {
-      headEnd = Math.min(size, META_LINE_BYTES);
+    let size, headEnd, head, tail, contiguous;
+    if (source.path.endsWith(".jsonl.zst")) {
+      let prefix = Buffer.alloc(0), suffix = Buffer.alloc(0);
+      size = 0;
+      for await (const chunk of rolloutChunks(source, { highWaterMark: TAIL_BYTES })) {
+        size += chunk.length;
+        if (prefix.length < META_LINE_BYTES) prefix = Buffer.concat([prefix, chunk.subarray(0, META_LINE_BYTES - prefix.length)]);
+        suffix = Buffer.concat([suffix, chunk]);
+        if (suffix.length > TAIL_BYTES) suffix = Buffer.from(suffix.subarray(suffix.length - TAIL_BYTES));
+      }
+      headEnd = Math.min(size, HEAD_BYTES);
+      if (!prefix.subarray(0, headEnd).includes(10) && headEnd < size) headEnd = Math.min(size, META_LINE_BYTES);
+      head = prefix.subarray(0, headEnd).toString("utf8");
+      const tailStart = Math.max(0, size - TAIL_BYTES);
+      contiguous = tailStart <= headEnd;
+      tail = suffix.subarray(contiguous ? headEnd - tailStart : 0).toString("utf8");
+    } else {
+      size = source.info.size;
+      headEnd = Math.min(size, HEAD_BYTES);
       head = await readSlice(handle, 0, headEnd);
+      if (!head.includes("\n") && headEnd < size) {
+        headEnd = Math.min(size, META_LINE_BYTES);
+        head = await readSlice(handle, 0, headEnd);
+      }
+      const tailStart = Math.max(0, size - TAIL_BYTES);
+      contiguous = tailStart <= headEnd;
+      tail = contiguous ? await readSlice(handle, headEnd, size - headEnd) : await readSlice(handle, tailStart, size - tailStart);
     }
-    const tailStart = Math.max(0, size - TAIL_BYTES);
-    const contiguous = tailStart <= headEnd;
-    const tail = contiguous ? await readSlice(handle, headEnd, size - headEnd) : await readSlice(handle, tailStart, size - tailStart);
     let cwd = "";
     let createdAt = "";
     let lastEvent = "";
@@ -438,9 +458,9 @@ async function readSession(file, now) {
       parseLines(tail.slice(tail.indexOf("\n") + 1), accept);
     }
     if (!hasSessionMeta) throw new Error("Session metadata is missing or invalid.");
-    const updatedAt = new Date(file.mtimeMs).toISOString();
+    const updatedAt = new Date(source.info.mtimeMs).toISOString();
     const projectName = cwd ? basename(cwd) || cwd : "Unknown project";
-    const active = !file.archive && lastEvent === "task_started" && now - file.mtimeMs < ACTIVE_WINDOW_MS;
+    const active = !file.archive && lastEvent === "task_started" && now - source.info.mtimeMs < ACTIVE_WINDOW_MS;
     const activity = active ? "A turn started recently; live activity is unverified."
       : lastEvent === "task_complete" ? "Latest recorded turn ended; task outcome is unknown."
         : lastEvent === "turn_aborted" ? "Latest recorded turn stopped; task outcome is unknown."
@@ -450,7 +470,7 @@ async function readSession(file, now) {
       summary: activity, status: active ? "working" : null, createdAt: createdAt || updatedAt, updatedAt,
       updatedBy: "Local Codex log", project: { name: projectName, path: cwd, githubRepos: [] },
       threadId: file.id, turnRef: null, turnId: null, lastResult: null, latestTurn: null,
-      observed: { archive: file.archive, lastTurnEvent: lastEvent || null, lastTurnEventAt: lastEventAt || null, recentFileActivity: !file.archive && now - file.mtimeMs < ACTIVE_WINDOW_MS, userMessages, assistantMessages, sampledBytes: Math.min(size, headEnd + TAIL_BYTES), fileBytes: size },
+      observed: { archive: file.archive, lastTurnEvent: lastEvent || null, lastTurnEventAt: lastEventAt || null, recentFileActivity: !file.archive && now - source.info.mtimeMs < ACTIVE_WINDOW_MS, userMessages, assistantMessages, sampledBytes: Math.min(size, headEnd + TAIL_BYTES), fileBytes: size },
     };
   } finally { await handle.close(); }
 }
@@ -698,9 +718,7 @@ export class CodexSessionScanner {
     try {
       const path = this.rolloutPaths.get(id);
       if (typeof path !== "string" || !isAbsolute(path)) return detail;
-      const info = await stat(path);
-      if (!info.isFile()) return detail;
-      const log = await readSession({ path, id, archive: task.observed.archive, mtimeMs: info.mtimeMs }, this.now());
+      const log = await readSession({ path, id, archive: task.observed.archive }, this.now());
       return { ...detail, observed: { ...detail.observed,
         userMessages: log.observed.userMessages,
         assistantMessages: log.observed.assistantMessages,

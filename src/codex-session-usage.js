@@ -1,10 +1,9 @@
 import { migrateCache } from "./next-cache.js";
-import { createReadStream } from "node:fs";
-import { readdir, stat, readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { writeDurableAtomic } from "./state-store.js";
-import * as zlib from "node:zlib";
+import { plainRolloutPath, rolloutMetadata, openRollout, rolloutChunks } from "./codex-rollout.js";
 import { estimateCallCost } from "./codex-pricing.js";
 
 const FIELDS = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens"];
@@ -77,7 +76,7 @@ async function inventory(root, paths = []) {
   catch (error) { if (error.code === "ENOENT") return paths; throw error; }
   for (const entry of entries) {
     if (entry.isDirectory()) await inventory(join(root, entry.name), paths);
-    else if (entry.isFile() && /\.jsonl(?:\.zst)?$/.test(entry.name)) paths.push(join(root, entry.name));
+    else if (entry.isFile() && /\.jsonl(?:\.zst)?$/.test(entry.name)) paths.push(plainRolloutPath(join(root, entry.name)));
   }
   return paths;
 }
@@ -113,10 +112,10 @@ export class CodexSessionUsage {
     const sources = [];
     for (const session of sessions) {
       const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
-      if (session.rollout_path) paths.add(session.rollout_path);
+      if (session.rollout_path) paths.add(plainRolloutPath(session.rollout_path));
       const versions = [];
       for (const path of paths) {
-        try { const info = await stat(path); versions.push([path, info.dev, info.ino, info.size, info.mtimeMs]); }
+        try { const { info } = await rolloutMetadata(path); versions.push([path, info.dev, info.ino, info.size, info.mtimeMs]); }
         catch { versions.push([path, "missing"]); }
       }
       sources.push([session.id, versions]);
@@ -133,12 +132,20 @@ export class CodexSessionUsage {
     }
     const sourceKeys = (items) => items.flatMap(([sessionId, versions]) => versions
       .filter(version => version.length > 2)
-      .map(version => JSON.stringify([sessionId, basename(version[0])])));
+      .map(version => JSON.stringify([sessionId, basename(plainRolloutPath(version[0]))])));
     const currentSources = new Set(sourceKeys(sources));
     let knownSources = [];
     try {
       // Older cache entries already contain source metadata in their signature.
       knownSources = saved?.knownSources ?? sourceKeys(JSON.parse(saved.sourceSignature)[2]);
+      knownSources = [...new Set(knownSources.map(key => {
+        const [sessionId, name] = JSON.parse(key);
+        return JSON.stringify([sessionId, plainRolloutPath(name)]);
+      }))];
+      if (saved?.recordSources) saved = { ...saved, recordSources: Object.fromEntries(Object.entries(saved.recordSources).map(([key, rows]) => {
+        const [sessionId, name] = JSON.parse(key);
+        return [JSON.stringify([sessionId, plainRolloutPath(name)]), rows];
+      })) };
       if (!Array.isArray(knownSources) || knownSources.some(key => {
         if (typeof key !== "string") return true;
         const parts = JSON.parse(key);
@@ -153,7 +160,7 @@ export class CodexSessionUsage {
     const recordSources = {};
     for (const session of sessions) {
       const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
-      if (session.rollout_path) paths.add(session.rollout_path);
+      if (session.rollout_path) paths.add(plainRolloutPath(session.rollout_path));
       const records = [], versions = [];
       let failed = inventoryFailed, latestFailed = false, timePartial = inventoryFailed;
       if (!paths.size) failed = latestFailed = timePartial = true;
@@ -169,7 +176,7 @@ export class CodexSessionUsage {
           const sourceKey = JSON.stringify([session.id, basename(path)]);
           if (Array.isArray(saved?.recordSources?.[sourceKey]) && !missingSources.includes(sourceKey)) missingSources.push(sourceKey);
           retryRead ||= availablePaths.has(path);
-          latestFailed ||= session.id !== id || path === session.rollout_path;
+          latestFailed ||= session.id !== id || path === plainRolloutPath(session.rollout_path ?? "");
           versions.push([path, "missing"]);
         }
       }
@@ -244,38 +251,42 @@ export class CodexSessionUsage {
     return result;
   }
   async readFile(path, expectedId) {
-    const info = await stat(path);
-    if (!info.isFile() || info.size === 0) throw new Error("Rollout is empty or not a file.");
-    let cached = this.files.get(path);
-    if (cached && cached.identity === `${info.dev}:${info.ino}` && cached.size === info.size && cached.mtime === info.mtimeMs) return this.sourceView(cached, expectedId);
-    const compressed = path.endsWith(".zst");
-    if (!cached || compressed || cached.identity !== `${info.dev}:${info.ino}` || info.size < cached.size || info.size === cached.size) {
-      cached = { identity: `${info.dev}:${info.ino}`, offset: 0, records: [], partial: false, turn: null, root: null, model: null, valid: false };
-    }
-    let pending = Buffer.alloc(0), consumed = cached.offset, skipping = false;
-    for await (const chunk of readChunks(path, { start: cached.offset, end: info.size - 1, highWaterMark: 256 * 1024 }, compressed)) {
-      pending = Buffer.concat([pending, chunk]);
-      let end;
-      while ((end = pending.indexOf(10)) !== -1) {
-        const line = pending.subarray(0, end);
-        consumed += end + 1;
-        if (!skipping) this.line(cached, line, expectedId);
-        skipping = false;
-        pending = pending.subarray(end + 1);
-        cached.offset = consumed;
+    const source = await openRollout(path);
+    try {
+      path = plainRolloutPath(path);
+      const { info } = source;
+      if (!info.isFile() || info.size === 0) throw new Error("Rollout is empty or not a file.");
+      let cached = this.files.get(path);
+      if (cached && cached.identity === `${info.dev}:${info.ino}` && cached.size === info.size && cached.mtime === info.mtimeMs) return this.sourceView(cached, expectedId);
+      const compressed = source.path.endsWith(".zst");
+      if (!cached || compressed || cached.identity !== `${info.dev}:${info.ino}` || info.size < cached.size || info.size === cached.size) {
+        cached = { identity: `${info.dev}:${info.ino}`, offset: 0, records: [], partial: false, turn: null, root: null, model: null, valid: false };
       }
-      if (pending.length > 2 * 1024 * 1024) {
-        // Image/message bodies can be huge; accounting records are small.
-        if (/"type"\s*:\s*"(?:turn_context|session_meta|token_count)"/.test(pending.subarray(0, 256).toString())) this.issue(cached);
-        consumed += pending.length; pending = Buffer.alloc(0); skipping = true;
+      let pending = Buffer.alloc(0), consumed = cached.offset, skipping = false;
+      for await (const chunk of rolloutChunks(source, { start: cached.offset, end: info.size - 1, highWaterMark: 256 * 1024 })) {
+        pending = Buffer.concat([pending, chunk]);
+        let end;
+        while ((end = pending.indexOf(10)) !== -1) {
+          const line = pending.subarray(0, end);
+          consumed += end + 1;
+          if (!skipping) this.line(cached, line, expectedId);
+          skipping = false;
+          pending = pending.subarray(end + 1);
+          cached.offset = consumed;
+        }
+        if (pending.length > 2 * 1024 * 1024) {
+          // Image/message bodies can be huge; accounting records are small.
+          if (/"type"\s*:\s*"(?:turn_context|session_meta|token_count)"/.test(pending.subarray(0, 256).toString())) this.issue(cached);
+          consumed += pending.length; pending = Buffer.alloc(0); skipping = true;
+        }
       }
-    }
-    cached.size = info.size; cached.mtime = info.mtimeMs;
-    cached.tail = pending; cached.skipping = skipping;
-    const view = this.sourceView(cached, expectedId);
-    if (!view.valid) throw new Error("Rollout belongs to a different chat.");
-    this.files.set(path, cached);
-    return view;
+      cached.size = info.size; cached.mtime = info.mtimeMs;
+      cached.tail = pending; cached.skipping = skipping;
+      const view = this.sourceView(cached, expectedId);
+      if (!view.valid) throw new Error("Rollout belongs to a different chat.");
+      this.files.set(path, cached);
+      return view;
+    } finally { await source.handle.close(); }
   }
   sourceView(cached, expectedId) {
     // EOF may contain a complete JSON record or a partially written line.
@@ -308,15 +319,6 @@ export class CodexSessionUsage {
     file.partial = true;
     file.records.push({ kind: "issue", time: 0, order: file.offset, turn: file.turn, root: file.root });
   }
-}
-
-async function* readChunks(path, options, compressed) {
-  if (compressed && typeof zlib.createZstdDecompress !== "function") throw new Error("This runtime cannot decode compressed rollouts.");
-  const input = createReadStream(path, options);
-  const stream = compressed ? zlib.createZstdDecompress() : input;
-  if (compressed) { input.on("error", error => stream.destroy(error)); input.pipe(stream); }
-  try { for await (const chunk of stream) yield chunk; }
-  finally { input.destroy(); if (compressed) stream.destroy(); }
 }
 
 function validResult(value) {
