@@ -633,3 +633,35 @@ test("native card usage setting defaults on and changes without hiding detail us
   fireEvent.click(screen.getByRole("button", {name:"Task one"}));
   expect(await screen.findByRole("region", {name:"Usage"})).toBeInTheDocument();
 });
+
+
+test("Pinned only combines with filters and updates after pin changes on refresh", async () => {
+  tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "needs_input", new Date().toISOString(), "Beta"), task("old", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("unknown")];
+  tasks.slice(0, 3).forEach((item, index) => { item.observed = { pinned: index !== 1, archive: false, lastTurnEvent: null, lastTurnEventAt: null, recentFileActivity: false }; });
+  mount();
+  await screen.findByRole("button", { name: "Task one" });
+  const toggle = screen.getByRole("checkbox", { name: "Pinned only" });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  expect(toggle).toBeChecked();
+  expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Task unknown" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Task old" })).toBeVisible();
+  fireEvent.change(screen.getByRole("combobox", { name: "Updated" }), { target: { value: "24h" } });
+  expect(screen.queryByRole("button", { name: "Task old" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Beta" } });
+  expect(screen.queryByRole("button", { name: "Task one" })).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("article")).toHaveLength(0);
+  tasks = tasks.map(item => item.id === "two" ? { ...item, observed: { ...item.observed!, pinned: true } } : item);
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+  expect(toggle).toBeChecked();
+  expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Search Chats"), { target: { value: "missing" } });
+  expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Search Chats"), { target: { value: "" } });
+  tasks = tasks.map(item => item.observed ? { ...item, observed: { ...item.observed, pinned: false } } : item);
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+  expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("article")).toHaveLength(0);
+  fireEvent.click(toggle);
+  expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+});

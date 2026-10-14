@@ -232,12 +232,13 @@ function readDatabaseRecords(state, history) {
     const eligible = `coalesce(thread_source, '') NOT IN ('subagent', 'guardian_review')
       AND CASE WHEN json_valid(source) THEN json_type(source, '$.subagent') IS NULL ELSE 1 END
       AND NOT EXISTS (SELECT 1 FROM thread_spawn_edges WHERE child_thread_id = threads.id)`;
+    const hasPinned = state.prepare("PRAGMA table_info(threads)").all().some(column => column.name === "is_pinned");
     const hasTurnError = history.prepare("PRAGMA table_info(thread_turns)").all().some(column => column.name === "error_json");
     const latestTurn = history.prepare(`SELECT turn_id, status, started_at, duration_ms, first_user_item_id, final_agent_item_id, ${hasTurnError ? "error_json" : "NULL AS error_json"}
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
     const needsAnswers = new Map();
-    const rows = state.prepare(`SELECT id, name, title, cwd, archived, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode, project_id,
+    const rows = state.prepare(`SELECT id, name, title, cwd, archived, ${hasPinned ? "is_pinned" : "0 AS is_pinned"}, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode, project_id,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
       FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => {
       const key = historyId(row);
@@ -360,7 +361,7 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
         createdAt: iso(row.created_at_ms || updatedMs), updatedAt: iso(updatedMs),
         updatedBy: "Local Codex database", project: { id: row.project_id, name: basename(cwd) || cwd || "Unknown project", path: cwd, githubRepos: [] },
         threadId: row.id, turnRef: turn.turn_id, turnId: turn.turn_id, lastResult: null, latestTurn: null,
-        observed: { source: row.source, archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, latestTurnDurationMs: turn.status !== "inProgress" && Number.isFinite(turn.duration_ms) && turn.duration_ms >= 0 ? turn.duration_ms : null, recentFileActivity: !row.archived && now - updatedMs < ACTIVE_WINDOW_MS, directChildCount: row.child_count },
+        observed: { pinned: Boolean(row.is_pinned), source: row.source, archive: Boolean(row.archived), lastTurnEvent: turn.status, lastTurnEventAt: turn.started_at ? iso(turn.started_at * 1000) : null, latestTurnDurationMs: turn.status !== "inProgress" && Number.isFinite(turn.duration_ms) && turn.duration_ms >= 0 ? turn.duration_ms : null, recentFileActivity: !row.archived && now - updatedMs < ACTIVE_WINDOW_MS, directChildCount: row.child_count },
       };
     });
     return { tasks, rolloutPaths: new Map(rows.map((row) => [row.id, row.rollout_path])), scan: {
@@ -551,7 +552,7 @@ export class CodexSessionScanner {
       const nextTasks = new Map(grouped.tasks.map((task) => [task.id, task]));
       const signature = (tasks) => JSON.stringify([...tasks.values()].map((task) => [
         task.id, task.title, task.project.path, task.project.id, task.project.name, task.updatedAt, task.status, task.summary, task.turnError,
-        task.observed.archive, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
+        task.observed.archive, task.observed.pinned, task.observed.unread, task.observed.lastTurnEvent, task.observed.directChildCount, task.observed.latestTurnDurationMs,
         task.scheduled, task.nextRunAt, task.inputSource, task.turnId, task.promptExcerpt, task.replyExcerpt, task.annotations, task.promptImages, task.promptImage, task.replyImage, task.queuedPrompts, task.needsAnswer, task.pendingQuestions, task.pullRequests,
       ]));
       if (this.stats?.mode !== "database" || signature(this.tasks) !== signature(nextTasks) || JSON.stringify(this.projects) !== JSON.stringify(grouped.projects)) this.revision += 1;
