@@ -4,6 +4,7 @@ import { IconArrowUpRight, IconClock, IconFolder, IconHelpCircle, IconHourglass,
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Task, SavedUsage } from "../../ui/types";
 import { PullRequestInfo, nextRunLabel } from "../../ui/components/CardStatusIcons";
+import { ApprovalPanel } from "../../ui/components/ApprovalNotice";
 import { OpenChatButton } from "../../ui/components/OpenChatButton";
 import { QueuedPrompts } from "../../ui/components/QueuedPrompts";
 import { TurnContent } from "../../ui/components/TurnContent";
@@ -48,14 +49,14 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
   const count = task.observed?.directChildCount;
   const source = task.observed?.source === "vscode" ? "Desktop" : task.observed?.source === "cli" ? "CLI" : task.observed?.source === "exec" ? "Exec" : null;
   const input = task.inputSource === "ordinary" ? "Human" : task.inputSource === "scheduled" ? "Scheduled" : task.inputSource === "unverified" ? "Unknown" : null;
-  const label = task.status === "needs_input" || task.status === "interrupted" ? "Waiting for review" : task.status === "working" ? "Running" : task.status === "completed" ? "Done" : task.statusLabel;
+  const label = task.needsApproval ? "Needs approval" : task.status === "needs_input" || task.status === "interrupted" ? "Waiting for review" : task.status === "working" ? "Running" : task.status === "completed" ? "Done" : task.statusLabel;
   const tokenIncomplete = !!task.sessionUsage && [task.sessionUsage.latest, task.sessionUsage.total].some(value => value.partial);
   const costIncomplete = !!task.sessionUsage && [task.sessionUsage.latest, task.sessionUsage.total].some(value => value.costPartial);
   const content = <Stack gap="md">
     <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs" pr={8}>
       <Group gap="xs" mt={0} className="taskchef-detail-meta">
         <Tooltip label={task.project?.path || "No project"}><Text size="sm" c="dimmed" className="taskchef-detail-project"><IconFolder size={14} /><span>{task.project?.name || "No project"}</span></Text></Tooltip>
-        {label && <Badge variant="light" color="gray">{label}</Badge>}
+        {label && <Badge variant="light" color={task.needsApproval ? "orange" : "gray"}>{label}</Badge>}
         {task.needsAnswer && <Badge variant="light" color="blue">Needs answer</Badge>}
         {task.status === "interrupted" && <Badge variant="light" color="orange">Interrupted</Badge>}
       </Group>
@@ -65,8 +66,10 @@ export function NextTaskDetail({ task, opened, busy, usageLoading = false, error
       </Group>
     </Group>
     {error && <Alert color="red">{error}</Alert>}
+    {mobile && task.needsApproval && <ApprovalPanel task={task} busy={busy} onOpen={onOpenCodex} />}
     <Box className="taskchef-detail-layout">
       <Box className="taskchef-detail-reply">
+        {!mobile && task.needsApproval && <ApprovalPanel task={task} busy={busy} onOpen={onOpenCodex} />}
         <TurnContent task={task} loadImage={loadImage} workedDurationMs={duration} onLightboxChange={setLightboxOpen} onAnnotationChange={annotationChange} />
         {task.needsAnswer && <section aria-label="Pending questions" className="taskchef-pending-questions">
           <div className="taskchef-question-header"><IconHelpCircle size={14} aria-hidden /><span>{task.pendingQuestions?.length === 1 ? "Question" : "Questions"}</span></div>

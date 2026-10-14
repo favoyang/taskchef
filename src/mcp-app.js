@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import { NextGitHub } from "./next-github.js";
+import { CodexLiveState } from "./codex-live-state.js";
 import { NextNotifications } from "./next-notifications.js";
 import { CodexSessionScanner } from "./codex-session-scanner.js";
 import { isCodexThreadDeepLinkId, openThreadInCodex, openPluginSettingsInCodex } from "./codex-app.js";
@@ -55,6 +56,7 @@ export async function pluginSettingsUrl({ pluginRoot = fileURLToPath(new URL("..
 
 export function registerTaskChefApp(server, {
   createScanner = () => new CodexSessionScanner(),
+  createLiveState = () => new CodexLiveState(),
   openThread = openThreadInCodex,
   getSettingsUrl = pluginSettingsUrl,
   openSettings = openPluginSettingsInCodex,
@@ -63,15 +65,23 @@ export function registerTaskChefApp(server, {
   createGitHub = (options) => new NextGitHub(options),
 } = {}) {
   const scanner = createScanner();
+  const liveState = createLiveState();
   const notificationStore = new NextNotifications(notificationsPath);
   const github = createGitHub({ stateDir: dirname(settingsPath) });
   let boardRevision = 0;
   let boardSignature;
   let githubAuth;
+  let ipcErrorReported = false;
   const turnUsageCache = new Map();
   const usagePending = new Map();
   async function boardSnapshot(settings, force = false, scope = { date: "all", taskIds: [] }) {
-    const snapshot = await scanner.refresh({ force });
+    const databaseSnapshot = await scanner.refresh({ force });
+    await liveState.refresh(databaseSnapshot.healthy === false ? [] : databaseSnapshot.tasks);
+    if (liveState.error && !ipcErrorReported) {
+      ipcErrorReported = true;
+      await notificationStore.errorOnce(`codex-ipc:${TASKCHEF_VERSION}`, "Live approval updates unavailable", `${liveState.error}. TaskChef will continue showing saved chat data. Restart Codex or update TaskChef to restore live approval updates.`).catch(() => { /* Optional IPC reporting must not hide saved tasks. */ });
+    }
+    const snapshot = { ...databaseSnapshot, tasks: databaseSnapshot.tasks.map(task => liveState.decorate(task)) };
     const visibleIds = new Set(scope.taskIds ?? []);
     const displayTasks = snapshot.tasks.map(task => {
       if (!visibleIds.has(task.id) || task.pullRequests?.length || !scanner.earlierPullRequest) return task;
@@ -98,12 +108,13 @@ export function registerTaskChefApp(server, {
     const present = new Set(tasks.map(task => task.id));
     for (const id of turnUsageCache.keys()) if (!present.has(id)) turnUsageCache.delete(id);
     result.snapshot = { ...result.snapshot, tasks };
-    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.pullRequests, task.earlierPullRequest, task.turnUsage])]);
+    const signature = JSON.stringify([result.snapshot.revision, result.snapshot.tasks.map((task) => [task.id, task.status, task.needsApproval, task.pendingApprovals, task.pullRequests, task.earlierPullRequest, task.turnUsage])]);
     if (signature !== boardSignature) { boardRevision += 1; boardSignature = signature; }
     return { ...result.snapshot, revision: boardRevision };
   }
   async function decoratedTask(task, force = false, includeHistory = false) {
     if (!task) return task;
+    task = liveState.decorate(task);
     const settings = await readSettings();
     if (!includeHistory) {
       const { snapshot } = await github.enrich({ healthy: true, tasks: [task] }, settings, { force });
@@ -158,7 +169,7 @@ export function registerTaskChefApp(server, {
     } finally { await release(); }
   });
   const originalClose = server.close.bind(server);
-  server.close = async () => { scanner.close(); await originalClose(); };
+  server.close = async () => { scanner.close(); liveState.close(); await originalClose(); };
   const appOnly = { ui: { resourceUri: TASKCHEF_APP_URI, visibility: ["app"] } };
   server.registerResource("TaskChef task board", TASKCHEF_APP_URI, {
     description: "TaskChef read-only Codex session board", mimeType: RESOURCE_MIME_TYPE,
@@ -202,6 +213,7 @@ export function registerTaskChefApp(server, {
   }, async ({ taskId, refreshGithub }) => {
     const snapshot = await scanner.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
+    await liveState.refresh(snapshot.tasks);
     const task = await decoratedTask(await scanner.taskDetail(taskId), refreshGithub === true, true);
     if (!task) throw new Error("Task not found.");
     return { structuredContent: { task }, content: [] };

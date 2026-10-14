@@ -6,6 +6,7 @@ import { hasLinkedCodexThread, latestTurnPresentation } from "../state.js";
 import type { Task, TaskStatus } from "../types";
 import { LinkedText } from "./LinkedText";
 import { TurnContent } from "./TurnContent";
+import { ApprovalCover } from "./ApprovalNotice";
 import { QueuedPrompts } from "./QueuedPrompts";
 import { ReplyCover } from "./ReplyCover";
 import { ElapsedTime, RelativeTime } from "./RelativeTime";
@@ -52,7 +53,7 @@ export function TaskBoard({
 }) {
   const draggedTask = useRef<Task | null>(null);
   const [dragging, setDragging] = useState<Task | null>(null);
-  const isWaiting = (task: Task) => ["needs_input", "interrupted"].includes(task.status ?? "");
+  const isWaiting = (task: Task) => !task.needsApproval && ["needs_input", "interrupted"].includes(task.status ?? "");
   const canDrop = (task: Task, destination: TaskStatus) => destination === "archived" || (isWaiting(task) && (destination === "completed"
     ? !task.scheduled && !task.pullRequests?.some(pr => pr.state !== "merged")
     : destination === "scheduled" && !!task.scheduled && task.inputSource === "ordinary" && !!task.turnId));
@@ -228,7 +229,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
   const cover = task.replyImage ?? task.promptImage;
   return (
     <Paper draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onDragEnd={onDragEnd} data-chat-id={task.id} className="taskchef-board-card" component="article" px="sm" pt="sm" pb={6} withBorder>
-      {task.observed && cover && <ReplyCover key={`${task.turnId}:${cover.url}`} task={task} image={cover} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
+      {task.needsApproval ? <ApprovalCover task={task} onOpen={() => onOpenCodex(task)} /> : task.observed && cover && <ReplyCover key={`${task.turnId}:${cover.url}`} task={task} image={cover} loadImage={loadImage} onOpen={() => onOpenDetail(task)} />}
       <Title className="taskchef-board-title" order={3} size="h5">
         <button className="taskchef-title-button" onClick={() => onOpenDetail(task)} type="button">{task.title}</button>
         {task.observed?.unread && <span className="taskchef-chat-unread-dot" role="img" aria-label="Unread chat" />}
@@ -236,7 +237,7 @@ function BoardCard({ showCardUsage, task, onOpenCodex, onOpenDetail, loadImage, 
       <Text className="taskchef-board-project" size="xs"><IconFolder size={14} stroke={1.5} aria-hidden /><span>{task.project.name}</span></Text>
       {task.needsAnswer && <Tooltip label="Open chat to answer." ><Badge color="blue" size="xs" variant="light">Needs answer</Badge></Tooltip>}
       {task.status === "interrupted" && <Badge color="orange" size="xs" variant="light">Interrupted</Badge>}
-      {task.observed ? <TurnContent task={task} compact /> : <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" size="sm"><LinkedText task={task} text={excerpt} /></Text>}
+      {task.needsApproval ? null : task.observed ? <TurnContent task={task} compact /> : <Text component="div" className="taskchef-board-excerpt taskchef-preserve-lines" size="sm"><LinkedText task={task} text={excerpt} /></Text>}
       <QueuedPrompts task={task} compact loadImage={loadImage} onOpen={() => onOpenDetail(task)} />
       <Box className="taskchef-board-card-footer">
         <CardStatusLine turnId={task.turnId} animateUsage={task.status === "working"} turnUsage={showCardUsage ? task.turnUsage : undefined} subagentCount={task.observed?.directChildCount} pullRequests={task.pullRequests} earlierPullRequest={task.earlierPullRequest} scheduled={task.scheduled} nextRunAt={task.nextRunAt} durationMs={task.observed?.latestTurnDurationMs} startedAt={task.observed && task.status === "working" ? task.observed.lastTurnEventAt : null}>

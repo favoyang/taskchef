@@ -304,3 +304,36 @@ update window, and search filters. It starts off when the dashboard opens. Pin
 changes appear on the next data refresh. The current desktop pin list takes
 precedence over the database `is_pinned` field. TaskChef ignores old migration
 snapshots and never writes pin state. Without either source, chats are unpinned.
+
+## Live approval requests
+
+TaskChef optionally subscribes to Running chats through the already-running
+Codex desktop app's private IPC socket (`$CODEX_HOME/ipc/ipc.sock`, or the
+`codex-ipc` named pipe on Windows). It sends only initialization and local-chat
+subscription messages; it never starts a turn or sends an approval decision.
+This is a private compatibility surface, observed with Codex 26.1007.30912,
+state-stream version 11 and subscription version 1.
+
+An active `waitingOnApproval` flag places the chat in Waiting with a **Needs
+approval** cover. Details show the pending request, its source, and its origin
+when available. **Open chat to approve** takes the user to Codex to inspect and
+allow or deny the request. This is separate from the asynchronous questions
+panel. The saved turn can remain `inProgress` throughout the approval wait.
+Approval waits cannot be marked Done or acknowledged as Scheduled.
+
+The bridge keeps only runtime status and pending requests in backend memory.
+TaskChef responses contain only bounded display fields, never raw conversation
+snapshots. Requests must match the chat and selected turn. Missed patch
+revisions trigger a fresh snapshot. Disconnects clear live evidence, and
+subsequent refreshes retry at most once every 15 seconds. Subscriptions end when
+the database turn finishes or the chat is archived, and on MCP shutdown.
+
+If the socket is unavailable, disconnects, or its protocol changes, TaskChef
+falls back to saved database state. The notification center reports the first
+IPC failure once per installed TaskChef version, shared across views and MCP
+processes. The watermark lives in `notifications.json.errors.json`, so the released
+plugin’s older notification writer cannot erase it. Reading or clearing that
+message does not cause polling to replay it. Other features continue working. The first connection waits at most one
+second, and missing chat snapshots wait at most 250 ms for all subscriptions
+combined. Hidden views do not initiate refreshes; an existing subscription can
+still receive live updates while the MCP process remains running.

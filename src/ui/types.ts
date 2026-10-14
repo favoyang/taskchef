@@ -122,6 +122,8 @@ export interface Task {
   replyText?: string | null;
   replyExcerpt?: string | null;
   annotations?: { text: string; annotation: string }[];
+  needsApproval?: boolean;
+  pendingApprovals?: { id: string; turnId: string; title: string; message: string; origin: string | null }[];
   needsAnswer?: boolean;
   pendingQuestions?: { id: string; title: string; options: string[] }[];
   queuedPrompts?: { id: string; text: string; images: { url: string; alt: string }[] }[];

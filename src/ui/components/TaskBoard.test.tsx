@@ -1,3 +1,4 @@
+import { TaskCard } from "./TaskCard";
 import { MantineProvider } from "@mantine/core";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -385,4 +386,25 @@ test("interrupted cards show the recorded capacity reason even without a reply",
   expect(props.onOpenDetail).toHaveBeenCalledWith(interrupted);
   rerender(<MantineProvider><TaskBoard {...props} tasks={[{ ...interrupted, status: "working" }]} /></MantineProvider>);
   expect(screen.queryByLabelText("Latest turn error")).toBeNull();
+});
+
+test("approval cover replaces the image cover and opens the native chat", () => {
+ const open=vi.fn(),detail=vi.fn(),load=vi.fn();
+ const pending={...task(1,'needs_input'),needsApproval:true,replyImage:{url:'/old.png',alt:'Old cover'},pendingApprovals:[{id:'16',turnId:'turn',title:'Browser use',message:'Allow upload to Gmail filters?',origin:'https://mail.google.com'}]};
+ const props={tasks:[pending],lanes:[{status:'needs_input' as const,label:'Waiting'}],completedLimit:5,onMoreCompleted:vi.fn(),onOpenCodex:open,onOpenDetail:detail,loadImage:load};
+ const {rerender}=render(<MantineProvider><TaskBoard {...props}/></MantineProvider>);
+ fireEvent.click(screen.getByRole('button',{name:`Open chat to approve for ${pending.title}`}));
+ expect(open).toHaveBeenCalledWith(pending);
+ expect(detail).not.toHaveBeenCalled();
+ expect(load).not.toHaveBeenCalled();
+ rerender(<MantineProvider><TaskBoard {...props} tasks={[{...pending,needsApproval:false,pendingApprovals:[],replyImage:null}]}/></MantineProvider>);
+ expect(screen.queryByText('Needs approval')).not.toBeInTheDocument();
+});
+
+test("list cards show the approval cover without stale turn content", () => {
+ const pending={...task(1,'needs_input'),needsApproval:true,promptExcerpt:'Old request',replyExcerpt:'Stale reply',observed:{archive:false,lastTurnEvent:'inProgress',lastTurnEventAt:null,recentFileActivity:false}};
+ render(<MantineProvider><TaskCard task={pending} onOpenCodex={vi.fn()} onOpenDetail={vi.fn()}/></MantineProvider>);
+ expect(screen.getByText('Needs approval')).toBeVisible();
+ expect(screen.queryByText('Stale reply')).not.toBeInTheDocument();
+ expect(screen.queryByText('Old request')).not.toBeInTheDocument();
 });
