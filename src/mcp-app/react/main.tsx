@@ -1,7 +1,7 @@
 import { cachedImageLoader } from "../../ui/image-cache";
 import { App } from "@modelcontextprotocol/ext-apps";
-import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Switch, Stack, Text, TextInput, Title } from "@mantine/core";
-import { IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
+import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { IconPin, IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task, Project } from "../../ui/types";
@@ -424,7 +424,7 @@ export function TaskChefApp() {
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
             <TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
-            <Switch className="taskchef-app-pinned" label="Pinned only" size="xs" checked={pinnedOnly} onChange={(event) => { setPinnedOnly(event.currentTarget.checked); setCompletedLimit(5); setArchivedLimit(5); }} />
+            <Button className="taskchef-app-pinned" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />

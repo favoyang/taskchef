@@ -299,7 +299,7 @@ small muted text are adjusted when needed to meet a 4.5:1 contrast ratio on the
 UI surfaces. Native font families use locally available fonts with system fallbacks. Font assets are not copied from the desktop application. Palette definitions ship with TaskChef; opening the board does not
 read the installed desktop application or fetch theme files from the network.
 
-The **Pinned only** filter shows chats pinned in Codex and combines with project,
+The compact **Pinned** toggle button shows chats pinned in Codex and combines with project,
 update window, and search filters. It starts off when the dashboard opens. Pin
 changes appear on the next data refresh. The current desktop pin list takes
 precedence over the database `is_pinned` field. TaskChef ignores old migration

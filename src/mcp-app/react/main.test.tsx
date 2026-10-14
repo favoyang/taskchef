@@ -13,7 +13,7 @@ vi.mock("@mantine/core", async () => {
     createTheme: (theme: unknown) => theme,
     ActionIcon: ({ children, onClick, ...props }: Record<string, unknown>) => React.createElement("button", { "aria-label": props["aria-label"], onClick }, children as React.ReactNode),
     Modal: ({ opened, children }: { opened: boolean; children: React.ReactNode }) => opened ? <div role="dialog">{children}</div> : null,
-    Alert: wrap("div"), Box: wrap("div"), Button: ({ children, onClick, disabled }: {children: React.ReactNode; onClick?: () => void; disabled?: boolean}) => <button onClick={onClick} disabled={disabled}>{children}</button>, Group: wrap("div"),
+    Alert: wrap("div"), Box: wrap("div"), Button: ({ children, onClick, disabled, ...props }: {children: React.ReactNode; onClick?: () => void; disabled?: boolean; "aria-pressed"?: boolean; title?: string}) => <button onClick={onClick} disabled={disabled} aria-pressed={props["aria-pressed"]} title={props.title}>{children}</button>, Group: wrap("div"),
     MantineProvider: ({ children }: { children: React.ReactNode }) => children,
     TextInput: ({ value, onChange, ...props }: { value: string; onChange: React.ChangeEventHandler<HTMLInputElement>; "aria-label": string }) => <input aria-label={props["aria-label"]} value={value} onChange={onChange} />,
     Paper: wrap("div"), Stack: wrap("div"), Text: wrap("p"), Title: wrap("h2"),
@@ -635,15 +635,16 @@ test("native card usage setting defaults on and changes without hiding detail us
 });
 
 
-test("Pinned only combines with filters and updates after pin changes on refresh", async () => {
+test("Pinned toggle combines with filters and updates after pin changes on refresh", async () => {
   tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "needs_input", new Date().toISOString(), "Beta"), task("old", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("unknown")];
   tasks.slice(0, 3).forEach((item, index) => { item.observed = { pinned: index !== 1, archive: false, lastTurnEvent: null, lastTurnEventAt: null, recentFileActivity: false }; });
   mount();
   await screen.findByRole("button", { name: "Task one" });
-  const toggle = screen.getByRole("checkbox", { name: "Pinned only" });
-  expect(toggle).not.toBeChecked();
+  const toggle = screen.getByRole("button", { name: "Pinned" });
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(toggle).toHaveAttribute("title", "Show only pinned chats");
   fireEvent.click(toggle);
-  expect(toggle).toBeChecked();
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Task unknown" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Task old" })).toBeVisible();
@@ -654,7 +655,7 @@ test("Pinned only combines with filters and updates after pin changes on refresh
   expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("article")).toHaveLength(0);
   tasks = tasks.map(item => item.id === "two" ? { ...item, observed: { ...item.observed!, pinned: true } } : item);
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
-  expect(toggle).toBeChecked();
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
   fireEvent.change(screen.getByLabelText("Search Chats"), { target: { value: "missing" } });
   expect(screen.queryByRole("button", { name: "Task two" })).not.toBeInTheDocument();
@@ -663,5 +664,6 @@ test("Pinned only combines with filters and updates after pin changes on refresh
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
   expect(within(screen.getByRole("region", { name: "Task board" })).queryAllByRole("article")).toHaveLength(0);
   fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
   expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
 });
