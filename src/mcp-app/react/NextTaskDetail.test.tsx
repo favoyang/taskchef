@@ -136,3 +136,16 @@ test("interrupted details show the recorded error after the response and clear i
   rerender(<MantineProvider><NextTaskDetail {...props} task={{ ...task, status: "working" }} /></MantineProvider>);
   expect(screen.queryByLabelText("Latest turn error")).toBeNull();
 });
+
+test("approval panel shows the live request and opens chat without answering it", () => {
+ const open=vi.fn();
+ const task={...fixtureTask(), status:'needs_input' as const, needsApproval:true, pendingApprovals:[{id:'16',turnId:'turn',title:'Browser use',message:'Allow upload to Gmail filters?',origin:'https://mail.google.com'}]};
+ const {rerender}=render(<MantineProvider><NextTaskDetail task={task} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={open}/></MantineProvider>);
+ const panel=screen.getByRole('region',{name:'Pending approvals'});
+ expect(within(panel).getByText('Allow upload to Gmail filters?')).toBeVisible();
+ expect(within(panel).getByText('Origin: https://mail.google.com')).toBeVisible();
+ fireEvent.click(within(panel).getByRole('button',{name:'Open chat to approve'}));
+ expect(open).toHaveBeenCalledTimes(1);
+ rerender(<MantineProvider><NextTaskDetail task={{...task,needsApproval:false,pendingApprovals:[]}} opened busy={false} error={null} onClose={()=>{}} onOpenCodex={open}/></MantineProvider>);
+ expect(screen.queryByRole('region',{name:'Pending approvals'})).not.toBeInTheDocument();
+});

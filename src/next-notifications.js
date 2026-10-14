@@ -35,8 +35,8 @@ export class NextNotifications {
       return publicState(state);
     } finally { await release(); }
   }
-  add(state, { taskId = null, title, detail = "", kind, read = false }) {
-    state.items.unshift({ id: randomUUID(), taskId, title, detail, kind, read, timestamp: this.now() });
+  add(state, { id = randomUUID(), taskId = null, title, detail = "", kind, read = false }) {
+    state.items.unshift({ id, taskId, title, detail, kind, read, timestamp: this.now() });
   }
   async reconcile(getSnapshot, settings) {
     const observedAt = this.clock();
@@ -54,7 +54,7 @@ export class NextNotifications {
         const current = { turn, status: task.status ?? null, announced: [...announced] };
         // Archiving changes the board label, but must still consume the saved terminal event.
         const terminal = task.observed?.lastTurnEvent;
-        const event = (task.status === "needs_input" || terminal === "completed") && task.inputSource === "ordinary"
+        const event = ((task.status === "needs_input" && terminal !== "inProgress") || terminal === "completed") && task.inputSource === "ordinary"
           ? "ready" : task.status === "interrupted" || terminal === "interrupted" || terminal === "failed" ? "interrupted" : null;
         const eligible = !task.observed?.archive && !task.manualDone
           && (settings.showExec || task.observed?.source !== "exec")
@@ -72,6 +72,32 @@ export class NextNotifications {
       state.initialized = true;
     });
     return { snapshot, notifications };
+  }
+  async errorOnce(key, title, detail) {
+    // Older release writers strip unknown fields from notifications.json.
+    const path = `${this.path}.errors.json`;
+    const readWatermark = async () => {
+      try { return z.array(z.string()).parse(JSON.parse(await readFile(path, "utf8"))); }
+      catch { return []; } // A damaged optional watermark must not prevent an alert.
+    };
+    let needsWatermark = false;
+    const result = await this.update(async state => {
+      if ((await readWatermark()).includes(key)) return;
+      const id = `system-error:${key}`;
+      // If the previous process stopped after saving the alert, finish its
+      // watermark without adding a duplicate notification.
+      if (!state.items.some(item => item.id === id)) this.add(state, { id, title, detail, kind: "error" });
+      needsWatermark = true;
+    });
+    // Commit the alert first. A failed write can never suppress an unseen alert.
+    if (needsWatermark) {
+      const release = await acquireFileLock(dirname(this.path));
+      try {
+        const announced = await readWatermark();
+        if (!announced.includes(key)) await writeDurableAtomic(path, JSON.stringify([...announced, key]));
+      } finally { await release(); }
+    }
+    return result;
   }
   async confirmation(task) {
     return this.update((state) => this.add(state, { taskId: task.id, title: `${task.title} marked Done`, kind: "confirmation", read: true }));

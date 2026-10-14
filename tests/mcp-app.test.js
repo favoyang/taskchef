@@ -8,7 +8,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { NextGitHub } from "../src/next-github.js";
 import { TASKCHEF_VERSION } from "../src/version.js";
-import { registerTaskChefApp, pluginSettingsUrl, TASKCHEF_APP_URI, TASKCHEF_GITHUB_URI } from "../src/mcp-app.js";
+import { registerTaskChefApp as registerApp, pluginSettingsUrl, TASKCHEF_APP_URI, TASKCHEF_GITHUB_URI } from "../src/mcp-app.js";
+
+const registerTaskChefApp = (server, options) => registerApp(server, { createLiveState: () => ({ refresh: async () => {}, decorate: task => task, close: () => {} }), ...options });
 
 const task = { turnId: "turn-one", observed: { archive: false, source: "vscode", lastTurnEvent: null }, id: "0199aabb-ccdd-7eef-8abc-0123456789ab", title: "Codex chat", status: null, threadId: "0199aabb-ccdd-7eef-8abc-0123456789ab" };
 
@@ -219,4 +221,28 @@ test("board looks up earlier PRs only for visible cards and tracks display-only 
   const count=reads.length;
   assert.equal((await read({visibleTaskIds:[task.id]})).snapshot.tasks[0].earlierPullRequest,undefined);
   assert.equal(reads.length,count);
+});
+
+test("live approvals revise board and details; bridge errors notify once without hiding tasks", async t => {
+ const temp=await mkdtemp(join(tmpdir(),"taskchef-live-app-"));t.after(()=>rm(temp,{recursive:true,force:true}));
+ let pending=true;
+ const running={...task,status:'working',observed:{...task.observed,lastTurnEvent:'inProgress'}};
+ const live={refresh:async()=>{},decorate:value=>value&&pending?{...value,needsApproval:true,status:'needs_input',pendingApprovals:[{id:'16',turnId:value.turnId,title:'Browser use',message:'Allow upload?',origin:'https://mail.google.com'}]}:value,close:()=>{},error:null};
+ const scanner={refresh:async()=>({healthy:true,revision:1,tasks:[running],scan:{}}),taskDetail:async()=>running,close:()=>{}};
+ const server=new McpServer({name:'live-test',version:'1'});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>scanner,createLiveState:()=>live,getSettingsUrl:async()=>null,createGitHub:()=>({enrich:async snapshot=>({snapshot,auth:{connected:false}})})});
+ const client=new Client({name:'live-client',version:'1'});const [ct,st]=InMemoryTransport.createLinkedPair();await server.connect(st);await client.connect(ct);
+ t.after(async()=>{await client.close();await server.close();});
+ const first=(await client.callTool({name:'taskchef_app_snapshot',arguments:{}})).structuredContent;
+ assert.equal(first.snapshot.tasks[0].needsApproval,true);
+ assert.equal(first.notifications.items.length,0);
+ const detail=(await client.callTool({name:'taskchef_app_task',arguments:{taskId:task.id}})).structuredContent;
+ assert.deepEqual(detail.task.pendingApprovals,first.snapshot.tasks[0].pendingApprovals);
+ await mkdir(join(temp,'notifications.json.errors.json'));
+ pending=false;live.error='Codex IPC connection closed';
+ const second=(await client.callTool({name:'taskchef_app_snapshot',arguments:{revision:first.snapshot.revision}})).structuredContent;
+ assert.equal(second.snapshot.tasks[0].status,'working');assert.ok(second.snapshot.revision>first.snapshot.revision);
+ assert.equal(second.notifications.items.length,1);
+ const third=(await client.callTool({name:'taskchef_app_snapshot',arguments:{revision:second.snapshot.revision}})).structuredContent;
+ assert.equal(third.unchanged,true);assert.equal(third.notifications.items.length,1);
 });

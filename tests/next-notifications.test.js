@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextNotifications } from "../src/next-notifications.js";
@@ -119,4 +119,39 @@ test("slow snapshot reads do not hold the local action lock or replay an older b
   assert.equal(saved.items.filter(item=>item.kind==='confirmation').length,1);
   assert.equal(saved.items.filter(item=>item.kind==='ready').length,1);
   assert.equal((await reconcile(store,[task('needs_input','t2')])).items.filter(item=>item.kind==='ready').length,1);
+});
+
+test("live IPC errors are announced once across processes, polling, and Clear all", async t => {
+  const temp = await mkdtemp(join(tmpdir(), "taskchef-ipc-notifications-"));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const path = join(temp, "notifications.json");
+  const first = new NextNotifications(path);
+  const second = new NextNotifications(path);
+  await Promise.all([first.errorOnce("codex-ipc:v1", "Live approvals unavailable", "IPC error"), second.errorOnce("codex-ipc:v1", "Live approvals unavailable", "IPC error")]);
+  let state = await first.errorOnce("codex-ipc:v1", "Live approvals unavailable", "IPC error");
+  assert.equal(state.items.length, 1);
+  await first.action({ action: "clear" });
+  state = await second.errorOnce("codex-ipc:v1", "Live approvals unavailable", "IPC error");
+  assert.equal(state.items.length, 0);
+});
+
+test("older released notification writers cannot erase the IPC error watermark", async t => {
+ const {path,store}=await setup(t);
+ await store.errorOnce('codex-ipc:v1','Live approvals unavailable','IPC error');
+ const saved=JSON.parse(await readFile(path,'utf8'));
+ const legacy={version:saved.version,revision:saved.revision,initialized:saved.initialized,observedAt:saved.observedAt,chats:saved.chats,items:[]};
+ await writeFile(path,JSON.stringify(legacy));
+ assert.equal((await new NextNotifications(path).errorOnce('codex-ipc:v1','Live approvals unavailable','IPC error')).items.length,0);
+});
+
+test("a failed watermark write saves the warning first and retries without duplicating it", async t => {
+ const {path,store}=await setup(t);
+ await mkdir(`${path}.errors.json`);
+ await assert.rejects(store.errorOnce('codex-ipc:v1','Live approvals unavailable','IPC error'));
+ let saved=JSON.parse(await readFile(path,'utf8'));
+ assert.equal(saved.items.length,1);assert.equal(saved.items[0].title,'Live approvals unavailable');
+ await rm(`${path}.errors.json`,{recursive:true});
+ await store.errorOnce('codex-ipc:v1','Live approvals unavailable','IPC error');
+ saved=JSON.parse(await readFile(path,'utf8'));assert.equal(saved.items.length,1);
+ assert.deepEqual(JSON.parse(await readFile(`${path}.errors.json`,'utf8')),['codex-ipc:v1']);
 });

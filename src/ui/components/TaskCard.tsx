@@ -1,3 +1,4 @@
+import { ApprovalCover } from "./ApprovalNotice";
 import { Box, Paper, Stack, Text, Title } from "@mantine/core";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import { latestTurnPresentation } from "../state.js";
@@ -23,6 +24,7 @@ export function TaskCard({
   return (
     <Paper className="taskchef-task-row" component="article" pb={8} pt="md" px="sm" radius="md" withBorder>
       <Stack className="taskchef-task-main" gap="sm">
+          {task.needsApproval && <ApprovalCover task={task} onOpen={() => onOpenCodex(task)} />}
           <Box>
             <Box className="taskchef-card-heading">
               <Title order={3} size="h5">
@@ -38,7 +40,7 @@ export function TaskCard({
             {task.scheduled && <Text size="xs" c="violet">Active schedule</Text>}
           </Box>
 
-          {task.observed ? <TurnContent compact task={task} /> : <Box className="taskchef-summary-grid">
+          {task.needsApproval ? null : task.observed ? <TurnContent compact task={task} /> : <Box className="taskchef-summary-grid">
             <Text c="dimmed" className="taskchef-field-label" size="xs">Request</Text>
             <Text className="taskchef-preserve-lines" lineClamp={3} size="sm">
               <LinkedText task={task} text={latest.requestSummary} />
