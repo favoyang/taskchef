@@ -31,3 +31,10 @@ test('old dated price gaps do not mark a complete selected range partial',()=>{
  const result=aggregateUsage([item],{range:'7d',timeZone:'UTC',now:Date.parse('2026-10-15T12:00:00Z')});assert.equal(result.incomplete,false);assert.equal(result.totals.costUsd,1);
  const within=aggregateUsage([item],{range:'7d',timeZone:'UTC',now:Date.parse('2025-01-02T12:00:00Z')});assert.equal(within.incomplete,true);
 });
+
+test('Last month selects the full previous local calendar month across a year boundary and leap year',()=>{
+ const jan=aggregateUsage([],{range:'last-month',timeZone:'America/New_York',now:Date.parse('2027-01-15T12:00:00Z')});
+ assert.equal(jan.start,'2026-12-01');assert.equal(jan.end,'2026-12-31');assert.equal(jan.days.length,31);
+ const march=aggregateUsage([family('a',[sample('2024-02-29T15:59:59Z'),sample('2024-02-29T16:00:00Z')])],{range:'last-month',timeZone:'Asia/Singapore',now:Date.parse('2024-03-15T00:00:00Z')});
+ assert.equal(march.start,'2024-02-01');assert.equal(march.end,'2024-02-29');assert.equal(march.days.length,29);assert.equal(march.samples,1);
+});

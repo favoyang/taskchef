@@ -652,6 +652,9 @@ export class CodexSessionScanner {
     return this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations });
   }
   async usageAnalytics({ range, timeZone, settings }) {
+    return aggregateUsage(await this.usageHistory({ settings }), { range, timeZone, now: this.now() });
+  }
+  async usageHistory({ settings, onProgress = () => {} }) {
     const snapshot = await this.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const records = this.databaseCache.records;
@@ -663,18 +666,22 @@ export class CodexSessionScanner {
     })), records.projects);
     const families = [];
     const seen = new Set();
-    for (const task of grouped.tasks) {
-      // History includes archived chats. CLI/exec preferences still apply.
-      if ((!settings.showCli && task.observed?.source === "cli") || (!settings.showExec && task.observed?.source === "exec")) continue;
+    // History includes archived chats. CLI/exec preferences still apply.
+    const tasks = grouped.tasks.filter(task => (settings.showCli || task.observed?.source !== "cli") && (settings.showExec || task.observed?.source !== "exec"));
+    let completed = 0;
+    onProgress({ completed, total: tasks.length });
+    for (const task of tasks) {
       const sessions = this.connections.state.prepare(`WITH RECURSIVE family(id) AS (
         SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
       ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(task.id).filter(row => !seen.has(row.id));
-      if (!sessions.length) continue;
-      sessions.forEach(row => seen.add(row.id));
-      const usage = await this.sessionUsage.read({ id: task.id, latestTurnId: task.turnId, sessions });
-      families.push({ project: task.project, usage });
+      if (sessions.length) {
+        sessions.forEach(row => seen.add(row.id));
+        const usage = await this.sessionUsage.read({ id: task.id, latestTurnId: task.turnId, sessions });
+        families.push({ project: task.project, usage });
+      }
+      onProgress({ completed: ++completed, total: tasks.length });
     }
-    return aggregateUsage(families, { range, timeZone, now: this.now() });
+    return families;
   }
   recordedUsage(id, turnId) {
     const result = (this.recordedPending ?? Promise.resolve()).then(() => this.readRecordedUsage(id, turnId));

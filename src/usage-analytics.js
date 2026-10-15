@@ -5,9 +5,13 @@ export function aggregateUsage(families, { range, timeZone, now = Date.now() }) 
     const parts = Object.fromEntries(format.formatToParts(time).map(part => [part.type, part.value]));
     return `${parts.year}-${parts.month}-${parts.day}`;
   };
-  const end = dateKey(now);
+  let end = dateKey(now);
   const startDate = new Date(`${end}T00:00:00Z`);
-  if (range === 'mtd') startDate.setUTCDate(1);
+  if (range === 'last-month') {
+    startDate.setUTCDate(1);
+    end = new Date(startDate.getTime() - 86400000).toISOString().slice(0, 10);
+    startDate.setUTCMonth(startDate.getUTCMonth() - 1);
+  } else if (range === 'mtd') startDate.setUTCDate(1);
   else startDate.setUTCDate(startDate.getUTCDate() - ({ '7d': 6, '30d': 29, '90d': 89 }[range] ?? 29));
   const start = startDate.toISOString().slice(0, 10);
   const days = [];

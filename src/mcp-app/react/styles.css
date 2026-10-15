@@ -15,7 +15,7 @@
 html, body, #root { min-width: 0; min-height: 100%; }
 body { background: var(--taskchef-page); }
 .taskchef-app-shell { min-height: 100vh; background: var(--taskchef-page); }
-.taskchef-app-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand filters actions"; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
+.taskchef-app-header { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "brand view filters actions"; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
 .taskchef-app-brand { grid-area: brand; }
 .taskchef-app-actions { grid-area: actions; }
 .taskchef-app-header h1 { color: var(--taskchef-text); font-size: 14px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
@@ -26,14 +26,18 @@ body { background: var(--taskchef-page); }
 .taskchef-app-main-list { max-width: 624px; margin-inline: auto; }
 .taskchef-app-main .taskchef-toolbar { margin-bottom: 8px; padding-bottom: 10px; }
 .taskchef-app-main .mantine-SegmentedControl-root { max-width: 100%; }
-.taskchef-app-view { width: max-content; }
-.taskchef-app-filters { grid-area: filters; min-width: 0; width: min(100%, 680px); }
+.taskchef-app-view { grid-area: view; width: max-content; }
+.taskchef-app-filters { grid-area: filters; border-inline-start: 1px solid var(--taskchef-border); padding-inline-start: 12px; min-width: 0; width: min(100%, 680px); }
 .taskchef-app-filters .mantine-InputWrapper-root { flex: 1 1 100px; min-width: 100px; }
 .taskchef-app-pinned { flex: 0 0 auto; white-space: nowrap; }
 .taskchef-app-filters .taskchef-app-date { flex: 0 0 132px; }
-@media (max-width: 650px) {
-  .taskchef-app-header { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand actions" "filters filters"; gap: 8px; }
-  .taskchef-app-filters { width: 100%; }
+@media (max-width: 1000px) {
+  .taskchef-app-header { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand view actions" "filters filters filters"; gap: 8px; }
+  .taskchef-app-filters { width: 100%; border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--taskchef-border); padding-top: 8px; }
+}
+@media (max-width: 500px) {
+  .taskchef-app-header { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "brand view" "actions actions" "filters filters"; }
+  .taskchef-app-actions { justify-self: end; }
 }
 .taskchef-app-status { max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
 .taskchef-app-status .mantine-SegmentedControl-root { width: max-content; min-width: max-content; }
@@ -107,7 +111,7 @@ body { background: var(--taskchef-page); }
 .taskchef-reply-cover { background: var(--taskchef-page); }
 
 @media (max-width: 380px) {
-  .taskchef-app-header { grid-template-areas: "brand brand" "actions actions" "filters filters"; }
+  .taskchef-app-header { grid-template-areas: "brand view" "actions actions" "filters filters"; }
   .taskchef-app-inline .taskchef-app-header { grid-template-areas: "brand brand" "actions actions"; }
   .taskchef-app-actions { justify-self: end; }
 }
@@ -257,3 +261,8 @@ body { background: var(--taskchef-page); }
 .usage-rank-track > span { display: block; height: 100%; }
 .usage-warning { padding: 10px; border: 1px solid var(--taskchef-border); border-radius: 6px; }
 @media (max-width: 500px) { .usage-totals { grid-template-columns: 1fr; gap: 10px; } .usage-panel { padding: 12px; } .usage-rank-track { display: none; } .usage-ranking button > span:first-child { width: 100%; } }
+
+.usage-progress { margin: 16px 0; }
+.usage-progress progress { display: block; width: 100%; height: 6px; accent-color: var(--taskchef-accent); }
+.usage-chart [data-project] { transition: opacity 120ms ease; }
+@media (prefers-reduced-motion: reduce) { .usage-chart [data-project] { transition: none; } }

@@ -424,6 +424,7 @@ export function TaskChefApp() {
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef</Title></Group>
+          {displayMode !== "inline" && <SegmentedControl className="taskchef-app-view" aria-label="View" data={[{ label: "Board", value: "board" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" ? "usage" : "board")} size="xs" />}
           {displayMode !== "inline" && view !== "usage" && <Group className="taskchef-app-filters" gap="xs" wrap="wrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
@@ -453,7 +454,6 @@ export function TaskChefApp() {
           {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
             <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
           </Paper>}
-          <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" ? "usage" : "board")} size="xs" mb="md" />
           {view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}

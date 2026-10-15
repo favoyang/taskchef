@@ -369,16 +369,22 @@ a marketplace does not automatically move their installed plugin identity.
 
 ![Usage analytics with sample data](images/usage-analytics.jpg)
 
-The Board/Usage selector opens an on-demand historical usage view. Ranges are
-7, 30, or 90 calendar days including today, and Month to date (the default).
+The Board/Usage selector sits beside the logo in the navbar, separated from
+Board filters by a divider. It opens an on-demand historical usage view. Ranges are
+7, 30, or 90 calendar days including today, This month (the default, through
+today), and Last month (the full previous calendar month).
 There is no custom range. Dates use the view's local timezone, including DST.
-Refresh reloads usage; switching back to Usage reads it again. Board polling
-never starts a historical usage scan.
+Range changes and reopening Usage query one shared history snapshot without
+rescanning logs. The snapshot is scoped by CLI/exec visibility, independently of
+range or timezone. After one minute it refreshes in the background while cached
+charts remain visible. Refresh explicitly rebuilds it, reusing existing per-file
+metadata and incremental parsing caches. Board polling never starts a history scan.
 
 The combined chart uses cost bars on the left axis and a token line on the
 right. The project chart uses stacked cost bars for the period's top five
 projects plus Other. Select a legend entry or a Top 10 row to isolate that
-project in the project chart; All projects restores the stack. Totals, the
+project in the project chart; All projects restores the stack. Hovering or
+focusing a legend entry highlights its bars and dims other project colors. Totals, the
 combined chart, and rankings always describe the full selected period.
 
 Archived chats and descendant usage are included. CLI/exec visibility settings
@@ -391,5 +397,6 @@ produce an incomplete-coverage message; dated pricing gaps affect only the selec
 period, while undated gaps warn across periods. Unknown costs are not treated as free.
 Cached input is part of input tokens, and reasoning output is part of output.
 Cost is an estimate at current API-equivalent rates, not subscription billing
-or remaining allowance. The first read shows a loading state and polls an app-only tool while logs are parsed;
-subsequent reads reuse the existing usage caches.
+or remaining allowance. The first read shows a progress bar with the actual number of root chats
+processed and polls an app-only tool. Cached charts stay visible during later
+refreshes, with their last-update time and scan progress.

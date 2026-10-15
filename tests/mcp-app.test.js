@@ -264,11 +264,11 @@ test("live approvals revise board and details; bridge errors notify once without
 test('usage history is app-only, validates range/timezone, and passes current source visibility', async t => {
  const temp=await mkdtemp(join(tmpdir(),'taskchef-analytics-tool-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const server=new McpServer({name:'usage-test',version:'1'});const calls=[];
- registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageAnalytics:async args=>{calls.push(args);return{samples:0};}}),getSettingsUrl:async()=>null});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageHistory:async args=>{calls.push(args);return[];}}),getSettingsUrl:async()=>null});
  const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
  let result=await client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'Asia/Singapore'}});
  if (result.structuredContent.loading) result=await client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'Asia/Singapore'}});
- assert.equal(result.structuredContent.samples,0);assert.equal(calls[0].range,'mtd');assert.equal(calls[0].settings.showCli,false);
+ assert.equal(result.structuredContent.samples,0);assert.equal(calls[0].settings.showCli,false);
  assert.equal((await client.callTool({name:'taskchef_app_usage',arguments:{range:'custom',timeZone:'UTC'}})).isError,true);
  assert.equal((await client.callTool({name:'taskchef_app_usage',arguments:{range:'7d',timeZone:'invalid/timezone'}})).isError,true);
  assert.equal(calls.length,1);
@@ -278,13 +278,47 @@ test('usage polling returns immediately, shares pending reads, and refreshes com
  const temp=await mkdtemp(join(tmpdir(),'taskchef-analytics-poll-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  let finish;let reads=0;
  const server=new McpServer({name:'usage-poll-test',version:'1'});
- registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageAnalytics:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}}),getSettingsUrl:async()=>null});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageHistory:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}}),getSettingsUrl:async()=>null});
  const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
  const args={range:'mtd',timeZone:'UTC'};
  const call=force=>client.callTool({name:'taskchef_app_usage',arguments:{...args,...(force?{force:true}:{})}});
- assert.deepEqual((await call(true)).structuredContent,{loading:true});assert.equal(reads,1);
- assert.deepEqual((await call(true)).structuredContent,{loading:true});assert.equal(reads,1);
- finish({samples:7});await new Promise(resolve=>setImmediate(resolve));
- assert.equal((await call(false)).structuredContent.samples,7);
- assert.deepEqual((await call(true)).structuredContent,{loading:true});assert.equal(reads,2);finish({samples:8});
+ assert.equal((await call(true)).structuredContent.loading,true);assert.equal(reads,1);
+ assert.equal((await call(false)).structuredContent.loading,true);assert.equal(reads,1);
+ finish([]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal((await call(false)).structuredContent.samples,0);
+ assert.equal((await call(true)).structuredContent.refreshing,true);assert.equal(reads,2);finish([]);
+});
+
+
+test('all date ranges share a history snapshot, expose measured progress, and keep stale data during refresh',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-history-cache-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ let finish;let progress;let reads=0;let now=Date.now();t.mock.method(Date,'now',()=>now);
+ const server=new McpServer({name:'history-cache-test',version:'1'});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageHistory:({onProgress})=>{reads++;progress=onProgress;onProgress({completed:0,total:10});return new Promise(resolve=>{finish=resolve;});}}),getSettingsUrl:async()=>null});
+ const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
+ const call=(range='mtd',force=false)=>client.callTool({name:'taskchef_app_usage',arguments:{range,timeZone:'UTC',...(force?{force:true}:{})}});
+ assert.equal((await call()).structuredContent.loading,true);assert.equal(reads,1);
+ progress({completed:4,total:10});assert.deepEqual((await call('7d')).structuredContent.progress,{completed:4,total:10});assert.equal(reads,1);
+ finish([]);await new Promise(resolve=>setImmediate(resolve));
+ for(const range of ['mtd','7d','last-month','90d','mtd']){const result=(await call(range)).structuredContent;assert.ok(Array.isArray(result.days));assert.equal(result.loading,undefined);assert.equal(result.refreshing,undefined);}
+ assert.equal(reads,1);
+ now+=61_000;const stale=(await call('30d')).structuredContent;assert.equal(stale.refreshing,true);assert.equal(stale.days.length,30);assert.equal(reads,2);
+ assert.equal((await call('last-month')).structuredContent.refreshing,true);assert.equal(reads,2);
+ finish([]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal((await call('7d')).structuredContent.refreshing,undefined);
+ assert.equal((await call('7d',true)).structuredContent.refreshing,true);assert.equal(reads,3);finish([]);
+});
+
+
+test('Refresh during a pending history read queues one follow-up without making range changes rescan',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-history-refresh-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ let finish;let reads=0;const server=new McpServer({name:'queued-refresh',version:'1'});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageHistory:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}}),getSettingsUrl:async()=>null});
+ const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
+ const call=(range='mtd',force=false)=>client.callTool({name:'taskchef_app_usage',arguments:{range,timeZone:'UTC',...(force?{force:true}:{})}});
+ assert.equal((await call()).structuredContent.loading,true);assert.equal(reads,1);
+ await call('7d',true);await call('mtd',true);await call('last-month');assert.equal(reads,1);
+ finish([]);await new Promise(resolve=>setImmediate(resolve));assert.equal(reads,2);
+ assert.equal((await call('last-month')).structuredContent.refreshing,true);assert.equal(reads,2);
+ finish([]);await new Promise(resolve=>setImmediate(resolve));assert.equal((await call()).structuredContent.refreshing,undefined);assert.equal(reads,2);
 });

@@ -1,3 +1,4 @@
+import { aggregateUsage } from "./usage-analytics.js";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -213,26 +214,36 @@ export function registerTaskChefApp(server, {
   });
   server.registerTool("taskchef_app_usage", {
     title: "Read usage history", description: "Aggregate timestamped local token usage and API-equivalent cost by day and project.",
-    inputSchema: { range: z.enum(["7d", "30d", "90d", "mtd"]), timeZone: z.string().min(1).max(100), force: z.boolean().optional() }, _meta: appOnly,
+    inputSchema: { range: z.enum(["7d", "30d", "90d", "mtd", "last-month"]), timeZone: z.string().min(1).max(100), force: z.boolean().optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ range, timeZone, force }) => {
     new Intl.DateTimeFormat("en", { timeZone }).format();
     const settings = await readSettings();
-    const key = JSON.stringify([range, timeZone, settings.showCli, settings.showExec]);
-    for (const [id, job] of analyticsJobs) if (job.finishedAt && Date.now() - job.finishedAt > 60_000) analyticsJobs.delete(id);
+    // History is independent of chart range and timezone. Range changes query
+    // this shared snapshot; only expiry or explicit Refresh starts another read.
+    const key = JSON.stringify([settings.showCli, settings.showExec]);
     let job = analyticsJobs.get(key);
-    if (!job || (force && job.finishedAt)) {
-      job = { result: null, error: null, finishedAt: 0 };
+    if (force && job?.pending) job.refreshAgain = true;
+    if (!job || (!job.pending && (force || (!job.error && Date.now() - job.finishedAt >= 60_000)))) {
+      job = { families: job?.families ?? null, error: null, finishedAt: job?.finishedAt ?? 0,
+        pending: true, refreshAgain: false, progress: { completed: 0, total: 0 } };
       analyticsJobs.set(key, job);
       const current = job;
-      // Cold history can exceed the host's tool timeout. Each poll returns
-      // immediately while one background read builds the aggregate.
-      Promise.resolve().then(() => scanner.usageAnalytics({ range, timeZone, settings }))
-        .then(result => { current.result = result; }, error => { current.error = error; })
-        .finally(() => { current.finishedAt = Date.now(); });
+      Promise.resolve().then(async () => {
+        do {
+          current.refreshAgain = false;
+          const families = await scanner.usageHistory({ settings, onProgress: progress => { current.progress = progress; } });
+          current.families = families;
+          current.finishedAt = Date.now();
+        } while (current.refreshAgain);
+      }).catch(error => { current.error = error; }).finally(() => { current.pending = false; });
     }
     if (job.error) throw job.error;
-    return { structuredContent: job.result ?? { loading: true }, content: [] };
+    const data = job.families ? { ...aggregateUsage(job.families, { range, timeZone }),
+      updatedAt: new Date(job.finishedAt).toISOString(),
+      ...(job.pending ? { refreshing: true, progress: job.progress } : {}) }
+      : { loading: true, progress: job.progress };
+    return { structuredContent: data, content: [] };
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata and its latest recorded request and response.",
