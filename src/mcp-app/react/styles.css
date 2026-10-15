@@ -227,6 +227,8 @@ body { background: var(--taskchef-page); }
 .taskchef-turn-error-compact > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 
 .usage-view { max-width: 1100px; margin: 0 auto; color: var(--taskchef-text); }
+.usage-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.usage-view button:disabled { opacity: .5; cursor: default; }
 .usage-view h2 { font-size: 24px; margin: 4px 0 8px; }
 .usage-view h3 { font-size: 14px; margin: 0 0 12px; }
 .usage-view p, .usage-view small { color: var(--taskchef-muted); font-size: 12px; line-height: 1.5; margin: 8px 0; }

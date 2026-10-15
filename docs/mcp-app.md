@@ -378,7 +378,13 @@ Range changes and reopening Usage query one shared history snapshot without
 rescanning logs. The snapshot is scoped by CLI/exec visibility, independently of
 range or timezone. After one minute it refreshes in the background while cached
 charts remain visible. Refresh explicitly rebuilds it, reusing existing per-file
-metadata and incremental parsing caches. Board polling never starts a history scan.
+metadata and incremental parsing caches. Unchanged files retain parsed records
+on disk across restarts and turn or price changes. A session filename index
+avoids searching the full inventory for each chat. Missing paths do not incur
+reader retry delays. Empty or mismatched files are checked again when their
+metadata changes; transient I/O failures retry while retaining healthy sources.
+Rescan explicitly reparses available files and refreshes the inventory, while
+retaining known history for missing sources. Board polling never starts a history scan.
 
 The combined chart uses cost bars on the left axis and a token line on the
 right. The project chart uses stacked cost bars for the period's top five
@@ -393,8 +399,8 @@ current project. Unassigned chats share one Unassigned project. Daily usage
 comes from recorded call timestamps, not chat creation or last-update dates.
 Unexplained cumulative counter gaps stay in lifetime totals but are excluded
 from daily totals because their dates are unknown. Missing records or prices
-produce an incomplete-coverage message; dated pricing gaps affect only the selected
-period, while undated gaps warn across periods. Unknown costs are not treated as free.
+remain marked in the analytics response without displaying coverage warnings.
+Unknown costs are excluded from estimated cost.
 Cached input is part of input tokens, and reasoning output is part of output.
 Cost is an estimate at current API-equivalent rates, not subscription billing
 or remaining allowance. The first read shows a progress bar with the actual number of root chats

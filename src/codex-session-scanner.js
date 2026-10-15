@@ -654,7 +654,8 @@ export class CodexSessionScanner {
   async usageAnalytics({ range, timeZone, settings }) {
     return aggregateUsage(await this.usageHistory({ settings }), { range, timeZone, now: this.now() });
   }
-  async usageHistory({ settings, onProgress = () => {} }) {
+  async usageHistory({ settings, onProgress = () => {}, rescan = false }) {
+    if (rescan) this.sessionUsage.inventoryAt = -Infinity;
     const snapshot = await this.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
     const records = this.databaseCache.records;
@@ -676,7 +677,7 @@ export class CodexSessionScanner {
       ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(task.id).filter(row => !seen.has(row.id));
       if (sessions.length) {
         sessions.forEach(row => seen.add(row.id));
-        const usage = await this.sessionUsage.read({ id: task.id, latestTurnId: task.turnId, sessions });
+        const usage = await this.sessionUsage.read({ id: task.id, latestTurnId: task.turnId, sessions, rescan });
         families.push({ project: task.project, usage });
       }
       onProgress({ completed: ++completed, total: tasks.length });

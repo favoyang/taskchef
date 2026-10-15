@@ -27,7 +27,7 @@ test('a late old response cannot replace the selected range and errors can retry
 });
 test('missing coverage and empty data are distinct from a zero cost estimate',async()=>{
  const request=vi.fn().mockResolvedValue({...data,samples:0,incomplete:true});render(<UsageView request={request}/>);
- await screen.findByText(/No timestamped usage/);expect(screen.getByText(/Incomplete coverage:/)).toBeVisible();expect(screen.queryByRole('table')).toBeNull();
+ await screen.findByText(/No timestamped usage/);expect(screen.queryByText(/Incomplete coverage:/)).toBeNull();expect(screen.queryByRole('table')).toBeNull();
 });
 test('ranks only ten projects and keeps Other out of project identity',async()=>{
  const projects=Array.from({length:12},(_,i)=>({id:String(i),name:`Project ${i}`,tokens:1,costUsd:12-i}));
@@ -72,3 +72,11 @@ test('legend hover and focus highlight only matching project bars and reset on l
  fireEvent.mouseLeave(alpha);expect(view.container.querySelector('[data-project="b"]')).toHaveAttribute('opacity','1');
  fireEvent.focus(alpha);expect(view.container.querySelector('[data-project="b"]')).toHaveAttribute('opacity','0.2');fireEvent.blur(alpha);expect(view.container.querySelector('[data-project="b"]')).toHaveAttribute('opacity','1');
 });
+
+ test('Rescan rebuilds explicitly and removes coverage and axis helper copy',async()=>{
+ const request=vi.fn().mockResolvedValue({...data,incomplete:true});render(<UsageView request={request}/>);
+ await screen.findByRole('table');
+ for(const text of [/Incomplete coverage/,/Known subtotal/,/Cached input is included/,/right axis/,/left axis/,/By estimated cost/,/Missing usage is not zero/]) expect(screen.queryByText(text)).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Rescan'}));
+ await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'mtd',timeZone:expect.any(String),rescan:true}));
+ });

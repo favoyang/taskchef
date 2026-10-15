@@ -9,7 +9,7 @@ export interface UsageData {
 }
 interface ScanProgress { completed: number; total: number; }
 export type UsageRange = "7d" | "30d" | "90d" | "mtd" | "last-month";
-export const usageRequest = (range: UsageRange, force = false) => ({ range, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(force ? { force: true } : {}) });
+export const usageRequest = (range: UsageRange, force = false, rescan = false) => ({ range, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(force ? { force: true } : {}), ...(rescan ? { rescan: true } : {}) });
 export type UsageResponse = UsageData | { loading: true; progress?: ScanProgress };
 const money = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n > 0 && n < .01 ? 4 : 2 }).format(n);
 const count = (n: number) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
@@ -24,21 +24,23 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
-  const lastRequest = useRef({ refreshKey, retry: 0 });
+  const lastRequest = useRef({ refreshKey, retry: 0, rescan: 0 });
   const [selected, setSelected] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
+  const [rescan, setRescan] = useState(0);
   useEffect(() => {
     let current = true;
     const force = refreshKey !== lastRequest.current.refreshKey || retry !== lastRequest.current.retry;
-    lastRequest.current = { refreshKey, retry };
+    const rebuild = rescan !== lastRequest.current.rescan;
+    lastRequest.current = { refreshKey, retry, rescan };
     setLoading(true); setError(null); setProgress(null); setActiveDay(null); setHighlighted(null);
-    if (!force) setData(null);
+    if (!force && !rebuild) setData(null);
     let timer: ReturnType<typeof setTimeout>;
-    async function load(force: boolean) {
-      if (document.visibilityState === "hidden") { timer = setTimeout(() => { void load(force); }, 1000); return; }
+    async function load(force: boolean, rebuild = false) {
+      if (document.visibilityState === "hidden") { timer = setTimeout(() => { void load(force, rebuild); }, 1000); return; }
       try {
-        const result = await request(usageRequest(range, force));
+        const result = await request(usageRequest(range, force, rebuild));
         if (!current) return;
         setProgress(result.progress ?? null);
         if ("loading" in result) timer = setTimeout(() => { void load(false); }, 250);
@@ -48,9 +50,9 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
         }
       } catch (cause) { if (current) { setError(String(cause)); setLoading(false); } }
     }
-    void load(force);
+    void load(force, rebuild);
     return () => { current = false; clearTimeout(timer); };
-  }, [range, request, refreshKey, retry]);
+  }, [range, request, refreshKey, retry, rescan]);
   const project = data?.projects.find(item => item.id === selected);
   const series = data ? (project ? [{ ...project, color: colors[data.projects.indexOf(project) < 5 ? data.projects.indexOf(project) : 5] }]
     : [...data.projects.slice(0, 5).map((item, index) => ({ ...item, color: colors[index] })),
@@ -75,7 +77,7 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
       ? <text key={day.date} x={x(index)} y={bottom + 25} textAnchor="middle">{dateLabel(day.date)}</text> : null);
   }
   return <section className="usage-view" aria-label="Usage analytics">
-    <div className="usage-heading"><div><h2>Usage</h2><p>Tokens and estimated cost across your Codex work.</p></div></div>
+    <div className="usage-heading"><div><h2>Usage</h2><p>Tokens and estimated cost across your Codex work.</p></div><button disabled={loading || data?.refreshing} onClick={() => setRescan(value => value + 1)}>Rescan</button></div>
     <div className="usage-ranges" role="group" aria-label="Usage time range">
       {([ ["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"], ["mtd", "This month"], ["last-month", "Last month"] ] as const).map(([value, label]) => <button key={value} aria-pressed={range === value} onClick={() => setRange(value)}>{label}</button>)}
     </div>
@@ -86,14 +88,13 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
     {error && <div role="alert"><p>Usage could not be loaded: {error}</p><button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {data && <>
       <p className="usage-period">{dateLabel(data.start)} – {dateLabel(data.end)} · {data.timeZone} · Daily · Includes archived chats and subagent usage{data.updatedAt && <> · Updated {new Date(data.updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</>}</p>
-      {data.incomplete && <p role="status" className="usage-warning">Incomplete coverage: some records, timestamps, or model prices are missing. Totals show only dated, recorded usage and known costs.</p>}
       {!data.samples ? <p role="status">No timestamped usage is available for this period.</p> : <>
         <div className="usage-totals">
-          <article><h3>Recorded tokens</h3><strong>{count(data.totals.tokens)}</strong><p>Input {count(data.totals.inputTokens)} · Cached input {count(data.totals.cachedInputTokens)} · Output {count(data.totals.outputTokens)}</p><small>Cached input is included in input tokens.</small></article>
-          <article><h3>Estimated cost</h3><strong>{money(data.totals.costUsd)}</strong><p>API-equivalent prices · USD{data.incomplete ? " · Known subtotal" : ""}</p></article>
+          <article><h3>Recorded tokens</h3><strong>{count(data.totals.tokens)}</strong><p>Input {count(data.totals.inputTokens)} · Cached input {count(data.totals.cachedInputTokens)} · Output {count(data.totals.outputTokens)}</p></article>
+          <article><h3>Estimated cost</h3><strong>{money(data.totals.costUsd)}</strong><p>API-equivalent prices · USD</p></article>
         </div>
         <article className="usage-panel" aria-label="Tokens and cost over time"><h3>Tokens and cost over time</h3>
-          <div className="usage-legend"><span className="usage-token-key">━ Tokens · right axis</span><span><i style={{ background: colors[0] }} /> Estimated cost · left axis</span></div>
+          <div className="usage-legend"><span className="usage-token-key">━ Tokens</span><span><i style={{ background: colors[0] }} /> Estimated cost</span></div>
           <div className="usage-chart-scroll"><svg viewBox="0 0 860 210" role="img" aria-label="Daily estimated cost bars and token line" className="usage-chart">
             {grid(maxCost)}
             {[0, .5, 1].map(fraction => <text className="usage-token-axis" key={fraction} x={right + 10} y={y(fraction, 1) + 4}>{count(maxTokens * fraction)}</text>)}
@@ -113,11 +114,11 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
             {dates()}
           </svg></div>
         </article>
-        <article className="usage-panel" aria-label="Top 10 projects"><h3>Top 10 projects</h3><p>By estimated cost in the selected period. Select a row to isolate its project above.</p>
+        <article className="usage-panel" aria-label="Top 10 projects"><h3>Top 10 projects</h3>
           <div className="usage-ranking"><table><thead><tr><th scope="col">Project</th><th scope="col">Estimated cost</th><th scope="col">Share</th></tr></thead><tbody>{data.projects.slice(0, 10).map((item, index) => <tr key={item.id}><th scope="row"><button aria-pressed={project?.id === item.id} onClick={() => setSelected(project?.id === item.id ? null : item.id)}><span>{index + 1}. {item.name}</span><span className="usage-rank-track" aria-hidden><span style={{ width: `${data.projects[0].costUsd ? item.costUsd / data.projects[0].costUsd * 100 : 0}%`, background: colors[index < 5 ? index : 5] }} /></span></button></th><td>{money(item.costUsd)}</td><td>{data.totals.costUsd ? (item.costUsd / data.totals.costUsd * 100).toFixed(1) : "0.0"}%</td></tr>)}</tbody></table></div>
         </article>
       </>}
-      <p className="usage-footnote">Cost is estimated at API-equivalent prices, not your subscription bill or remaining allowance. Missing usage is not zero.</p>
+      <p className="usage-footnote">Cost is estimated at API-equivalent prices, not your subscription bill or remaining allowance.</p>
     </>}
   </section>;
 }

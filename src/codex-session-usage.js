@@ -88,7 +88,7 @@ async function inventory(root, paths = []) {
 export class CodexSessionUsage {
   constructor({ codexHome, now = Date.now, pricing, cacheDir, legacyCacheDir }) {
     this.home = codexHome; this.now = now; this.pricing = pricing; this.cacheDir = cacheDir; this.legacyCacheDir = legacyCacheDir;
-    this.files = new Map(); this.paths = []; this.inventoryAt = -Infinity;
+    this.files = new Map(); this.paths = []; this.pathsBySession = new Map(); this.inventoryAt = -Infinity;
     this.pending = Promise.resolve();
     this.results = new Map();
   }
@@ -98,7 +98,7 @@ export class CodexSessionUsage {
     this.pending = result.catch(() => {});
     return result;
   }
-  async readOnce({ id, latestTurnId, sessions, savedDurations = [] }) {
+  async readOnce({ id, latestTurnId, sessions, savedDurations = [], rescan = false }) {
     if (this.legacyCacheDir && this.cacheDir) {
       try { await migrateCache(this.legacyCacheDir, this.cacheDir); this.legacyCacheDir = null; }
       catch { /* Optional caches never prevent reading source usage. */ }
@@ -107,6 +107,13 @@ export class CodexSessionUsage {
     if (this.now() - this.inventoryAt >= 60_000) {
       try {
         this.paths = [...await inventory(join(this.home, "sessions")), ...await inventory(join(this.home, "archived_sessions"))];
+        this.pathsBySession = new Map();
+        for (const path of this.paths) {
+          for (const [id] of basename(path).matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)) {
+            if (!this.pathsBySession.has(id)) this.pathsBySession.set(id, []);
+            this.pathsBySession.get(id).push(path);
+          }
+        }
         this.inventoryAt = this.now();
       } catch { inventoryFailed = true; }
     }
@@ -115,11 +122,11 @@ export class CodexSessionUsage {
     const pricing = await this.pricing.get();
     const sources = [];
     for (const session of sessions) {
-      const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
+      const paths = new Set(this.sessionPaths(session.id));
       if (session.rollout_path) paths.add(plainRolloutPath(session.rollout_path));
       const versions = [];
       for (const path of paths) {
-        try { const { info } = await rolloutMetadata(path); versions.push([path, info.dev, info.ino, info.size, info.mtimeMs]); }
+        try { const { info } = await rolloutMetadata(path, { retries: 0 }); versions.push([path, info.dev, info.ino, info.size, info.mtimeMs]); }
         catch { versions.push([path, "missing"]); }
       }
       sources.push([session.id, versions]);
@@ -157,29 +164,41 @@ export class CodexSessionUsage {
       })) knownSources = [];
     } catch { knownSources = []; /* No prior valid source coverage is available. */ }
     const missingSources = knownSources.filter(key => !currentSources.has(key));
-    if (saved?.version === 3 && typeof saved.result.analyticsPartial === "boolean" && saved.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
+    if (!rescan && !saved?.retryRead && saved?.version === 3 && typeof saved.result.analyticsPartial === "boolean" && saved.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
     const availablePaths = new Set(sources.flatMap(([, versions]) => versions.filter(version => version.length > 2).map(version => version[0])));
     let retryRead = false;
     const parsed = [];
     const recordSources = {};
+    const sourceFiles = {};
     for (const session of sessions) {
-      const paths = new Set(this.paths.filter(path => basename(path).includes(`-${session.id}`)));
+      const paths = new Set(this.sessionPaths(session.id));
       if (session.rollout_path) paths.add(plainRolloutPath(session.rollout_path));
       const records = [], versions = [];
       let failed = inventoryFailed, latestFailed = false, timePartial = inventoryFailed;
       if (!paths.size) failed = latestFailed = timePartial = true;
       for (const path of paths) {
         try {
-          const file = await this.readFile(path, session.id);
+          const sourceKey = JSON.stringify([session.id, basename(path)]);
+          const stamp = sources.find(([sessionId]) => sessionId === session.id)?.[1].find(version => version[0] === path);
+          if (!availablePaths.has(path)) throw new Error("Rollout is missing.");
+          const previous = saved?.sourceFiles?.[sourceKey];
+          let file;
+          if (!rescan && previous && JSON.stringify(previous.stamp) === JSON.stringify(stamp) && Array.isArray(saved.recordSources?.[sourceKey])) {
+            file = { records: saved.recordSources[sourceKey], partial: previous.partial };
+          } else {
+            if (rescan) this.files.delete(path);
+            file = await this.readFile(path, session.id);
+          }
+          sourceFiles[sourceKey] = { stamp, partial: file.partial };
           for (const record of file.records) records.push(record);
           recordSources[JSON.stringify([session.id, basename(path)])] = file.records;
           versions.push([path, file.identity, file.size, file.mtime]);
           timePartial ||= file.partial;
-        } catch {
+        } catch (error) {
           failed = timePartial = true;
           const sourceKey = JSON.stringify([session.id, basename(path)]);
           if (Array.isArray(saved?.recordSources?.[sourceKey]) && !missingSources.includes(sourceKey)) missingSources.push(sourceKey);
-          retryRead ||= availablePaths.has(path);
+          retryRead ||= availablePaths.has(path) && error.code !== "INVALID_ROLLOUT";
           latestFailed ||= session.id !== id || path === plainRolloutPath(session.rollout_path ?? "");
           versions.push([path, "missing"]);
         }
@@ -248,22 +267,29 @@ export class CodexSessionUsage {
       }
       if (missingSources.some(key => JSON.parse(key)[0] === id)) result.partial = true;
     }
-    const entry = { version: 3, sourceSignature, result, recordSources, knownSources: [...new Set([...knownSources, ...currentSources])] };
-    // Retry readable-looking sources after I/O failures; do not freeze a transient
-    // failure under an otherwise unchanged metadata fingerprint.
-    if (!retryRead) this.results.set(resultKey, entry);
-    if (cachePath && !inventoryFailed && !retryRead) {
+    const entry = { version: 3, sourceSignature, result, recordSources, sourceFiles, retryRead, knownSources: [...new Set([...knownSources, ...currentSources])] };
+    // Keep successful sources even if another source failed. Retry failures on
+    // the next read without reparsing all healthy historical files.
+    this.results.set(resultKey, entry);
+    if (cachePath && !inventoryFailed) {
       try { await writeDurableAtomic(cachePath, JSON.stringify(entry) + "\n", { mode: 0o600 }); }
       catch { /* Cache write failures do not hide readable source usage. */ }
     }
     return result;
+  }
+  sessionPaths(id) {
+    // Production chat IDs are UUIDs. Index once instead of walking every filename
+    // for every root and descendant on each refresh.
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)
+      ? this.pathsBySession.get(id) ?? []
+      : this.paths.filter(path => basename(path).includes(`-${id}`));
   }
   async readFile(path, expectedId) {
     const source = await openRollout(path);
     try {
       path = plainRolloutPath(path);
       const { info } = source;
-      if (!info.isFile() || info.size === 0) throw new Error("Rollout is empty or not a file.");
+      if (!info.isFile() || info.size === 0) throw Object.assign(new Error("Rollout is empty or not a file."), { code: "INVALID_ROLLOUT" });
       let cached = this.files.get(path);
       if (cached && cached.identity === `${info.dev}:${info.ino}` && cached.size === info.size && cached.mtime === info.mtimeMs) return this.sourceView(cached, expectedId);
       const compressed = source.path.endsWith(".zst");
@@ -291,7 +317,7 @@ export class CodexSessionUsage {
       cached.size = info.size; cached.mtime = info.mtimeMs;
       cached.tail = pending; cached.skipping = skipping;
       const view = this.sourceView(cached, expectedId);
-      if (!view.valid) throw new Error("Rollout belongs to a different chat.");
+      if (!view.valid) throw Object.assign(new Error("Rollout belongs to a different chat."), { code: "INVALID_ROLLOUT" });
       this.files.set(path, cached);
       return view;
     } finally { await source.handle.close(); }

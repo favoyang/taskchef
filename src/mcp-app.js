@@ -214,25 +214,27 @@ export function registerTaskChefApp(server, {
   });
   server.registerTool("taskchef_app_usage", {
     title: "Read usage history", description: "Aggregate timestamped local token usage and API-equivalent cost by day and project.",
-    inputSchema: { range: z.enum(["7d", "30d", "90d", "mtd", "last-month"]), timeZone: z.string().min(1).max(100), force: z.boolean().optional() }, _meta: appOnly,
+    inputSchema: { range: z.enum(["7d", "30d", "90d", "mtd", "last-month"]), timeZone: z.string().min(1).max(100), force: z.boolean().optional(), rescan: z.boolean().optional() }, _meta: appOnly,
     annotations: { readOnlyHint: true, openWorldHint: false },
-  }, async ({ range, timeZone, force }) => {
+  }, async ({ range, timeZone, force, rescan }) => {
     new Intl.DateTimeFormat("en", { timeZone }).format();
     const settings = await readSettings();
     // History is independent of chart range and timezone. Range changes query
     // this shared snapshot; only expiry or explicit Refresh starts another read.
     const key = JSON.stringify([settings.showCli, settings.showExec]);
     let job = analyticsJobs.get(key);
-    if (force && job?.pending) job.refreshAgain = true;
-    if (!job || (!job.pending && (force || (!job.error && Date.now() - job.finishedAt >= 60_000)))) {
+    if ((force || rescan) && job?.pending) { job.refreshAgain = true; job.rescan ||= rescan; }
+    if (!job || (!job.pending && (force || rescan || (!job.error && Date.now() - job.finishedAt >= 60_000)))) {
       job = { families: job?.families ?? null, error: null, finishedAt: job?.finishedAt ?? 0,
-        pending: true, refreshAgain: false, progress: { completed: 0, total: 0 } };
+        pending: true, refreshAgain: false, rescan: !!rescan, progress: { completed: 0, total: 0 } };
       analyticsJobs.set(key, job);
       const current = job;
       Promise.resolve().then(async () => {
         do {
           current.refreshAgain = false;
-          const families = await scanner.usageHistory({ settings, onProgress: progress => { current.progress = progress; } });
+          const rebuild = current.rescan;
+          current.rescan = false;
+          const families = await scanner.usageHistory({ settings, rescan: rebuild, onProgress: progress => { current.progress = progress; } });
           current.families = families;
           current.finishedAt = Date.now();
         } while (current.refreshAgain);

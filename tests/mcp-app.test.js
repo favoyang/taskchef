@@ -322,3 +322,15 @@ test('Refresh during a pending history read queues one follow-up without making 
  assert.equal((await call('last-month')).structuredContent.refreshing,true);assert.equal(reads,2);
  finish([]);await new Promise(resolve=>setImmediate(resolve));assert.equal((await call()).structuredContent.refreshing,undefined);assert.equal(reads,2);
 });
+
+test('Rescan queues a full rebuild behind an incremental scan and polling does not repeat it', async t => {
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-rescan-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ let finish;const scans=[];const server=new McpServer({name:'rescan',version:'1'});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageHistory:({rescan})=>{scans.push(rescan);return new Promise(resolve=>{finish=resolve;});}}),getSettingsUrl:async()=>null});
+ const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
+ const call=(args={})=>client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'UTC',...args}});
+ await call();await call({rescan:true});await call({range:'7d'});assert.deepEqual(scans,[false]);
+ finish([]);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(scans,[false,true]);
+ await call();finish([]);await new Promise(resolve=>setImmediate(resolve));await call();assert.deepEqual(scans,[false,true]);
+ await call({rescan:true});assert.deepEqual(scans,[false,true,true]);finish([]);
+});
