@@ -19,7 +19,7 @@ const bucket = () => ({ tokens: zero(), costUsd: 0, partial: false, costPartial:
 // Cumulative totals and call counters are independent. A missing boundary can
 // leave one turn partial without preventing later calls from being allocated.
 export function summarizeRecords(records, latestTurnId, models, child = false) {
-  const total = bucket(), latest = bucket(), durations = new Map(), seen = new Set();
+  const total = bucket(), latest = bucket(), durations = new Map(), seen = new Set(), timeline = [];
   let previous = zero();
   for (const record of [...records].sort((a, b) => a.time - b.time || a.order - b.order)) {
     const key = JSON.stringify([record.time, record.kind, record.turn, record.root, record.model, record.total, record.last, record.duration]);
@@ -56,6 +56,10 @@ export function summarizeRecords(records, latestTurnId, models, child = false) {
     const price = estimateCallCost(last, record.model, models);
     total.costUsd += price ?? 0;
     total.costPartial ||= !complete || price == null;
+    // Only the last call has a known timestamp. An unexplained cumulative gap
+    // belongs in lifetime totals, not arbitrarily on the day it was noticed.
+    if (record.time > 0) timeline.push({ time: record.time, tokens: complete || reset ? captured : last,
+      costUsd: price ?? 0, samples: 1, partial: !complete, costPartial: !complete || price == null });
     total.partial ||= reset;
     const belongs = (child ? record.root : record.turn) === latestTurnId;
     if (belongs) {
@@ -67,7 +71,7 @@ export function summarizeRecords(records, latestTurnId, models, child = false) {
       latest.partial = latest.costPartial = true;
     }
   }
-  return { total, latest, durations };
+  return { total, latest, durations, timeline };
 }
 
 async function inventory(root, paths = []) {
@@ -127,7 +131,7 @@ export class CodexSessionUsage {
     if (!saved && cachePath) {
       try {
         const value = JSON.parse(await readFile(cachePath, "utf8"));
-        if (value.version === 1 && validResult(value.result)) saved = value;
+        if ([1, 2, 3].includes(value.version) && validResult(value.result) && (value.version === 1 || (Array.isArray(value.result.timeline) && value.result.timeline.every(sample => Number.isFinite(sample.time) && usage(sample.tokens) && Number.isFinite(sample.costUsd) && sample.costUsd >= 0 && sample.samples === 1 && typeof sample.partial === "boolean" && typeof sample.costPartial === "boolean")))) saved = value;
       } catch { /* An absent or damaged cache is rebuilt from source records. */ }
     }
     const sourceKeys = (items) => items.flatMap(([sessionId, versions]) => versions
@@ -153,7 +157,7 @@ export class CodexSessionUsage {
       })) knownSources = [];
     } catch { knownSources = []; /* No prior valid source coverage is available. */ }
     const missingSources = knownSources.filter(key => !currentSources.has(key));
-    if (saved?.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
+    if (saved?.version === 3 && typeof saved.result.analyticsPartial === "boolean" && saved.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
     const availablePaths = new Set(sources.flatMap(([, versions]) => versions.filter(version => version.length > 2).map(version => version[0])));
     let retryRead = false;
     const parsed = [];
@@ -188,7 +192,7 @@ export class CodexSessionUsage {
       if (Array.isArray(rows) && rows.every(row => row && Number.isFinite(row.time) && ["usage", "duration", "issue"].includes(row.kind))) recordSources[key] = rows;
     }
     const result = { latest: bucket(), total: bucket(), subagents: sessions.length - 1, pricingDate: pricing.date,
-      durationMs: 0, durationTurns: 0, partial: inventoryFailed };
+      durationMs: 0, durationTurns: 0, timeline: [], analyticsPartial: inventoryFailed, partial: inventoryFailed };
     for (const { session, records, failed, latestFailed, timePartial } of parsed) {
       const summary = summarizeRecords(records, latestTurnId, pricing.models, session.id !== id);
       const retained = missingSources.filter(key => JSON.parse(key)[0] === session.id).flatMap(key => recordSources[key] ?? []);
@@ -202,7 +206,10 @@ export class CodexSessionUsage {
         summary.latest.partial ||= missing.latest.samples > 0 || missing.latest.partial;
         summary.latest.costPartial ||= missing.latest.samples > 0 || missing.latest.costPartial;
         summary.durations = combined.durations;
+        summary.timeline = combined.timeline;
       }
+      result.analyticsPartial ||= timePartial || summary.total.tokens.total_tokens !== summary.timeline.reduce((sum, sample) => sum + sample.tokens.total_tokens, 0);
+      result.timeline.push(...summary.timeline);
       for (const key of ["total", "latest"]) {
         add(result[key].tokens, summary[key].tokens);
         result[key].costUsd += summary[key].costUsd;
@@ -221,6 +228,7 @@ export class CodexSessionUsage {
       }
     }
     if (missingSources.length) {
+      result.analyticsPartial = true;
       result.total.partial = result.total.costPartial = true;
       const prior = saved?.result.total;
       if (prior) {
@@ -240,7 +248,7 @@ export class CodexSessionUsage {
       }
       if (missingSources.some(key => JSON.parse(key)[0] === id)) result.partial = true;
     }
-    const entry = { version: 1, sourceSignature, result, recordSources, knownSources: [...new Set([...knownSources, ...currentSources])] };
+    const entry = { version: 3, sourceSignature, result, recordSources, knownSources: [...new Set([...knownSources, ...currentSources])] };
     // Retry readable-looking sources after I/O failures; do not freeze a transient
     // failure under an otherwise unchanged metadata fingerprint.
     if (!retryRead) this.results.set(resultKey, entry);

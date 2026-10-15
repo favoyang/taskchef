@@ -78,6 +78,7 @@ export function registerTaskChefApp(server, {
   let ipcErrorReported = false;
   const turnUsageCache = new Map();
   const usagePending = new Map();
+  const analyticsJobs = new Map();
   async function boardSnapshot(settings, force = false, scope = { date: "all", taskIds: [] }) {
     const databaseSnapshot = await scanner.refresh({ force });
     await liveState.refresh(databaseSnapshot.healthy === false ? [] : databaseSnapshot.tasks);
@@ -209,6 +210,29 @@ export function registerTaskChefApp(server, {
       return { structuredContent: { unchanged: true, revision: snapshot.revision, scan: snapshot.scan, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth, version: TASKCHEF_VERSION }, content: [] };
     }
     return { structuredContent: { snapshot, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth, version: TASKCHEF_VERSION }, content: [] };
+  });
+  server.registerTool("taskchef_app_usage", {
+    title: "Read usage history", description: "Aggregate timestamped local token usage and API-equivalent cost by day and project.",
+    inputSchema: { range: z.enum(["7d", "30d", "90d", "mtd"]), timeZone: z.string().min(1).max(100), force: z.boolean().optional() }, _meta: appOnly,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ range, timeZone, force }) => {
+    new Intl.DateTimeFormat("en", { timeZone }).format();
+    const settings = await readSettings();
+    const key = JSON.stringify([range, timeZone, settings.showCli, settings.showExec]);
+    for (const [id, job] of analyticsJobs) if (job.finishedAt && Date.now() - job.finishedAt > 60_000) analyticsJobs.delete(id);
+    let job = analyticsJobs.get(key);
+    if (!job || (force && job.finishedAt)) {
+      job = { result: null, error: null, finishedAt: 0 };
+      analyticsJobs.set(key, job);
+      const current = job;
+      // Cold history can exceed the host's tool timeout. Each poll returns
+      // immediately while one background read builds the aggregate.
+      Promise.resolve().then(() => scanner.usageAnalytics({ range, timeZone, settings }))
+        .then(result => { current.result = result; }, error => { current.error = error; })
+        .finally(() => { current.finishedAt = Date.now(); });
+    }
+    if (job.error) throw job.error;
+    return { structuredContent: job.result ?? { loading: true }, content: [] };
   });
   server.registerTool("taskchef_app_task", {
     title: "Read Codex chat metadata", description: "Read one local chat's metadata and its latest recorded request and response.",

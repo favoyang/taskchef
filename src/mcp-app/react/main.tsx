@@ -14,6 +14,7 @@ import { NextNotificationCenter, type NextNotification, type NextNotificationSta
 import { GitHubConnection, type GitHubAuth } from "./GitHubConnection";
 import { AppearancePicker } from "./AppearancePicker";
 import { savedVisualTheme, themeVariables, visualTheme, VISUAL_THEME_KEY } from "./themes";
+import { UsageView, type UsageResponse, type usageRequest } from "./UsageView";
 import { ProjectPicker } from "./ProjectPicker";
 import brandIcon from "../../../assets/taskchef-dark.svg";
 import "@mantine/core/styles.css";
@@ -39,6 +40,8 @@ async function call<T>(name: string, args: Record<string, unknown> = {}): Promis
   if (result.isError) throw new Error(result.content?.find((item) => item.type === "text")?.text ?? "TaskChef request failed.");
   return result.structuredContent as T;
 }
+
+const readUsage = (args: ReturnType<typeof usageRequest>) => call<UsageResponse>("taskchef_app_usage", args);
 
 const THEME_KEY = "taskchef.app.theme";
 type ThemeChoice = "dark" | "light" | "system";
@@ -159,8 +162,9 @@ export function TaskChefApp() {
   const [search, setSearch] = useState("");
   const [date, setDate] = useState("all");
   const [status, setStatus] = useState("");
-  // Keep the list implementation for later, but expose only Board. Ignore old saved List choices.
-  const [view, setView] = useState<"board" | "list">("board");
+  // Keep the legacy list hidden; Board and Usage share the native shell.
+  const [view, setView] = useState<"board" | "list" | "usage">("board");
+  const [usageRefreshKey, setUsageRefreshKey] = useState(0);
   const [completedLimit, setCompletedLimit] = useState(5);
   const [archivedLimit, setArchivedLimit] = useState(5);
   const [now, setNow] = useState(() => Date.now());
@@ -420,7 +424,7 @@ export function TaskChefApp() {
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef</Title></Group>
-          {displayMode !== "inline" && <Group className="taskchef-app-filters" gap="xs" wrap="wrap">
+          {displayMode !== "inline" && view !== "usage" && <Group className="taskchef-app-filters" gap="xs" wrap="wrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
             <TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
@@ -433,7 +437,7 @@ export function TaskChefApp() {
             try { await call("taskchef_app_open_settings", {}); }
             catch (cause) { await actionError("settings", cause); }
           })()} variant="subtle"><IconSettings size={17} /></ActionIcon>
-          <ActionIcon aria-label="Refresh" onClick={() => void refresh(true).catch((cause) => setError(String(cause)))} variant="subtle"><IconRefresh size={17} /></ActionIcon>
+          <ActionIcon aria-label="Refresh" onClick={() => { setUsageRefreshKey(value => value + 1); void refresh(true).catch((cause) => setError(String(cause))); }} variant="subtle"><IconRefresh size={17} /></ActionIcon>
           <AppearancePicker value={themeChoice} onChange={chooseTheme} visualThemeId={selectedTheme.id} appearance={colorScheme} onVisualThemeChange={chooseVisualTheme} />
           </Group>
         </header>
@@ -449,6 +453,8 @@ export function TaskChefApp() {
           {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
             <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
           </Paper>}
+          <SegmentedControl aria-label="View" data={[{ label: "Board", value: "board" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" ? "usage" : "board")} size="xs" mb="md" />
+          {view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}
@@ -457,6 +463,7 @@ export function TaskChefApp() {
               {visible.map((task) => <TaskCard key={task.id} onOpenCodex={(item) => void openChat(item)} onOpenDetail={(item) => void select(item)} task={task} />)}
               {visible.length === 0 && <Paper className="taskchef-empty" p="lg" ta="center" withBorder><Title order={2} size="h5">No tasks match these filters</Title><Text c="dimmed" size="sm">Choose a different project, update window, or status.</Text></Paper>}
             </Stack>)}
+          </>}
         </main>
         </>}
         {taskchefVersion && displayMode !== "inline" && <footer className="taskchef-app-version" aria-label="TaskChef version">v{taskchefVersion}</footer>}

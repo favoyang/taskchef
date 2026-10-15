@@ -83,14 +83,13 @@ Open the installed TaskChef plugin details page to edit its native
 settings. The sidebar receives them at its next visible refresh, or immediately
 when Refresh is clicked. Settings persist across sidebar and embedded views.
 The old browser-local visibility keys are no longer used; configure the native
-switches once after upgrading. The Board/List choice stays browser-local.
+switches once after upgrading. The Board opens by default.
 See the [OpenAI structured settings specification](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#structured-settings).
 
 ### Board presentation
 
-TaskChef exposes only Board. The List implementation remains in the
-source, but the Board/List selector is hidden and saved List choices are
-ignored. Interrupted chats appear in Waiting for input/review with an
+TaskChef exposes Board and Usage. The List implementation remains in the
+source, but List is hidden and saved List choices are ignored. Interrupted chats appear in Waiting for input/review with an
 Interrupted tag; their recorded status remains available in Details.
 Scheduled, Running, Waiting, and Done remain visible when empty, with a short
 message specific to each column. This keeps their positions steady when chats
@@ -365,3 +364,32 @@ Retire the old shared catalog entry only after this repository's catalog is
 live, the release workflow has completed, and a clean installation from the
 new marketplace succeeds. Existing users must migrate explicitly; changing
 a marketplace does not automatically move their installed plugin identity.
+
+## Usage analytics
+
+![Usage analytics with sample data](images/usage-analytics.jpg)
+
+The Board/Usage selector opens an on-demand historical usage view. Ranges are
+7, 30, or 90 calendar days including today, and Month to date (the default).
+There is no custom range. Dates use the view's local timezone, including DST.
+Refresh reloads usage; switching back to Usage reads it again. Board polling
+never starts a historical usage scan.
+
+The combined chart uses cost bars on the left axis and a token line on the
+right. The project chart uses stacked cost bars for the period's top five
+projects plus Other. Select a legend entry or a Top 10 row to isolate that
+project in the project chart; All projects restores the stack. Totals, the
+combined chart, and rankings always describe the full selected period.
+
+Archived chats and descendant usage are included. CLI/exec visibility settings
+still apply to root chats. Descendants are counted once under their root chat's
+current project. Unassigned chats share one Unassigned project. Daily usage
+comes from recorded call timestamps, not chat creation or last-update dates.
+Unexplained cumulative counter gaps stay in lifetime totals but are excluded
+from daily totals because their dates are unknown. Missing records or prices
+produce an incomplete-coverage message; dated pricing gaps affect only the selected
+period, while undated gaps warn across periods. Unknown costs are not treated as free.
+Cached input is part of input tokens, and reasoning output is part of output.
+Cost is an estimate at current API-equivalent rates, not subscription billing
+or remaining allowance. The first read shows a loading state and polls an app-only tool while logs are parsed;
+subsequent reads reuse the existing usage caches.

@@ -293,3 +293,28 @@ test('legacy compressed cache source names become the same logical source after 
  assert.equal(restored.latest.partial, false);
  assert.equal(restored.partial, false);
 });
+
+test('timeline dates calls rather than assigning cumulative gaps to their observation day', () => {
+ const s=summarizeRecords([record(1,'a',tokens(100),tokens(100)),record(2,'b',tokens(400,30),tokens(100)),record(3,'c',tokens(500,40),tokens(100))],'c',models);
+ assert.equal(s.total.tokens.total_tokens,540);
+ assert.deepEqual(s.timeline.map(item=>[item.time,item.tokens.total_tokens,item.partial]),[[1,110,false],[2,110,true],[3,110,false]]);
+});
+test('timeline deduplicates repeated counters, retains reset calls, and flags unpriced calls', () => {
+ const a=record(1,'a',tokens(100),tokens(100));
+ const s=summarizeRecords([a,a,{...a,time:2},record(3,'b',tokens(50),tokens(20),{model:'unknown-model'})],'b',models);
+ assert.equal(s.timeline.length,2);assert.equal(s.timeline[1].tokens.total_tokens,30);
+ assert.equal(s.timeline[1].costUsd,0);assert.equal(s.timeline[1].costPartial,true);
+});
+
+test('malformed timestamps in root or child histories make analytics coverage incomplete',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-usage-dates-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const reader=new CodexSessionUsage({codexHome:home,pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const sessions=[];
+ for(const id of ['parent','child']) {
+  const path=join(home,`${id}.jsonl`);sessions.push({id,rollout_path:path});
+  const line=(timestamp,type,payload)=>JSON.stringify({timestamp,type,payload})+'\n';
+  await writeFile(path,line('2026-10-10T00:00:00Z','session_meta',{id})+line('2026-10-10T00:00:00Z','turn_context',{model:'gpt-6.1-sol',turn_id:'a'})+line('2026-10-10T00:00:00Z','event_msg',{type:'token_count',info:{total_token_usage:tokens(100),last_token_usage:tokens(100)}})+(id==='child'?line('not-a-date','event_msg',{type:'token_count',info:{total_token_usage:tokens(200),last_token_usage:tokens(100)}}):''));
+ }
+ const result=await reader.read({id:'parent',latestTurnId:'a',sessions});
+ assert.equal(result.total.partial,false);assert.equal(result.analyticsPartial,true);assert.equal(result.timeline.length,2);
+});

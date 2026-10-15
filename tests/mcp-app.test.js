@@ -260,3 +260,31 @@ test("live approvals revise board and details; bridge errors notify once without
  const third=(await client.callTool({name:'taskchef_app_snapshot',arguments:{revision:second.snapshot.revision}})).structuredContent;
  assert.equal(third.unchanged,true);assert.equal(third.notifications.items.length,1);
 });
+
+test('usage history is app-only, validates range/timezone, and passes current source visibility', async t => {
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-analytics-tool-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const server=new McpServer({name:'usage-test',version:'1'});const calls=[];
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageAnalytics:async args=>{calls.push(args);return{samples:0};}}),getSettingsUrl:async()=>null});
+ const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
+ let result=await client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'Asia/Singapore'}});
+ if (result.structuredContent.loading) result=await client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'Asia/Singapore'}});
+ assert.equal(result.structuredContent.samples,0);assert.equal(calls[0].range,'mtd');assert.equal(calls[0].settings.showCli,false);
+ assert.equal((await client.callTool({name:'taskchef_app_usage',arguments:{range:'custom',timeZone:'UTC'}})).isError,true);
+ assert.equal((await client.callTool({name:'taskchef_app_usage',arguments:{range:'7d',timeZone:'invalid/timezone'}})).isError,true);
+ assert.equal(calls.length,1);
+});
+
+test('usage polling returns immediately, shares pending reads, and refreshes completed results',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-analytics-poll-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ let finish;let reads=0;
+ const server=new McpServer({name:'usage-poll-test',version:'1'});
+ registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageAnalytics:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}}),getSettingsUrl:async()=>null});
+ const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
+ const args={range:'mtd',timeZone:'UTC'};
+ const call=force=>client.callTool({name:'taskchef_app_usage',arguments:{...args,...(force?{force:true}:{})}});
+ assert.deepEqual((await call(true)).structuredContent,{loading:true});assert.equal(reads,1);
+ assert.deepEqual((await call(true)).structuredContent,{loading:true});assert.equal(reads,1);
+ finish({samples:7});await new Promise(resolve=>setImmediate(resolve));
+ assert.equal((await call(false)).structuredContent.samples,7);
+ assert.deepEqual((await call(true)).structuredContent,{loading:true});assert.equal(reads,2);finish({samples:8});
+});

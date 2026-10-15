@@ -118,13 +118,14 @@ test("lifecycle events log readable single strings without suppressing repeats",
   expect(warn).not.toHaveBeenCalled();
 });
 
-test("shows only Board, ignores a saved List choice, and filters project and date", async () => {
+test("defaults to Board, ignores a saved List choice, and filters project and date", async () => {
   window.localStorage.setItem("taskchef.app.view", "list");
   tasks = [task("one", "working", new Date().toISOString(), "Alpha"), task("two", "completed", "2026-01-01T00:00:00Z", "Alpha"), task("three", "interrupted", new Date().toISOString(), "Beta")];
   mount();
   await screen.findByRole("button", { name: "Task one" });
   expect(screen.getByRole("region", { name: "Task board" })).toBeVisible();
-  expect(screen.queryByRole("radiogroup", { name: "View" })).not.toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: "Board" })).toHaveAttribute("aria-checked", "true");
+  expect(screen.queryByRole("radio", { name: "List" })).not.toBeInTheDocument();
   expect(screen.queryByRole("radiogroup", { name: "Status" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("combobox", { name: "Project" }), { target: { value: "/Alpha" } });
   expect(screen.queryByRole("button", { name: "Task three" })).not.toBeInTheDocument();
@@ -666,4 +667,17 @@ test("Pinned toggle combines with filters and updates after pin changes on refre
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-pressed", "false");
   expect(screen.getByRole("button", { name: "Task two" })).toBeVisible();
+});
+
+
+test("Usage opens on demand and returns to Board without keeping its filters visible", async () => {
+  const original = server.call.getMockImplementation()!;
+  server.call.mockImplementation((input) => input.name === "taskchef_app_usage" ? Promise.resolve({structuredContent:{start:"2026-10-01",end:"2026-10-15",timeZone:"UTC",days:[],projects:[],totals:{},samples:0,incomplete:false}}) : original(input));
+  mount();await screen.findByRole("button",{name:"Task one"});
+  expect(server.call.mock.calls.some(([input])=>input.name === "taskchef_app_usage")).toBe(false);
+  fireEvent.click(screen.getByRole("radio",{name:"Usage"}));
+  await screen.findByText("No timestamped usage is available for this period.");
+  expect(screen.queryByRole("combobox",{name:"Project"})).toBeNull();
+  fireEvent.click(screen.getByRole("radio",{name:"Board"}));
+  expect(screen.getByRole("region",{name:"Task board"})).toBeVisible();
 });
