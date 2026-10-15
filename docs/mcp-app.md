@@ -337,3 +337,31 @@ message does not cause polling to replay it. Other features continue working. Th
 second, and missing chat snapshots wait at most 250 ms for all subscriptions
 combined. Hidden views do not initiate refreshes; an existing subscription can
 still receive live updates while the MCP process remains running.
+
+## Marketplace and release ownership
+
+The public catalog is `.agents/plugins/marketplace.json` in this repository.
+Its marketplace name is `taskchef`; the released install is `taskchef@taskchef`.
+The catalog pins a published npm package containing the built UI and production
+server dependencies. A raw Git checkout is not a packaged release.
+
+After semantic-release publishes, the marketplace job checks the expected npm
+version and archive, then commits only the catalog pin on the latest `main`.
+A failed check leaves the prior pin in place and fails the workflow. The job
+uses this repository's GitHub token; no shared-marketplace deploy key is needed.
+If the push loses a race with another main update, rerun the Release workflow
+on main to retry after checking the current published version. Do not force push.
+
+Keep TaskChef Dev in a separate local marketplace named `taskchef-next-preview`,
+with plugin ID `taskchef-next` and display name **TaskChef Dev**. Store that
+marketplace and its staging packages in a persistent local folder, outside
+this public checkout. Its catalog uses `source.source: local` with a path to
+the prepared staging package. Add that folder with
+`codex plugin marketplace add /path/to/local-dev-marketplace`, then install
+`codex plugin add taskchef-next@taskchef-next-preview`. This can coexist with
+`taskchef@taskchef`. Never rename the source release manifest for Dev.
+
+Retire the old shared catalog entry only after this repository's catalog is
+live, the release workflow has completed, and a clean installation from the
+new marketplace succeeds. Existing users must migrate explicitly; changing
+a marketplace does not automatically move their installed plugin identity.

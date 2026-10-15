@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
-import { resolveExpectedPublishedPlugin, validatePublishedPluginPackage, validateExtractedPlugin, validateSkillFrontmatter } from "../scripts/update-shared-marketplace.js";
+import { resolveExpectedPublishedPlugin, validatePublishedPluginPackage, validateExtractedPlugin, validateSkillFrontmatter } from "../scripts/update-plugin-marketplace.js";
 import { TASKCHEF_VERSION } from "../src/version.js";
 
 test("release readiness waits for npm processing beyond the first minute", async () => {

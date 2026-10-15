@@ -146,6 +146,20 @@ test("plugin settings link resolves the installed local marketplace", async (t) 
 });
 
 
+test("plugin settings resolves the Git marketplace snapshot used by a public installation", async (t) => {
+  const temp = await mkdtemp(join(tmpdir(), "taskchef-git-plugin-link-"));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const marketplacePath = join(temp, ".tmp", "marketplaces", "taskchef", ".agents", "plugins", "marketplace.json");
+  await mkdir(dirname(marketplacePath), { recursive: true });
+  await writeFile(marketplacePath, JSON.stringify({ name: "taskchef", plugins: [{ name: "taskchef" }] }));
+  await writeFile(join(temp, "config.toml"), '[marketplaces.taskchef]\nsource_type = "git"\nsource = "https://github.com/favoyang/taskchef.git"\n');
+  const pluginRoot = join(temp, "plugins", "cache", "taskchef", "taskchef", "9.2.0") + "/";
+  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot }), `codex://plugins/taskchef?${new URLSearchParams({ marketplacePath })}`);
+  await writeFile(marketplacePath, JSON.stringify({ name: "other", plugins: [{ name: "taskchef" }] }));
+  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot }), null);
+});
+
+
 test("plugin settings uses the native desktop opener and reports errors", async () => {
   const { openPluginSettingsInCodex } = await import("../src/codex-app.js");
   const url = "codex://plugins/taskchef-next?marketplacePath=%2Fexample";
