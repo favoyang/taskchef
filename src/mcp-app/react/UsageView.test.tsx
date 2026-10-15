@@ -80,3 +80,24 @@ test('legend hover and focus highlight only matching project bars and reset on l
  fireEvent.click(screen.getByRole('button',{name:'Rescan'}));
  await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'mtd',timeZone:expect.any(String),rescan:true}));
  });
+
+test('only the current local day has dashed bars and token segment; a completed period stays solid',async()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-15T17:00:00Z'));
+ try {
+  const days=[{...data.days[0],date:'2026-10-15'},{...data.days[0],date:'2026-10-16'}];
+  const request=vi.fn().mockResolvedValueOnce({...data,end:'2026-10-16',days}).mockResolvedValue({...data,start:'2026-09-01',end:'2026-09-30',days:[{...data.days[0],date:'2026-09-30'}]});
+  render(<UsageView request={request}/>);await screen.findByRole('table');
+  const combined=screen.getByRole('img',{name:'Daily estimated cost bars and token line'});
+  expect(combined.querySelectorAll('rect[stroke-dasharray]')).toHaveLength(1);
+  expect(combined.querySelectorAll('polyline[stroke-dasharray]')).toHaveLength(1);
+  expect(screen.getByRole('button',{name:/Oct 16: .*in progress/})).toBeVisible();
+  const projects=screen.getByRole('img',{name:'Daily project cost bars: all projects'});
+  expect(projects.querySelectorAll('rect[stroke-dasharray]')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button',{name:'Alpha'}));
+  expect(screen.getByRole('img',{name:'Daily project cost bars: Alpha'}).querySelectorAll('rect[stroke-dasharray]')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'Last month'}));
+  await waitFor(()=>expect(screen.getByText(/Sep 1 – Sep 30/)).toBeVisible());
+  expect(screen.getByRole('img',{name:'Daily estimated cost bars and token line'}).querySelectorAll('[stroke-dasharray]')).toHaveLength(0);
+  expect(screen.getByRole('img',{name:'Daily project cost bars: Alpha'}).querySelectorAll('[stroke-dasharray]')).toHaveLength(0);
+ } finally {vi.useRealTimers();}
+});

@@ -387,7 +387,9 @@ Rescan explicitly reparses available files and refreshes the inventory, while
 retaining known history for missing sources. Board polling never starts a history scan.
 
 The combined chart uses cost bars on the left axis and a token line on the
-right. The project chart uses stacked cost bars for the period's top five
+right. Today's cost bars have a lighter fill and dashed borders in both charts;
+the token segment leading into today is dashed too. Finished days, including
+the last day of Last month, stay solid. The project chart uses stacked cost bars for the period's top five
 projects plus Other. Select a legend entry or a Top 10 row to isolate that
 project in the project chart; All projects restores the stack. Hovering or
 focusing a legend entry highlights its bars and dims other project colors. Totals, the
