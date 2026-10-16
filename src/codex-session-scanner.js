@@ -1,3 +1,4 @@
+import { taskChefStateDir } from "./taskchef-state.js";
 import { calendarSegments } from "./calendar-history.js";
 import { aggregateUsage } from "./usage-analytics.js";
 import { openRollout, rolloutChunks } from "./codex-rollout.js";
@@ -480,7 +481,7 @@ async function readSession(file, now) {
 }
 
 export class CodexSessionScanner {
-  constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), statePath = join(homedir(), ".agents", "taskchef-next", "done.json"), nodeVersion = process.versions.node } = {}) {
+  constructor({ codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"), now = () => Date.now(), statePath = join(taskChefStateDir(), "done.json"), nodeVersion = process.versions.node } = {}) {
     this.codexHome = codexHome;
     this.now = now;
     this.projectCatalog = new CodexProjects(codexHome);

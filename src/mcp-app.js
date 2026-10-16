@@ -1,3 +1,4 @@
+import { taskChefStateDir } from "./taskchef-state.js";
 import { aggregateUsage } from "./usage-analytics.js";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -65,7 +66,7 @@ export function registerTaskChefApp(server, {
   openThread = openThreadInCodex,
   getSettingsUrl = pluginSettingsUrl,
   openSettings = openPluginSettingsInCodex,
-  settingsPath = join(homedir(), ".agents", "taskchef-next", "settings.json"),
+  settingsPath = join(taskChefStateDir(), "settings.json"),
   notificationsPath = join(dirname(settingsPath), "notifications.json"),
   createGitHub = (options) => new NextGitHub(options),
 } = {}) {
