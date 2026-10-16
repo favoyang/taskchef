@@ -16,13 +16,25 @@ export function aggregateUsage(families, { range, timeZone, now = Date.now() }) 
   const start = startDate.toISOString().slice(0, 10);
   const days = [];
   for (let cursor = startDate; cursor.toISOString().slice(0, 10) <= end; cursor = new Date(cursor.getTime() + 86400000)) {
-    days.push({ date: cursor.toISOString().slice(0, 10), tokens: 0, costUsd: 0, projects: {} });
+    days.push({ date: cursor.toISOString().slice(0, 10), tokens: 0, costUsd: 0, projects: {}, projectTokens: {} });
   }
   const byDate = new Map(days.map(day => [day.date, day]));
   const projects = new Map();
-  let incomplete = false, samples = 0;
+  const limitDays = new Map();
+  let incomplete = false, samples = 0, latestWeeklyLimit = null;
   const totals = { tokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0 };
   for (const { project, usage } of families) {
+    // Account allowance snapshots are observations, never summed across chats.
+    for (const sample of usage.weeklyLimits ?? []) {
+      if (!Number.isFinite(sample.time) || sample.time > now || !Number.isFinite(sample.remainingPercent)
+        || sample.remainingPercent < 0 || sample.remainingPercent > 100 || !Number.isFinite(sample.resetsAt) || sample.resetsAt <= sample.time) continue;
+      if (sample.id !== "codex") continue;
+      if (!latestWeeklyLimit || sample.time > latestWeeklyLimit.time) latestWeeklyLimit = sample;
+      const date = dateKey(sample.time);
+      if (!byDate.has(date)) continue;
+      const key = JSON.stringify([sample.id, date]);
+      if (!limitDays.has(key) || sample.time > limitDays.get(key).time) limitDays.set(key, { ...sample, date });
+    }
     // Coverage can be incomplete even when no timestamped records survive.
     incomplete ||= usage.analyticsPartial || usage.partial || false;
     const key = project.id === 'projectless' ? 'unassigned' : project.id || project.path || 'unassigned';
@@ -38,10 +50,13 @@ export function aggregateUsage(families, { range, timeZone, now = Date.now() }) 
       totals.costUsd += sample.costUsd; samples += sample.samples;
       day.tokens += tokens; day.costUsd += sample.costUsd;
       day.projects[key] = (day.projects[key] ?? 0) + sample.costUsd;
+      day.projectTokens[key] = (day.projectTokens[key] ?? 0) + tokens;
       item.tokens += tokens; item.costUsd += sample.costUsd;
       incomplete ||= sample.partial || sample.costPartial;
     }
   }
   return { start, end, timeZone, days, totals, samples, incomplete,
+    currentWeeklyLimit: latestWeeklyLimit?.resetsAt > now ? latestWeeklyLimit : null,
+    weeklyLimits: [...limitDays.values()].sort((a, b) => a.time - b.time || a.id.localeCompare(b.id)),
     projects: [...projects.values()].sort((a, b) => b.costUsd - a.costUsd || a.name.localeCompare(b.name)) };
 }

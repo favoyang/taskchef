@@ -267,6 +267,19 @@ test("live approvals revise board and details; bridge errors notify once without
  assert.equal(third.unchanged,true);assert.equal(third.notifications.items.length,1);
 });
 
+async function until(check) {
+ for(let attempt=0;attempt<200;attempt++) {
+  if(await check()) return;
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
+ assert.fail('Timed out waiting for usage refresh');
+}
+async function settled(call) {
+ let result;
+ await until(async()=>{result=(await call()).structuredContent;return !result.loading && !result.refreshing;});
+ return result;
+}
+
 test('usage history is app-only, validates range/timezone, and passes current source visibility', async t => {
  const temp=await mkdtemp(join(tmpdir(),'taskchef-analytics-tool-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const server=new McpServer({name:'usage-test',version:'1'});const calls=[];
@@ -290,9 +303,9 @@ test('usage polling returns immediately, shares pending reads, and refreshes com
  const call=force=>client.callTool({name:'taskchef_app_usage',arguments:{...args,...(force?{force:true}:{})}});
  assert.equal((await call(true)).structuredContent.loading,true);assert.equal(reads,1);
  assert.equal((await call(false)).structuredContent.loading,true);assert.equal(reads,1);
- finish([]);await new Promise(resolve=>setImmediate(resolve));
+ finish([]);await settled(()=>call(false));
  assert.equal((await call(false)).structuredContent.samples,0);
- assert.equal((await call(true)).structuredContent.refreshing,true);assert.equal(reads,2);finish([]);
+ assert.equal((await call(true)).structuredContent.refreshing,true);assert.equal(reads,2);finish([]);await settled(()=>call(false));
 });
 
 
@@ -305,14 +318,14 @@ test('all date ranges share a history snapshot, expose measured progress, and ke
  const call=(range='mtd',force=false)=>client.callTool({name:'taskchef_app_usage',arguments:{range,timeZone:'UTC',...(force?{force:true}:{})}});
  assert.equal((await call()).structuredContent.loading,true);assert.equal(reads,1);
  progress({completed:4,total:10});assert.deepEqual((await call('7d')).structuredContent.progress,{completed:4,total:10});assert.equal(reads,1);
- finish([]);await new Promise(resolve=>setImmediate(resolve));
+ finish([]);await settled(()=>call());
  for(const range of ['mtd','7d','last-month','90d','mtd']){const result=(await call(range)).structuredContent;assert.ok(Array.isArray(result.days));assert.equal(result.loading,undefined);assert.equal(result.refreshing,undefined);}
  assert.equal(reads,1);
  now+=61_000;const stale=(await call('30d')).structuredContent;assert.equal(stale.refreshing,true);assert.equal(stale.days.length,30);assert.equal(reads,2);
  assert.equal((await call('last-month')).structuredContent.refreshing,true);assert.equal(reads,2);
- finish([]);await new Promise(resolve=>setImmediate(resolve));
+ finish([]);await settled(()=>call());
  assert.equal((await call('7d')).structuredContent.refreshing,undefined);
- assert.equal((await call('7d',true)).structuredContent.refreshing,true);assert.equal(reads,3);finish([]);
+ assert.equal((await call('7d',true)).structuredContent.refreshing,true);assert.equal(reads,3);finish([]);await settled(()=>call());
 });
 
 
@@ -324,9 +337,9 @@ test('Refresh during a pending history read queues one follow-up without making 
  const call=(range='mtd',force=false)=>client.callTool({name:'taskchef_app_usage',arguments:{range,timeZone:'UTC',...(force?{force:true}:{})}});
  assert.equal((await call()).structuredContent.loading,true);assert.equal(reads,1);
  await call('7d',true);await call('mtd',true);await call('last-month');assert.equal(reads,1);
- finish([]);await new Promise(resolve=>setImmediate(resolve));assert.equal(reads,2);
+ finish([]);await until(()=>reads===2);assert.equal(reads,2);
  assert.equal((await call('last-month')).structuredContent.refreshing,true);assert.equal(reads,2);
- finish([]);await new Promise(resolve=>setImmediate(resolve));assert.equal((await call()).structuredContent.refreshing,undefined);assert.equal(reads,2);
+ finish([]);await settled(()=>call());assert.equal((await call()).structuredContent.refreshing,undefined);assert.equal(reads,2);
 });
 
 test('Rescan queues a full rebuild behind an incremental scan and polling does not repeat it', async t => {
@@ -336,7 +349,71 @@ test('Rescan queues a full rebuild behind an incremental scan and polling does n
  const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
  const call=(args={})=>client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'UTC',...args}});
  await call();await call({rescan:true});await call({range:'7d'});assert.deepEqual(scans,[false]);
- finish([]);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(scans,[false,true]);
- await call();finish([]);await new Promise(resolve=>setImmediate(resolve));await call();assert.deepEqual(scans,[false,true]);
- await call({rescan:true});assert.deepEqual(scans,[false,true,true]);finish([]);
+ finish([]);await until(()=>scans.length===2);assert.deepEqual(scans,[false,true]);
+ await call();finish([]);await settled(()=>call());assert.deepEqual(scans,[false,true]);
+ await call({rescan:true});assert.deepEqual(scans,[false,true,true]);finish([]);await settled(()=>call());
+});
+
+async function usageServer(t, settingsPath, scanner) {
+ const server=new McpServer({name:'disk-history',version:'1'});
+ registerTaskChefApp(server,{settingsPath,createScanner:()=>({close(){},...scanner}),getSettingsUrl:async()=>null});
+ const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);
+ let closed=false;const close=async()=>{if(!closed){closed=true;await client.close();await server.close();}};t.after(close);
+ return {client,close,call:(args={})=>client.callTool({name:'taskchef_app_usage',arguments:{range:'7d',timeZone:'UTC',...args}})};
+}
+const historyFixture = (now, tokens=100) => [{project:{id:'a',name:'Alpha',path:'/alpha'},usage:{partial:false,analyticsPartial:false,
+ timeline:[{time:now-1000,tokens:{total_tokens:tokens,input_tokens:80,cached_input_tokens:20,output_tokens:20},costUsd:2,samples:1,partial:false,costPartial:false}],
+ weeklyLimits:[{id:'codex',name:null,time:now-1000,remainingPercent:89,resetsAt:now+86400000}]}}];
+
+test('a restarted server serves disk history including weekly readings before a shared background scan finishes',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-disk-history-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const settingsPath=join(temp,'settings.json'),now=Date.now();
+ const first=await usageServer(t,settingsPath,{usageHistory:async()=>historyFixture(now)});
+ const initial=await settled(()=>first.call());await first.close();
+ let finish,reads=0;
+ const second=await usageServer(t,settingsPath,{usageHistory:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}});
+ const responses=await Promise.all([second.call(),second.call({range:'mtd'}),second.call({timeZone:'Asia/Singapore'})]);
+ for(const {structuredContent:data} of responses) {
+  assert.equal(data.loading,undefined);assert.equal(data.refreshing,true);assert.equal(data.totals.tokens,100);
+  assert.equal(data.currentWeeklyLimit.remainingPercent,89);assert.equal(data.weeklyLimits[0].remainingPercent,89);
+  assert.equal(data.updatedAt,initial.updatedAt);
+ }
+ assert.equal(reads,1);
+ finish(historyFixture(Date.now(),200));const updated=await settled(()=>second.call());assert.equal(updated.totals.tokens,200);
+ await second.close();
+ const third=await usageServer(t,settingsPath,{usageHistory:async()=>{throw new Error('offline');}});
+ const saved=(await third.call()).structuredContent;assert.equal(saved.totals.tokens,200);
+ const failed=await settled(()=>third.call());assert.equal(failed.totals.tokens,200);assert.match(failed.refreshError,/Background refresh failed/);
+ // A failed refresh must leave the last successful disk snapshot intact.
+ await third.close();
+ const fourth=await usageServer(t,settingsPath,{usageHistory:async()=>{throw new Error('offline');}});
+ assert.equal((await fourth.call()).structuredContent.totals.tokens,200);await settled(()=>fourth.call());
+});
+
+test('disk history is isolated by Codex home and CLI/exec visibility',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-disk-scope-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const settingsPath=join(temp,'settings.json');
+ const first=await usageServer(t,settingsPath,{codexHome:'/one',usageHistory:async()=>historyFixture(Date.now())});await settled(()=>first.call());await first.close();
+ let finish;
+ const second=await usageServer(t,settingsPath,{codexHome:'/two',usageHistory:()=>new Promise(resolve=>{finish=resolve;})});
+ assert.equal((await second.call()).structuredContent.loading,true);finish([]);await settled(()=>second.call());await second.close();
+ const third=await usageServer(t,settingsPath,{codexHome:'/one',usageHistory:()=>new Promise(resolve=>{finish=resolve;})});
+ await third.client.callTool({name:'taskchef_settings_update',arguments:{set:{showCli:true}}});
+ assert.equal((await third.call()).structuredContent.loading,true);finish([]);await settled(()=>third.call());
+});
+
+test('corrupt or incompatible snapshots rebuild, and an unwritable cache does not break usage',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-disk-corrupt-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const {readdir}=await import('node:fs/promises');
+ const settingsPath=join(temp,'settings.json');
+ const first=await usageServer(t,settingsPath,{usageHistory:async()=>historyFixture(Date.now())});await settled(()=>first.call());await first.close();
+ const directory=join(temp,'cache','usage-history'),[name]=await readdir(directory),path=join(directory,name);
+ for(const content of ['broken JSON',JSON.stringify({version:999,families:[]}),JSON.stringify({version:1,scope:'wrong',savedAt:Date.now(),families:[]})]) {
+  await writeFile(path,content);let finish;
+  const next=await usageServer(t,settingsPath,{usageHistory:()=>new Promise(resolve=>{finish=resolve;})});
+  assert.equal((await next.call()).structuredContent.loading,true);finish([]);await settled(()=>next.call());await next.close();
+ }
+ await rm(directory,{recursive:true});await writeFile(directory,'not a directory');
+ const uncached=await usageServer(t,settingsPath,{usageHistory:async()=>historyFixture(Date.now())});
+ const data=await settled(()=>uncached.call());assert.equal(data.totals.tokens,100);assert.equal(data.refreshError,undefined);
 });

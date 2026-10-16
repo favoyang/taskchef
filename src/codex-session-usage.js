@@ -19,9 +19,10 @@ const bucket = () => ({ tokens: zero(), costUsd: 0, partial: false, costPartial:
 // Cumulative totals and call counters are independent. A missing boundary can
 // leave one turn partial without preventing later calls from being allocated.
 export function summarizeRecords(records, latestTurnId, models, child = false) {
-  const total = bucket(), latest = bucket(), durations = new Map(), seen = new Set(), timeline = [];
+  const total = bucket(), latest = bucket(), durations = new Map(), seen = new Set(), timeline = [], weeklyLimits = [];
   let previous = zero();
   for (const record of [...records].sort((a, b) => a.time - b.time || a.order - b.order)) {
+    if (record.kind === "weekly-limit") { weeklyLimits.push(record); continue; }
     const key = JSON.stringify([record.time, record.kind, record.turn, record.root, record.model, record.total, record.last, record.duration]);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -71,7 +72,7 @@ export function summarizeRecords(records, latestTurnId, models, child = false) {
       latest.partial = latest.costPartial = true;
     }
   }
-  return { total, latest, durations, timeline };
+  return { total, latest, durations, timeline, weeklyLimits };
 }
 
 async function inventory(root, paths = []) {
@@ -138,7 +139,7 @@ export class CodexSessionUsage {
     if (!saved && cachePath) {
       try {
         const value = JSON.parse(await readFile(cachePath, "utf8"));
-        if ([1, 2, 3].includes(value.version) && validResult(value.result) && (value.version === 1 || (Array.isArray(value.result.timeline) && value.result.timeline.every(sample => Number.isFinite(sample.time) && usage(sample.tokens) && Number.isFinite(sample.costUsd) && sample.costUsd >= 0 && sample.samples === 1 && typeof sample.partial === "boolean" && typeof sample.costPartial === "boolean")))) saved = value;
+        if ([1, 2, 3, 4].includes(value.version) && validResult(value.result) && (value.version === 1 || (Array.isArray(value.result.timeline) && value.result.timeline.every(sample => Number.isFinite(sample.time) && usage(sample.tokens) && Number.isFinite(sample.costUsd) && sample.costUsd >= 0 && sample.samples === 1 && typeof sample.partial === "boolean" && typeof sample.costPartial === "boolean")))) saved = value;
       } catch { /* An absent or damaged cache is rebuilt from source records. */ }
     }
     const sourceKeys = (items) => items.flatMap(([sessionId, versions]) => versions
@@ -164,7 +165,7 @@ export class CodexSessionUsage {
       })) knownSources = [];
     } catch { knownSources = []; /* No prior valid source coverage is available. */ }
     const missingSources = knownSources.filter(key => !currentSources.has(key));
-    if (!rescan && !saved?.retryRead && saved?.version === 3 && typeof saved.result.analyticsPartial === "boolean" && saved.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
+    if (!rescan && !saved?.retryRead && saved?.version === 4 && typeof saved.result.analyticsPartial === "boolean" && saved.recordSources && saved.sourceSignature === sourceSignature) { this.results.set(resultKey, saved); return saved.result; }
     const availablePaths = new Set(sources.flatMap(([, versions]) => versions.filter(version => version.length > 2).map(version => version[0])));
     let retryRead = false;
     const parsed = [];
@@ -183,7 +184,7 @@ export class CodexSessionUsage {
           if (!availablePaths.has(path)) throw new Error("Rollout is missing.");
           const previous = saved?.sourceFiles?.[sourceKey];
           let file;
-          if (!rescan && previous && JSON.stringify(previous.stamp) === JSON.stringify(stamp) && Array.isArray(saved.recordSources?.[sourceKey])) {
+          if (!rescan && saved?.version === 4 && previous && JSON.stringify(previous.stamp) === JSON.stringify(stamp) && Array.isArray(saved.recordSources?.[sourceKey])) {
             file = { records: saved.recordSources[sourceKey], partial: previous.partial };
           } else {
             if (rescan) this.files.delete(path);
@@ -208,10 +209,10 @@ export class CodexSessionUsage {
     const retainedSources = saved?.recordSources && typeof saved.recordSources === "object" ? saved.recordSources : {};
     for (const key of missingSources) {
       const rows = retainedSources[key];
-      if (Array.isArray(rows) && rows.every(row => row && Number.isFinite(row.time) && ["usage", "duration", "issue"].includes(row.kind))) recordSources[key] = rows;
+      if (Array.isArray(rows) && rows.every(row => row && Number.isFinite(row.time) && ["usage", "duration", "issue", "weekly-limit"].includes(row.kind))) recordSources[key] = rows;
     }
     const result = { latest: bucket(), total: bucket(), subagents: sessions.length - 1, pricingDate: pricing.date,
-      durationMs: 0, durationTurns: 0, timeline: [], analyticsPartial: inventoryFailed, partial: inventoryFailed };
+      durationMs: 0, durationTurns: 0, timeline: [], weeklyLimits: [], analyticsPartial: inventoryFailed, partial: inventoryFailed };
     for (const { session, records, failed, latestFailed, timePartial } of parsed) {
       const summary = summarizeRecords(records, latestTurnId, pricing.models, session.id !== id);
       const retained = missingSources.filter(key => JSON.parse(key)[0] === session.id).flatMap(key => recordSources[key] ?? []);
@@ -226,9 +227,11 @@ export class CodexSessionUsage {
         summary.latest.costPartial ||= missing.latest.samples > 0 || missing.latest.costPartial;
         summary.durations = combined.durations;
         summary.timeline = combined.timeline;
+        summary.weeklyLimits = combined.weeklyLimits;
       }
       result.analyticsPartial ||= timePartial || summary.total.tokens.total_tokens !== summary.timeline.reduce((sum, sample) => sum + sample.tokens.total_tokens, 0);
       result.timeline.push(...summary.timeline);
+      result.weeklyLimits.push(...summary.weeklyLimits);
       for (const key of ["total", "latest"]) {
         add(result[key].tokens, summary[key].tokens);
         result[key].costUsd += summary[key].costUsd;
@@ -267,7 +270,7 @@ export class CodexSessionUsage {
       }
       if (missingSources.some(key => JSON.parse(key)[0] === id)) result.partial = true;
     }
-    const entry = { version: 3, sourceSignature, result, recordSources, sourceFiles, retryRead, knownSources: [...new Set([...knownSources, ...currentSources])] };
+    const entry = { version: 4, sourceSignature, result, recordSources, sourceFiles, retryRead, knownSources: [...new Set([...knownSources, ...currentSources])] };
     // Keep successful sources even if another source failed. Retry failures on
     // the next read without reparsing all healthy historical files.
     this.results.set(resultKey, entry);
@@ -341,6 +344,16 @@ export class CodexSessionUsage {
     if (p.type === "task_started") { file.turn = p.turn_id; file.root = p.root_turn_id ?? file.root; }
     const time = Date.parse(row.timestamp);
     if (!Number.isFinite(time)) { file.partial = true; return; }
+    if (p.type === "token_count" && p.rate_limits) {
+      const limits = p.rate_limits;
+      for (const window of [limits.primary, limits.secondary]) {
+        if (window?.window_minutes !== 10080 || !Number.isFinite(window.used_percent)
+          || window.used_percent < 0 || window.used_percent > 100 || !Number.isSafeInteger(window.resets_at) || window.resets_at * 1000 <= time) continue;
+        file.records.push({ kind: "weekly-limit", time, id: typeof limits.limit_id === "string" ? limits.limit_id : "codex",
+          name: typeof limits.limit_name === "string" ? limits.limit_name : null,
+          remainingPercent: 100 - window.used_percent, resetsAt: window.resets_at * 1000 });
+      }
+    }
     if (p.type === "token_count" && p.info) file.records.push({ kind: "usage", time, order: file.offset,
       turn: file.turn, root: file.root, model: file.model, total: p.info.total_token_usage, last: p.info.last_token_usage });
     if (["task_complete", "turn_aborted"].includes(p.type)) {

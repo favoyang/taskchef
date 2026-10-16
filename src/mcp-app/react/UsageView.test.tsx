@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { UsageView, type UsageData } from './UsageView';
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
-const data:UsageData={start:'2026-10-01',end:'2026-10-15',timeZone:'Asia/Singapore',samples:2,incomplete:false,totals:{tokens:200,costUsd:3,inputTokens:160,cachedInputTokens:40,outputTokens:40},days:[{date:'2026-10-15',tokens:200,costUsd:3,projects:{a:2,b:1}}],projects:[{id:'a',name:'Alpha',tokens:100,costUsd:2},{id:'b',name:'Beta',tokens:100,costUsd:1}]};
+const data:UsageData={start:'2026-10-01',end:'2026-10-15',timeZone:'Asia/Singapore',samples:2,incomplete:false,totals:{tokens:200,costUsd:3,inputTokens:160,cachedInputTokens:40,outputTokens:40},days:[{date:'2026-10-15',tokens:200,costUsd:3,projects:{a:2,b:1},projectTokens:{a:120,b:80}}],projects:[{id:'a',name:'Alpha',tokens:100,costUsd:2},{id:'b',name:'Beta',tokens:100,costUsd:1}]};
 test('defaults to 30 days, changes range, isolates projects, and exposes exact day values',async()=>{
  const request=vi.fn().mockResolvedValue(data);render(<UsageView request={request}/>);
  await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());
@@ -121,4 +121,69 @@ test('invalid saved Usage ranges fall back to 30 days', async () => {
  const request=vi.fn().mockResolvedValue(data);render(<UsageView request={request}/>);
  await screen.findByRole('table');
  expect(request).toHaveBeenCalledWith({range:'30d',timeZone:expect.any(String)});
+});
+
+test('project tokens share selection and highlight with cost and expose exact values',async()=>{
+ const request=vi.fn().mockResolvedValue(data);const view=render(<UsageView request={request}/>);await screen.findByRole('table');
+ expect(screen.getByRole('heading',{name:'Tokens and cost by project'})).toBeVisible();expect(screen.queryByText(/over time/)).toBeNull();
+ fireEvent.focus(screen.getByRole('button',{name:'Oct 15 project usage'}));expect(screen.getByText(/Alpha: 120 tokens, \$2.00 · Beta: 80 tokens, \$1.00/)).toBeVisible();
+ fireEvent.mouseEnter(screen.getByRole('button',{name:'Alpha'}));
+ expect(screen.getByRole('img',{name:'Daily project token stack: all projects'}).querySelector('[data-project="b"]')).toHaveAttribute('opacity','0.2');
+ fireEvent.click(screen.getByRole('button',{name:'Alpha'}));expect(screen.getByRole('img',{name:'Daily project token stack: Alpha'}).querySelectorAll('polygon')).toHaveLength(1);
+ expect(view.container.querySelectorAll('h3')).not.toHaveLength(0);
+});
+test('weekly summary connects gaps and resets, hides model buckets and shows current allowance in the view timezone',async()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
+ try {
+ const days=Array.from({length:5},(_,i)=>({...data.days[0],date:`2026-10-${11+i}`}));
+ const reading=(date:string,remainingPercent:number,resetsAt:number,id='codex')=>({id,name:null,date,time:Date.parse(`${date}T00:00:00Z`),remainingPercent,resetsAt});
+ const reset=Date.parse('2026-10-13T00:00:00Z'), nextReset=Date.parse('2026-10-20T01:00:00Z');
+ const current=reading('2026-10-17',89,nextReset);
+ const request=vi.fn().mockResolvedValue({...data,samples:0,days,currentWeeklyLimit:current,weeklyLimits:[reading('2026-10-11',80,reset),reading('2026-10-12',70,reset),reading('2026-10-13',100,nextReset),reading('2026-10-15',90,nextReset),reading('2026-10-15',50,nextReset,'gpt-5.3')]});
+ render(<UsageView request={request}/>);const chart=await screen.findByRole('img',{name:'Recorded weekly allowance remaining by day'});
+ expect(chart.querySelectorAll('circle')).toHaveLength(4);
+ expect(chart.querySelector('polyline')?.getAttribute('points')?.split(' ')).toHaveLength(6);
+ expect(screen.getByRole('heading',{name:'Weekly limits · 89% left'})).toBeVisible();
+ const expected=new Date(nextReset).toLocaleString(undefined,{timeZone:data.timeZone,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+ expect(screen.getByText(`Resets ${expected}`)).toBeVisible();
+ expect(screen.queryByText('codex')).toBeNull();expect(screen.queryByText(/GPT-5.3/i)).toBeNull();expect(screen.queryByText(/Last observation/)).toBeNull();expect(screen.queryByRole('table')).toBeNull();
+ expect(screen.getByRole('heading',{name:'Recorded tokens'}).closest('.usage-totals')).toContainElement(chart);
+ } finally {vi.useRealTimers();}
+});
+test('project charts expose ten distinct projects and only put lower ranks in Other',async()=>{
+ const projects=Array.from({length:12},(_,i)=>({id:String(i),name:`Project ${i+1}`,tokens:12-i,costUsd:12-i}));
+ const day={...data.days[0],projects:Object.fromEntries(projects.map(p=>[p.id,p.costUsd])),projectTokens:Object.fromEntries(projects.map(p=>[p.id,p.tokens]))};
+ render(<UsageView request={vi.fn().mockResolvedValue({...data,projects,days:[day]})}/>);await screen.findByRole('table');
+ const chart=screen.getByRole('img',{name:'Daily project token stack: all projects'});expect(chart.querySelectorAll('polygon')).toHaveLength(11);
+ expect(new Set([...chart.querySelectorAll('polygon')].map(p=>p.getAttribute('fill'))).size).toBe(11);
+ fireEvent.focus(screen.getByRole('button',{name:'Oct 15 project usage'}));expect(screen.getByText(/Other: 3 tokens, \$3.00/)).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'Project 10'}));expect(screen.getByRole('img',{name:'Daily project token stack: Project 10'}).querySelectorAll('polygon')).toHaveLength(1);
+});
+test('expired current allowance is unavailable while history remains visible',async()=>{
+ const sample={id:'codex',name:null,time:1,resetsAt:2,remainingPercent:80};
+ render(<UsageView request={vi.fn().mockResolvedValue({...data,currentWeeklyLimit:sample})}/>);
+ expect(await screen.findByText('Current allowance unavailable')).toBeVisible();expect(screen.queryByText(/80% left/)).toBeNull();
+});
+
+test('a failed background refresh keeps saved charts visible and Retry forces a fresh read',async()=>{
+ const request=vi.fn().mockResolvedValueOnce({...data,refreshing:true}).mockResolvedValueOnce({...data,refreshError:'Saved usage is shown. Background refresh failed.'}).mockResolvedValue(data);
+ render(<UsageView request={request}/>);
+ await screen.findByRole('table');expect(screen.getByText(/Updating saved usage/)).toBeVisible();
+ expect(await screen.findByRole('alert')).toHaveTextContent('Saved usage is shown');expect(screen.getByRole('table')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'Retry'}));
+ await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'30d',timeZone:expect.any(String),force:true}));
+ await waitFor(()=>expect(screen.queryByRole('alert')).toBeNull());expect(screen.getByRole('table')).toBeVisible();
+});
+
+test('an idle weekly card expires at its reset without another request',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
+ try {
+  const currentWeeklyLimit={id:'codex',name:null,time:Date.now()-1000,resetsAt:Date.now()+2000,remainingPercent:89};
+  const request=vi.fn().mockResolvedValue({...data,currentWeeklyLimit});
+  await act(async()=>{render(<UsageView request={request}/>);});
+  expect(screen.getByRole('heading',{name:'Weekly limits · 89% left'})).toBeVisible();
+  await act(async()=>{vi.advanceTimersByTime(2000);});
+  expect(screen.getByText('Current allowance unavailable')).toBeVisible();
+  expect(screen.queryByRole('heading',{name:/89% left/})).toBeNull();expect(request).toHaveBeenCalledTimes(1);
+ }finally{vi.useRealTimers();}
 });
