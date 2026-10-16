@@ -1,3 +1,4 @@
+import { calendarSegments } from "./calendar-history.js";
 import { aggregateUsage } from "./usage-analytics.js";
 import { openRollout, rolloutChunks } from "./codex-rollout.js";
 import { createHash } from "node:crypto";
@@ -650,6 +651,27 @@ export class CodexSessionScanner {
       SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
     ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
     return this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations });
+  }
+  async calendarHistory({ month, timeZone, settings }) {
+    const snapshot = await this.refresh();
+    if (!snapshot.healthy) throw new Error(snapshot.scan.error);
+    const records = this.databaseCache.records;
+    const cache = records.calendarTurns ??= new Map();
+    const rows = new Map(records.rows.map(row => [row.id, row]));
+    const query = this.connections.history.prepare(`SELECT turn_id, started_at, duration_ms, status
+      FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal`);
+    const chats = [];
+    for (const task of snapshot.tasks) {
+      if ((!settings.showArchived && task.observed?.archive) ||
+          (!settings.showCli && task.observed?.source === "cli") ||
+          (!settings.showExec && task.observed?.source === "exec")) continue;
+      const row = rows.get(task.id);
+      let turns = cache.get(task.id);
+      if (!turns) { turns = query.all(historyId(row)); cache.set(task.id, turns); }
+      const result = calendarSegments(turns, { month, timeZone, now: this.now(), latestTurnId: task.turnId });
+      if (result.segments.length || result.incomplete) chats.push({ id: task.id, ...result });
+    }
+    return { month, timeZone, chats };
   }
   async usageAnalytics({ range, timeZone, settings }) {
     return aggregateUsage(await this.usageHistory({ settings }), { range, timeZone, now: this.now() });

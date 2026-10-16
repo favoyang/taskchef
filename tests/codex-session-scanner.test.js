@@ -1185,3 +1185,24 @@ test('usage includes rollout-backed roots without a history turn and resolves th
  const result=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli:false,showExec:false}});
  assert.equal(result.totals.tokens,110);assert.equal(result.projects[0].name,'Historical project');assert.equal(result.incomplete,false);
 });
+
+test("calendar reads selected history, refreshes changed turns, and respects chat visibility", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const { home, state, history } = setup;
+  state.prepare("INSERT INTO threads (id,name,cwd,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Calendar', '/repo', 0, 1, 1, 1)").run(id);
+  const insert = history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,turn_id,status,started_at,duration_ms) VALUES (?,?,?,'completed',?,60000)");
+  insert.run(id, 1, 'one', Date.parse('2026-10-05T10:00:00Z') / 1000);
+  insert.run(id, 2, 'two', Date.parse('2026-10-26T10:00:00Z') / 1000);
+  const scanner = new CodexSessionScanner({ codexHome: home, now: () => Date.parse('2026-10-30T12:00:00Z') });
+  t.after(() => scanner.close());
+  const args = { month: '2026-10', timeZone: 'UTC', settings: {} };
+  assert.equal((await scanner.calendarHistory(args)).chats[0].segments.length, 2);
+  history.prepare("UPDATE thread_turns SET started_at=? WHERE turn_id='two'").run(Date.parse('2026-10-06T10:00:00Z') / 1000);
+  assert.equal((await scanner.calendarHistory(args)).chats[0].segments.length, 1);
+  state.prepare("UPDATE threads SET archived=1").run();
+  assert.equal((await scanner.calendarHistory(args)).chats.length, 0);
+  assert.equal((await scanner.calendarHistory({ ...args, settings: { showArchived: true } })).chats.length, 1);
+  state.prepare("UPDATE threads SET archived=0, source='cli'").run();
+  assert.equal((await scanner.calendarHistory(args)).chats.length, 0);
+  assert.equal((await scanner.calendarHistory({ ...args, settings: { showCli: true } })).chats.length, 1);
+});

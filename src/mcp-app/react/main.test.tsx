@@ -681,3 +681,124 @@ test("Usage opens on demand and returns to Board without keeping its filters vis
   fireEvent.click(screen.getByRole("radio",{name:"Board"}));
   expect(screen.getByRole("region",{name:"Task board"})).toBeVisible();
 });
+
+test("Calendar replaces the update window and opens matching chat details", async () => {
+  tasks = [task('one', 'needs_input', '2020-01-01T00:00:00Z')];
+  details = new Map(tasks.map(item => [item.id, item]));
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: true }] }] } });
+    return base(input);
+  });
+  mount();
+  await screen.findByRole('radio', { name: 'Calendar' });
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(screen.queryByLabelText('Updated')).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: /Example · Task one/ }));
+  expect(await screen.findByRole('heading', { name: 'Task one' })).toBeInTheDocument();
+});
+
+test('Calendar scheduled toggle starts on, includes running schedules, and never filters Board', async () => {
+  tasks = [{ ...task('one', 'working'), scheduled: true }, task('two', 'needs_input')];
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: tasks.map(item => ({ id: item.id, incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: false }] })) } });
+    return base(input);
+  });
+  mount();
+  await screen.findByRole('button', { name: 'Task one' });
+  expect(screen.queryByRole('button', { name: 'Scheduled' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(await screen.findByRole('button', { name: 'Example · Task one' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Scheduled' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Scheduled' }));
+  expect(screen.queryByRole('button', { name: 'Example · Task one' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Example · Task two' })).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Project' }), { target: { value: '/Example' } });
+  expect(screen.getByRole('button', { name: 'Task two' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Example · Task two' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Board' }));
+  expect(screen.getByRole('button', { name: 'Task one' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Scheduled' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(screen.getByRole('button', { name: 'Scheduled' })).toHaveAttribute('aria-pressed', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'Scheduled' }));
+  expect(await screen.findByRole('button', { name: 'Task one' })).toBeInTheDocument();
+});
+
+test('Calendar skips unchanged polls and rereads on data changes, explicit refresh, and date rollover', async () => {
+  const interval = vi.spyOn(window, 'setInterval');
+  let revision = 1, cacheHit = true;
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_snapshot') return Promise.resolve({ structuredContent: { snapshot: { tasks, projects: [], healthy: true, revision, scan: { cacheHit } }, settings: visibility } });
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: false }] }] } });
+    return base(input);
+  });
+  const calendarReads = () => server.call.mock.calls.filter(([input]) => input.name === 'taskchef_app_calendar').length;
+  mount();
+  await screen.findByRole('button', { name: 'Task one' });
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  await screen.findByRole('button', { name: 'Example · Task one' });
+  expect(calendarReads()).toBe(1);
+  const poll = interval.mock.calls.find(([, delay]) => delay === 5000)![0] as () => void;
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(1);
+  cacheHit = false;
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(2);
+  cacheHit = true; revision += 1;
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(3);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })); });
+  expect(calendarReads()).toBe(4);
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 86400000);
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(5);
+});
+
+test('shared filters and the Calendar schedule preference survive reopening', async () => {
+  tasks = [{ ...task('one', 'working'), scheduled: true, observed: { pinned: true, archive: false, lastTurnEvent: 'inProgress', lastTurnEventAt: null, recentFileActivity: false } }];
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: false }] }] } });
+    return base(input);
+  });
+  const first = render(<TaskChefApp />);
+  await screen.findByRole('button', { name: 'Task one' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Project' }), { target: { value: '/Example' } });
+  fireEvent.change(screen.getByLabelText('Search Chats'), { target: { value: 'one' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Updated' }), { target: { value: '7d' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Pinned' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Scheduled' }));
+  first.unmount();
+  // Loading must not clear the saved project before inventory arrives.
+  let load!: (value: unknown) => void;
+  const active = server.call.getMockImplementation()!;
+  server.call.mockImplementationOnce(input => input.name === 'taskchef_app_snapshot' ? new Promise(resolve => { load = resolve; }) : active(input));
+  mount();
+  expect(window.localStorage.getItem('taskchef.app.filter.project')).toBe(JSON.stringify('/Example'));
+  expect(screen.getByLabelText('Search Chats')).toHaveValue('one');
+  expect(screen.getByRole('combobox', { name: 'Updated' })).toHaveValue('7d');
+  expect(screen.getByRole('button', { name: 'Pinned' })).toHaveAttribute('aria-pressed', 'true');
+  await waitFor(() => expect(load).toBeTypeOf('function'));
+  await act(async () => { load({ structuredContent: { settings: visibility, snapshot: { tasks, projects: [], healthy: true } } }); });
+  expect(screen.getByRole('combobox', { name: 'Project' })).toHaveValue('/Example');
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(screen.getByRole('button', { name: 'Scheduled' })).toHaveAttribute('aria-pressed', 'false');
+  expect(await screen.findByText(/No recorded work matches/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Scheduled' }));
+  expect(await screen.findByRole('button', { name: 'Task one' })).toBeInTheDocument();
+});
+
+test('unavailable preference storage leaves filters usable', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Unavailable'); });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Unavailable'); });
+  mount();
+  await screen.findByRole('button', { name: 'Task one' });
+  fireEvent.change(screen.getByLabelText('Search Chats'), { target: { value: 'missing' } });
+  expect(screen.queryByRole('button', { name: 'Task one' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Usage' }));
+  expect(await screen.findByRole('button', { name: '30 days' })).toHaveAttribute('aria-pressed','true');
+});

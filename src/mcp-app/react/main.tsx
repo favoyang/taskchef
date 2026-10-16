@@ -1,7 +1,9 @@
+import { usePreference } from "./preferences";
+import { CalendarView, type CalendarData, type CalendarRequest } from "./CalendarView";
 import { cachedImageLoader } from "../../ui/image-cache";
 import { App } from "@modelcontextprotocol/ext-apps";
 import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
-import { IconPin, IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
+import { IconCalendarEvent, IconPin, IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task, Project } from "../../ui/types";
@@ -41,6 +43,7 @@ async function call<T>(name: string, args: Record<string, unknown> = {}): Promis
   return result.structuredContent as T;
 }
 
+const readCalendar: CalendarRequest = args => call<CalendarData>("taskchef_app_calendar", args);
 const readUsage = (args: ReturnType<typeof usageRequest>) => call<UsageResponse>("taskchef_app_usage", args);
 
 const THEME_KEY = "taskchef.app.theme";
@@ -116,7 +119,7 @@ export function TaskChefApp() {
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
-  const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [pinnedOnly, setPinnedOnly] = usePreference("filter.pinned");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,12 +161,13 @@ export function TaskChefApp() {
       receiveNotifications(result.notifications);
     } catch (notificationError) { setError(`${String(cause)}. ${String(notificationError)}`); }
   }
-  const [project, setProject] = useState("");
-  const [search, setSearch] = useState("");
-  const [date, setDate] = useState("all");
+  const [project, setProject] = usePreference("filter.project");
+  const [search, setSearch] = usePreference("filter.search");
+  const [showScheduled, setShowScheduled] = usePreference("calendar.scheduled");
+  const [date, setDate] = usePreference("filter.updated");
   const [status, setStatus] = useState("");
   // Keep the legacy list hidden; Board and Usage share the native shell.
-  const [view, setView] = useState<"board" | "list" | "usage">("board");
+  const [view, setView] = useState<"board" | "list" | "usage" | "calendar">("board");
   const [usageRefreshKey, setUsageRefreshKey] = useState(0);
   const [completedLimit, setCompletedLimit] = useState(5);
   const [archivedLimit, setArchivedLimit] = useState(5);
@@ -176,6 +180,7 @@ export function TaskChefApp() {
   const detailRequestVersion = useRef(0);
   const refreshVersion = useRef(0);
   const revisionRef = useRef<number | null>(null);
+  const calendarHistoryRevision = useRef(0);
   const displayModeRef = useRef(displayMode);
   const previousDisplayMode = useRef(displayMode);
   displayModeRef.current = displayMode;
@@ -210,6 +215,7 @@ export function TaskChefApp() {
         return;
       }
     } else { setScan(data.scan); setError(null); }
+    if ((data.snapshot?.scan ?? data.scan)?.cacheHit === false) calendarHistoryRevision.current += 1;
     setNow(Date.now());
     const selectedTask = selectedRef.current;
     if (!selectedTask || initialSelection !== selectionVersion.current) return;
@@ -299,7 +305,6 @@ export function TaskChefApp() {
   }, [displayMode, refresh]);
   const eligibleTasks = useMemo(() => tasks.filter((task) => eligibleForView(task, showCli, showArchived, showExec)), [tasks, showCli, showArchived, showExec]);
   useEffect(() => {
-    setProject("");
     setCompletedLimit(5);
     setArchivedLimit(5);
     if (!showArchived) setStatus((current) => current === "archived" ? "" : current);
@@ -330,12 +335,13 @@ export function TaskChefApp() {
       { label: "No project", value: "projectless" },
     ];
   }, [eligibleTasks, registeredProjects]);
-  useEffect(() => { if (project && !projects.some((item) => item.value === project)) setProject(""); }, [project, projects]);
+  useEffect(() => { if (!loading && !error && project && !projects.some((item) => item.value === project)) setProject(""); }, [project, projects, loading, error]);
   const projectTasks = useMemo(() => eligibleTasks.filter((task) => !project || (task.project.id || task.project.path || task.project.name) === project), [eligibleTasks, project]);
   const boardTasks: Task[] = useMemo(() => {
     const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-    return filterTasks(projectTasks, { date, now }).filter((task: Task) => {
+    return filterTasks(projectTasks, { date: view === "calendar" ? "all" : date, now }).filter((task: Task) => {
       if (pinnedOnly && !task.observed?.pinned) return false;
+      if (view === "calendar" && !showScheduled && task.scheduled) return false;
       const content = [
         task.title, task.promptExcerpt ?? "", task.replyExcerpt ?? "", task.project.name,
         ...(task.project.githubRepos ?? []),
@@ -343,7 +349,7 @@ export function TaskChefApp() {
       ].join("\n").toLocaleLowerCase();
       return terms.every((term) => content.includes(term));
     });
-  }, [projectTasks, date, now, search, pinnedOnly]);
+  }, [projectTasks, date, now, search, pinnedOnly, view, showScheduled]);
   const visible = useMemo(() => boardTasks.filter((task) => !status || (task.status ?? "unverified") === status), [boardTasks, status]);
   const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...lanes.map(({ label, status: value }) => ({
     label: `${label} ${boardTasks.filter((task) => task.status === value).length}`, value: value ?? "unverified",
@@ -424,12 +430,13 @@ export function TaskChefApp() {
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef</Title></Group>
-          {displayMode !== "inline" && <SegmentedControl className="taskchef-app-view" aria-label="View" data={[{ label: "Board", value: "board" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" ? "usage" : "board")} size="xs" />}
+          {displayMode !== "inline" && <SegmentedControl className="taskchef-app-view" aria-label="View" withItemsBorders={false} data={[{ label: "Board", value: "board" }, { label: "Calendar", value: "calendar" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" || value === "calendar" ? value : "board")} size="xs" />}
           {displayMode !== "inline" && view !== "usage" && <Group className="taskchef-app-filters" gap="xs" wrap="wrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
-            <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />
+            {view !== "calendar" && <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />}
             <TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
-            <Button className="taskchef-app-pinned" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
+            <Button className="taskchef-app-toggle" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
+            {view === "calendar" && <Button className="taskchef-app-toggle" leftSection={<IconCalendarEvent size={14} aria-hidden />} aria-pressed={showScheduled} title="Show scheduled chats" size="xs" variant={showScheduled ? "filled" : "outline"} onClick={() => setShowScheduled(value => !value)}>Scheduled</Button>}
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />
@@ -454,7 +461,7 @@ export function TaskChefApp() {
           {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
             <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
           </Paper>}
-          {view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
+          {view === "calendar" ? <CalendarView request={readCalendar} showProject={!project} tasks={boardTasks} refreshKey={`${revisionRef.current}:${calendarHistoryRevision.current}:${new Date(now).toDateString()}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}

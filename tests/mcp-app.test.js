@@ -27,6 +27,7 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
       if (force) revision += 1;
       return { healthy: true, revision, tasks: [task], scan: { mode: force ? "incremental" : "full", indexedFiles: 1 } };
     },
+    calendarHistory: async (args) => ({ month: args.month, timeZone: args.timeZone, chats: args.settings.showCli ? [{ id: task.id, incomplete: false, segments: [] }] : [] }),
     task: (id) => id === task.id ? task : null,
     taskImage: async (id, turn, url) => { assert.equal(id, task.id); assert.equal(turn, "turn-one"); assert.equal(url, "/image.png"); return "data:image/png;base64,AAAA"; },
     taskDetail: async (id) => id === task.id ? task : null,
@@ -94,6 +95,11 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     assert.deepEqual(resource.contents[0]._meta.ui.csp.resourceDomains, ["https:"]);
     const image = await client.callTool({ name: "taskchef_app_image", arguments: { taskId: task.id, expectedTurnId: "turn-one", expectedUrl: "/image.png" } });
     assert.equal(image.structuredContent.dataUrl, "data:image/png;base64,AAAA");
+    const calendar = await client.callTool({ name: "taskchef_app_calendar", arguments: { month: "2026-10", timeZone: "Asia/Singapore" } });
+    assert.deepEqual(calendar.structuredContent, { month: "2026-10", timeZone: "Asia/Singapore", chats: [] });
+    for (const args of [{ month: "2026-13", timeZone: "UTC" }, { month: "2026-10", timeZone: "Invalid/Timezone" }]) {
+      assert.equal((await client.callTool({ name: "taskchef_app_calendar", arguments: args })).isError, true);
+    }
     const initial = await client.callTool({ name: "open_taskchef_board", arguments: {} });
     assert.equal(initial.structuredContent.taskCount, 1);
     const snapshot = await client.callTool({ name: "taskchef_app_snapshot", arguments: {} });

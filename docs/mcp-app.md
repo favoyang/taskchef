@@ -299,7 +299,7 @@ UI surfaces. Native font families use locally available fonts with system fallba
 read the installed desktop application or fetch theme files from the network.
 
 The compact **Pinned** toggle button shows chats pinned in Codex and combines with project,
-update window, and search filters. It starts off when the dashboard opens. Pin
+update window, and search filters. It defaults to off and remembers the user’s selection locally. Pin
 changes appear on the next data refresh. The current desktop pin list takes
 precedence over the database `is_pinned` field. TaskChef ignores old migration
 snapshots and never writes pin state. Without either source, chats are unpinned.
@@ -371,8 +371,9 @@ a marketplace does not automatically move their installed plugin identity.
 
 The Board/Usage selector sits beside the logo in the navbar, separated from
 Board filters by a divider. It opens an on-demand historical usage view. Ranges are
-7, 30, or 90 calendar days including today, This month (the default, through
-today), and Last month (the full previous calendar month).
+7, 30, or 90 calendar days including today, This month (through today), and
+Last month (the full previous calendar month). The default is 30 days; the
+selected range is remembered locally when Usage is reopened.
 There is no custom range. Dates use the view's local timezone, including DST.
 Range changes and reopening Usage query one shared history snapshot without
 rescanning logs. The snapshot is scoped by CLI/exec visibility, independently of
@@ -408,3 +409,42 @@ Cost is an estimate at current API-equivalent rates, not subscription billing
 or remaining allowance. The first read shows a progress bar with the actual number of root chats
 processed and polls an app-only tool. Cached charts stay visible during later
 refreshes, with their last-update time and scan progress.
+
+## Month calendar
+
+Calendar sits beside Board and Usage. It opens on the current local month;
+previous/next arrows surround the month title. Next is disabled at the current
+local month, so future months cannot be selected. There is no Today control.
+Arrows stay hidden until the month navigation is hovered or contains focus;
+a clicked arrow remains visible while focused. This also applies in embedded
+hosts that do not report mouse hover support. Project, search, update window, and Pinned
+filters are remembered locally. An unavailable saved project resets to All
+projects only after the project inventory loads.
+Project, Search Chats, Pinned, and native visibility settings apply. The Board's
+Updated filter does not apply to Calendar. A Calendar-only Scheduled
+toggle starts enabled and hides chats with an active schedule when disabled,
+including those currently Running or Waiting. Its choice is remembered locally across page visits and does not filter
+Board or Usage. Selecting one project hides
+project prefixes on calendar bars. The grid has no persistent helper captions. Scheduled and Pinned share
+the same toggle styling for their on, off, and hover states.
+
+Each chat's recorded turn intervals become calendar dates in the viewer's
+timezone. Adjacent dates merge into one bar. One full idle date breaks the bar,
+including weekends; a later segment has a resumed marker and opens the same
+chat Details. Continuous work across a week boundary uses continuation arrows.
+An exact midnight end does not occupy the following date. A current running
+turn extends to now; completed turns do not extend through idle review waits.
+Project colors stay consistent when navigating or filtering. Crowded weeks show
+three bar rows and a control to expand the remaining chats. Narrow views scroll
+horizontally to retain seven readable day columns.
+
+The calendar reads all turn timing rows for each eligible chat's selected
+SQLite history, cached until the databases change. The calendar rereads on
+changed snapshots or database reads, explicit Refresh, and local date rollover;
+an unchanged five-second poll does not reread calendar history. It does not scan usage,
+modify Codex records, or create editable start/end dates. Earlier histories
+replaced by a rewind may be absent. Missing start timestamps are omitted;
+missing durations show only a known start date. Missing timing data does not
+add a notice to the calendar.
+
+![Month calendar with paused and resumed sample chats](images/calendar-month.png)

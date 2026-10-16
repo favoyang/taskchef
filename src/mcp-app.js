@@ -212,6 +212,15 @@ export function registerTaskChefApp(server, {
     }
     return { structuredContent: { snapshot, settings: publicSettings(settings), settingsUrl, notifications, github: githubAuth, version: TASKCHEF_VERSION }, content: [] };
   });
+  server.registerTool("taskchef_app_calendar", {
+    title: "Read chat work calendar", description: "Read recorded turn dates for the selected month. Full idle days split chat bars.",
+    inputSchema: { month: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/), timeZone: z.string().min(1).max(100) }, _meta: appOnly,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ month, timeZone }) => {
+    new Intl.DateTimeFormat("en", { timeZone }).format();
+    const data = await scanner.calendarHistory({ month, timeZone, settings: await readSettings() });
+    return { structuredContent: data, content: [] };
+  });
   server.registerTool("taskchef_app_usage", {
     title: "Read usage history", description: "Aggregate timestamped local token usage and API-equivalent cost by day and project.",
     inputSchema: { range: z.enum(["7d", "30d", "90d", "mtd", "last-month"]), timeZone: z.string().min(1).max(100), force: z.boolean().optional(), rescan: z.boolean().optional() }, _meta: appOnly,
