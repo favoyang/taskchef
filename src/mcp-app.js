@@ -1,4 +1,5 @@
 import { taskChefStateDir } from "./taskchef-state.js";
+import { readUsageHistory, writeUsageHistory } from "./usage-history-cache.js";
 import { aggregateUsage } from "./usage-analytics.js";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -231,13 +232,24 @@ export function registerTaskChefApp(server, {
     const settings = await readSettings();
     // History is independent of chart range and timezone. Range changes query
     // this shared snapshot; only expiry or explicit Refresh starts another read.
-    const key = JSON.stringify([settings.showCli, settings.showExec]);
+    const key = JSON.stringify([scanner.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), settings.showCli, settings.showExec]);
+    const cacheDirectory = join(dirname(settingsPath), "cache", "usage-history");
     let job = analyticsJobs.get(key);
-    if ((force || rescan) && job?.pending) { job.refreshAgain = true; job.rescan ||= rescan; }
-    if (!job || (!job.pending && (force || rescan || (!job.error && Date.now() - job.finishedAt >= 60_000)))) {
-      job = { families: job?.families ?? null, error: null, finishedAt: job?.finishedAt ?? 0,
-        pending: true, refreshAgain: false, rescan: !!rescan, progress: { completed: 0, total: 0 } };
+    if (!job) {
+      job = { families: null, error: null, finishedAt: 0, pending: false, needsRefresh: true,
+        progress: { completed: 0, total: 0 } };
       analyticsJobs.set(key, job);
+      const current = job;
+      // Share hydration between concurrent views before starting one background scan.
+      job.hydrating = readUsageHistory(cacheDirectory, key).then(saved => {
+        if (saved) { current.families = saved.families; current.finishedAt = saved.savedAt; }
+      });
+    }
+    await job.hydrating;
+    if ((force || rescan) && job?.pending) { job.refreshAgain = true; job.rescan ||= rescan; }
+    if (!job.pending && (job.needsRefresh || force || rescan || (!job.error && Date.now() - job.finishedAt >= 60_000))) {
+      Object.assign(job, { error: null, needsRefresh: false,
+        pending: true, refreshAgain: false, rescan: !!rescan, progress: { completed: 0, total: 0 } });
       const current = job;
       Promise.resolve().then(async () => {
         do {
@@ -247,12 +259,15 @@ export function registerTaskChefApp(server, {
           const families = await scanner.usageHistory({ settings, rescan: rebuild, onProgress: progress => { current.progress = progress; } });
           current.families = families;
           current.finishedAt = Date.now();
+          // Cache failures never hide readable usage or replace a last good snapshot.
+          await writeUsageHistory(cacheDirectory, key, families, current.finishedAt).catch(() => {});
         } while (current.refreshAgain);
       }).catch(error => { current.error = error; }).finally(() => { current.pending = false; });
     }
-    if (job.error) throw job.error;
+    if (job.error && !job.families) throw job.error;
     const data = job.families ? { ...aggregateUsage(job.families, { range, timeZone }),
       updatedAt: new Date(job.finishedAt).toISOString(),
+      ...(job.error ? { refreshError: "Saved usage is shown. Background refresh failed." } : {}),
       ...(job.pending ? { refreshing: true, progress: job.progress } : {}) }
       : { loading: true, progress: job.progress };
     return { structuredContent: data, content: [] };

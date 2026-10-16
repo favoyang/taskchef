@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface WeeklyLimit { id: string; name: string | null; date?: string; time: number; remainingPercent: number; resetsAt: number }
 export interface UsageData {
-  updatedAt?: string; refreshing?: boolean; progress?: ScanProgress;
+  updatedAt?: string; refreshing?: boolean; refreshError?: string; progress?: ScanProgress;
   start: string; end: string; timeZone: string; samples: number; incomplete: boolean;
   totals: { tokens: number; costUsd: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
   days: { date: string; tokens: number; costUsd: number; projects: Record<string, number>; projectTokens: Record<string, number> }[];
@@ -98,6 +98,7 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
     </div>}
     {error && <div role="alert"><p>Usage could not be loaded: {error}</p><button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {data && <>
+      {data.refreshError && <p role="alert">{data.refreshError} <button onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
       <p className="usage-period">{dateLabel(data.start)} – {dateLabel(data.end)} · {data.timeZone} · Daily · Includes archived chats and subagent usage{data.updatedAt && <> · Updated {new Date(data.updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</>}</p>
       <div className="usage-totals">
           <article><h3>Recorded tokens</h3><strong>{count(data.totals.tokens)}</strong><p>Input {count(data.totals.inputTokens)} · Cached input {count(data.totals.cachedInputTokens)} · Output {count(data.totals.outputTokens)}</p></article>
@@ -155,8 +156,20 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
 }
 
 function WeeklyLimits({ data }: { data: UsageData }) {
+  const [now, setNow] = useState(Date.now);
+  const resetsAt = data.currentWeeklyLimit?.resetsAt;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function update() {
+      const time = Date.now();
+      setNow(time);
+      if (resetsAt && resetsAt > time) timer = setTimeout(update, Math.min(resetsAt - time, 2_147_483_647));
+    }
+    update();
+    return () => clearTimeout(timer);
+  }, [resetsAt]);
   const samples = (data.weeklyLimits ?? []).filter(sample => sample.id === "codex").sort((a, b) => a.time - b.time);
-  const current = data.currentWeeklyLimit && data.currentWeeklyLimit.resetsAt > Date.now() ? data.currentWeeklyLimit : null;
+  const current = data.currentWeeklyLimit && data.currentWeeklyLimit.resetsAt > now ? data.currentWeeklyLimit : null;
   const dateTime = (time: number) => new Date(time).toLocaleString(undefined, { timeZone: data.timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
   const dayIndex = new Map(data.days.map((day, index) => [day.date, index]));
   const position = (time: number) => {

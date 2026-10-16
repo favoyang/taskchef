@@ -376,7 +376,15 @@ Last month (the full previous calendar month). The default is 30 days; the
 selected range is remembered locally when Usage is reopened.
 There is no custom range. Dates use the view's local timezone, including DST.
 Range changes and reopening Usage query one shared history snapshot without
-rescanning logs. The snapshot is scoped by CLI/exec visibility, independently of
+rescanning logs. The combined snapshot is also saved atomically with private file
+permissions under `~/.agents/taskchef/cache/usage-history/`, scoped by Codex home
+and CLI/exec visibility. It contains the fields needed for charts, including
+weekly readings, and no message content or per-file parsing records. After an
+MCP server restart, the first Usage request loads a compatible disk snapshot
+and returns saved charts before refreshing history in the background. Range and
+timezone changes share that refresh. A missing, damaged, or incompatible snapshot
+falls back to a normal scan. A failed background refresh retains the last good
+snapshot, shows a Retry action, and never overwrites it with a failed result. The snapshot is scoped by CLI/exec visibility, independently of
 range or timezone. After one minute it refreshes in the background while cached
 charts remain visible. Refresh explicitly rebuilds it, reusing existing per-file
 metadata and incremental parsing caches. Unchanged files retain parsed records

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { UsageView, type UsageData } from './UsageView';
 beforeEach(() => window.localStorage.clear());
@@ -163,4 +163,27 @@ test('expired current allowance is unavailable while history remains visible',as
  const sample={id:'codex',name:null,time:1,resetsAt:2,remainingPercent:80};
  render(<UsageView request={vi.fn().mockResolvedValue({...data,currentWeeklyLimit:sample})}/>);
  expect(await screen.findByText('Current allowance unavailable')).toBeVisible();expect(screen.queryByText(/80% left/)).toBeNull();
+});
+
+test('a failed background refresh keeps saved charts visible and Retry forces a fresh read',async()=>{
+ const request=vi.fn().mockResolvedValueOnce({...data,refreshing:true}).mockResolvedValueOnce({...data,refreshError:'Saved usage is shown. Background refresh failed.'}).mockResolvedValue(data);
+ render(<UsageView request={request}/>);
+ await screen.findByRole('table');expect(screen.getByText(/Updating saved usage/)).toBeVisible();
+ expect(await screen.findByRole('alert')).toHaveTextContent('Saved usage is shown');expect(screen.getByRole('table')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'Retry'}));
+ await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'30d',timeZone:expect.any(String),force:true}));
+ await waitFor(()=>expect(screen.queryByRole('alert')).toBeNull());expect(screen.getByRole('table')).toBeVisible();
+});
+
+test('an idle weekly card expires at its reset without another request',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
+ try {
+  const currentWeeklyLimit={id:'codex',name:null,time:Date.now()-1000,resetsAt:Date.now()+2000,remainingPercent:89};
+  const request=vi.fn().mockResolvedValue({...data,currentWeeklyLimit});
+  await act(async()=>{render(<UsageView request={request}/>);});
+  expect(screen.getByRole('heading',{name:'Weekly limits · 89% left'})).toBeVisible();
+  await act(async()=>{vi.advanceTimersByTime(2000);});
+  expect(screen.getByText('Current allowance unavailable')).toBeVisible();
+  expect(screen.queryByRole('heading',{name:/89% left/})).toBeNull();expect(request).toHaveBeenCalledTimes(1);
+ }finally{vi.useRealTimers();}
 });
