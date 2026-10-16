@@ -415,9 +415,9 @@ refreshes, with their last-update time and scan progress.
 Calendar sits beside Board and Usage. It opens on the current local month;
 previous/next arrows surround the month title. Next is disabled at the current
 local month, so future months cannot be selected. There is no Today control.
-On a mouse or trackpad, arrows appear when hovering the month navigation or
-when it contains keyboard focus; a clicked arrow remains visible while focused.
-Touch controls remain visible. Project, search, update window, and Pinned
+Arrows stay hidden until the month navigation is hovered or contains focus;
+a clicked arrow remains visible while focused. This also applies in embedded
+hosts that do not report mouse hover support. Project, search, update window, and Pinned
 filters are remembered locally. An unavailable saved project resets to All
 projects only after the project inventory loads.
 Project, Search Chats, Pinned, and native visibility settings apply. The Board's
