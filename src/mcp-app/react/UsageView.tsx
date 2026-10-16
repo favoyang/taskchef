@@ -5,7 +5,8 @@ export interface UsageData {
   updatedAt?: string; refreshing?: boolean; progress?: ScanProgress;
   start: string; end: string; timeZone: string; samples: number; incomplete: boolean;
   totals: { tokens: number; costUsd: number; inputTokens: number; cachedInputTokens: number; outputTokens: number };
-  days: { date: string; tokens: number; costUsd: number; projects: Record<string, number> }[];
+  days: { date: string; tokens: number; costUsd: number; projects: Record<string, number>; projectTokens: Record<string, number> }[];
+  weeklyLimits?: { id: string; name: string | null; date: string; time: number; remainingPercent: number; resetsAt: number }[];
   projects: { id: string; name: string; costUsd: number; tokens: number }[];
 }
 interface ScanProgress { completed: number; total: number; }
@@ -28,6 +29,7 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
   const lastRequest = useRef({ refreshKey, retry: 0, rescan: 0 });
   const [selected, setSelected] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<number | null>(null);
+  const [activeProjectDay, setActiveProjectDay] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
   const [rescan, setRescan] = useState(0);
   useEffect(() => {
@@ -35,7 +37,7 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
     const force = refreshKey !== lastRequest.current.refreshKey || retry !== lastRequest.current.retry;
     const rebuild = rescan !== lastRequest.current.rescan;
     lastRequest.current = { refreshKey, retry, rescan };
-    setLoading(true); setError(null); setProgress(null); setActiveDay(null); setHighlighted(null);
+    setLoading(true); setError(null); setProgress(null); setActiveDay(null); setActiveProjectDay(null); setHighlighted(null);
     if (!force && !rebuild) setData(null);
     let timer: ReturnType<typeof setTimeout>;
     async function load(force: boolean, rebuild = false) {
@@ -67,6 +69,9 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
   const maxTokens = Math.max(...(data?.days.map(day => day.tokens) ?? []), 1);
   const projectCost = (day: UsageData["days"][number], id: string) => id === "__other"
     ? data!.projects.slice(5).reduce((sum, item) => sum + (day.projects[item.id] ?? 0), 0) : day.projects[id] ?? 0;
+  const projectTokens = (day: UsageData["days"][number], id: string) => id === "__other"
+    ? data!.projects.slice(5).reduce((sum, item) => sum + (day.projectTokens?.[item.id] ?? 0), 0) : day.projectTokens?.[id] ?? 0;
+  const maxProjectTokens = Math.max(...(data?.days.map(day => series.reduce((sum, item) => sum + projectTokens(day, item.id), 0)) ?? []), 1);
   const maxProjectCost = Math.max(...(data?.days.map(day => series.reduce((sum, item) => sum + projectCost(day, item.id), 0)) ?? []), .01);
   const x = (index: number) => left + (index + .5) * dayWidth;
   const y = (value: number, max: number) => bottom - value / max * (bottom - top);
@@ -92,12 +97,13 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
     {error && <div role="alert"><p>Usage could not be loaded: {error}</p><button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {data && <>
       <p className="usage-period">{dateLabel(data.start)} – {dateLabel(data.end)} · {data.timeZone} · Daily · Includes archived chats and subagent usage{data.updatedAt && <> · Updated {new Date(data.updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</>}</p>
+      <WeeklyLimits data={data} />
       {!data.samples ? <p role="status">No timestamped usage is available for this period.</p> : <>
         <div className="usage-totals">
           <article><h3>Recorded tokens</h3><strong>{count(data.totals.tokens)}</strong><p>Input {count(data.totals.inputTokens)} · Cached input {count(data.totals.cachedInputTokens)} · Output {count(data.totals.outputTokens)}</p></article>
           <article><h3>Estimated cost</h3><strong>{money(data.totals.costUsd)}</strong><p>API-equivalent prices · USD</p></article>
         </div>
-        <article className="usage-panel" aria-label="Tokens and cost over time"><h3>Tokens and cost over time</h3>
+        <article className="usage-panel" aria-label="Tokens and cost"><h3>Tokens and cost</h3>
           <div className="usage-legend"><span className="usage-token-key">━ Tokens</span><span><i style={{ background: colors[0] }} /> Estimated cost</span></div>
           <div className="usage-chart-scroll"><svg viewBox="0 0 860 210" role="img" aria-label="Daily estimated cost bars and token line" className="usage-chart">
             {grid(maxCost)}
@@ -110,14 +116,33 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
           </svg></div>
           <p className="usage-chart-detail" aria-live="polite">{activeDay === null ? "Hover or focus a day to inspect its usage." : `${dateLabel(data.days[activeDay].date)} · ${data.days[activeDay].tokens.toLocaleString()} tokens · ${money(data.days[activeDay].costUsd)}`}</p>
         </article>
-        <article className="usage-panel" aria-label="Cost by project over time"><h3>Cost by project over time</h3>
-          <p>{project ? `${project.name} · ` : "Top 5 projects + Other · "}Select a project below to isolate its cost.</p>
+        <article className="usage-panel" aria-label="Tokens and cost by project"><h3>Tokens and cost by project</h3>
+          <p>{project ? `${project.name} · ` : "Top 5 projects + Other · "}Select a project below to isolate its tokens and cost.</p>
           <div className="usage-legend"><button aria-pressed={!project} onMouseEnter={() => setHighlighted(null)} onFocus={() => setHighlighted(null)} onClick={() => setSelected(null)}>All projects</button>{data.projects.slice(0, 5).map((item, index) => <button key={item.id} aria-pressed={project?.id === item.id} onMouseEnter={() => setHighlighted(item.id)} onMouseLeave={() => setHighlighted(null)} onFocus={() => setHighlighted(item.id)} onBlur={() => setHighlighted(null)} onClick={() => setSelected(project?.id === item.id ? null : item.id)}><i style={{ background: colors[index] }} />{item.name}</button>)}{data.projects.length > 5 && <span tabIndex={0} onMouseEnter={() => setHighlighted("__other")} onMouseLeave={() => setHighlighted(null)} onFocus={() => setHighlighted("__other")} onBlur={() => setHighlighted(null)}><i style={{ background: colors[5] }} />Other</span>}</div>
+          <h4>Estimated cost</h4>
           <div className="usage-chart-scroll"><svg viewBox="0 0 860 210" role="img" aria-label={`Daily project cost bars: ${project?.name ?? "all projects"}`} className="usage-chart">
             {grid(maxProjectCost)}
             {data.days.map((day, index) => { let accumulated = 0; return <g key={day.date}>{series.map(item => { const cost = projectCost(day, item.id); const start = accumulated; accumulated += cost; return <rect key={item.id} x={x(index) - dayWidth * .3} y={y(accumulated, maxProjectCost)} width={dayWidth * .6} height={(cost / maxProjectCost) * (bottom - top)} fill={item.color} {...barStyle(day.date, item.color)} data-project={item.id} opacity={activeHighlight && activeHighlight !== item.id ? .2 : 1}><title>{dateLabel(day.date)}{unfinished(day.date) ? " (in progress)" : ""} · {item.name}: {money(accumulated - start)}</title></rect>; })}</g>; })}
             {dates()}
           </svg></div>
+          <h4>Tokens</h4>
+          <div className="usage-chart-scroll"><svg viewBox="0 0 860 210" role="img" aria-label={`Daily project token stack: ${project?.name ?? "all projects"}`} className="usage-chart">
+            {grid(maxProjectTokens, true)}
+            {series.map((item, seriesIndex) => {
+              const lower = data.days.map(day => series.slice(0, seriesIndex).reduce((sum, preceding) => sum + projectTokens(day, preceding.id), 0));
+              const upper = data.days.map((day, index) => lower[index] + projectTokens(day, item.id));
+              const finished = data.days.map((day, index) => ({ day, index })).filter(({ day }) => !unfinished(day.date));
+              return <g key={item.id} data-project={item.id} opacity={activeHighlight && activeHighlight !== item.id ? .2 : 1}>
+                <polygon fill={item.color} fillOpacity=".3" points={[...data.days.map((_, index) => `${x(index)},${y(upper[index], maxProjectTokens)}`), ...data.days.map((_, index) => `${x(index)},${y(lower[index], maxProjectTokens)}`).reverse()].join(" ")} />
+                <polyline fill="none" stroke={item.color} strokeWidth="2" points={finished.map(({ index }) => `${x(index)},${y(upper[index], maxProjectTokens)}`).join(" ")} />
+                {data.days.map((day, index) => unfinished(day.date) && index > 0 ? <polyline key={day.date} fill="none" stroke={item.color} strokeWidth="2" strokeDasharray="5 4" points={`${x(index - 1)},${y(upper[index - 1], maxProjectTokens)} ${x(index)},${y(upper[index], maxProjectTokens)}`} /> : null)}
+                {data.days.map((day, index) => <circle key={day.date} cx={x(index)} cy={y(upper[index], maxProjectTokens)} r="2.5" fill={item.color}><title>{dateLabel(day.date)} · {item.name}: {projectTokens(day, item.id).toLocaleString()} tokens</title></circle>)}
+              </g>;
+            })}
+            {data.days.map((day, index) => <g key={day.date} tabIndex={0} role="button" aria-label={`${dateLabel(day.date)} project usage`} onMouseEnter={() => setActiveProjectDay(index)} onFocus={() => setActiveProjectDay(index)} onClick={() => setActiveProjectDay(index)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setActiveProjectDay(index); } }}><rect x={left + index * dayWidth} y={top} width={dayWidth} height={bottom - top} fill="transparent" /></g>)}
+            {dates()}
+          </svg></div>
+          <p className="usage-chart-detail" aria-live="polite">{activeProjectDay === null ? "Hover or focus a day to inspect project usage." : `${dateLabel(data.days[activeProjectDay].date)} · ${series.map(item => `${item.name}: ${projectTokens(data.days[activeProjectDay], item.id).toLocaleString()} tokens, ${money(projectCost(data.days[activeProjectDay], item.id))}`).join(" · ")}`}</p>
         </article>
         <article className="usage-panel" aria-label="Top 10 projects"><h3>Top 10 projects</h3>
           <div className="usage-ranking"><table><thead><tr><th scope="col">Project</th><th scope="col">Estimated cost</th><th scope="col">Share</th></tr></thead><tbody>{data.projects.slice(0, 10).map((item, index) => <tr key={item.id}><th scope="row"><button aria-pressed={project?.id === item.id} onClick={() => setSelected(project?.id === item.id ? null : item.id)}><span>{index + 1}. {item.name}</span><span className="usage-rank-track" aria-hidden><span style={{ width: `${data.projects[0].costUsd ? item.costUsd / data.projects[0].costUsd * 100 : 0}%`, background: colors[index < 5 ? index : 5] }} /></span></button></th><td>{money(item.costUsd)}</td><td>{data.totals.costUsd ? (item.costUsd / data.totals.costUsd * 100).toFixed(1) : "0.0"}%</td></tr>)}</tbody></table></div>
@@ -126,4 +151,34 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
       <p className="usage-footnote">Cost is estimated at API-equivalent prices, not your subscription bill or remaining allowance.</p>
     </>}
   </section>;
+}
+
+function WeeklyLimits({ data }: { data: UsageData }) {
+  const samples = data.weeklyLimits ?? [];
+  const buckets = [...new Set(samples.map(sample => sample.id))];
+  const dayIndex = new Map(data.days.map((day, index) => [day.date, index]));
+  const x = (date: string) => left + ((dayIndex.get(date) ?? 0) + .5) * (right - left) / data.days.length;
+  const y = (value: number) => bottom - value / 100 * (bottom - top);
+  return <article className="usage-panel" aria-label="Weekly limits"><h3>Weekly limits</h3>
+    <p>Recorded account allowance remaining · Last observation each day · Gaps have no recorded reading.</p>
+    {!samples.length ? <p>No weekly limit readings are available for this period.</p> : <>
+      <div className="usage-legend">{buckets.map((id, index) => <span key={id}><i style={{ background: colors[index % colors.length] }} />{samples.find(sample => sample.id === id)?.name ?? id}</span>)}</div>
+      <div className="usage-chart-scroll"><svg viewBox="0 0 860 210" role="img" aria-label="Recorded weekly allowance remaining by day" className="usage-chart">
+        {[0, 50, 100].map(value => <g key={value}><line x1={left} x2={right} y1={y(value)} y2={y(value)} className="usage-grid" /><text x={left - 10} y={y(value) + 4} textAnchor="end">{value}%</text></g>)}
+        {buckets.map((id, bucketIndex) => {
+          const readings = samples.filter(sample => sample.id === id);
+          return <g key={id}>{readings.map((sample, index) => {
+            const previous = readings[index - 1];
+            const connected = previous && previous.resetsAt === sample.resetsAt && dayIndex.get(sample.date)! - dayIndex.get(previous.date)! === 1;
+            const label = `${sample.name ?? id} · ${dateLabel(sample.date)}: ${sample.remainingPercent.toFixed(1)}% left · Recorded ${new Date(sample.time).toLocaleString(undefined, { timeZone: data.timeZone })} · Resets ${new Date(sample.resetsAt).toLocaleString(undefined, { timeZone: data.timeZone })} (${data.timeZone})`;
+            return <g key={sample.time} tabIndex={0} aria-label={label}>
+              {connected && <line x1={x(previous.date)} y1={y(previous.remainingPercent)} x2={x(sample.date)} y2={y(sample.remainingPercent)} stroke={colors[bucketIndex % colors.length]} strokeWidth="2" />}
+              <circle cx={x(sample.date)} cy={y(sample.remainingPercent)} r="4" fill={colors[bucketIndex % colors.length]} /><title>{label}</title>
+            </g>;
+          })}</g>;
+        })}
+        {data.days.map((day, index) => index === 0 || index === data.days.length - 1 || index % Math.ceil(data.days.length / 5) === 0 ? <text key={day.date} x={x(day.date)} y={bottom + 25} textAnchor="middle">{dateLabel(day.date)}</text> : null)}
+      </svg></div>
+    </>}
+  </article>;
 }

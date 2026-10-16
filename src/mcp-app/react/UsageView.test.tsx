@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { UsageView, type UsageData } from './UsageView';
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
-const data:UsageData={start:'2026-10-01',end:'2026-10-15',timeZone:'Asia/Singapore',samples:2,incomplete:false,totals:{tokens:200,costUsd:3,inputTokens:160,cachedInputTokens:40,outputTokens:40},days:[{date:'2026-10-15',tokens:200,costUsd:3,projects:{a:2,b:1}}],projects:[{id:'a',name:'Alpha',tokens:100,costUsd:2},{id:'b',name:'Beta',tokens:100,costUsd:1}]};
+const data:UsageData={start:'2026-10-01',end:'2026-10-15',timeZone:'Asia/Singapore',samples:2,incomplete:false,totals:{tokens:200,costUsd:3,inputTokens:160,cachedInputTokens:40,outputTokens:40},days:[{date:'2026-10-15',tokens:200,costUsd:3,projects:{a:2,b:1},projectTokens:{a:120,b:80}}],projects:[{id:'a',name:'Alpha',tokens:100,costUsd:2},{id:'b',name:'Beta',tokens:100,costUsd:1}]};
 test('defaults to 30 days, changes range, isolates projects, and exposes exact day values',async()=>{
  const request=vi.fn().mockResolvedValue(data);render(<UsageView request={request}/>);
  await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());
@@ -121,4 +121,22 @@ test('invalid saved Usage ranges fall back to 30 days', async () => {
  const request=vi.fn().mockResolvedValue(data);render(<UsageView request={request}/>);
  await screen.findByRole('table');
  expect(request).toHaveBeenCalledWith({range:'30d',timeZone:expect.any(String)});
+});
+
+test('project tokens share selection and highlight with cost and expose exact values',async()=>{
+ const request=vi.fn().mockResolvedValue(data);const view=render(<UsageView request={request}/>);await screen.findByRole('table');
+ expect(screen.getByRole('heading',{name:'Tokens and cost by project'})).toBeVisible();expect(screen.queryByText(/over time/)).toBeNull();
+ fireEvent.focus(screen.getByRole('button',{name:'Oct 15 project usage'}));expect(screen.getByText(/Alpha: 120 tokens, \$2.00 · Beta: 80 tokens, \$1.00/)).toBeVisible();
+ fireEvent.mouseEnter(screen.getByRole('button',{name:'Alpha'}));
+ expect(screen.getByRole('img',{name:'Daily project token stack: all projects'}).querySelector('[data-project="b"]')).toHaveAttribute('opacity','0.2');
+ fireEvent.click(screen.getByRole('button',{name:'Alpha'}));expect(screen.getByRole('img',{name:'Daily project token stack: Alpha'}).querySelectorAll('polygon')).toHaveLength(1);
+ expect(view.container.querySelectorAll('h3')).not.toHaveLength(0);
+});
+test('weekly chart keeps resets, gaps, and distinct buckets separate, even without token usage',async()=>{
+ const days=Array.from({length:5},(_,i)=>({...data.days[0],date:`2026-10-${11+i}`}));
+ const reading=(date:string,remainingPercent:number,resetsAt=1792000000000,id='codex')=>({id,name:null,date,time:Date.parse(`${date}T00:00:00Z`),remainingPercent,resetsAt});
+ const request=vi.fn().mockResolvedValue({...data,samples:0,days,weeklyLimits:[reading('2026-10-11',80),reading('2026-10-12',70),reading('2026-10-13',100,1792600000000),reading('2026-10-15',90,1792600000000),reading('2026-10-15',50,1792600000000,'other')]});
+ render(<UsageView request={request}/>);const chart=await screen.findByRole('img',{name:'Recorded weekly allowance remaining by day'});
+ expect(chart.querySelectorAll('circle')).toHaveLength(5);expect(chart.querySelectorAll('line:not(.usage-grid)')).toHaveLength(1);
+ expect(chart.querySelector('[aria-label*="80.0% left"]')).not.toBeNull();expect(screen.queryByRole('table')).toBeNull();
 });

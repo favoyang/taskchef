@@ -230,6 +230,7 @@ body { background: var(--taskchef-page); }
 .usage-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .usage-view button:disabled { opacity: .5; cursor: default; }
 .usage-view h2 { font-size: 24px; margin: 4px 0 8px; }
+.usage-view h4 { font-size: 12px; font-weight: 500; margin: 16px 0 4px; color: var(--taskchef-muted); }
 .usage-view h3 { font-size: 14px; margin: 0 0 12px; }
 .usage-view p, .usage-view small { color: var(--taskchef-muted); font-size: 12px; line-height: 1.5; margin: 8px 0; }
 .usage-ranges, .usage-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }

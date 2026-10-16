@@ -367,7 +367,7 @@ a marketplace does not automatically move their installed plugin identity.
 
 ## Usage analytics
 
-![Usage analytics with sample data](images/usage-analytics.jpg)
+![Usage analytics with sample data](images/usage-project-tokens.png)
 
 The Board/Usage selector sits beside the logo in the navbar, separated from
 Board filters by a divider. It opens an on-demand historical usage view. Ranges are
@@ -387,14 +387,28 @@ metadata changes; transient I/O failures retry while retaining healthy sources.
 Rescan explicitly reparses available files and refreshes the inventory, while
 retaining known history for missing sources. Board polling never starts a history scan.
 
-The combined chart uses cost bars on the left axis and a token line on the
-right. Today's cost bars have a lighter fill and dashed borders in both charts;
-the token segment leading into today is dashed too. Finished days, including
-the last day of Last month, stay solid. The project chart uses stacked cost bars for the period's top five
-projects plus Other. Select a legend entry or a Top 10 row to isolate that
-project in the project chart; All projects restores the stack. Hovering or
-focusing a legend entry highlights its bars and dims other project colors. Totals, the
-combined chart, and rankings always describe the full selected period.
+The combined Tokens and cost chart uses cost bars on the left axis and a token
+line on the right. Bars emphasize daily spending; the line shows activity changes.
+Today's cost bars have a lighter fill and dashed borders; token segments leading
+into today are dashed too. Finished days stay solid.
+Tokens and cost by project shows stacked cost bars followed by a stacked token
+area chart. Both use the period's top five projects by estimated cost plus Other,
+with matching colors. Select a legend entry or a Top 10 row to isolate that
+project in both charts; All projects restores the stacks. Hovering or focusing
+a legend entry highlights that project in both charts. Hover or focus a day in
+the token chart to inspect exact project tokens and cost. Totals, the combined
+chart, and rankings always describe the full selected period.
+
+Weekly limits shows recorded account allowance remaining, independent of project
+selection, using the last observation of each local day for each limit bucket.
+It reads seven-day primary or secondary windows from local rollout token-count
+events, including events without token counters. These observations describe
+account limits, not project limits or live current availability. Lines stop at
+missing dates and between different reset periods. Each point includes its
+recorded time and reset time. With no readings in the selected period the chart
+shows an explicit empty state. Root-chat CLI/exec visibility still controls which
+logs supply observations. Existing parsing caches rebuild once to collect these
+readings; unchanged sources retain the same incremental cache behavior.
 
 Archived chats and descendant usage are included. CLI/exec visibility settings
 still apply to root chats. Descendants are counted once under their root chat's

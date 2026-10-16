@@ -342,3 +342,16 @@ test('restart and a new turn reuse unchanged files even when another source fail
  await restarted.read(options);assert.deepEqual(reads,[old]);
  reads.length=0;await restarted.read({...options,rescan:true});assert.deepEqual(new Set(reads),new Set([old,current]));
 });
+
+test('weekly allowance observations survive restart and token-free notifications without changing usage',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-weekly-'));t.after(()=>rm(home,{recursive:true,force:true}));await mkdir(join(home,'sessions'));
+ const path=join(home,'sessions','rollout-date-parent.jsonl'),cacheDir=join(home,'cache');
+ const line=(type,payload)=>JSON.stringify({timestamp:'2026-10-10T00:00:00Z',type,payload})+'\n';
+ const limits=(used,minutes=10080)=>({limit_id:'codex',primary:{used_percent:used,window_minutes:minutes,resets_at:1792000000}});
+ await writeFile(path,line('session_meta',{id:'parent'})+line('event_msg',{type:'token_count',rate_limits:limits(25)})+line('event_msg',{type:'token_count',rate_limits:limits(99,300)})+line('event_msg',{type:'token_count',rate_limits:limits(-2)})+line('event_msg',{type:'token_count',info:{total_token_usage:tokens(100),last_token_usage:tokens(100)},rate_limits:limits(30)}));
+ const config={codexHome:home,cacheDir,pricing:{get:async()=>({date:'2026-10-10',models})}};
+ const options={id:'parent',latestTurnId:'a',sessions:[{id:'parent',rollout_path:path}]};
+ const first=await new CodexSessionUsage(config).read(options);assert.deepEqual(first.weeklyLimits.map(row=>row.remainingPercent),[75,70]);assert.equal(first.total.tokens.total_tokens,110);
+ const reader=new CodexSessionUsage(config);reader.readFile=()=>{throw new Error('unchanged source must reuse disk cache');};
+ const cached=await reader.read(options);assert.deepEqual(cached.weeklyLimits,first.weeklyLimits);
+});

@@ -38,3 +38,17 @@ test('Last month selects the full previous local calendar month across a year bo
  const march=aggregateUsage([family('a',[sample('2024-02-29T15:59:59Z'),sample('2024-02-29T16:00:00Z')])],{range:'last-month',timeZone:'Asia/Singapore',now:Date.parse('2024-03-15T00:00:00Z')});
  assert.equal(march.start,'2024-02-01');assert.equal(march.end,'2024-02-29');assert.equal(march.days.length,29);assert.equal(march.samples,1);
 });
+
+test('project token stacks keep exact daily totals independent of estimated cost',()=>{
+ const result=aggregateUsage([family('a',[sample('2026-10-15T00:00:00Z',0,150)]),family('b',[sample('2026-10-15T01:00:00Z',10,25)]),family('a',[sample('2026-10-15T02:00:00Z',2,50)])],{range:'7d',timeZone:'UTC',now:Date.parse('2026-10-15T12:00:00Z')});
+ assert.deepEqual(result.days.at(-1).projectTokens,{a:200,b:25});
+ assert.equal(Object.values(result.days.at(-1).projectTokens).reduce((a,b)=>a+b,0),result.totals.tokens);
+});
+test('weekly readings use latest local-day observations per bucket without summing chats',()=>{
+ const a=family('a',[]),b=family('b',[]);
+ const reading=(time,remainingPercent,id='codex')=>({id,name:null,time:Date.parse(time),remainingPercent,resetsAt:Date.parse('2026-10-20T00:00:00Z')});
+ a.usage.weeklyLimits=[reading('2026-10-14T16:00:00Z',80),reading('2026-10-15T01:00:00Z',70),reading('2026-10-15T03:00:00Z',60),reading('2026-09-01T00:00:00Z',95)];
+ b.usage.weeklyLimits=[reading('2026-10-15T01:00:00Z',70),reading('2026-10-15T00:00:00Z',90,'other'),reading('2026-10-15T01:00:00Z',NaN)];
+ const result=aggregateUsage([a,b],{range:'7d',timeZone:'Asia/Singapore',now:Date.parse('2026-10-15T02:00:00Z')});
+ assert.deepEqual(result.weeklyLimits.map(row=>[row.id,row.date,row.remainingPercent]),[['other','2026-10-15',90],['codex','2026-10-15',70]]);
+});
