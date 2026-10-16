@@ -10,6 +10,61 @@ The storage diagram groups tables inside their database files. The separate exam
 
 ![Current reply lookup after a revert](diagrams/taskchef-next-reply-lookup.drawio.png)
 
+## Native state directory and migration
+
+TaskChef and TaskChef Dev share `~/.agents/taskchef/` for settings, Done marks,
+GitHub state, notifications, delegation memory and caches. The Dev plugin keeps
+its separate `taskchef-next` identity. Storage naming does not change plugin
+registration or merge the released and Dev installations.
+
+Before migration, upgraded packages can still use an existing native
+`~/.agents/taskchef-next/` directory. They never treat retired dispatcher files
+at `~/.agents/taskchef/` as native state. Two independent native directories,
+unexpected links, or an unfinished migration lock stop startup with an error.
+The runtime does not move user data automatically.
+
+To migrate on macOS or Linux with `lsof` available:
+
+1. Install the compatible released and Dev packages first. Retain the existing
+   published release until the normal release workflow produces the new one.
+2. Resolve any saved Codex project whose root is `~/.agents/taskchef` through
+   Codex's project controls. Point the retired project at its archive destination
+   or remove the obsolete root while preserving its chats. Do not edit Codex
+   databases. Otherwise that project would point at native state after the move.
+3. Quit Codex and all other TaskChef clients. Stop any old dashboard using the
+   retired directory through its normal controls. From an external terminal,
+   run the following inside the updated TaskChef package:
+
+   ```sh
+   node scripts/migrate-taskchef-state.js
+   ```
+
+4. Restart Codex and verify settings, Done marks, GitHub connection,
+   notifications and usage. Confirm both TaskChef plugins remain enabled.
+
+The command first refuses active TaskChef MCP processes and any process with
+its working directory in the stores. If process inspection fails, it stops.
+It moves the retired dispatcher directory intact to `~/.agents/taskchef-old`.
+An existing archive is never overwritten or merged with a retired dispatcher.
+The obsolete `~/.codex/taskchef` registry moves separately to
+`~/.agents/taskchef-old/codex-registry`; registry collisions or unknown top-level
+entries stop the move. Active Codex databases, sessions and chat history are
+outside this command's scope.
+
+The full native directory then moves to `~/.agents/taskchef`, retaining file
+contents and permissions, including historical usage counters. A relative
+`taskchef-next -> taskchef` compatibility link lets older installed packages
+reach the same files. It is not a second state store. Keep the link while any
+older package or skill still refers to it. Current packages resolve the canonical
+path after migration; current delegation instructions use that path too.
+
+Repeating the command accepts a completed move or resumes after an individual
+rename. It never merges two native directories or deletes history. An interrupted
+process can leave `~/.agents/.taskchef-storage-migration`: inspect the directory
+layout, confirm no migration or writer is running, then remove only that empty
+lock directory with `rmdir` before retrying. Compare inventories before and after
+migration; keep the archive for historical reference.
+
 ## One chat, two possible IDs
 
 Suppose chat **C** has a turn **T**:

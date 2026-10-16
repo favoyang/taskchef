@@ -31,7 +31,8 @@
     "docs/diagrams/taskchef-next-storage.drawio",
     "docs/diagrams/taskchef-next-storage.drawio.png",
     "docs/diagrams/taskchef-next-reply-lookup.drawio",
-    "docs/diagrams/taskchef-next-reply-lookup.drawio.png"
+    "docs/diagrams/taskchef-next-reply-lookup.drawio.png",
+    "scripts/migrate-taskchef-state.js"
   ],
   "engines": {
     "node": "^22.18.0 || >=23.2.0"
