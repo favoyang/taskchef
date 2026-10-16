@@ -6,7 +6,7 @@ import type { Task } from "../../ui/types";
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 const month = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const task = (id: string): Task => ({ id, title: `Chat ${id}`, project: { id: 'project', name: 'Project', path: '/repo', githubRepos: [] }, status: 'needs_input', instruction: '', createdAt: '', updatedAt: '', summary: '', threadId: null, turnRef: null, turnId: null, lastResult: null, latestTurn: null });
-function data(count = 1): CalendarData { return { month: month(), timeZone: 'UTC', chats: Array.from({ length: count }, (_, i) => ({ id: String(i), incomplete: false, segments: [{ start: `${month()}-05`, end: `${month()}-06`, resumed: false }, { start: `${month()}-26`, end: `${month()}-27`, resumed: true }] })) }; }
+function data(count = 1): CalendarData { return { month: month(), timeZone: 'UTC', chats: Array.from({ length: count }, (_, i) => ({ id: String(i), incomplete: false, segments: [{ start: `${month()}-05`, end: `${month()}-05`, resumed: false }, { start: `${month()}-26`, end: `${month()}-26`, resumed: true }] })) }; }
 test('paused and resumed segments open the same chat; navigation has no Today control', async () => {
   const onOpenDetail = vi.fn(), request = vi.fn(async () => data());
   render(<CalendarView request={request} tasks={[task('0')]} refreshKey="1" onOpenDetail={onOpenDetail} />);

@@ -687,7 +687,7 @@ test("Calendar replaces the update window and opens matching chat details", asyn
   details = new Map(tasks.map(item => [item.id, item]));
   const base = server.call.getMockImplementation()!;
   server.call.mockImplementation(input => {
-    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-06`, resumed: true }] }] } });
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: true }] }] } });
     return base(input);
   });
   mount();
