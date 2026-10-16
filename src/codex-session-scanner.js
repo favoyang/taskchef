@@ -1,3 +1,4 @@
+import { aggregateUsage } from "./usage-analytics.js";
 import { openRollout, rolloutChunks } from "./codex-rollout.js";
 import { createHash } from "node:crypto";
 import { normalizeUri } from "micromark-util-sanitize-uri";
@@ -239,9 +240,10 @@ function readDatabaseRecords(state, history) {
       FROM thread_turns WHERE thread_id = ? ORDER BY rollout_ordinal DESC LIMIT 1`);
     const turns = new Map();
     const needsAnswers = new Map();
-    const rows = state.prepare(`SELECT id, name, title, cwd, archived, ${hasPinned ? "is_pinned" : "0 AS is_pinned"}, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode, project_id,
+    const allRows = state.prepare(`SELECT id, name, title, cwd, archived, ${hasPinned ? "is_pinned" : "0 AS is_pinned"}, source, created_at_ms, updated_at_ms, recency_at_ms, rollout_path, history_mode, project_id,
       (SELECT count(*) FROM thread_spawn_edges WHERE parent_thread_id = threads.id) AS child_count
-      FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all().filter((row) => {
+      FROM threads WHERE ${eligible} ORDER BY recency_at_ms DESC`).all();
+    const rows = allRows.filter((row) => {
       const key = historyId(row);
       const turn = latestTurn.get(key);
       if (!turn) return false;
@@ -285,7 +287,7 @@ function readDatabaseRecords(state, history) {
         attachments.set(row.thread_id, urls);
       }
     }
-    return { rows, turns, inputs, replies, projects, attachments, turnAttachments, needsAnswers };
+    return { rows, allRows, turns, inputs, replies, projects, attachments, turnAttachments, needsAnswers };
 }
 
 function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleErrors, cacheHit) {
@@ -649,6 +651,39 @@ export class CodexSessionScanner {
     ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(id);
     return this.sessionUsage.read({ id, latestTurnId: task.turnId, sessions, savedDurations });
   }
+  async usageAnalytics({ range, timeZone, settings }) {
+    return aggregateUsage(await this.usageHistory({ settings }), { range, timeZone, now: this.now() });
+  }
+  async usageHistory({ settings, onProgress = () => {}, rescan = false }) {
+    if (rescan) this.sessionUsage.inventoryAt = -Infinity;
+    const snapshot = await this.refresh();
+    if (!snapshot.healthy) throw new Error(snapshot.scan.error);
+    const records = this.databaseCache.records;
+    // Analytics inventories every root, even if its latest turn is absent from
+    // the board's history database. Its rollout can still hold valid usage.
+    const grouped = await this.projectCatalog.group(records.allRows.map(row => ({
+      id: row.id, turnId: records.turns.get(historyId(row))?.turn_id ?? null,
+      project: { id: row.project_id, path: row.cwd || "", githubRepos: [] }, observed: { source: row.source },
+    })), records.projects);
+    const families = [];
+    const seen = new Set();
+    // History includes archived chats. CLI/exec preferences still apply.
+    const tasks = grouped.tasks.filter(task => (settings.showCli || task.observed?.source !== "cli") && (settings.showExec || task.observed?.source !== "exec"));
+    let completed = 0;
+    onProgress({ completed, total: tasks.length });
+    for (const task of tasks) {
+      const sessions = this.connections.state.prepare(`WITH RECURSIVE family(id) AS (
+        SELECT ? UNION SELECT child_thread_id FROM thread_spawn_edges JOIN family ON parent_thread_id = family.id
+      ) SELECT id, rollout_path FROM threads WHERE id IN (SELECT id FROM family)`).all(task.id).filter(row => !seen.has(row.id));
+      if (sessions.length) {
+        sessions.forEach(row => seen.add(row.id));
+        const usage = await this.sessionUsage.read({ id: task.id, latestTurnId: task.turnId, sessions, rescan });
+        families.push({ project: task.project, usage });
+      }
+      onProgress({ completed: ++completed, total: tasks.length });
+    }
+    return families;
+  }
   recordedUsage(id, turnId) {
     const result = (this.recordedPending ?? Promise.resolve()).then(() => this.readRecordedUsage(id, turnId));
     this.recordedPending = result.catch(() => {});
@@ -711,7 +746,7 @@ export class CodexSessionScanner {
     let detail = { ...task, ...records.latestContent.get(id), detailPullRequests, observed: { ...task.observed,
       recordedChatDurationMs: durations.total ?? 0, missingTurnDurations: durations.missing ?? 0 } };
     try {
-      const sessionUsage = await this.taskUsage(id, durations.saved);
+      const { timeline: _timeline, analyticsPartial: _analyticsPartial, ...sessionUsage } = await this.taskUsage(id, durations.saved);
       detail = { ...detail, sessionUsage, observed: { ...detail.observed,
         ...(sessionUsage.durationTurns ? { recordedChatDurationMs: Math.max(durations.total ?? 0, sessionUsage.durationMs) } : {}),
         historicalTimePartial: sessionUsage.partial || !sessionUsage.durationTurns } };

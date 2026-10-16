@@ -1154,3 +1154,34 @@ test('optional log samples survive compression, stale selected paths, and restor
     assert.equal((await scanner.taskDetail(id)).observed.assistantMessages, 2);
   }
 });
+
+test('usage history includes archived families once, obeys source settings, and attributes children to the parent project', async t => {
+ const setup=await fixture(t);if(!setup)return;
+ const {home,state,history}=setup;
+ for(const [key,source,threadSource,archived] of [['root','vscode','user',1],['child','vscode','subagent',0],['cli','cli','user',0]]) {
+  state.prepare("INSERT INTO threads(id,title,cwd,source,thread_source,archived,created_at_ms,updated_at_ms) VALUES(?,?,'/repo',?,?,?,1,1)").run(key,key,source,threadSource,archived);
+  history.prepare("INSERT INTO thread_turns(thread_id,rollout_ordinal,status) VALUES(?,1,'completed')").run(key);
+ }
+ state.prepare("INSERT INTO thread_spawn_edges(parent_thread_id,child_thread_id) VALUES('root','child')").run();
+ const scanner=new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json'),now:()=>Date.parse('2026-10-15T12:00:00Z')});t.after(()=>scanner.close());
+ const calls=[];scanner.sessionUsage.read=async({sessions})=>{calls.push(sessions.map(s=>s.id));return{total:{partial:false,costPartial:false},timeline:sessions.map(()=>({time:Date.parse('2026-10-15T00:00:00Z'),tokens:{total_tokens:100,input_tokens:80,cached_input_tokens:0,output_tokens:20},costUsd:1,samples:1,partial:false,costPartial:false}))};};
+ const result=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli:false,showExec:false}});
+ assert.equal(result.totals.costUsd,2);assert.equal(result.projects.length,1);assert.equal(result.projects[0].name,'Unassigned');assert.deepEqual(calls,[['child','root']]);
+ const all=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli:true,showExec:true}});assert.equal(all.totals.costUsd,3);
+});
+
+test('usage includes rollout-backed roots without a history turn and resolves their project',async t=>{
+ const setup=await fixture(t);if(!setup)return;
+ const {home,state}=setup;const path=join(home,'no-turn.jsonl');
+ state.prepare("INSERT INTO projects(id,name,position) VALUES('p','Historical project',0)").run();
+ state.prepare("INSERT INTO threads(id,title,cwd,source,thread_source,archived,created_at_ms,updated_at_ms,project_id,rollout_path) VALUES('no-turn','Old chat','/repo','vscode','user',1,1,1,'p',?)").run(path);
+ const tokens={input_tokens:100,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:10,reasoning_output_tokens:0,total_tokens:110};
+ const row=(type,payload)=>JSON.stringify({timestamp:'2026-10-15T00:00:00Z',type,payload})+'\n';
+ await writeFile(path,row('session_meta',{id:'no-turn'})+row('turn_context',{turn_id:'old',model:'gpt-6.1-sol'})+row('event_msg',{type:'token_count',info:{total_token_usage:tokens,last_token_usage:tokens}}));
+ const scanner=new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json'),now:()=>Date.parse('2026-10-15T12:00:00Z')});t.after(()=>scanner.close());
+ const pricing=JSON.parse(await readFile(new URL('../src/data/codex-pricing.json',import.meta.url),'utf8'));
+ scanner.sessionUsage.pricing={get:async()=>pricing};
+ assert.equal((await scanner.refresh()).tasks.length,0);
+ const result=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli:false,showExec:false}});
+ assert.equal(result.totals.tokens,110);assert.equal(result.projects[0].name,'Historical project');assert.equal(result.incomplete,false);
+});

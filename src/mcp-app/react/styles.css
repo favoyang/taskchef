@@ -15,7 +15,7 @@
 html, body, #root { min-width: 0; min-height: 100%; }
 body { background: var(--taskchef-page); }
 .taskchef-app-shell { min-height: 100vh; background: var(--taskchef-page); }
-.taskchef-app-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand filters actions"; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
+.taskchef-app-header { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "brand view filters actions"; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--taskchef-border); }
 .taskchef-app-brand { grid-area: brand; }
 .taskchef-app-actions { grid-area: actions; }
 .taskchef-app-header h1 { color: var(--taskchef-text); font-size: 14px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
@@ -26,14 +26,18 @@ body { background: var(--taskchef-page); }
 .taskchef-app-main-list { max-width: 624px; margin-inline: auto; }
 .taskchef-app-main .taskchef-toolbar { margin-bottom: 8px; padding-bottom: 10px; }
 .taskchef-app-main .mantine-SegmentedControl-root { max-width: 100%; }
-.taskchef-app-view { width: max-content; }
-.taskchef-app-filters { grid-area: filters; min-width: 0; width: min(100%, 680px); }
+.taskchef-app-view { grid-area: view; width: max-content; }
+.taskchef-app-filters { grid-area: filters; border-inline-start: 1px solid var(--taskchef-border); padding-inline-start: 12px; min-width: 0; width: min(100%, 680px); }
 .taskchef-app-filters .mantine-InputWrapper-root { flex: 1 1 100px; min-width: 100px; }
 .taskchef-app-pinned { flex: 0 0 auto; white-space: nowrap; }
 .taskchef-app-filters .taskchef-app-date { flex: 0 0 132px; }
-@media (max-width: 650px) {
-  .taskchef-app-header { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand actions" "filters filters"; gap: 8px; }
-  .taskchef-app-filters { width: 100%; }
+@media (max-width: 1000px) {
+  .taskchef-app-header { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand view actions" "filters filters filters"; gap: 8px; }
+  .taskchef-app-filters { width: 100%; border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--taskchef-border); padding-top: 8px; }
+}
+@media (max-width: 500px) {
+  .taskchef-app-header { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "brand view" "actions actions" "filters filters"; }
+  .taskchef-app-actions { justify-self: end; }
 }
 .taskchef-app-status { max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
 .taskchef-app-status .mantine-SegmentedControl-root { width: max-content; min-width: max-content; }
@@ -107,7 +111,7 @@ body { background: var(--taskchef-page); }
 .taskchef-reply-cover { background: var(--taskchef-page); }
 
 @media (max-width: 380px) {
-  .taskchef-app-header { grid-template-areas: "brand brand" "actions actions" "filters filters"; }
+  .taskchef-app-header { grid-template-areas: "brand view" "actions actions" "filters filters"; }
   .taskchef-app-inline .taskchef-app-header { grid-template-areas: "brand brand" "actions actions"; }
   .taskchef-app-actions { justify-self: end; }
 }
@@ -221,3 +225,46 @@ body { background: var(--taskchef-page); }
 .taskchef-turn-error-compact { gap: 6px; margin-top: 8px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: var(--mantine-font-size-xs); }
 
 .taskchef-turn-error-compact > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+.usage-view { max-width: 1100px; margin: 0 auto; color: var(--taskchef-text); }
+.usage-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.usage-view button:disabled { opacity: .5; cursor: default; }
+.usage-view h2 { font-size: 24px; margin: 4px 0 8px; }
+.usage-view h3 { font-size: 14px; margin: 0 0 12px; }
+.usage-view p, .usage-view small { color: var(--taskchef-muted); font-size: 12px; line-height: 1.5; margin: 8px 0; }
+.usage-ranges, .usage-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
+.usage-view button { font: inherit; font-size: 12px; color: var(--taskchef-text); background: transparent; border: 1px solid var(--taskchef-border); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.usage-view button:hover, .usage-view button[aria-pressed="true"] { background: var(--taskchef-hover); border-color: var(--taskchef-muted); }
+.usage-view button:focus-visible, .usage-chart g:focus-visible { outline: 2px solid var(--taskchef-focus); outline-offset: 2px; }
+.usage-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.usage-totals article, .usage-panel { padding: 18px; border: 1px solid var(--taskchef-border); border-radius: 10px; background: var(--taskchef-surface); min-width: 0; }
+.usage-totals strong { font-size: 28px; font-weight: 600; }
+.usage-panel { margin: 16px 0; }
+.usage-legend { font-size: 12px; gap: 12px; }
+.usage-legend span, .usage-legend button { display: inline-flex; align-items: center; gap: 6px; }
+.usage-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.usage-legend button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.usage-token-key, .usage-chart .usage-token-axis { color: light-dark(#a54d2e, #efb18b); fill: light-dark(#a54d2e, #efb18b); }
+.usage-token-line { stroke: light-dark(#a54d2e, #efb18b); stroke-width: 2.5; fill: none; pointer-events: none; }
+.usage-token-dot { fill: light-dark(#a54d2e, #efb18b); pointer-events: none; }
+.usage-chart-scroll { overflow-x: auto; }
+.usage-chart { width: 100%; min-width: 500px; display: block; font: 11px var(--taskchef-font, sans-serif); fill: var(--taskchef-muted); }
+.usage-grid { stroke: var(--taskchef-border); }
+.usage-chart-detail { min-height: 18px; }
+.usage-ranking { overflow-x: auto; }
+.usage-ranking table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.usage-ranking th, .usage-ranking td { padding: 6px; text-align: right; font-weight: normal; }
+.usage-ranking th:first-child { width: 70%; text-align: left; }
+.usage-ranking td { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.usage-ranking thead { color: var(--taskchef-muted); }
+.usage-ranking button { width: 100%; display: flex; align-items: center; gap: 12px; border-color: transparent; text-align: left; }
+.usage-ranking button > span:first-child { width: 45%; overflow-wrap: anywhere; }
+.usage-rank-track { flex: 1; height: 8px; border-radius: 2px; background: var(--taskchef-border); overflow: hidden; }
+.usage-rank-track > span { display: block; height: 100%; }
+.usage-warning { padding: 10px; border: 1px solid var(--taskchef-border); border-radius: 6px; }
+@media (max-width: 500px) { .usage-totals { grid-template-columns: 1fr; gap: 10px; } .usage-panel { padding: 12px; } .usage-rank-track { display: none; } .usage-ranking button > span:first-child { width: 100%; } }
+
+.usage-progress { margin: 16px 0; }
+.usage-progress progress { display: block; width: 100%; height: 6px; accent-color: var(--taskchef-accent); }
+.usage-chart [data-project] { transition: opacity 120ms ease; }
+@media (prefers-reduced-motion: reduce) { .usage-chart [data-project] { transition: none; } }

@@ -19,7 +19,9 @@ test("catalog update preserves metadata, is idempotent, and rejects invalid vers
   const root = await mkdtemp(path.join(os.tmpdir(), "taskchef-catalog-"));
   try {
     const file = path.join(root, "marketplace.json");
-    await writeFile(file, JSON.stringify(catalog));
+    const fixture = structuredClone(catalog);
+    fixture.plugins[0].source.version = "0.0.0";
+    await writeFile(file, JSON.stringify(fixture));
     assert.equal((await updatePluginMarketplaceFile(file, "9.3.0")).changed, true);
     const updated = JSON.parse(await readFile(file, "utf8"));
     assert.equal(updated.plugins[0].source.version, "9.3.0");

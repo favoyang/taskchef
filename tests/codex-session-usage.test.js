@@ -121,11 +121,12 @@ test('disk cache survives restart and invalidates on a new turn, log update, or 
  const first=create();const original=await first.read(options);
  const restarted=create();let parses=0;const read=restarted.readFile.bind(restarted);restarted.readFile=(...args)=>{parses++;return read(...args);};
  assert.deepEqual(await restarted.read(options),original);assert.equal(parses,0);
- assert.equal((await restarted.read({...options,latestTurnId:'b'})).latest.samples,0);assert.equal(parses,1);
+ assert.equal((await restarted.read({...options,latestTurnId:'b'})).latest.samples,0);assert.equal(parses,0);
  await appendFile(path,line('turn_context',{turn_id:'b',model:'gpt-6.1-sol'})+count(tokens(200,20),tokens(100)));
- assert.equal((await restarted.read({...options,latestTurnId:'b'})).latest.tokens.total_tokens,110);assert.equal(parses,2);
+ assert.equal((await restarted.read({...options,latestTurnId:'b'})).latest.tokens.total_tokens,110);assert.equal(parses,1);
  prices={...prices,date:'2026-10-11'};
- await restarted.read({...options,latestTurnId:'b'});assert.equal(parses,3);
+ await restarted.read({...options,latestTurnId:'b'});assert.equal(parses,1);
+ await restarted.read({...options,latestTurnId:'b',rescan:true});assert.equal(parses,2);
  // A damaged cache must be rebuilt instead of becoming a fatal board error.
  for(const name of await (await import('node:fs/promises')).readdir(join(home,'cache')))await writeFile(join(home,'cache',name),'invalid');
  assert.equal((await create().read({...options,latestTurnId:'b'})).latest.tokens.total_tokens,110);
@@ -292,4 +293,52 @@ test('legacy compressed cache source names become the same logical source after 
  assert.equal(restored.total.partial, false);
  assert.equal(restored.latest.partial, false);
  assert.equal(restored.partial, false);
+});
+
+test('timeline dates calls rather than assigning cumulative gaps to their observation day', () => {
+ const s=summarizeRecords([record(1,'a',tokens(100),tokens(100)),record(2,'b',tokens(400,30),tokens(100)),record(3,'c',tokens(500,40),tokens(100))],'c',models);
+ assert.equal(s.total.tokens.total_tokens,540);
+ assert.deepEqual(s.timeline.map(item=>[item.time,item.tokens.total_tokens,item.partial]),[[1,110,false],[2,110,true],[3,110,false]]);
+});
+test('timeline deduplicates repeated counters, retains reset calls, and flags unpriced calls', () => {
+ const a=record(1,'a',tokens(100),tokens(100));
+ const s=summarizeRecords([a,a,{...a,time:2},record(3,'b',tokens(50),tokens(20),{model:'unknown-model'})],'b',models);
+ assert.equal(s.timeline.length,2);assert.equal(s.timeline[1].tokens.total_tokens,30);
+ assert.equal(s.timeline[1].costUsd,0);assert.equal(s.timeline[1].costPartial,true);
+});
+
+test('malformed timestamps in root or child histories make analytics coverage incomplete',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'taskchef-usage-dates-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const reader=new CodexSessionUsage({codexHome:home,pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const sessions=[];
+ for(const id of ['parent','child']) {
+  const path=join(home,`${id}.jsonl`);sessions.push({id,rollout_path:path});
+  const line=(timestamp,type,payload)=>JSON.stringify({timestamp,type,payload})+'\n';
+  await writeFile(path,line('2026-10-10T00:00:00Z','session_meta',{id})+line('2026-10-10T00:00:00Z','turn_context',{model:'gpt-6.1-sol',turn_id:'a'})+line('2026-10-10T00:00:00Z','event_msg',{type:'token_count',info:{total_token_usage:tokens(100),last_token_usage:tokens(100)}})+(id==='child'?line('not-a-date','event_msg',{type:'token_count',info:{total_token_usage:tokens(200),last_token_usage:tokens(100)}}):''));
+ }
+ const result=await reader.read({id:'parent',latestTurnId:'a',sessions});
+ assert.equal(result.total.partial,false);assert.equal(result.analyticsPartial,true);assert.equal(result.timeline.length,2);
+});
+
+test('restart and a new turn reuse unchanged files even when another source failed; Rescan rebuilds them', async t => {
+ const home=await mkdtemp(join(tmpdir(),'taskchef-file-cache-'));t.after(()=>rm(home,{recursive:true,force:true}));await mkdir(join(home,'sessions'));
+ const id='12345678-abcd-1234-abcd-123456789abc';
+ const old=join(home,'sessions',`rollout-old-${id}.jsonl`),current=join(home,'sessions',`rollout-current-${id}.jsonl`);
+ const content=(turn,input)=>[
+  {type:'session_meta',payload:{id}},
+  {type:'turn_context',payload:{turn_id:turn,model:'gpt-6.1-sol'}},
+  {type:'event_msg',payload:{type:'token_count',info:{total_token_usage:tokens(input),last_token_usage:tokens(input)}}},
+ ].map(row=>JSON.stringify({timestamp:turn==='old'?'2026-09-01T00:00:00Z':'2026-10-16T00:00:00Z',...row})+'\n').join('');
+ await writeFile(old,content('old',100));await writeFile(current,content('new',200));
+ const options={id,latestTurnId:'new',sessions:[{id,rollout_path:current}]};
+ const create=()=>new CodexSessionUsage({codexHome:home,cacheDir:join(home,'cache'),pricing:{get:async()=>({date:'2026-10-10',models})}});
+ const first=create(),read=first.readFile.bind(first);
+ first.readFile=(path,...args)=>{if(path===current)throw new Error('temporary EIO');return read(path,...args);};
+ await first.read(options);
+ const restarted=create(),reads=[];const parse=restarted.readFile.bind(restarted);restarted.readFile=(path,...args)=>{reads.push(path);return parse(path,...args);};
+ await restarted.read({...options,latestTurnId:'next'});assert.deepEqual(reads,[current]);
+ // An old date never makes a changed file immutable.
+ await writeFile(old,content('old',300));reads.length=0;
+ await restarted.read(options);assert.deepEqual(reads,[old]);
+ reads.length=0;await restarted.read({...options,rescan:true});assert.deepEqual(new Set(reads),new Set([old,current]));
 });
