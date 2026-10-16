@@ -408,3 +408,29 @@ Cost is an estimate at current API-equivalent rates, not subscription billing
 or remaining allowance. The first read shows a progress bar with the actual number of root chats
 processed and polls an app-only tool. Cached charts stay visible during later
 refreshes, with their last-update time and scan progress.
+
+## Month calendar
+
+Calendar sits beside Board and Usage. It opens on the current local month;
+previous/next arrows surround the month title. There is no Today control.
+Project, Search Chats, Pinned, and native visibility settings apply. The Board's
+Updated filter does not apply to Calendar.
+
+Each chat's recorded turn intervals become calendar dates in the viewer's
+timezone. Adjacent dates merge into one bar. One full idle date breaks the bar,
+including weekends; a later segment has a resumed marker and opens the same
+chat Details. Continuous work across a week boundary uses continuation arrows.
+An exact midnight end does not occupy the following date. A current running
+turn extends to now; completed turns do not extend through idle review waits.
+Project colors stay consistent when navigating or filtering. Crowded weeks show
+three bar rows and a control to expand the remaining chats. Narrow views scroll
+horizontally to retain seven readable day columns.
+
+The calendar reads all turn timing rows for each eligible chat's selected
+SQLite history, cached until the databases change. It does not scan usage,
+modify Codex records, or create editable start/end dates. Earlier histories
+replaced by a rewind may be absent. Missing start timestamps are omitted;
+missing durations show only a known start date. The view discloses these
+coverage limits rather than treating missing data as confirmed idle time.
+
+![Month calendar with paused and resumed sample chats](images/calendar-month.png)

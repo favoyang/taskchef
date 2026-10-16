@@ -681,3 +681,19 @@ test("Usage opens on demand and returns to Board without keeping its filters vis
   fireEvent.click(screen.getByRole("radio",{name:"Board"}));
   expect(screen.getByRole("region",{name:"Task board"})).toBeVisible();
 });
+
+test("Calendar replaces the update window and opens matching chat details", async () => {
+  tasks = [task('one', 'needs_input', '2020-01-01T00:00:00Z')];
+  details = new Map(tasks.map(item => [item.id, item]));
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-06`, resumed: true }] }] } });
+    return base(input);
+  });
+  mount();
+  await screen.findByRole('radio', { name: 'Calendar' });
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(screen.queryByLabelText('Updated')).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: /Example · Task one/ }));
+  expect(await screen.findByRole('heading', { name: 'Task one' })).toBeInTheDocument();
+});

@@ -268,3 +268,27 @@ body { background: var(--taskchef-page); }
 .usage-progress progress { display: block; width: 100%; height: 6px; accent-color: var(--taskchef-accent); }
 .usage-chart [data-project] { transition: opacity 120ms ease; }
 @media (prefers-reduced-motion: reduce) { .usage-chart [data-project] { transition: none; } }
+
+.calendar-view { padding: 16px; color: var(--mantine-color-text); }
+.calendar-navigation { display: flex; justify-content: center; align-items: center; gap: 14px; }
+.calendar-navigation h2 { margin: 0; font-size: 1.15rem; min-width: 170px; text-align: center; }
+.calendar-navigation button { font-size: 26px; padding: 0 12px; }
+.calendar-view button { color: inherit; cursor: pointer; background: transparent; border: 1px solid var(--mantine-color-default-border); border-radius: 5px; }
+.calendar-view button:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
+.calendar-caption { font-size: 12px; color: var(--mantine-color-dimmed); margin: 8px 0; }
+.calendar-scroll { overflow-x: auto; border: 1px solid var(--mantine-color-default-border); border-radius: 6px; margin-top: 14px; }
+.calendar-month { min-width: 700px; }
+.calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--mantine-color-default); font-size: 12px; font-weight: 600; }
+.calendar-weekdays > div { padding: 10px; }
+.calendar-week { border-top: 1px solid var(--mantine-color-default-border); }
+.calendar-week-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); position: relative; padding-bottom: 8px; row-gap: 4px; }
+.calendar-day-backgrounds { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); pointer-events: none; }
+.calendar-day-backgrounds > div + div { border-left: 1px solid var(--mantine-color-default-border); }
+.calendar-weekend { background: color-mix(in srgb, var(--mantine-color-dimmed) 5%, transparent); }
+.calendar-day { position: relative; padding: 5px 9px; font-size: 12px; }
+.calendar-outside { opacity: .45; }
+.calendar-today time { border-bottom: 2px solid var(--mantine-primary-color-filled); font-weight: 700; }
+.calendar-view .calendar-bar { position: relative; margin: 0 4px; padding: 3px 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; font: inherit; font-size: 12px; border-left-width: 3px; }
+.calendar-view .calendar-bar:hover { filter: brightness(1.15); }
+.calendar-view .calendar-more { margin: 3px 8px 8px; padding: 3px 8px; font-size: 12px; }
+@media (max-width: 600px) { .calendar-view { padding: 10px; } }
