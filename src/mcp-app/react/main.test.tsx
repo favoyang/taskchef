@@ -725,3 +725,34 @@ test('Calendar scheduled toggle starts on, includes running schedules, and never
   fireEvent.click(screen.getByRole('button', { name: 'Scheduled chats' }));
   expect(await screen.findByRole('button', { name: 'Task one' })).toBeInTheDocument();
 });
+
+test('Calendar skips unchanged polls and rereads on data changes, explicit refresh, and date rollover', async () => {
+  const interval = vi.spyOn(window, 'setInterval');
+  let revision = 1, cacheHit = true;
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_snapshot') return Promise.resolve({ structuredContent: { snapshot: { tasks, projects: [], healthy: true, revision, scan: { cacheHit } }, settings: visibility } });
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: [{ id: 'one', incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: false }] }] } });
+    return base(input);
+  });
+  const calendarReads = () => server.call.mock.calls.filter(([input]) => input.name === 'taskchef_app_calendar').length;
+  mount();
+  await screen.findByRole('button', { name: 'Task one' });
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  await screen.findByRole('button', { name: 'Example · Task one' });
+  expect(calendarReads()).toBe(1);
+  const poll = interval.mock.calls.find(([, delay]) => delay === 5000)![0] as () => void;
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(1);
+  cacheHit = false;
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(2);
+  cacheHit = true; revision += 1;
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(3);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })); });
+  expect(calendarReads()).toBe(4);
+  vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 86400000);
+  await act(async () => { poll(); });
+  expect(calendarReads()).toBe(5);
+});

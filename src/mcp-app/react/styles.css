@@ -29,7 +29,7 @@ body { background: var(--taskchef-page); }
 .taskchef-app-view { grid-area: view; width: max-content; }
 .taskchef-app-filters { grid-area: filters; border-inline-start: 1px solid var(--taskchef-border); padding-inline-start: 12px; min-width: 0; width: min(100%, 680px); }
 .taskchef-app-filters .mantine-InputWrapper-root { flex: 1 1 100px; min-width: 100px; }
-.taskchef-app-pinned { flex: 0 0 auto; white-space: nowrap; }
+.taskchef-app-toggle { flex: 0 0 auto; white-space: nowrap; }
 .taskchef-app-filters .taskchef-app-date { flex: 0 0 132px; }
 @media (max-width: 1000px) {
   .taskchef-app-header { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand view actions" "filters filters filters"; gap: 8px; }
@@ -194,9 +194,9 @@ body { background: var(--taskchef-page); }
 .next-appearance-panel { background: var(--taskchef-elevated); }
 
 :root[data-taskchef-palette] .mantine-Button-root[data-variant="filled"] { color: var(--taskchef-surface); }
-:root[data-taskchef-palette] .taskchef-app-pinned { background: transparent; color: var(--taskchef-text); border-color: var(--taskchef-border); }
-:root[data-taskchef-palette] .taskchef-app-pinned:hover { background: var(--taskchef-hover); }
-:root[data-taskchef-palette] .taskchef-app-pinned[aria-pressed="true"] { background: var(--taskchef-accent); color: var(--taskchef-surface); border-color: var(--taskchef-accent); }
+:root[data-taskchef-palette] .taskchef-app-toggle { background: transparent; color: var(--taskchef-text); border-color: var(--taskchef-border); }
+:root[data-taskchef-palette] .taskchef-app-toggle:hover { background: var(--taskchef-hover); }
+:root[data-taskchef-palette] .taskchef-app-toggle[aria-pressed="true"] { background: var(--taskchef-accent); color: var(--taskchef-surface); border-color: var(--taskchef-accent); }
 :root[data-taskchef-palette] .taskchef-board-card:focus-visible { outline: 2px solid var(--taskchef-focus); outline-offset: 2px; }
 
 :root[data-taskchef-palette] body { font-family: var(--taskchef-font); }
@@ -274,6 +274,7 @@ body { background: var(--taskchef-page); }
 .calendar-navigation h2 { margin: 0; font-size: 1.15rem; min-width: 170px; text-align: center; }
 .calendar-navigation button { font-size: 26px; padding: 0 12px; }
 .calendar-view button { color: inherit; cursor: pointer; background: transparent; border: 1px solid var(--mantine-color-default-border); border-radius: 5px; }
+.calendar-view button:disabled { opacity: .35; cursor: default; }
 .calendar-view button:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
 .calendar-scroll { overflow-x: auto; border: 1px solid var(--mantine-color-default-border); border-radius: 6px; margin-top: 14px; }
 .calendar-month { min-width: 700px; }

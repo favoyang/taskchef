@@ -2,7 +2,7 @@ import { CalendarView, type CalendarData, type CalendarRequest } from "./Calenda
 import { cachedImageLoader } from "../../ui/image-cache";
 import { App } from "@modelcontextprotocol/ext-apps";
 import { ActionIcon, Alert, Box, Button, Group, MantineProvider, Modal, createTheme, Paper, SegmentedControl, Select, Stack, Text, TextInput, Title } from "@mantine/core";
-import { IconPin, IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
+import { IconCalendarEvent, IconPin, IconRefresh, IconSearch, IconSettings } from "@tabler/icons-react";
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot, Task, Project } from "../../ui/types";
@@ -179,6 +179,7 @@ export function TaskChefApp() {
   const detailRequestVersion = useRef(0);
   const refreshVersion = useRef(0);
   const revisionRef = useRef<number | null>(null);
+  const calendarHistoryRevision = useRef(0);
   const displayModeRef = useRef(displayMode);
   const previousDisplayMode = useRef(displayMode);
   displayModeRef.current = displayMode;
@@ -213,6 +214,7 @@ export function TaskChefApp() {
         return;
       }
     } else { setScan(data.scan); setError(null); }
+    if ((data.snapshot?.scan ?? data.scan)?.cacheHit === false) calendarHistoryRevision.current += 1;
     setNow(Date.now());
     const selectedTask = selectedRef.current;
     if (!selectedTask || initialSelection !== selectionVersion.current) return;
@@ -433,8 +435,8 @@ export function TaskChefApp() {
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             {view !== "calendar" && <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />}
             <TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
-            <Button className="taskchef-app-pinned" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
-            {view === "calendar" && <Button aria-pressed={showScheduled} title="Show scheduled chats" size="xs" variant={showScheduled ? "filled" : "outline"} onClick={() => setShowScheduled(value => !value)}>Scheduled chats</Button>}
+            <Button className="taskchef-app-toggle" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
+            {view === "calendar" && <Button className="taskchef-app-toggle" leftSection={<IconCalendarEvent size={14} aria-hidden />} aria-pressed={showScheduled} title="Show scheduled chats" size="xs" variant={showScheduled ? "filled" : "outline"} onClick={() => setShowScheduled(value => !value)}>Scheduled chats</Button>}
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />
@@ -459,7 +461,7 @@ export function TaskChefApp() {
           {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
             <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
           </Paper>}
-          {view === "calendar" ? <CalendarView request={readCalendar} showProject={!project} tasks={boardTasks} refreshKey={`${now}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
+          {view === "calendar" ? <CalendarView request={readCalendar} showProject={!project} tasks={boardTasks} refreshKey={`${revisionRef.current}:${calendarHistoryRevision.current}:${new Date(now).toDateString()}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}

@@ -23,7 +23,9 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail, showPro
       .catch(cause => { if (current) { setData(null); setError(String(cause)); } });
     return () => { current = false; };
   }, [month, timeZone, request, refreshKey, retry]);
+  const currentMonth = dateKey(new Date()).slice(0, 7);
   function navigate(delta: number) {
+    if (delta > 0 && month >= currentMonth) return;
     const date = new Date(`${month}-01T12:00:00Z`);
     date.setUTCMonth(date.getUTCMonth() + delta);
     setMonth(date.toISOString().slice(0, 7)); setData(null); setExpanded([]);
@@ -42,11 +44,10 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail, showPro
     <nav className="calendar-navigation" aria-label="Month navigation">
       <button aria-label="Previous month" onClick={() => navigate(-1)}>‹</button>
       <h2 aria-live="polite">{label}</h2>
-      <button aria-label="Next month" onClick={() => navigate(1)}>›</button>
+      <button aria-label="Next month" disabled={month >= currentMonth} onClick={() => navigate(1)}>›</button>
     </nav>
     {error && <div role="alert">Calendar could not be loaded: {error} <button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {!data && !error && <p role="status">Reading recorded work…</p>}
-    {chats.some(chat => chat.incomplete) && <p role="status">Some turn dates or durations are missing. Only known dates are shown; gaps may reflect incomplete history.</p>}
     <div className="calendar-scroll" tabIndex={0} aria-label="Month calendar; scroll horizontally on narrow screens">
       <div className="calendar-month">
         <div className="calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => <div key={day}>{day}</div>)}</div>

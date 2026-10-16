@@ -412,13 +412,15 @@ refreshes, with their last-update time and scan progress.
 ## Month calendar
 
 Calendar sits beside Board and Usage. It opens on the current local month;
-previous/next arrows surround the month title. There is no Today control.
+previous/next arrows surround the month title. Next is disabled at the current
+local month, so future months cannot be selected. There is no Today control.
 Project, Search Chats, Pinned, and native visibility settings apply. The Board's
 Updated filter does not apply to Calendar. A Calendar-only Scheduled chats
 toggle starts enabled and hides chats with an active schedule when disabled,
 including those currently Running or Waiting. Its choice stays in memory when
 switching views and does not filter Board or Usage. Selecting one project hides
-project prefixes on calendar bars. The grid has no persistent helper captions.
+project prefixes on calendar bars. The grid has no persistent helper captions. Scheduled chats and Pinned share
+the same toggle styling for their on, off, and hover states.
 
 Each chat's recorded turn intervals become calendar dates in the viewer's
 timezone. Adjacent dates merge into one bar. One full idle date breaks the bar,
@@ -431,10 +433,12 @@ three bar rows and a control to expand the remaining chats. Narrow views scroll
 horizontally to retain seven readable day columns.
 
 The calendar reads all turn timing rows for each eligible chat's selected
-SQLite history, cached until the databases change. It does not scan usage,
+SQLite history, cached until the databases change. The calendar rereads on
+changed snapshots or database reads, explicit Refresh, and local date rollover;
+an unchanged five-second poll does not reread calendar history. It does not scan usage,
 modify Codex records, or create editable start/end dates. Earlier histories
 replaced by a rewind may be absent. Missing start timestamps are omitted;
-missing durations show only a known start date. The view discloses these
-coverage limits rather than treating missing data as confirmed idle time.
+missing durations show only a known start date. Missing timing data does not
+add a notice to the calendar.
 
 ![Month calendar with paused and resumed sample chats](images/calendar-month.png)

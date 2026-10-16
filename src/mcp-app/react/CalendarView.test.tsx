@@ -17,12 +17,17 @@ test('paused and resumed segments open the same chat; navigation has no Today co
   expect(onOpenDetail).toHaveBeenNthCalledWith(1, task('0'));
   expect(onOpenDetail).toHaveBeenNthCalledWith(2, task('0'));
   expect(screen.queryByRole('button', { name: 'Today' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+  expect(request).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
   expect(request.mock.calls[1]).not.toEqual(request.mock.calls[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+  expect(screen.getByRole('button', { name: 'Next month' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   expect(request.mock.calls[2]).toEqual(request.mock.calls[0]);
+  expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
 });
 test('crowded weeks expand and filters remove nonmatching chats', async () => {
   const props = { request: vi.fn(async () => data(5)), tasks: Array.from({ length: 5 }, (_, i) => task(String(i))), refreshKey: '1', onOpenDetail: vi.fn() };
@@ -35,13 +40,14 @@ test('crowded weeks expand and filters remove nonmatching chats', async () => {
   expect(screen.queryByRole('button', { name: /Project · Chat/ })).not.toBeInTheDocument();
   expect(screen.getByText(/No recorded work matches/)).toBeInTheDocument();
 });
-test('failed requests show retry and incomplete dates are disclosed', async () => {
+test('failed requests show retry without adding a missing-history notice', async () => {
   const result = data(); result.chats[0].incomplete = true;
   const request = vi.fn().mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValue(result);
   render(<CalendarView request={request} tasks={[task('0')]} refreshKey="1" onOpenDetail={vi.fn()} />);
   expect(await screen.findByRole('alert')).toHaveTextContent('Unavailable');
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  expect(await screen.findByText(/Some turn dates or durations are missing/)).toBeInTheDocument();
+  expect(await screen.findAllByRole('button', { name: /Project · Chat 0/ })).toHaveLength(2);
+  expect(screen.queryByText(/Some turn dates or durations are missing/)).not.toBeInTheDocument();
 });
 
 test('a selected project hides bar prefixes and persistent helper captions are absent', async () => {
