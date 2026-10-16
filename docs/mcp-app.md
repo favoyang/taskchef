@@ -299,7 +299,7 @@ UI surfaces. Native font families use locally available fonts with system fallba
 read the installed desktop application or fetch theme files from the network.
 
 The compact **Pinned** toggle button shows chats pinned in Codex and combines with project,
-update window, and search filters. It starts off when the dashboard opens. Pin
+update window, and search filters. It defaults to off and remembers the user’s selection locally. Pin
 changes appear on the next data refresh. The current desktop pin list takes
 precedence over the database `is_pinned` field. TaskChef ignores old migration
 snapshots and never writes pin state. Without either source, chats are unpinned.
@@ -371,8 +371,9 @@ a marketplace does not automatically move their installed plugin identity.
 
 The Board/Usage selector sits beside the logo in the navbar, separated from
 Board filters by a divider. It opens an on-demand historical usage view. Ranges are
-7, 30, or 90 calendar days including today, This month (the default, through
-today), and Last month (the full previous calendar month).
+7, 30, or 90 calendar days including today, This month (through today), and
+Last month (the full previous calendar month). The default is 30 days; the
+selected range is remembered locally when Usage is reopened.
 There is no custom range. Dates use the view's local timezone, including DST.
 Range changes and reopening Usage query one shared history snapshot without
 rescanning logs. The snapshot is scoped by CLI/exec visibility, independently of
@@ -414,12 +415,17 @@ refreshes, with their last-update time and scan progress.
 Calendar sits beside Board and Usage. It opens on the current local month;
 previous/next arrows surround the month title. Next is disabled at the current
 local month, so future months cannot be selected. There is no Today control.
+On a mouse or trackpad, arrows appear when hovering the month navigation or
+when it contains keyboard focus; a clicked arrow remains visible while focused.
+Touch controls remain visible. Project, search, update window, and Pinned
+filters are remembered locally. An unavailable saved project resets to All
+projects only after the project inventory loads.
 Project, Search Chats, Pinned, and native visibility settings apply. The Board's
-Updated filter does not apply to Calendar. A Calendar-only Scheduled chats
+Updated filter does not apply to Calendar. A Calendar-only Scheduled
 toggle starts enabled and hides chats with an active schedule when disabled,
-including those currently Running or Waiting. Its choice stays in memory when
-switching views and does not filter Board or Usage. Selecting one project hides
-project prefixes on calendar bars. The grid has no persistent helper captions. Scheduled chats and Pinned share
+including those currently Running or Waiting. Its choice is remembered locally across page visits and does not filter
+Board or Usage. Selecting one project hides
+project prefixes on calendar bars. The grid has no persistent helper captions. Scheduled and Pinned share
 the same toggle styling for their on, off, and hover states.
 
 Each chat's recorded turn intervals become calendar dates in the viewer's

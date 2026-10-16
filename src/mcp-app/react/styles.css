@@ -292,3 +292,9 @@ body { background: var(--taskchef-page); }
 .calendar-view .calendar-bar:hover { filter: brightness(1.15); }
 .calendar-view .calendar-more { margin: 3px 8px 8px; padding: 3px 8px; font-size: 12px; }
 @media (max-width: 600px) { .calendar-view { padding: 10px; } }
+
+@media (hover: hover) and (pointer: fine) {
+  .calendar-navigation button, .calendar-navigation button:disabled { opacity: 0; }
+  .calendar-navigation:hover button, .calendar-navigation:focus-within button { opacity: 1; }
+  .calendar-navigation:hover button:disabled, .calendar-navigation:focus-within button:disabled { opacity: .35; }
+}

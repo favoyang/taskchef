@@ -1,3 +1,4 @@
+import { usePreference } from "./preferences";
 import { CalendarView, type CalendarData, type CalendarRequest } from "./CalendarView";
 import { cachedImageLoader } from "../../ui/image-cache";
 import { App } from "@modelcontextprotocol/ext-apps";
@@ -118,7 +119,7 @@ export function TaskChefApp() {
   const [scan, setScan] = useState<ScanStats | null>(null);
   const [selected, setSelected] = useState<Task | null>(null);
   const [opened, setOpened] = useState(false);
-  const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [pinnedOnly, setPinnedOnly] = usePreference("filter.pinned");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -160,10 +161,10 @@ export function TaskChefApp() {
       receiveNotifications(result.notifications);
     } catch (notificationError) { setError(`${String(cause)}. ${String(notificationError)}`); }
   }
-  const [project, setProject] = useState("");
-  const [search, setSearch] = useState("");
-  const [showScheduled, setShowScheduled] = useState(true);
-  const [date, setDate] = useState("all");
+  const [project, setProject] = usePreference("filter.project");
+  const [search, setSearch] = usePreference("filter.search");
+  const [showScheduled, setShowScheduled] = usePreference("calendar.scheduled");
+  const [date, setDate] = usePreference("filter.updated");
   const [status, setStatus] = useState("");
   // Keep the legacy list hidden; Board and Usage share the native shell.
   const [view, setView] = useState<"board" | "list" | "usage" | "calendar">("board");
@@ -304,7 +305,6 @@ export function TaskChefApp() {
   }, [displayMode, refresh]);
   const eligibleTasks = useMemo(() => tasks.filter((task) => eligibleForView(task, showCli, showArchived, showExec)), [tasks, showCli, showArchived, showExec]);
   useEffect(() => {
-    setProject("");
     setCompletedLimit(5);
     setArchivedLimit(5);
     if (!showArchived) setStatus((current) => current === "archived" ? "" : current);
@@ -335,7 +335,7 @@ export function TaskChefApp() {
       { label: "No project", value: "projectless" },
     ];
   }, [eligibleTasks, registeredProjects]);
-  useEffect(() => { if (project && !projects.some((item) => item.value === project)) setProject(""); }, [project, projects]);
+  useEffect(() => { if (!loading && !error && project && !projects.some((item) => item.value === project)) setProject(""); }, [project, projects, loading, error]);
   const projectTasks = useMemo(() => eligibleTasks.filter((task) => !project || (task.project.id || task.project.path || task.project.name) === project), [eligibleTasks, project]);
   const boardTasks: Task[] = useMemo(() => {
     const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -436,7 +436,7 @@ export function TaskChefApp() {
             {view !== "calendar" && <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />}
             <TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
             <Button className="taskchef-app-toggle" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
-            {view === "calendar" && <Button className="taskchef-app-toggle" leftSection={<IconCalendarEvent size={14} aria-hidden />} aria-pressed={showScheduled} title="Show scheduled chats" size="xs" variant={showScheduled ? "filled" : "outline"} onClick={() => setShowScheduled(value => !value)}>Scheduled chats</Button>}
+            {view === "calendar" && <Button className="taskchef-app-toggle" leftSection={<IconCalendarEvent size={14} aria-hidden />} aria-pressed={showScheduled} title="Show scheduled chats" size="xs" variant={showScheduled ? "filled" : "outline"} onClick={() => setShowScheduled(value => !value)}>Scheduled</Button>}
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />

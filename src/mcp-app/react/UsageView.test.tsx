@@ -1,12 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { UsageView, type UsageData } from './UsageView';
+beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 const data:UsageData={start:'2026-10-01',end:'2026-10-15',timeZone:'Asia/Singapore',samples:2,incomplete:false,totals:{tokens:200,costUsd:3,inputTokens:160,cachedInputTokens:40,outputTokens:40},days:[{date:'2026-10-15',tokens:200,costUsd:3,projects:{a:2,b:1}}],projects:[{id:'a',name:'Alpha',tokens:100,costUsd:2},{id:'b',name:'Beta',tokens:100,costUsd:1}]};
-test('defaults to This month, changes range, isolates projects, and exposes exact day values',async()=>{
+test('defaults to 30 days, changes range, isolates projects, and exposes exact day values',async()=>{
  const request=vi.fn().mockResolvedValue(data);render(<UsageView request={request}/>);
  await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());
- expect(request).toHaveBeenCalledWith({range:'mtd',timeZone:expect.any(String)});
+ expect(request).toHaveBeenCalledWith({range:'30d',timeZone:expect.any(String)});
  expect(screen.queryByText(/Custom/)).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'7 days'}));
  await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'7d',timeZone:expect.any(String)}));
@@ -39,7 +40,7 @@ test('polls a pending history read and stops polling when unmounted',async()=>{
  const request=vi.fn().mockResolvedValueOnce({loading:true}).mockResolvedValue(data);
  const view=render(<UsageView request={request}/>);expect(await screen.findByRole('status')).toHaveTextContent('Reading saved usage');
  await waitFor(()=>expect(screen.getByRole('table')).toBeVisible(),{timeout:2000});
- expect(request).toHaveBeenLastCalledWith({range:'mtd',timeZone:expect.any(String)});
+ expect(request).toHaveBeenLastCalledWith({range:'30d',timeZone:expect.any(String)});
  view.unmount();
  const pending=vi.fn().mockResolvedValue({loading:true});const second=render(<UsageView request={pending}/>);await waitFor(()=>expect(pending).toHaveBeenCalledTimes(1));second.unmount();
 });
@@ -63,7 +64,7 @@ test('Refresh forces one new read and shows measured progress while cached data 
  const view=render(<UsageView request={request}/>);await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());
  view.rerender(<UsageView request={request} refreshKey={1}/>);
  await screen.findByText('Updating saved usage… 2 of 10 chats');expect(screen.getByRole('progressbar',{name:'Usage scan progress'})).toHaveAttribute('value','2');expect(screen.getByRole('table')).toBeVisible();
- expect(request).toHaveBeenLastCalledWith({range:'mtd',timeZone:expect.any(String),force:true});await waitFor(()=>expect(screen.queryByRole('progressbar')).toBeNull());
+ expect(request).toHaveBeenLastCalledWith({range:'30d',timeZone:expect.any(String),force:true});await waitFor(()=>expect(screen.queryByRole('progressbar')).toBeNull());
 });
 test('legend hover and focus highlight only matching project bars and reset on leave',async()=>{
  const request=vi.fn().mockResolvedValue(data);const view=render(<UsageView request={request}/>);await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());
@@ -78,7 +79,7 @@ test('legend hover and focus highlight only matching project bars and reset on l
  await screen.findByRole('table');
  for(const text of [/Incomplete coverage/,/Known subtotal/,/Cached input is included/,/right axis/,/left axis/,/By estimated cost/,/Missing usage is not zero/]) expect(screen.queryByText(text)).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Rescan'}));
- await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'mtd',timeZone:expect.any(String),rescan:true}));
+ await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'30d',timeZone:expect.any(String),rescan:true}));
  });
 
 test('only the current local day has dashed bars and token segment; a completed period stays solid',async()=>{
@@ -100,4 +101,24 @@ test('only the current local day has dashed bars and token segment; a completed 
   expect(screen.getByRole('img',{name:'Daily estimated cost bars and token line'}).querySelectorAll('[stroke-dasharray]')).toHaveLength(0);
   expect(screen.getByRole('img',{name:'Daily project cost bars: Alpha'}).querySelectorAll('[stroke-dasharray]')).toHaveLength(0);
  } finally {vi.useRealTimers();}
+});
+
+test('remembers the selected range after leaving and reopening Usage', async () => {
+ const request=vi.fn().mockResolvedValue(data);
+ const first=render(<UsageView request={request}/>);
+ await screen.findByRole('table');
+ expect(request).toHaveBeenCalledWith({range:'30d',timeZone:expect.any(String)});
+ fireEvent.click(screen.getByRole('button',{name:'90 days'}));
+ await waitFor(()=>expect(request).toHaveBeenLastCalledWith({range:'90d',timeZone:expect.any(String)}));
+ first.unmount(); request.mockClear();
+ render(<UsageView request={request}/>);
+ await screen.findByRole('table');
+ expect(request).toHaveBeenCalledWith({range:'90d',timeZone:expect.any(String)});
+ expect(screen.getByRole('button',{name:'90 days'})).toHaveAttribute('aria-pressed','true');
+});
+test('invalid saved Usage ranges fall back to 30 days', async () => {
+ window.localStorage.setItem('taskchef.app.usage.range',JSON.stringify('invalid'));
+ const request=vi.fn().mockResolvedValue(data);render(<UsageView request={request}/>);
+ await screen.findByRole('table');
+ expect(request).toHaveBeenCalledWith({range:'30d',timeZone:expect.any(String)});
 });

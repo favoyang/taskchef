@@ -1,3 +1,4 @@
+import { usePreference } from "./preferences";
 import { useEffect, useRef, useState } from "react";
 
 export interface UsageData {
@@ -18,7 +19,7 @@ const colors = ["#6e91ad", "#80ad99", "#b8a0ca", "#c2a06e", "#c78585", "#92979c"
 const left = 64, right = 794, top = 16, bottom = 166;
 
 export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnType<typeof usageRequest>) => Promise<UsageResponse>; refreshKey?: number }) {
-  const [range, setRange] = useState<UsageRange>("mtd");
+  const [range, setRange] = usePreference("usage.range");
   const [data, setData] = useState<UsageData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
