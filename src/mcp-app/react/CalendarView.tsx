@@ -9,7 +9,7 @@ const addDays = (key: string, days: number) => new Date(Date.parse(`${key}T12:00
 const statusLabels = { working: "Running", needs_input: "Waiting for review", completed: "Done", failed: "Failed", scheduled: "Scheduled", interrupted: "Interrupted", archived: "Archived" };
 const projectHue = (task: Task) => [...(task.project.id || task.project.path || task.project.name)].reduce((hash, c) => (hash * 31 + c.charCodeAt(0)) % 360, 0);
 
-export function CalendarView({ request, tasks, refreshKey, onOpenDetail }: { request: CalendarRequest; tasks: Task[]; refreshKey: string; onOpenDetail: (task: Task) => void }) {
+export function CalendarView({ request, tasks, refreshKey, onOpenDetail, showProject = true }: { request: CalendarRequest; tasks: Task[]; refreshKey: string; showProject?: boolean; onOpenDetail: (task: Task) => void }) {
   const [month, setMonth] = useState(() => dateKey(new Date()).slice(0, 7));
   const [data, setData] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,8 +44,6 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail }: { req
       <h2 aria-live="polite">{label}</h2>
       <button aria-label="Next month" onClick={() => navigate(1)}>›</button>
     </nav>
-    <p className="calendar-caption">Recorded work · {timeZone} · A full idle day breaks a bar, including weekends.</p>
-    <p className="calendar-caption">Selected Codex history only; earlier rewound history may be absent. ↩ Resumed chat.</p>
     {error && <div role="alert">Calendar could not be loaded: {error} <button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {!data && !error && <p role="status">Reading recorded work…</p>}
     {chats.some(chat => chat.incomplete) && <p role="status">Some turn dates or durations are missing. Only known dates are shown; gaps may reflect incomplete history.</p>}
@@ -76,7 +74,7 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail }: { req
               {visible.map(bar => {
                 const col = Math.round((Date.parse(bar.left) - Date.parse(start)) / 86400000);
                 const span = Math.round((Date.parse(bar.right) - Date.parse(bar.left)) / 86400000) + 1;
-                const title = `${bar.task.project.name} · ${bar.task.title}`;
+                const title = showProject ? `${bar.task.project.name} · ${bar.task.title}` : bar.task.title;
                 return <button key={`${bar.task.id}:${bar.start}`} className="calendar-bar" style={{ gridColumn: `${col + 1} / span ${span}`, gridRow: bar.lane + 2, borderColor: `hsl(${projectHue(bar.task)} 45% 55%)`, backgroundColor: `hsl(${projectHue(bar.task)} 45% 55% / .17)` }} title={`${title}\n${bar.start} – ${bar.end}${bar.resumed ? ' · Resumed' : ''}\nCurrent status: ${bar.task.status ? statusLabels[bar.task.status] : 'Unverified'}`} onClick={() => onOpenDetail(bar.task)}>
                   {bar.start < start ? "← " : bar.resumed ? "↩ " : ""}{title}{bar.end > end ? " →" : ""}
                 </button>;

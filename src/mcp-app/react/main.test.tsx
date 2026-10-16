@@ -697,3 +697,31 @@ test("Calendar replaces the update window and opens matching chat details", asyn
   fireEvent.click(await screen.findByRole('button', { name: /Example · Task one/ }));
   expect(await screen.findByRole('heading', { name: 'Task one' })).toBeInTheDocument();
 });
+
+test('Calendar scheduled toggle starts on, includes running schedules, and never filters Board', async () => {
+  tasks = [{ ...task('one', 'working'), scheduled: true }, task('two', 'needs_input')];
+  const base = server.call.getMockImplementation()!;
+  server.call.mockImplementation(input => {
+    if (input.name === 'taskchef_app_calendar') return Promise.resolve({ structuredContent: { month: input.arguments.month, timeZone: input.arguments.timeZone, chats: tasks.map(item => ({ id: item.id, incomplete: false, segments: [{ start: `${input.arguments.month}-05`, end: `${input.arguments.month}-05`, resumed: false }] })) } });
+    return base(input);
+  });
+  mount();
+  await screen.findByRole('button', { name: 'Task one' });
+  expect(screen.queryByRole('button', { name: 'Scheduled chats' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(await screen.findByRole('button', { name: 'Example · Task one' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Scheduled chats' })).toHaveAttribute('aria-pressed', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Scheduled chats' }));
+  expect(screen.queryByRole('button', { name: 'Example · Task one' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Example · Task two' })).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Project' }), { target: { value: '/Example' } });
+  expect(screen.getByRole('button', { name: 'Task two' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Example · Task two' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Board' }));
+  expect(screen.getByRole('button', { name: 'Task one' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Scheduled chats' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Calendar' }));
+  expect(screen.getByRole('button', { name: 'Scheduled chats' })).toHaveAttribute('aria-pressed', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'Scheduled chats' }));
+  expect(await screen.findByRole('button', { name: 'Task one' })).toBeInTheDocument();
+});

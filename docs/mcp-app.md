@@ -414,7 +414,11 @@ refreshes, with their last-update time and scan progress.
 Calendar sits beside Board and Usage. It opens on the current local month;
 previous/next arrows surround the month title. There is no Today control.
 Project, Search Chats, Pinned, and native visibility settings apply. The Board's
-Updated filter does not apply to Calendar.
+Updated filter does not apply to Calendar. A Calendar-only Scheduled chats
+toggle starts enabled and hides chats with an active schedule when disabled,
+including those currently Running or Waiting. Its choice stays in memory when
+switching views and does not filter Board or Usage. Selecting one project hides
+project prefixes on calendar bars. The grid has no persistent helper captions.
 
 Each chat's recorded turn intervals become calendar dates in the viewer's
 timezone. Adjacent dates merge into one bar. One full idle date breaks the bar,

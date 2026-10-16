@@ -162,6 +162,7 @@ export function TaskChefApp() {
   }
   const [project, setProject] = useState("");
   const [search, setSearch] = useState("");
+  const [showScheduled, setShowScheduled] = useState(true);
   const [date, setDate] = useState("all");
   const [status, setStatus] = useState("");
   // Keep the legacy list hidden; Board and Usage share the native shell.
@@ -338,6 +339,7 @@ export function TaskChefApp() {
     const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     return filterTasks(projectTasks, { date: view === "calendar" ? "all" : date, now }).filter((task: Task) => {
       if (pinnedOnly && !task.observed?.pinned) return false;
+      if (view === "calendar" && !showScheduled && task.scheduled) return false;
       const content = [
         task.title, task.promptExcerpt ?? "", task.replyExcerpt ?? "", task.project.name,
         ...(task.project.githubRepos ?? []),
@@ -345,7 +347,7 @@ export function TaskChefApp() {
       ].join("\n").toLocaleLowerCase();
       return terms.every((term) => content.includes(term));
     });
-  }, [projectTasks, date, now, search, pinnedOnly, view]);
+  }, [projectTasks, date, now, search, pinnedOnly, view, showScheduled]);
   const visible = useMemo(() => boardTasks.filter((task) => !status || (task.status ?? "unverified") === status), [boardTasks, status]);
   const statusOptions = [{ label: `All ${boardTasks.length}`, value: "" }, ...lanes.map(({ label, status: value }) => ({
     label: `${label} ${boardTasks.filter((task) => task.status === value).length}`, value: value ?? "unverified",
@@ -426,12 +428,13 @@ export function TaskChefApp() {
       <Box className={`taskchef-app-shell${displayMode === "inline" ? " taskchef-app-inline" : ""}`}>
         <header className="taskchef-app-header">
           <Group className="taskchef-app-brand" gap="xs" wrap="nowrap"><img alt="" aria-hidden className="taskchef-app-mark" src={brandIcon} /><Title order={1}>TaskChef</Title></Group>
-          {displayMode !== "inline" && <SegmentedControl className="taskchef-app-view" aria-label="View" data={[{ label: "Board", value: "board" }, { label: "Calendar", value: "calendar" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" || value === "calendar" ? value : "board")} size="xs" />}
+          {displayMode !== "inline" && <SegmentedControl className="taskchef-app-view" aria-label="View" withItemsBorders={false} data={[{ label: "Board", value: "board" }, { label: "Calendar", value: "calendar" }, { label: "Usage", value: "usage" }]} value={view} onChange={value => setView(value === "usage" || value === "calendar" ? value : "board")} size="xs" />}
           {displayMode !== "inline" && view !== "usage" && <Group className="taskchef-app-filters" gap="xs" wrap="wrap">
             <ProjectPicker data={projects} onChange={(value) => { setProject(value); setCompletedLimit(5); }} value={project} />
             {view !== "calendar" && <Select className="taskchef-app-date" aria-label="Updated" data={[{ label: "Latest 24 hours", value: "24h" }, { label: "Latest 7 days", value: "7d" }, { label: "All time", value: "all" }]} onChange={(value) => { setDate(value ?? "all"); setCompletedLimit(5); }} value={date} size="xs" />}
             <TextInput className="taskchef-app-search" aria-label="Search Chats" placeholder="Search Chats" type="search" leftSection={<IconSearch size={14} aria-hidden />} value={search} onChange={(event) => { setSearch(event.currentTarget.value); setCompletedLimit(5); setArchivedLimit(5); }} size="xs" />
             <Button className="taskchef-app-pinned" aria-pressed={pinnedOnly} title="Show only pinned chats" size="xs" variant={pinnedOnly ? "filled" : "outline"} leftSection={<IconPin size={14} aria-hidden />} onClick={() => { setPinnedOnly(value => !value); setCompletedLimit(5); setArchivedLimit(5); }}>Pinned</Button>
+            {view === "calendar" && <Button aria-pressed={showScheduled} title="Show scheduled chats" size="xs" variant={showScheduled ? "filled" : "outline"} onClick={() => setShowScheduled(value => !value)}>Scheduled chats</Button>}
           </Group>}
           <Group className="taskchef-app-actions" gap="xs" wrap="nowrap">
           <GitHubConnection hideTrigger openSignal={githubOpenSignal} auth={githubAuth} request={githubRequest} openLink={githubOpenLink} refresh={githubRefresh} openSettings={githubOpenSettings} />
@@ -456,7 +459,7 @@ export function TaskChefApp() {
           {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
             <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
           </Paper>}
-          {view === "calendar" ? <CalendarView request={readCalendar} tasks={boardTasks} refreshKey={`${now}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
+          {view === "calendar" ? <CalendarView request={readCalendar} showProject={!project} tasks={boardTasks} refreshKey={`${now}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}

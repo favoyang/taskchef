@@ -275,7 +275,6 @@ body { background: var(--taskchef-page); }
 .calendar-navigation button { font-size: 26px; padding: 0 12px; }
 .calendar-view button { color: inherit; cursor: pointer; background: transparent; border: 1px solid var(--mantine-color-default-border); border-radius: 5px; }
 .calendar-view button:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); outline-offset: 2px; }
-.calendar-caption { font-size: 12px; color: var(--mantine-color-dimmed); margin: 8px 0; }
 .calendar-scroll { overflow-x: auto; border: 1px solid var(--mantine-color-default-border); border-radius: 6px; margin-top: 14px; }
 .calendar-month { min-width: 700px; }
 .calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--mantine-color-default); font-size: 12px; font-weight: 600; }

@@ -43,3 +43,11 @@ test('failed requests show retry and incomplete dates are disclosed', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByText(/Some turn dates or durations are missing/)).toBeInTheDocument();
 });
+
+test('a selected project hides bar prefixes and persistent helper captions are absent', async () => {
+  render(<CalendarView request={async () => data()} tasks={[task('0')]} refreshKey="1" showProject={false} onOpenDetail={vi.fn()} />);
+  expect(await screen.findByRole('button', { name: 'Chat 0' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '↩ Chat 0' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Project ·/ })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Recorded work ·|Selected Codex history only/)).not.toBeInTheDocument();
+});
