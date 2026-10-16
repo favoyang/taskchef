@@ -132,11 +132,35 @@ test('project tokens share selection and highlight with cost and expose exact va
  fireEvent.click(screen.getByRole('button',{name:'Alpha'}));expect(screen.getByRole('img',{name:'Daily project token stack: Alpha'}).querySelectorAll('polygon')).toHaveLength(1);
  expect(view.container.querySelectorAll('h3')).not.toHaveLength(0);
 });
-test('weekly chart keeps resets, gaps, and distinct buckets separate, even without token usage',async()=>{
+test('weekly summary connects gaps and resets, hides model buckets and shows current allowance in the view timezone',async()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-17T00:00:00Z'));
+ try {
  const days=Array.from({length:5},(_,i)=>({...data.days[0],date:`2026-10-${11+i}`}));
- const reading=(date:string,remainingPercent:number,resetsAt=1792000000000,id='codex')=>({id,name:null,date,time:Date.parse(`${date}T00:00:00Z`),remainingPercent,resetsAt});
- const request=vi.fn().mockResolvedValue({...data,samples:0,days,weeklyLimits:[reading('2026-10-11',80),reading('2026-10-12',70),reading('2026-10-13',100,1792600000000),reading('2026-10-15',90,1792600000000),reading('2026-10-15',50,1792600000000,'other')]});
+ const reading=(date:string,remainingPercent:number,resetsAt:number,id='codex')=>({id,name:null,date,time:Date.parse(`${date}T00:00:00Z`),remainingPercent,resetsAt});
+ const reset=Date.parse('2026-10-13T00:00:00Z'), nextReset=Date.parse('2026-10-20T01:00:00Z');
+ const current=reading('2026-10-17',89,nextReset);
+ const request=vi.fn().mockResolvedValue({...data,samples:0,days,currentWeeklyLimit:current,weeklyLimits:[reading('2026-10-11',80,reset),reading('2026-10-12',70,reset),reading('2026-10-13',100,nextReset),reading('2026-10-15',90,nextReset),reading('2026-10-15',50,nextReset,'gpt-5.3')]});
  render(<UsageView request={request}/>);const chart=await screen.findByRole('img',{name:'Recorded weekly allowance remaining by day'});
- expect(chart.querySelectorAll('circle')).toHaveLength(5);expect(chart.querySelectorAll('line:not(.usage-grid)')).toHaveLength(1);
- expect(chart.querySelector('[aria-label*="80.0% left"]')).not.toBeNull();expect(screen.queryByRole('table')).toBeNull();
+ expect(chart.querySelectorAll('circle')).toHaveLength(4);
+ expect(chart.querySelector('polyline')?.getAttribute('points')?.split(' ')).toHaveLength(6);
+ expect(screen.getByRole('heading',{name:'Weekly limits · 89% left'})).toBeVisible();
+ const expected=new Date(nextReset).toLocaleString(undefined,{timeZone:data.timeZone,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+ expect(screen.getByText(`Resets ${expected}`)).toBeVisible();
+ expect(screen.queryByText('codex')).toBeNull();expect(screen.queryByText(/GPT-5.3/i)).toBeNull();expect(screen.queryByText(/Last observation/)).toBeNull();expect(screen.queryByRole('table')).toBeNull();
+ expect(screen.getByRole('heading',{name:'Recorded tokens'}).closest('.usage-totals')).toContainElement(chart);
+ } finally {vi.useRealTimers();}
+});
+test('project charts expose ten distinct projects and only put lower ranks in Other',async()=>{
+ const projects=Array.from({length:12},(_,i)=>({id:String(i),name:`Project ${i+1}`,tokens:12-i,costUsd:12-i}));
+ const day={...data.days[0],projects:Object.fromEntries(projects.map(p=>[p.id,p.costUsd])),projectTokens:Object.fromEntries(projects.map(p=>[p.id,p.tokens]))};
+ render(<UsageView request={vi.fn().mockResolvedValue({...data,projects,days:[day]})}/>);await screen.findByRole('table');
+ const chart=screen.getByRole('img',{name:'Daily project token stack: all projects'});expect(chart.querySelectorAll('polygon')).toHaveLength(11);
+ expect(new Set([...chart.querySelectorAll('polygon')].map(p=>p.getAttribute('fill'))).size).toBe(11);
+ fireEvent.focus(screen.getByRole('button',{name:'Oct 15 project usage'}));expect(screen.getByText(/Other: 3 tokens, \$3.00/)).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'Project 10'}));expect(screen.getByRole('img',{name:'Daily project token stack: Project 10'}).querySelectorAll('polygon')).toHaveLength(1);
+});
+test('expired current allowance is unavailable while history remains visible',async()=>{
+ const sample={id:'codex',name:null,time:1,resetsAt:2,remainingPercent:80};
+ render(<UsageView request={vi.fn().mockResolvedValue({...data,currentWeeklyLimit:sample})}/>);
+ expect(await screen.findByText('Current allowance unavailable')).toBeVisible();expect(screen.queryByText(/80% left/)).toBeNull();
 });

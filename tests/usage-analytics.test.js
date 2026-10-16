@@ -50,5 +50,14 @@ test('weekly readings use latest local-day observations per bucket without summi
  a.usage.weeklyLimits=[reading('2026-10-14T16:00:00Z',80),reading('2026-10-15T01:00:00Z',70),reading('2026-10-15T03:00:00Z',60),reading('2026-09-01T00:00:00Z',95)];
  b.usage.weeklyLimits=[reading('2026-10-15T01:00:00Z',70),reading('2026-10-15T00:00:00Z',90,'other'),reading('2026-10-15T01:00:00Z',NaN)];
  const result=aggregateUsage([a,b],{range:'7d',timeZone:'Asia/Singapore',now:Date.parse('2026-10-15T02:00:00Z')});
- assert.deepEqual(result.weeklyLimits.map(row=>[row.id,row.date,row.remainingPercent]),[['other','2026-10-15',90],['codex','2026-10-15',70]]);
+ assert.deepEqual(result.weeklyLimits.map(row=>[row.id,row.date,row.remainingPercent]),[['codex','2026-10-15',70]]);
 });
+
+ test('current Codex allowance is independent of historical range, excludes model buckets and expires at reset',()=>{
+  const a=family('a',[]), now=Date.parse('2026-10-17T00:00:00Z');
+  const reading={id:'codex',name:null,time:now-1000,remainingPercent:89,resetsAt:now+86400000};
+  a.usage.weeklyLimits=[reading,{...reading,id:'gpt-5.3',time:now-500,remainingPercent:10}];
+  const result=aggregateUsage([a],{range:'last-month',timeZone:'Asia/Singapore',now});
+  assert.deepEqual(result.weeklyLimits,[]);assert.deepEqual(result.currentWeeklyLimit,reading);
+  assert.equal(aggregateUsage([a],{range:'7d',timeZone:'UTC',now:reading.resetsAt}).currentWeeklyLimit,null);
+ });

@@ -392,23 +392,26 @@ line on the right. Bars emphasize daily spending; the line shows activity change
 Today's cost bars have a lighter fill and dashed borders; token segments leading
 into today are dashed too. Finished days stay solid.
 Tokens and cost by project shows stacked cost bars followed by a stacked token
-area chart. Both use the period's top five projects by estimated cost plus Other,
+area chart. Both use the period's top ten projects by estimated cost plus Other,
 with matching colors. Select a legend entry or a Top 10 row to isolate that
 project in both charts; All projects restores the stacks. Hovering or focusing
 a legend entry highlights that project in both charts. Hover or focus a day in
 the token chart to inspect exact project tokens and cost. Totals, the combined
 chart, and rankings always describe the full selected period.
 
-Weekly limits shows recorded account allowance remaining, independent of project
-selection, using the last observation of each local day for each limit bucket.
-It reads seven-day primary or secondary windows from local rollout token-count
-events, including events without token counters. These observations describe
-account limits, not project limits or live current availability. Lines stop at
-missing dates and between different reset periods. Each point includes its
-recorded time and reset time. With no readings in the selected period the chart
-shows an explicit empty state. Root-chat CLI/exec visibility still controls which
-logs supply observations. Existing parsing caches rebuild once to collect these
-readings; unchanged sources retain the same incremental cache behavior.
+Weekly limits occupies one third of the summary row beside Recorded tokens and
+Estimated cost. Narrow views stack these cards. Its heading shows the latest
+recorded Codex percentage left and the next reset in the viewer's timezone.
+The latest reading is independent of the chart's selected historical period;
+a reading whose reset has passed is unavailable until a new observation arrives.
+Only the main Codex bucket appears; model-specific limits are excluded. The
+compact chart uses the last observation per local day and connects observations
+across missing days. Known resets add an explicit refill jump. Connecting lines
+interpolate between recorded points; they are not additional measurements.
+Codex writes service-provided seven-day primary or secondary allowance windows
+into local rollout token-count events, including events without token counters.
+TaskChef reads these logs; it does not poll the service for current allowance.
+Root-chat CLI/exec visibility controls which logs supply observations.
 
 Archived chats and descendant usage are included. CLI/exec visibility settings
 still apply to root chats. Descendants are counted once under their root chat's

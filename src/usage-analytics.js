@@ -21,13 +21,15 @@ export function aggregateUsage(families, { range, timeZone, now = Date.now() }) 
   const byDate = new Map(days.map(day => [day.date, day]));
   const projects = new Map();
   const limitDays = new Map();
-  let incomplete = false, samples = 0;
+  let incomplete = false, samples = 0, latestWeeklyLimit = null;
   const totals = { tokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0 };
   for (const { project, usage } of families) {
     // Account allowance snapshots are observations, never summed across chats.
     for (const sample of usage.weeklyLimits ?? []) {
       if (!Number.isFinite(sample.time) || sample.time > now || !Number.isFinite(sample.remainingPercent)
         || sample.remainingPercent < 0 || sample.remainingPercent > 100 || !Number.isFinite(sample.resetsAt) || sample.resetsAt <= sample.time) continue;
+      if (sample.id !== "codex") continue;
+      if (!latestWeeklyLimit || sample.time > latestWeeklyLimit.time) latestWeeklyLimit = sample;
       const date = dateKey(sample.time);
       if (!byDate.has(date)) continue;
       const key = JSON.stringify([sample.id, date]);
@@ -54,6 +56,7 @@ export function aggregateUsage(families, { range, timeZone, now = Date.now() }) 
     }
   }
   return { start, end, timeZone, days, totals, samples, incomplete,
+    currentWeeklyLimit: latestWeeklyLimit?.resetsAt > now ? latestWeeklyLimit : null,
     weeklyLimits: [...limitDays.values()].sort((a, b) => a.time - b.time || a.id.localeCompare(b.id)),
     projects: [...projects.values()].sort((a, b) => b.costUsd - a.costUsd || a.name.localeCompare(b.name)) };
 }
