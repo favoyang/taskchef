@@ -77,7 +77,7 @@ beforeEach(() => {
   transition = async () => ({ structuredContent: { task: task("one", "completed") } });
   detailFailure = null;
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
     if (name === "taskchef_app_task" && detailFailure) return Promise.resolve({ isError: true, content: [{ type: "text", text: detailFailure }] });
     if (name === "taskchef_app_task") return Promise.resolve({ structuredContent: { task: details.get(args.taskId as string) } });
     if (name === "taskchef_app_notifications") {
@@ -242,7 +242,7 @@ test("an older selection detail cannot replace a newer refresh detail", async ()
   const first = new Promise((resolve) => { releaseFirst = resolve; });
   let detailCalls = 0;
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
     if (name === "taskchef_app_task") return ++detailCalls === 1
       ? first
       : Promise.resolve({ structuredContent: { task: task("one", "needs_input") } });
@@ -272,7 +272,7 @@ test("an older selection response cannot replace the current task", async () => 
   let release!: (value: unknown) => void;
   const first = new Promise((resolve) => { release = resolve; });
   server.call.mockImplementation(({ name, arguments: args }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } });
     if (name === "taskchef_app_task") return args.taskId === "one" ? first : Promise.resolve({ structuredContent: { task: task("two") } });
     throw new Error(`Unexpected tool: ${name}`);
   });
@@ -286,7 +286,7 @@ test("an older selection response cannot replace the current task", async () => 
 
 test("keeps scan diagnostics out of the board", async () => {
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: true, revision: 1,
       scan: { source: "database", mode: "database", checkedAt: "2026-10-05T00:00:00Z", intervalSeconds: 5,
         indexedFiles: 8620, visibleFiles: 300, unreadFiles: 8320, errors: 0 },
@@ -303,7 +303,7 @@ test("keeps scan diagnostics out of the board", async () => {
 
 test("shows an initial inventory failure without undefined scan counts", async () => {
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: false, revision: 0,
       scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "EACCES" },
     } } });
@@ -351,7 +351,7 @@ test("inline mode loads once and begins polling when expanded", async () => {
 });
 
 test("shows the Node requirement when the scanner rejects its runtime", async () => {
-  server.call.mockResolvedValue({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+  server.call.mockResolvedValue({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: {
     tasks: [], healthy: false, revision: 0,
     scan: { mode: "error", checkedAt: "2026-10-05T00:00:00Z", error: "TaskChef requires Node.js 22.18.0 or later for read-only SQLite (current: 22.17.9)." },
   } } });
@@ -363,7 +363,7 @@ test("a database failure after a healthy snapshot removes stale tasks", async ()
   mount();
   expect(await screen.findByRole("button", { name: "Task one" })).toBeVisible();
   server.call.mockImplementation(({ name }) => {
-    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: {
+    if (name === "taskchef_app_snapshot") return Promise.resolve({ structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: {
       tasks: [], healthy: false, revision: 2,
       scan: { source: "database", mode: "error", checkedAt: new Date().toISOString() },
     } } });
@@ -384,7 +384,7 @@ test("Done control calls the local mark tool with the displayed turn and refresh
       tasks = [next]; details.set(current.id, next);
       return { structuredContent: { task: next } };
     }
-    if (name === "taskchef_app_snapshot") return { structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } };
+    if (name === "taskchef_app_snapshot") return { structuredContent: { notifications: notificationState, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", settings: visibility, snapshot: { tasks, projects: registeredProjects, healthy: true } } };
     if (name === "taskchef_app_task") return { structuredContent: { task: details.get(current.id) } };
     throw new Error(name);
   });

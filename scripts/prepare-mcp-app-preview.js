@@ -16,15 +16,15 @@ export async function prepareMcpAppPreview(pluginRoot) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const mcpPath = join(root, ".mcp.json");
   const mcp = JSON.parse(await readFile(mcpPath, "utf8"));
-  if (manifest.name !== "taskchef-next") throw new Error("The target must already have the taskchef-next development identity.");
-  const server = mcp.mcpServers?.[manifest.name] ?? mcp.mcpServers?.taskchef;
+  if (manifest.name !== "taskchef-dev") throw new Error("The target must already have the taskchef-dev development identity.");
+  const server = mcp.mcpServers?.[manifest.name] ?? mcp.mcpServers?.taskchef ?? mcp.mcpServers?.["taskchef-next"];
   if (!server || Object.keys(mcp.mcpServers).length !== 1) throw new Error("Expected one TaskChef MCP server.");
-  manifest.name = "taskchef-next";
+  manifest.name = "taskchef-dev";
   manifest.interface = { ...manifest.interface, displayName: "TaskChef Dev" };
   if (manifest.interface.defaultPrompt) {
-    manifest.interface.defaultPrompt = manifest.interface.defaultPrompt.map(prompt => prompt.replaceAll("$taskchef:", "$taskchef-next:"));
+    manifest.interface.defaultPrompt = manifest.interface.defaultPrompt.map(prompt => prompt.replaceAll("$taskchef:", "$taskchef-dev:").replaceAll("$taskchef-next:", "$taskchef-dev:"));
   }
-  mcp.mcpServers = { "taskchef-next": server };
+  mcp.mcpServers = { "taskchef-dev": server };
   await writeDurableAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   await writeDurableAtomic(mcpPath, `${JSON.stringify(mcp, null, 2)}\n`);
   return { name: manifest.name, displayName: manifest.interface.displayName, version: manifest.version };

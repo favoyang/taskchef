@@ -28,7 +28,7 @@ export async function assertNoStateWriters(paths, runCommand = run) {
     if (!identities.has(root)) {
       let name;
       try { name = JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8")).name; } catch { /* Unrelated process. */ }
-      identities.set(root, ["taskchef", "taskchef-next"].includes(name));
+      identities.set(root, ["taskchef", "taskchef-dev", "taskchef-next"].includes(name));
     }
     return identities.get(root);
   }

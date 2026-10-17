@@ -13,7 +13,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, ".codex-plugin"));
   await mkdir(join(root, "src/mcp-app/dist"), { recursive: true });
-  const manifest = JSON.stringify({ name: "taskchef-next", version: "1-next.1" });
+  const manifest = JSON.stringify({ name: "taskchef-dev", version: "1-dev.1" });
   await writeFile(join(root, ".codex-plugin/plugin.json"), manifest);
   const target = join(root, "src/mcp-app/dist/index.html");
   await writeFile(target, "<!doctype html><p>Old UI</p>");
@@ -27,7 +27,7 @@ test("UI update changes only the existing HTML and keeps the plugin version", as
   await writeFile(join(root, "server.js"), "unchanged server");
   const result = await updateMcpAppPreview(root, source);
   assert.equal(result.changed, true);
-  assert.equal(result.version, "1-next.1");
+  assert.equal(result.version, "1-dev.1");
   assert.equal(await readFile(target, "utf8"), await readFile(source, "utf8"));
   assert.equal(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8"), manifest);
   assert.equal(await readFile(join(root, "server.js"), "utf8"), "unchanged server");
@@ -65,14 +65,21 @@ test("development identity stays in the staging copy and leaves the release unch
   await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { taskchef: { command: "node", args: ["./mcp/server.js"] } } }));
   await assert.rejects(prepareMcpAppPreview(root), /development identity/);
   assert.equal(JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8")).name, "taskchef");
-  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-next", version: "8.7.0", interface: { displayName: "TaskChef", defaultPrompt: ["$taskchef:delegate Do X"] } }));
+  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-dev", version: "8.7.0", interface: { displayName: "TaskChef", defaultPrompt: ["$taskchef:delegate Do X"] } }));
   const result = await prepareMcpAppPreview(root);
-  assert.deepEqual(result, { name: "taskchef-next", displayName: "TaskChef Dev", version: "8.7.0" });
+  assert.deepEqual(result, { name: "taskchef-dev", displayName: "TaskChef Dev", version: "8.7.0" });
   const prepared = JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8"));
-  assert.deepEqual(prepared.interface.defaultPrompt, ["$taskchef-next:delegate Do X"]);
+  assert.deepEqual(prepared.interface.defaultPrompt, ["$taskchef-dev:delegate Do X"]);
   const mcp = JSON.parse(await readFile(join(root, ".mcp.json"), "utf8"));
-  assert.deepEqual(mcp.mcpServers, { "taskchef-next": { command: "node", args: ["./mcp/server.js"] } });
+  assert.deepEqual(mcp.mcpServers, { "taskchef-dev": { command: "node", args: ["./mcp/server.js"] } });
   assert.deepEqual(await prepareMcpAppPreview(root), result);
+  // An existing Dev staging copy can retain the old server and prompt keys.
+  prepared.interface.defaultPrompt = ["$taskchef-next:delegate Do X"];
+  await writeFile(join(root, ".codex-plugin/plugin.json"), JSON.stringify(prepared));
+  await writeFile(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { "taskchef-next": mcp.mcpServers["taskchef-dev"] } }));
+  assert.deepEqual(await prepareMcpAppPreview(root), result);
+  assert.deepEqual(JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers, mcp.mcpServers);
+  assert.deepEqual(JSON.parse(await readFile(join(root, ".codex-plugin/plugin.json"), "utf8")).interface.defaultPrompt, ["$taskchef-dev:delegate Do X"]);
   await writeFile(join(root, "package.json"), JSON.stringify({ type: "module", version: "8.7.0" }));
   await writeFile(join(root, "src/version.js"), await readFile(new URL("../src/version.js", import.meta.url)));
   assert.equal((await import(pathToFileURL(join(root, "src/version.js")).href)).TASKCHEF_APP_NAME, "TaskChef Dev");

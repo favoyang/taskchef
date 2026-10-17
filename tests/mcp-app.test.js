@@ -37,15 +37,15 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
   const temp = await mkdtemp(join(tmpdir(), "taskchef-native-settings-"));
   t.after(() => rm(temp, { recursive: true, force: true }));
   const settingsPath = join(temp, "settings.json");
-  const server = new McpServer({ name: "taskchef-next-test", version: "1" });
+  const server = new McpServer({ name: "taskchef-dev-test", version: "1" });
   let credential = {};
   const scopes = [];
   const forces = [];
   const github = new NextGitHub({ stateDir: temp, credentials: { read: async () => credential, write: async (_, value) => { credential = value; }, remove: async () => { credential = {}; } }, fetch: async () => { throw new Error("Unexpected GitHub request"); } });
   const enrich = github.enrich.bind(github);
   github.enrich = async (snapshot, settings, options) => { scopes.push(options?.scope); forces.push(options?.force); return enrich(snapshot, settings, options); };
-  registerTaskChefApp(server, { createGitHub: () => github, settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; }, getSettingsUrl: async () => "codex://plugins/taskchef-next?marketplacePath=%2Fexample", openSettings: async (url) => { settingsOpened = url; } });
-  const client = new Client({ name: "taskchef-next-client", version: "1" });
+  registerTaskChefApp(server, { createGitHub: () => github, settingsPath, createScanner: () => scanner, openThread: async (id) => { opened = id; }, getSettingsUrl: async () => "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", openSettings: async (url) => { settingsOpened = url; } });
+  const client = new Client({ name: "taskchef-dev-client", version: "1" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   await client.connect(clientTransport);
@@ -109,7 +109,7 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     await client.callTool({ name: "taskchef_app_snapshot", arguments: { visibleTaskIds: [task.id] } });
     assert.deepEqual(scopes.at(-1).taskIds, [task.id]);
     const unchanged = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
-    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-next?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: true, connected: false, login: null }, version: TASKCHEF_VERSION });
+    assert.deepEqual(unchanged.structuredContent, { unchanged: true, revision, scan: { mode: "full", indexedFiles: 1 }, settings: defaults, settingsUrl: "codex://plugins/taskchef-dev?marketplacePath=%2Fexample", notifications: snapshot.structuredContent.notifications, github: { configured: true, connected: false, login: null }, version: TASKCHEF_VERSION });
     await writeFile(settingsPath, JSON.stringify({ ...defaults, showExec: true }));
     const settingsOnly = await client.callTool({ name: "taskchef_app_snapshot", arguments: { revision } });
     assert.equal(settingsOnly.structuredContent.unchanged, true);
@@ -123,7 +123,7 @@ test("TaskChef sidebar exposes database reads, local Done marks, and chat naviga
     assert.deepEqual(forces.slice(-2), [true, false]);
     assert.equal(detail.structuredContent.task.title, task.title);
     await client.callTool({ name: "taskchef_app_open_settings", arguments: {} });
-    assert.equal(settingsOpened, "codex://plugins/taskchef-next?marketplacePath=%2Fexample");
+    assert.equal(settingsOpened, "codex://plugins/taskchef-dev?marketplacePath=%2Fexample");
     await client.callTool({ name: "taskchef_app_open_chat", arguments: { taskId: task.id } });
     assert.equal(opened, task.id);
     const done = await client.callTool({ name: "taskchef_app_set_done", arguments: { taskId: task.id, expectedTurnId: "turn-one", done: true } });
@@ -142,13 +142,13 @@ test("plugin settings link resolves the installed local marketplace", async (t) 
   const root = join(temp, "marketplace");
   const marketplacePath = join(root, ".agents", "plugins", "marketplace.json");
   await mkdir(dirname(marketplacePath), { recursive: true });
-  await writeFile(marketplacePath, JSON.stringify({ name: "preview", plugins: [{ name: "taskchef-next" }] }));
+  await writeFile(marketplacePath, JSON.stringify({ name: "preview", plugins: [{ name: "taskchef-dev" }] }));
   await writeFile(join(temp, "config.toml"), `[marketplaces.preview]\nsource = ${JSON.stringify(root)}\n`);
-  const url = await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" });
-  assert.equal(url, `codex://plugins/taskchef-next?${new URLSearchParams({ marketplacePath })}`);
+  const url = await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-dev/1/" });
+  assert.equal(url, `codex://plugins/taskchef-dev?${new URLSearchParams({ marketplacePath })}`);
   assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/unknown/" }), null);
   await writeFile(marketplacePath, JSON.stringify({ name: "preview", plugins: [] }));
-  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-next/1/" }), null);
+  assert.equal(await pluginSettingsUrl({ codexHome: temp, pluginRoot: "/example/cache/preview/taskchef-dev/1/" }), null);
 });
 
 
@@ -168,7 +168,7 @@ test("plugin settings resolves the Git marketplace snapshot used by a public ins
 
 test("plugin settings uses the native desktop opener and reports errors", async () => {
   const { openPluginSettingsInCodex } = await import("../src/codex-app.js");
-  const url = "codex://plugins/taskchef-next?marketplacePath=%2Fexample";
+  const url = "codex://plugins/taskchef-dev?marketplacePath=%2Fexample";
   for (const [platform, command, args] of [
     ["darwin", "/usr/bin/open", [url]],
     ["win32", "rundll32.exe", ["url.dll,FileProtocolHandler", url]],
@@ -180,7 +180,7 @@ test("plugin settings uses the native desktop opener and reports errors", async 
     assert.deepEqual(invocation[1], args);
   }
   await assert.rejects(openPluginSettingsInCodex(url, { run: async () => { throw new Error("Opener failed"); } }), /Opener failed/);
-  for (const invalid of [null, "codex://plugins", "https://example.com", "codex://plugins/taskchef-next?marketplacePath=relative", "codex://plugins/taskchef-next?marketplacePath=%2Fexample&other=value"]) {
+  for (const invalid of [null, "codex://plugins", "https://example.com", "codex://plugins/taskchef-dev?marketplacePath=relative", "codex://plugins/taskchef-dev?marketplacePath=%2Fexample&other=value"]) {
     await assert.rejects(openPluginSettingsInCodex(invalid, { run: async () => assert.fail("Must not open invalid URL") }));
   }
 });
