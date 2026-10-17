@@ -1,50 +1,62 @@
-# TaskChef native product contract
+# TaskChef product contract
 
-TaskChef is a local Codex dashboard. Codex databases and rollout logs own chat
-identity, recorded prompts and replies, turn state, schedules, queue contents,
-and token usage. TaskChef reads them without rewriting Codex data.
+TaskChef is a local Codex dashboard. Codex owns chat identity, execution,
+recorded prompts and replies, turn state, schedules, queued prompts, and token
+records. TaskChef reads Codex databases and logs without rewriting them.
 
-## Runtime
+## Dashboard and local state
 
-The plugin launches one stdio MCP server and advertises the native sidebar app.
-It does not start an HTTP server, create a dispatcher workspace, index a second
-project registry, or maintain tasks.jsonl. Only native dashboard tools are
-registered. No task markers, self-linking, executor reports, or lifecycle
-callbacks are needed for a chat to appear.
+The plugin runs a local stdio MCP server with a bundled sidebar UI. Board and
+Calendar show eligible top-level chats with recorded turns. Visibility settings
+can include CLI, exec, and archived chats; subagents remain off those views.
+Usage accounts for all recorded chat sources, including archived chats and
+linked descendants counted once under the root project's attribution.
 
-The MCP process closes its transport and resources on EOF, signals, protocol
-close, or parent loss. Settings and caches use atomic writes. Shared state
-writes also use the existing file lock, with its filename and timing preserved.
-Open-chat callers must provide a UUID; the boundary check does not insist on
-UUIDv7 or generate IDs.
+TaskChef owns preferences, turn-bound Done and Scheduled acknowledgements,
+notification state, optional delegation routing notes, and derived scan, PR,
+usage, and pricing caches. Settings and persistent state use protected local
+writes. Invalid persistent state fails visibly and is preserved for repair.
+GitHub credentials remain in the system credential store.
 
-## Feature state
+Done describes the selected turn. A new turn invalidates its acknowledgement.
+Running and live approval waits cannot be marked Done. Attached latest-turn PRs
+require confirmed merge status; active schedules prevent Done placement.
+Calendar dates represent recorded work, not planned future execution.
+Usage cost is an API-equivalent estimate; allowance readings are logged
+observations. Missing records can make accounting incomplete.
 
-TaskChef retains its current native settings, GitHub credentials, Done marks,
-notification state, and scan/PR/usage/pricing caches. Credentials remain in the
-system credential store. A Done mark is bound to the current turn. A new turn
-invalidates stale derived data. Damaged state is preserved and reported rather
-than silently reset. See [storage](taskchef-next-storage.md).
+## Actions and external access
 
-## Delegation
+Open chat returns to Codex. Users answer questions, approve requests, archive
+chats, and control execution in Codex. TaskChef's queue marks do not modify
+Codex turn status or schedules. Optional desktop IPC supplies live approval
+state; loss of that connection falls back to saved database state.
 
-The packaged `$taskchef:delegate` skill uses native Codex project discovery and chat
-creation. It passes an ordinary assignment, resolves ambiguity with the user,
-and returns the native link. Explicit follow-ups use the selected existing
-chat. Codex owns execution and outcomes; TaskChef does not mirror task records.
+GitHub sign-in enables read-only PR and CI queries. Public pricing updates
+fetch the official API pricing table without chat content or an API key.
+See [GitHub setup](github.md) and [privacy](https://taskchef.dev/privacy/).
 
-Optional routing memory contains only confirmed project aliases and explicit
-preferences. Revalidate it against current native projects. It is not a task
-log, a source of authority, or a store for prompts, results, or credentials.
+## Optional delegate skill
 
-## Transition and delivery
+The packaged delegate skill uses native project discovery and chat creation or
+explicitly authorized follow-up messaging. Codex owns the resulting chats and
+execution. Confirmed aliases are routing hints, revalidated against current
+projects. Routing notes contain no task records, full prompts, results, or
+credentials and cannot override user instructions.
 
-Retiring the dispatcher CLI, skills, tools and exported API is a breaking
-change delivered in a major release. Existing legacy workspaces, task logs and
-Codex data remain untouched. There is no automatic data deletion or archive
-export feature. The release remains TaskChef; a development copy uses the
-separate taskchef-next identity and TaskChef Dev name.
+## Contributor boundary
 
-Release validation must exercise the native MCP server, bundled UI, delegate
-skill and required dependencies, without requiring retired dispatcher files.
-A future web product does not require shipping the old HTTP runtime.
+The runtime closes its transport and resources on EOF, signals, protocol close,
+or parent loss. Settings and caches use atomic writes; shared state writes also
+keep the existing lock filename and timing. Open-chat callers must provide a
+UUID, without a UUIDv7 restriction or generated replacement ID. The plugin does
+not start a separate HTTP dispatcher runtime, create a dispatcher workspace,
+maintain a second project registry, or use a separate task log as live state.
+
+
+Changes must preserve local Codex data, existing TaskChef state, and credential
+storage. Release manifests retain the `taskchef` identity. Dev staging uses the
+separate `taskchef-dev` identity; it must not overwrite a released installation.
+Package validation must exercise MCP startup, the built UI, delegate skill,
+and required production dependencies. Tests and release automation remain
+in this repository. Usage guides start at the [README](../README.md).
