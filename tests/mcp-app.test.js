@@ -280,14 +280,14 @@ async function settled(call) {
  return result;
 }
 
-test('usage history is app-only, validates range/timezone, and passes current source visibility', async t => {
+test('usage history is app-only, validates range/timezone, and does not pass Board visibility', async t => {
  const temp=await mkdtemp(join(tmpdir(),'taskchef-analytics-tool-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const server=new McpServer({name:'usage-test',version:'1'});const calls=[];
  registerTaskChefApp(server,{settingsPath:join(temp,'settings.json'),createScanner:()=>({close(){},usageHistory:async args=>{calls.push(args);return[];}}),getSettingsUrl:async()=>null});
  const client=new Client({name:'test',version:'1'});const[a,b]=InMemoryTransport.createLinkedPair();await server.connect(b);await client.connect(a);t.after(async()=>{await client.close();await server.close();});
  let result=await client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'Asia/Singapore'}});
  if (result.structuredContent.loading) result=await client.callTool({name:'taskchef_app_usage',arguments:{range:'mtd',timeZone:'Asia/Singapore'}});
- assert.equal(result.structuredContent.samples,0);assert.equal(calls[0].settings.showCli,false);
+ assert.equal(result.structuredContent.samples,0);assert.equal(calls[0].settings,undefined);
  assert.equal((await client.callTool({name:'taskchef_app_usage',arguments:{range:'custom',timeZone:'UTC'}})).isError,true);
  assert.equal((await client.callTool({name:'taskchef_app_usage',arguments:{range:'7d',timeZone:'invalid/timezone'}})).isError,true);
  assert.equal(calls.length,1);
@@ -390,16 +390,34 @@ test('a restarted server serves disk history including weekly readings before a 
  assert.equal((await fourth.call()).structuredContent.totals.tokens,200);await settled(()=>fourth.call());
 });
 
-test('disk history is isolated by Codex home and CLI/exec visibility',async t=>{
+test('disk history is isolated by Codex home but shared across visibility changes',async t=>{
  const temp=await mkdtemp(join(tmpdir(),'taskchef-disk-scope-'));t.after(()=>rm(temp,{recursive:true,force:true}));
  const settingsPath=join(temp,'settings.json');
  const first=await usageServer(t,settingsPath,{codexHome:'/one',usageHistory:async()=>historyFixture(Date.now())});await settled(()=>first.call());await first.close();
  let finish;
  const second=await usageServer(t,settingsPath,{codexHome:'/two',usageHistory:()=>new Promise(resolve=>{finish=resolve;})});
  assert.equal((await second.call()).structuredContent.loading,true);finish([]);await settled(()=>second.call());await second.close();
- const third=await usageServer(t,settingsPath,{codexHome:'/one',usageHistory:()=>new Promise(resolve=>{finish=resolve;})});
- await third.client.callTool({name:'taskchef_settings_update',arguments:{set:{showCli:true}}});
- assert.equal((await third.call()).structuredContent.loading,true);finish([]);await settled(()=>third.call());
+ let reads=0;
+ const third=await usageServer(t,settingsPath,{codexHome:'/one',usageHistory:()=>{reads++;return new Promise(resolve=>{finish=resolve;});}});
+ assert.equal((await third.call()).structuredContent.totals.tokens,100);
+ await until(async()=>typeof finish==='function'&&reads===1);
+ for(const value of [true,false]) {
+  await third.client.callTool({name:'taskchef_settings_update',arguments:{set:{showCli:value,showExec:value,showArchived:value}}});
+  assert.equal((await third.call()).structuredContent.totals.tokens,100);
+  assert.equal(reads,1);
+ }
+ finish(historyFixture(Date.now()));await settled(()=>third.call());
+});
+
+test('all-source history does not hydrate an old visibility-filtered snapshot',async t=>{
+ const temp=await mkdtemp(join(tmpdir(),'taskchef-disk-legacy-scope-'));t.after(()=>rm(temp,{recursive:true,force:true}));
+ const {writeUsageHistory}=await import('../src/usage-history-cache.js');
+ await writeUsageHistory(join(temp,'cache','usage-history'),JSON.stringify(['/one',false,false]),historyFixture(Date.now()),Date.now());
+ let finish;
+ const app=await usageServer(t,join(temp,'settings.json'),{codexHome:'/one',usageHistory:()=>new Promise(resolve=>{finish=resolve;})});
+ assert.equal((await app.call()).structuredContent.loading,true);
+ await until(async()=>typeof finish==='function');finish(historyFixture(Date.now()));
+ assert.equal((await settled(()=>app.call())).totals.tokens,100);
 });
 
 test('corrupt or incompatible snapshots rebuild, and an unwritable cache does not break usage',async t=>{

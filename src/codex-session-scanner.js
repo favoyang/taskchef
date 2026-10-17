@@ -674,10 +674,10 @@ export class CodexSessionScanner {
     }
     return { month, timeZone, chats };
   }
-  async usageAnalytics({ range, timeZone, settings }) {
-    return aggregateUsage(await this.usageHistory({ settings }), { range, timeZone, now: this.now() });
+  async usageAnalytics({ range, timeZone }) {
+    return aggregateUsage(await this.usageHistory(), { range, timeZone, now: this.now() });
   }
-  async usageHistory({ settings, onProgress = () => {}, rescan = false }) {
+  async usageHistory({ onProgress = () => {}, rescan = false } = {}) {
     if (rescan) this.sessionUsage.inventoryAt = -Infinity;
     const snapshot = await this.refresh();
     if (!snapshot.healthy) throw new Error(snapshot.scan.error);
@@ -690,8 +690,8 @@ export class CodexSessionScanner {
     })), records.projects);
     const families = [];
     const seen = new Set();
-    // History includes archived chats. CLI/exec preferences still apply.
-    const tasks = grouped.tasks.filter(task => (settings.showCli || task.observed?.source !== "cli") && (settings.showExec || task.observed?.source !== "exec"));
+    // Accounting includes every root, independent of Board visibility settings.
+    const tasks = grouped.tasks;
     let completed = 0;
     onProgress({ completed, total: tasks.length });
     for (const task of tasks) {

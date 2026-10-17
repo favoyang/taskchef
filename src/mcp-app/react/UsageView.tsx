@@ -99,7 +99,7 @@ export function UsageView({ request, refreshKey = 0 }: { request: (args: ReturnT
     {error && <div role="alert"><p>Usage could not be loaded: {error}</p><button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {data && <>
       {data.refreshError && <p role="alert">{data.refreshError} <button onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
-      <p className="usage-period">{dateLabel(data.start)} – {dateLabel(data.end)} · {data.timeZone} · Daily · Includes archived chats and subagent usage{data.updatedAt && <> · Updated {new Date(data.updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</>}</p>
+      <p className="usage-period">{dateLabel(data.start)} – {dateLabel(data.end)} · {data.timeZone} · Daily · All chat sources · Includes archived chats and subagent usage{data.updatedAt && <> · Updated {new Date(data.updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</>}</p>
       <div className="usage-totals">
           <article><h3>Recorded tokens</h3><strong>{count(data.totals.tokens)}</strong><p>Input {count(data.totals.inputTokens)} · Cached input {count(data.totals.cachedInputTokens)} · Output {count(data.totals.outputTokens)}</p></article>
           <article><h3>Estimated cost</h3><strong>{money(data.totals.costUsd)}</strong><p>API-equivalent prices · USD</p></article>
