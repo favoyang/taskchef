@@ -682,6 +682,25 @@ test("Usage opens on demand and returns to Board without keeping its filters vis
   expect(screen.getByRole("region",{name:"Task board"})).toBeVisible();
 });
 
+test('Usage keeps its project selection when Board source visibility changes', async () => {
+  const original = server.call.getMockImplementation()!;
+  const usage = { start:'2026-10-15', end:'2026-10-15', timeZone:'UTC', samples:1, incomplete:false,
+    totals:{tokens:100,costUsd:2,inputTokens:80,cachedInputTokens:20,outputTokens:20},
+    days:[{date:'2026-10-15',tokens:100,costUsd:2,projects:{alpha:2},projectTokens:{alpha:100}}],
+    projects:[{id:'alpha',name:'Alpha',tokens:100,costUsd:2}] };
+  server.call.mockImplementation(input => input.name === 'taskchef_app_usage' ? Promise.resolve({structuredContent:usage}) : original(input));
+  mount(); await screen.findByRole('button',{name:'Task one'});
+  fireEvent.click(screen.getByRole('radio',{name:'Usage'}));
+  const alpha = await screen.findByRole('button',{name:'Alpha'});
+  fireEvent.click(alpha);
+  expect(alpha).toHaveAttribute('aria-pressed','true');
+  visibility = {...visibility,showCli:true,showExec:true};
+  fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
+  await waitFor(()=>expect(server.call.mock.calls.filter(([input])=>input.name==='taskchef_app_usage').length).toBeGreaterThan(1));
+  expect(screen.getByRole('button',{name:'Alpha'})).toHaveAttribute('aria-pressed','true');
+  expect(screen.getByText(/All chat sources/)).toBeVisible();
+});
+
 test("Calendar replaces the update window and opens matching chat details", async () => {
   tasks = [task('one', 'needs_input', '2020-01-01T00:00:00Z')];
   details = new Map(tasks.map(item => [item.id, item]));

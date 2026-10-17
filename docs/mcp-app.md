@@ -387,14 +387,14 @@ There is no custom range. Dates use the view's local timezone, including DST.
 Range changes and reopening Usage query one shared history snapshot without
 rescanning logs. The combined snapshot is also saved atomically with private file
 permissions under `~/.agents/taskchef/cache/usage-history/`, scoped by Codex home
-and CLI/exec visibility. It contains the fields needed for charts, including
+and the all-sources accounting policy. It contains the fields needed for charts, including
 weekly readings, and no message content or per-file parsing records. After an
 MCP server restart, the first Usage request loads a compatible disk snapshot
 and returns saved charts before refreshing history in the background. Range and
 timezone changes share that refresh. A missing, damaged, or incompatible snapshot
 falls back to a normal scan. A failed background refresh retains the last good
-snapshot, shows a Retry action, and never overwrites it with a failed result. The snapshot is scoped by CLI/exec visibility, independently of
-range or timezone. After one minute it refreshes in the background while cached
+snapshot, shows a Retry action, and never overwrites it with a failed result. The snapshot is independent of Board visibility, range, and timezone. Older
+visibility-filtered snapshots are not reused. After one minute it refreshes in the background while cached
 charts remain visible. Refresh explicitly rebuilds it, reusing existing per-file
 metadata and incremental parsing caches. Unchanged files retain parsed records
 on disk across restarts and turn or price changes. A session filename index
@@ -428,10 +428,11 @@ interpolate between recorded points; they are not additional measurements.
 Codex writes service-provided seven-day primary or secondary allowance windows
 into local rollout token-count events, including events without token counters.
 TaskChef reads these logs; it does not poll the service for current allowance.
-Root-chat CLI/exec visibility controls which logs supply observations.
+Weekly observations include all root-chat sources, regardless of Board visibility.
 
-Archived chats and descendant usage are included. CLI/exec visibility settings
-still apply to root chats. Descendants are counted once under their root chat's
+Desktop, CLI, exec, archived chats, and descendant usage are included. Board
+visibility settings do not narrow Usage or change its cached history.
+Descendants are counted once under their root chat's
 current project. Unassigned chats share one Unassigned project. Daily usage
 comes from recorded call timestamps, not chat creation or last-update dates.
 Unexplained cumulative counter gaps stay in lifetime totals but are excluded

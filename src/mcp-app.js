@@ -229,10 +229,10 @@ export function registerTaskChefApp(server, {
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ range, timeZone, force, rescan }) => {
     new Intl.DateTimeFormat("en", { timeZone }).format();
-    const settings = await readSettings();
     // History is independent of chart range and timezone. Range changes query
     // this shared snapshot; only expiry or explicit Refresh starts another read.
-    const key = JSON.stringify([scanner.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), settings.showCli, settings.showExec]);
+    // The new scope cannot hydrate an older, visibility-filtered snapshot.
+    const key = JSON.stringify([scanner.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), "all-sources"]);
     const cacheDirectory = join(dirname(settingsPath), "cache", "usage-history");
     let job = analyticsJobs.get(key);
     if (!job) {
@@ -256,7 +256,7 @@ export function registerTaskChefApp(server, {
           current.refreshAgain = false;
           const rebuild = current.rescan;
           current.rescan = false;
-          const families = await scanner.usageHistory({ settings, rescan: rebuild, onProgress: progress => { current.progress = progress; } });
+          const families = await scanner.usageHistory({ rescan: rebuild, onProgress: progress => { current.progress = progress; } });
           current.families = families;
           current.finishedAt = Date.now();
           // Cache failures never hide readable usage or replace a last good snapshot.

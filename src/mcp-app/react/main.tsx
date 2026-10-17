@@ -461,7 +461,7 @@ export function TaskChefApp() {
           {view === "list" && <Paper className="taskchef-toolbar" radius={0}>
             <Box className="taskchef-app-status"><SegmentedControl aria-label="Status" data={statusOptions} onChange={setStatus} size="xs" value={status} withItemsBorders={false} /></Box>
           </Paper>}
-          {view === "calendar" ? <CalendarView request={readCalendar} showProject={!project} tasks={boardTasks} refreshKey={`${revisionRef.current}:${calendarHistoryRevision.current}:${new Date(now).toDateString()}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView key={`${showCli}:${showExec}`} request={readUsage} refreshKey={usageRefreshKey} /> : <>
+          {view === "calendar" ? <CalendarView request={readCalendar} showProject={!project} tasks={boardTasks} refreshKey={`${revisionRef.current}:${calendarHistoryRevision.current}:${new Date(now).toDateString()}:${usageRefreshKey}:${showCli}:${showExec}:${showArchived}`} onOpenDetail={task => void select(task)} /> : view === "usage" ? <UsageView request={readUsage} refreshKey={usageRefreshKey} /> : <>
           {!!scan?.scheduleErrors && <Alert color="yellow" role="alert">{scan.scheduleErrors} schedule files could not be read; schedule placement may be incomplete.</Alert>}
           {view === "list" && <Text aria-live="polite" className="taskchef-results-summary" id="task-results-summary">Tasks: {visible.length} of {eligibleTasks.length}</Text>}
           {error && <Alert color="red" role="alert" mt="sm">{error}</Alert>}

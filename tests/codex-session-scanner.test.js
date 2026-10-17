@@ -1155,19 +1155,29 @@ test('optional log samples survive compression, stale selected paths, and restor
   }
 });
 
-test('usage history includes archived families once, obeys source settings, and attributes children to the parent project', async t => {
+test('usage includes every source regardless of visibility and counts descendants once under the parent project', async t => {
  const setup=await fixture(t);if(!setup)return;
  const {home,state,history}=setup;
- for(const [key,source,threadSource,archived] of [['root','vscode','user',1],['child','vscode','subagent',0],['cli','cli','user',0]]) {
-  state.prepare("INSERT INTO threads(id,title,cwd,source,thread_source,archived,created_at_ms,updated_at_ms) VALUES(?,?,'/repo',?,?,?,1,1)").run(key,key,source,threadSource,archived);
+ state.exec("INSERT INTO projects(id,name,position) VALUES('parent','Parent',0),('other','Other',1)");
+ for(const [key,source,threadSource,archived,project,recency] of [
+  ['root','vscode','user',1,'parent',30],['child','cli','subagent',0,'other',20],
+  ['grandchild','exec','subagent',0,'other',15],['cli','cli','user',0,'other',10],['exec','exec','user',0,'other',5],
+ ]) {
+  state.prepare("INSERT INTO threads(id,title,cwd,source,thread_source,archived,created_at_ms,updated_at_ms,project_id,recency_at_ms) VALUES(?,?,'/repo',?,?,?,1,1,?,?)").run(key,key,source,threadSource,archived,project,recency);
   history.prepare("INSERT INTO thread_turns(thread_id,rollout_ordinal,status) VALUES(?,1,'completed')").run(key);
  }
- state.prepare("INSERT INTO thread_spawn_edges(parent_thread_id,child_thread_id) VALUES('root','child')").run();
+ state.exec("INSERT INTO thread_spawn_edges(parent_thread_id,child_thread_id) VALUES('root','child'),('child','grandchild')");
  const scanner=new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json'),now:()=>Date.parse('2026-10-15T12:00:00Z')});t.after(()=>scanner.close());
- const calls=[];scanner.sessionUsage.read=async({sessions})=>{calls.push(sessions.map(s=>s.id));return{total:{partial:false,costPartial:false},timeline:sessions.map(()=>({time:Date.parse('2026-10-15T00:00:00Z'),tokens:{total_tokens:100,input_tokens:80,cached_input_tokens:0,output_tokens:20},costUsd:1,samples:1,partial:false,costPartial:false}))};};
- const result=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli:false,showExec:false}});
- assert.equal(result.totals.costUsd,2);assert.equal(result.projects.length,1);assert.equal(result.projects[0].name,'Unassigned');assert.deepEqual(calls,[['child','root']]);
- const all=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli:true,showExec:true}});assert.equal(all.totals.costUsd,3);
+ const calls=[];scanner.sessionUsage.read=async({sessions})=>{calls.push(...sessions.map(s=>s.id));return{total:{partial:false,costPartial:false},timeline:sessions.map(()=>({time:Date.parse('2026-10-15T00:00:00Z'),tokens:{total_tokens:100,input_tokens:80,cached_input_tokens:0,output_tokens:20},costUsd:1,samples:1,partial:false,costPartial:false})),weeklyLimits:sessions.map(()=>({id:'codex',name:null,time:Date.parse('2026-10-15T00:00:00Z'),remainingPercent:70,resetsAt:Date.parse('2026-10-20T00:00:00Z')}))};};
+ for(const showCli of [false,true]) for(const showExec of [false,true]) {
+  calls.length=0;
+  const result=await scanner.usageAnalytics({range:'mtd',timeZone:'UTC',settings:{showCli,showExec,showArchived:false}});
+  assert.equal(result.totals.costUsd,5);assert.equal(result.totals.tokens,500);
+  assert.deepEqual(calls.slice().sort(),['child','cli','exec','grandchild','root']);
+  assert.equal(result.projects.find(p=>p.id==='parent').costUsd,3);
+  assert.equal(result.projects.find(p=>p.id==='other').costUsd,2);
+  assert.equal(result.weeklyLimits.length,1);assert.equal(result.currentWeeklyLimit.remainingPercent,70);
+ }
 });
 
 test('usage includes rollout-backed roots without a history turn and resolves their project',async t=>{
