@@ -12,7 +12,7 @@ export async function updateMcpAppPreview(pluginRoot, sourceHtml = builtHtml) {
   if (!pluginRoot) throw new Error("Pass the installed TaskChef plugin folder used by the running app.");
   const root = await realpath(resolve(pluginRoot));
   const manifest = JSON.parse(await readFile(join(root, ".codex-plugin", "plugin.json"), "utf8"));
-  if (manifest.name !== "taskchef-next") throw new Error("The target must be an installed TaskChef preview.");
+  if (manifest.name !== "taskchef-dev") throw new Error("The target must be an installed TaskChef preview.");
   const target = join(root, "src", "mcp-app", "dist", "index.html");
   let metadata;
   try { metadata = await lstat(target); }

@@ -1,6 +1,6 @@
 # TaskChef sidebar
 
-The public app name is **TaskChef**. “TaskChef Next” remains the internal project name.
+The released app is **TaskChef**. The development app is **TaskChef Dev**, with plugin and MCP server ID `taskchef-dev`.
 
 The native dashboard requires Node.js 22.18+, 23.2+, or 24+ for local Codex SQLite access.
 
@@ -196,7 +196,7 @@ Use this order for every development change:
 For a full Dev update, give the staging package a unique development version
 in both `package.json` and `.codex-plugin/plugin.json` (and package-lock metadata
 if present), such as `9.0.0-dev.1`. Set only the staging manifest's plugin name
-to `taskchef-next`; keep the source release manifest named `taskchef`.
+to `taskchef-dev`; keep the source release manifest named `taskchef`.
 Before installing the staging package through the local development marketplace,
 run:
 
@@ -205,11 +205,20 @@ node scripts/prepare-mcp-app-preview.js /path/to/staging/plugin
 ```
 
 The script sets the copied plugin’s display name to **TaskChef Dev** and
-normalizes its MCP server key to `taskchef-next`. It refuses release manifests. The sidebar tool reads its
+normalizes its MCP server key to `taskchef-dev`. It refuses release manifests. The sidebar tool reads its
 name from that manifest. The release checkout and release package keep
 **TaskChef**. Run this step again whenever rebuilding the development package.
 Do not register a standalone preview MCP server alongside these two plugins.
 Restart Codex after changes to plugin identity or backend code.
+
+When migrating an existing Dev installation, prepare a new staging package with
+plugin ID `taskchef-dev` and a unique Dev version. Set its local marketplace
+name and plugin entry to `taskchef-dev`, then add the marketplace and install
+`taskchef-dev@taskchef-dev`. Verify the new installation before removing
+`taskchef-next@taskchef-next-preview` and the old marketplace registration.
+Both editions continue to share `~/.agents/taskchef`; preserve that state and
+the legacy GitHub credential key. After restarting Codex, the Dev skill is
+`$taskchef-dev:delegate` and its MCP namespace is `taskchef_dev`.
 
 ## Local UI review without restarting Codex
 
@@ -222,10 +231,10 @@ folder. Its next resource read then fails with `ENOENT`, and the sidebar shows
 From the source checkout, run:
 
 ```sh
-npm run update:mcp-app-preview -- /path/to/the/running/taskchef-next/version
+npm run update:mcp-app-preview -- /path/to/the/running/taskchef-dev/version
 ```
 
-The helper builds the UI, checks the development plugin ID is `taskchef-next`, and replaces only
+The helper builds the UI, checks the development plugin ID is `taskchef-dev`, and replaces only
 `src/mcp-app/dist/index.html` atomically. It preserves the plugin version, server
 code, dependencies, and local data. It refuses missing or redirected HTML paths.
 Then right-click **TaskChef Dev** in the Codex sidebar and choose **Refresh**.
@@ -351,13 +360,13 @@ uses this repository's GitHub token; no shared-marketplace deploy key is needed.
 If the push loses a race with another main update, rerun the Release workflow
 on main to retry after checking the current published version. Do not force push.
 
-Keep TaskChef Dev in a separate local marketplace named `taskchef-next-preview`,
-with plugin ID `taskchef-next` and display name **TaskChef Dev**. Store that
+Keep TaskChef Dev in a separate local marketplace named `taskchef-dev`,
+with plugin ID `taskchef-dev` and display name **TaskChef Dev**. Store that
 marketplace and its staging packages in a persistent local folder, outside
 this public checkout. Its catalog uses `source.source: local` with a path to
 the prepared staging package. Add that folder with
 `codex plugin marketplace add /path/to/local-dev-marketplace`, then install
-`codex plugin add taskchef-next@taskchef-next-preview`. This can coexist with
+`codex plugin add taskchef-dev@taskchef-dev`. This can coexist with
 `taskchef@taskchef`. Never rename the source release manifest for Dev.
 
 Retire the old shared catalog entry only after this repository's catalog is

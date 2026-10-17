@@ -112,9 +112,12 @@ test("writer refusal leaves both stores intact and releases its migration lock",
 
 test("writer inspection catches relative MCP commands and legacy cwd but permits tests", async t => {
   const p = await fixture(t), plugin = join(p.home, "plugin");
-  await file(join(plugin, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-next" }));
+  await file(join(plugin, ".codex-plugin/plugin.json"), JSON.stringify({ name: "taskchef-dev" }));
   const runCommand = command => Promise.resolve({ stdout: command === "lsof" ? `p90001\nn${plugin}\n` : "90001 node ./mcp/server.js\n" });
-  await assert.rejects(assertNoStateWriters(p, runCommand), /90001/);
+  for (const name of ["taskchef", "taskchef-dev", "taskchef-next"]) {
+    await file(join(plugin, ".codex-plugin/plugin.json"), JSON.stringify({ name }));
+    await assert.rejects(assertNoStateWriters(p, runCommand), /90001/);
+  }
   await assertNoStateWriters(p, command => Promise.resolve({ stdout: command === "lsof" ? `p90001\nn${plugin}\n` : "90001 node --test tests/taskchef-state.test.js\n" }));
   await assert.rejects(assertNoStateWriters(p, command => Promise.resolve({ stdout: command === "lsof" ? `p90003\nn/private/tmp\n` : `90003 node ${plugin}/mcp/server.js\n` })), /90003/);
   const spaced = join(p.home, "plugin with spaces");
