@@ -1,6 +1,6 @@
 {
   "name": "taskchef",
-  "version": "9.7.1",
+  "version": "9.7.2",
   "description": "A native Codex dashboard for chats, usage, pull requests, and schedules.",
   "license": "Apache-2.0",
   "author": "Favo Yang",
