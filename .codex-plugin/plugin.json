@@ -6,7 +6,7 @@
     "name": "Favo Yang",
     "url": "https://github.com/favoyang"
   },
-  "homepage": "https://github.com/favoyang/taskchef#readme",
+  "homepage": "https://taskchef.dev/",
   "repository": "https://github.com/favoyang/taskchef",
   "license": "Apache-2.0",
   "keywords": [
@@ -27,7 +27,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/favoyang/taskchef",
+    "websiteURL": "https://taskchef.dev/",
     "defaultPrompt": [
       "$taskchef:delegate Do X in Y project."
     ],

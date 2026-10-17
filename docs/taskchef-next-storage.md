@@ -1,232 +1,55 @@
-# TaskChef: Codex storage
+# Local data and storage
 
-[Edit the storage diagram](diagrams/taskchef-next-storage.drawio) · [Storage PNG](diagrams/taskchef-next-storage.drawio.png)
+Codex owns its databases, rollout logs, and chat history. TaskChef reads them
+locally without rewriting them.
 
-[Edit the reply lookup example](diagrams/taskchef-next-reply-lookup.drawio) · [Lookup PNG](diagrams/taskchef-next-reply-lookup.drawio.png)
+TaskChef stores settings, queue marks, notifications, routing notes, and caches
+under `~/.agents/taskchef/`. Derived usage, pricing, and PR caches live in its
+`cache/` directory and contain no chat message bodies. Released TaskChef and
+TaskChef Dev share this state.
+Credentials stay in the system credential store; there is no plaintext token
+fallback. Optional confirmed project aliases live in `delegation-memory.md`.
+Preserve a damaged persistent state file and seek support before repair; deleting the whole directory also
+removes preferences and marks.
 
-![Files and their tables](diagrams/taskchef-next-storage.drawio.png)
+## Storage migration error
 
-The storage diagram groups tables inside their database files. The separate example below shows current-reply lookup. Selected fields only; these internal schemas can change.
+Use this procedure only when startup reports that storage needs migration.
+The current runtime can read an existing native `~/.agents/taskchef-next/`
+store before migration. Two independent native stores, unexpected links, or an
+unfinished migration lock stop startup; TaskChef does not choose or merge them.
 
-![Current reply lookup after a revert](diagrams/taskchef-next-reply-lookup.drawio.png)
+On macOS or Linux with `lsof` available:
 
-## Native state directory and migration
-
-TaskChef and TaskChef Dev share `~/.agents/taskchef/` for settings, Done marks,
-GitHub state, notifications, delegation memory and caches. The Dev plugin keeps
-its separate `taskchef-next` identity. Storage naming does not change plugin
-registration or merge the released and Dev installations.
-
-Before migration, upgraded packages can still use an existing native
-`~/.agents/taskchef-next/` directory. They never treat retired dispatcher files
-at `~/.agents/taskchef/` as native state. Two independent native directories,
-unexpected links, or an unfinished migration lock stop startup with an error.
-The runtime does not move user data automatically.
-
-To migrate on macOS or Linux with `lsof` available:
-
-1. Install the compatible released and Dev packages first. Retain the existing
-   published release until the normal release workflow produces the new one.
-2. Resolve any saved Codex project whose root is `~/.agents/taskchef` through
-   Codex's project controls. Point the retired project at its archive destination
-   or remove the obsolete root while preserving its chats. Do not edit Codex
-   databases. Otherwise that project would point at native state after the move.
-3. Quit Codex and all other TaskChef clients. Stop any old dashboard using the
-   retired directory through its normal controls. From an external terminal,
-   run the following inside the updated TaskChef package:
+1. Install compatible current packages for every TaskChef client you use.
+2. If Codex has an old project rooted at `~/.agents/taskchef`, use Codex's
+   project controls to move its root to the intended archive destination or
+   remove the obsolete root while preserving its chats. Do not edit Codex databases.
+3. Quit Codex and all TaskChef clients. Stop any old dashboard through its
+   normal controls. In an external terminal, from the installed package, run:
 
    ```sh
    node scripts/migrate-taskchef-state.js
    ```
 
-4. Restart Codex and verify settings, Done marks, GitHub connection,
-   notifications and usage. Confirm both TaskChef plugins remain enabled.
+4. Restart Codex and verify settings, queue marks, GitHub connection, notifications,
+   and usage. Preserve separate release and Dev installations if both are used.
 
-The command first refuses active TaskChef MCP processes and any process with
-its working directory in the stores. If process inspection fails, it stops.
-It moves the retired dispatcher directory intact to `~/.agents/taskchef-old`.
-An existing archive is never overwritten or merged with a retired dispatcher.
-The obsolete `~/.codex/taskchef` registry moves separately to
-`~/.agents/taskchef-old/codex-registry`; registry collisions or unknown top-level
-entries stop the move. Active Codex databases, sessions and chat history are
-outside this command's scope.
+The command refuses active writers and stops if process inspection fails.
+It moves retired dispatcher state intact to `~/.agents/taskchef-old` and moves
+an obsolete registry separately under that archive. It moves the native store
+to `~/.agents/taskchef` and creates a `taskchef-next` link to that store for
+older clients. Existing archives or conflicting native stores are never merged
+or overwritten. Codex databases and chat history are outside the migration.
+These are storage paths used by the migration tool, not a setup requirement
+for new installations.
 
-The full native directory then moves to `~/.agents/taskchef`, retaining file
-contents and permissions, including historical usage counters. A relative
-`taskchef-next -> taskchef` compatibility link lets older installed packages
-reach the same files. It is not a second state store. Keep the link while any
-older package or skill still refers to it. Current packages resolve the canonical
-path after migration; current delegation instructions use that path too.
+If a run was interrupted, inspect the layout before retrying. A leftover
+`~/.agents/.taskchef-storage-migration` lock requires confirming that no writer
+or migration is running, then removing only the empty lock with `rmdir`.
+Keep inventories and the archive. If the layout is unclear or process checks
+are unsupported, [request support](https://taskchef.dev/support/) rather than
+moving or deleting stores manually.
 
-Repeating the command accepts a completed move or resumes after an individual
-rename. It never merges two native directories or deletes history. An interrupted
-process can leave `~/.agents/.taskchef-storage-migration`: inspect the directory
-layout, confirm no migration or writer is running, then remove only that empty
-lock directory with `rmdir` before retrying. Compare inventories before and after
-migration; keep the archive for historical reference.
-
-## One chat, two possible IDs
-
-Suppose chat **C** has a turn **T**:
-
-| Store | Ordinary history | After Codex selects a new rollout R |
-| --- | --- | --- |
-| `state_5.sqlite` → `threads.id` | C | C: the chat ID stays the same |
-| `threads.rollout_path` | `rollout-<timestamp>-C.jsonl` | `rollout-<timestamp>-C_R.jsonl` |
-| `thread_history_1.sqlite` → `thread_turns.thread_id` | C | R: use the ID after the underscore |
-| `thread_turns.turn_id` | T | The latest turn in R |
-| `thread_items.thread_id` | C | R |
-| JSONL → `session_meta.payload.id` | C | C: this is still the chat ID |
-
-The filename examples use C and R as short labels. Real filenames contain UUIDs. `.jsonl.zst` uses the same ID rule. Codex's [rollout filename resolver](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/metadata.rs) describes the separate ID after a revert. For paginated history, an unrecognized selected filename is an error. Legacy history supports noncanonical filenames with a stable chat-ID lookup. Old turn rows may remain under C. They belong to earlier history and must not replace the selected rollout's current turn.
-
-TaskChef reads the filename from SQLite. It does not open the log to determine this lookup ID. Schedules, subagent links, navigation, and local Done marks continue to use the stable chat ID.
-
-## Main tables and records
-
-| File | Table or record | Example and use |
-| --- | --- | --- |
-| `state_5.sqlite` | `threads` | Chat C, name “Fix login”, project, archived flag, selected rollout path. Also holds model, reasoning effort, token total, pin and project metadata. |
-| `state_5.sqlite` | `thread_spawn_edges` | Parent C → child D. Exclude D from the board; count it on C. |
-| `thread_history_1.sqlite` | `thread_turns` | Rollout R, turn T, `status = completed`, duration and start/end times. This means the turn ended; the task may still need input or review. |
-| `thread_history_1.sqlite` | `thread_items` | `(R, T, item I)` with `item_type = userMessage`, `agentMessage`, `commandExecution`, `mcpToolCall`, or `fileChange`. `item_json` contains the saved item body. The board reads the latest turn's first input to identify a heartbeat. It also reads the linked final reply, or the latest saved agent message in that turn when no final reply is linked. It never uses a previous turn as the current reply. Card excerpts contain at most 2,000 characters; the UI displays two lines. |
-| `thread_history_1.sqlite` | `thread_history_projection_state` | R with the next byte offset and record ordinal. Tracks how far the saved history has been projected into SQLite. The board does not use it. |
-| Rollout `.jsonl` | One JSON record per line | `type = session_meta`, `event_msg`, `response_item`, etc. The inner `payload.type` gives the event or response kind, such as `task_started` or `task_complete`. There are no SQL tables in this file. |
-
-The optional log reader adds bounded message counts for one selected chat. It never supplies board status when SQLite fails.
-
-## Other observed tables
-
-The board does not query these tables. This list records table names seen during the local schema check; it is not a supported schema contract.
-
-| Database | Other tables |
-| --- | --- |
-| `state_5.sqlite` | `_sqlx_migrations`, `thread_dynamic_tools`, `backfill_state`, `remote_control_enrollments`, `external_agent_config_imports`, `thread_sections`, `rollout_migration_state`, `rollout_migration_skipped_rollouts`, `projects`, `project_roots`, `project_idempotency_keys`, `thread_attachments` |
-| `thread_history_1.sqlite` | `_sqlx_migrations`, `thread_realtime_items` |
-
-TaskChef also reads heartbeat links from `automations/*/automation.toml`. Manual Done marks are saved in TaskChef's separate state file. Neither source modifies Codex's databases.
-
-## Project picker sorting
-
-The button beside Search projects cycles Most recent → A–Z → Z–A. Most recent is the default each time the view mounts. It uses the latest chat update time per project among chats allowed by the source and archive settings. Projects without matching chats follow those with activity, ordered by name. All projects stays first and No project stays last. Sorting preserves the search and selected project.
-
-
-## Detail timing and PR cache
-
-Details shows the latest turn’s duration and the sum of saved finished-turn
-`duration_ms` values for the selected history ID. For a running turn, the UI adds
-its elapsed time once. Idle time and child chats are excluded. The tooltip reports
-finished turns whose duration is missing. Earlier rollout histories are not added;
-after a rewind, this is recorded time for the selected history, not a lifetime total.
-The aggregate is cached until either database changes.
-
-Historical PR results use the existing disk cache. Opening Details fetches only
-URLs with no saved result; it does not expire those results or invalidate them when
-a different turn starts. Refresh explicitly checks the open detail’s PRs again.
-The board still checks newly referenced PRs and retries pending or unknown current
-PR states while their cards are visible. Disconnecting or changing the GitHub
-account clears its cached results. Local history links are cached per database
-snapshot and rebuilt when the database changes.
-
-## Saved work time and usage
-
-Visible board cards and Details read accounting events from the chat's saved rollouts and all
-nested subagent chats found through `thread_spawn_edges`. Board inventory and
-turn state still come from the databases. A database query failure remains fatal.
-Optional accounting errors are shown as partial data.
-
-The reader discovers older rollouts under `sessions` and `archived_sessions`.
-It includes plain JSONL and zstd-compressed JSONL files. It checks this file
-inventory at most once per minute while usage is requested.
-It caches compact accounting records in the MCP process. Unchanged files are
-not read again. Appended files are read from the last complete line; replaced
-or truncated files are read again. Changed compressed files are decoded again;
-unchanged compressed files use the same cache. A runtime without zstd support
-marks compressed histories partial. Concurrent views share this reader.
-Plain and compressed siblings share one cache identity. Reads prefer the plain
-file when both exist and retry briefly during format transitions. A stale
-selected path can resolve its sibling, so compression or restoration alone does
-not mark accounting partial. Existing compressed cache identities are normalized
-when loaded.
-
-Optional Details message counts use the same path resolution. Compressed logs
-are decoded as a stream, retaining bounded head and tail samples. Their
-`fileBytes` and `sampledBytes` describe decoded JSONL bytes, as for plain files.
-Compression does not change database-derived board status or replies.
-
-Computed accounting results are saved under TaskChef's state directory in
-`cache/usage/`, with one hashed file per chat and duration-view variant. Files
-contain accounting totals and source metadata, not prompts or replies. Private
-file permissions and atomic writes protect the local cache. Before reusing it,
-the reader checks the latest turn ID, linked descendants, rollout metadata,
-duration fallbacks, and pricing table. A new turn invalidates the old result;
-appended logs also invalidate it while a turn runs. An unchanged result survives
-an MCP restart without parsing the logs again. Damaged caches are rebuilt, and
-cache write failures do not prevent source accounting. Compact parsed records
-remain in memory for incremental updates. Saved source coverage also detects
-an older rollout that disappears from the inventory. Missing sources keep
-known historical totals as incomplete; corrections within the same logical
-rollout can still recalculate them. Moving a rollout into archived storage
-preserves its source identity.
-
-Work time sums finished turns across the parent's saved rollouts, deduplicated
-by turn ID, and joins known durations from the selected SQLite history. It adds
-current running time in the view. Idle time and subagent time are excluded.
-Missing or unreadable histories make this total partial.
-
-Usage reads `token_count` events. Chat totals use cumulative counter changes;
-latest-turn usage uses individual call counters and the surrounding turn ID.
-Copied events and repeated unchanged counters are counted once. A missing
-boundary or counter correction does not prevent later turns from reporting.
-Subagent usage is included once per descendant chat. `root_turn_id` assigns
-child calls to the latest parent turn. Missing parent links leave that turn
-partial. Deleted logs, missing calls, and counter resets can prevent an exact
-historical result; the UI never claims that the displayed subtotal is a bill.
-
-Cost uses each saved call's model and input/cache-read/cache-write/output
-counts. Reasoning tokens are already included in output tokens. Unknown models
-remain unpriced. Missing calls can leave tokens known but cost partial. An
-incomplete token or cost column has a superscript 2 on its label and a `≥`
-prefix on each known incomplete value. Cost also has
-superscript 1 for the API-price estimate note. The footnote explains why the
-estimate is incomplete.
-
-The package ships a dated table of standard USD API prices from
-<https://developers.openai.com/api/docs/pricing>. While Details is used, the
-server checks the public Markdown version in the background at most weekly.
-A failed update is retried after an hour. The last valid update is saved beside
-TaskChef's own Done state; the bundled table works offline. No API key, chat
-content, or GitHub token is sent for this public request. If the published table
-format changes, the last valid prices remain in use.
-
-Estimates apply current standard API prices, including the published long
-context rates above 272K input tokens. They do not reproduce subscription
-charges, historic prices, fast-mode surcharges, regional fees, or tool fees.
-
-
-### Unread chats
-
-The board reads `electron-thread-read-state-v1` from Codex's
-`.codex-global-state.json`. It uses the live unread IDs for the single account
-and the local execution-host key recorded in `legacyMigration.adoptedHostIds`.
-Legacy unread lists are migration snapshots and are not used. Missing,
-unsupported, cleared, or ambiguous account/host mappings show no dot.
-The existing metadata file stamp detects changes during board polling even
-when the SQLite databases do not change. Opening TaskChef Details does not
-modify Codex read state; opening the chat in Codex lets Codex manage it.
-
-## Cache locations
-
-Board disk caches share the state directory's `cache/` folder:
-
-- `cache/usage/`: derived accounting results.
-- `cache/pricing.json`: cached official model pricing.
-- `cache/github-prs.json`: PR status results.
-
-The reader moves older caches into these locations on first use. It preserves
-an existing destination. Settings, Done marks, and authentication data remain
-outside `cache/` because they are persistent state, not rebuildable caches.
-Legacy dispatcher workspaces and `.taskchef-usage.json` files remain on disk
-for historical reference; the native product does not read or update them.
-
-Usage caches retain normalized token counters for known rollout sources, without message content. If an older source disappears, those counters are reconciled with live counters so new usage continues to increase the known subtotal.
+See [troubleshooting](troubleshooting.md) for data errors and
+[privacy](https://taskchef.dev/privacy/) for external requests.

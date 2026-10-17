@@ -11,27 +11,19 @@
   "bugs": {
     "url": "https://github.com/favoyang/taskchef/issues"
   },
-  "homepage": "https://github.com/favoyang/taskchef#readme",
+  "homepage": "https://taskchef.dev/",
   "type": "module",
   "exports": "./index.js",
   "files": [
     ".codex-plugin",
     ".mcp.json",
     "assets",
-    "docs/mcp-app.md",
-    "docs/spec.md",
-    "docs/taskchef-next-storage.md",
-    "docs/taskchef-next-github.md",
+    "docs",
     "index.js",
     "mcp",
     "scripts/prepare-github-keyring.js",
     "src",
     "skills/delegate",
-    "docs/taskchef-next-status-research.md",
-    "docs/diagrams/taskchef-next-storage.drawio",
-    "docs/diagrams/taskchef-next-storage.drawio.png",
-    "docs/diagrams/taskchef-next-reply-lookup.drawio",
-    "docs/diagrams/taskchef-next-reply-lookup.drawio.png",
     "scripts/migrate-taskchef-state.js"
   ],
   "engines": {
