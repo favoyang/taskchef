@@ -450,9 +450,9 @@ refreshes, with their last-update time and scan progress.
 Calendar sits beside Board and Usage. It opens on the current local month;
 previous/next arrows surround the month title. Next is disabled at the current
 local month, so future months cannot be selected. There is no Today control.
-Arrows stay hidden until the month navigation is hovered or contains focus;
-a clicked arrow remains visible while focused. This also applies in embedded
-hosts that do not report mouse hover support. Project, search, update window, and Pinned
+Arrows are always visible, with a dimmed Next arrow at the current month.
+Button borders appear only when an enabled arrow is hovered; keyboard focus
+keeps a visible outline. Project, search, update window, and Pinned
 filters are remembered locally. An unavailable saved project resets to All
 projects only after the project inventory loads.
 Project, Search Chats, Pinned, and native visibility settings apply. The Board's
@@ -467,6 +467,8 @@ Each chat's recorded turn intervals become calendar dates in the viewer's
 timezone. Adjacent dates merge into one bar. One full idle date breaks the bar,
 including weekends; a later segment has a resumed marker and opens the same
 chat Details. Continuous work across a week boundary uses continuation arrows.
+Hovering a bar highlights every visible segment of the same chat across the month,
+including resumed segments.
 An exact midnight end does not occupy the following date. A current running
 turn extends to now; completed turns do not extend through idle review waits.
 Project colors stay consistent when navigating or filtering. Crowded weeks show

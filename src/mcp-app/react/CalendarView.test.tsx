@@ -57,3 +57,22 @@ test('a selected project hides bar prefixes and persistent helper captions are a
   expect(screen.queryByRole('button', { name: /Project ·/ })).not.toBeInTheDocument();
   expect(screen.queryByText(/Recorded work ·|Selected Codex history only/)).not.toBeInTheDocument();
 });
+
+test('hover highlights a chat across continued and resumed weeks, and clears on leave', async () => {
+  const result = data(2);
+  result.chats[0].segments[0].end = `${month()}-19`;
+  render(<CalendarView request={async () => result} tasks={[task('0'), task('1')]} refreshKey="1" onOpenDetail={vi.fn()} />);
+  const bars = await screen.findAllByRole('button', { name: /Project · Chat 0/ });
+  const otherBars = screen.getAllByRole('button', { name: /Project · Chat 1/ });
+  expect(bars.length).toBeGreaterThan(3);
+  for (const bar of [bars[0], bars[bars.length - 1]]) {
+    fireEvent.mouseEnter(bar);
+    for (const segment of bars) expect(segment).toHaveClass('calendar-bar-highlighted');
+    for (const segment of otherBars) expect(segment).not.toHaveClass('calendar-bar-highlighted');
+    fireEvent.mouseLeave(bar);
+    for (const segment of bars) expect(segment).not.toHaveClass('calendar-bar-highlighted');
+  }
+  fireEvent.mouseEnter(otherBars[0]);
+  for (const segment of otherBars) expect(segment).toHaveClass('calendar-bar-highlighted');
+  for (const segment of bars) expect(segment).not.toHaveClass('calendar-bar-highlighted');
+});
