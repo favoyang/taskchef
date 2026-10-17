@@ -14,6 +14,7 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail, showPro
   const [data, setData] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string[]>([]);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   useEffect(() => {
@@ -28,6 +29,7 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail, showPro
     if (delta > 0 && month >= currentMonth) return;
     const date = new Date(`${month}-01T12:00:00Z`);
     date.setUTCMonth(date.getUTCMonth() + delta);
+    setHoveredTaskId(null);
     setMonth(date.toISOString().slice(0, 7)); setData(null); setExpanded([]);
   }
   const first = `${month}-01`;
@@ -76,7 +78,7 @@ export function CalendarView({ request, tasks, refreshKey, onOpenDetail, showPro
                 const col = Math.round((Date.parse(bar.left) - Date.parse(start)) / 86400000);
                 const span = Math.round((Date.parse(bar.right) - Date.parse(bar.left)) / 86400000) + 1;
                 const title = showProject ? `${bar.task.project.name} · ${bar.task.title}` : bar.task.title;
-                return <button key={`${bar.task.id}:${bar.start}`} className="calendar-bar" style={{ gridColumn: `${col + 1} / span ${span}`, gridRow: bar.lane + 2, borderColor: `hsl(${projectHue(bar.task)} 45% 55%)`, backgroundColor: `hsl(${projectHue(bar.task)} 45% 55% / .17)` }} title={`${title}\n${bar.start} – ${bar.end}${bar.resumed ? ' · Resumed' : ''}\nCurrent status: ${bar.task.status ? statusLabels[bar.task.status] : 'Unverified'}`} onClick={() => onOpenDetail(bar.task)}>
+                return <button key={`${bar.task.id}:${bar.start}`} className={`calendar-bar${hoveredTaskId === bar.task.id ? " calendar-bar-highlighted" : ""}`} onMouseEnter={() => setHoveredTaskId(bar.task.id)} onMouseLeave={() => setHoveredTaskId(null)} style={{ gridColumn: `${col + 1} / span ${span}`, gridRow: bar.lane + 2, borderColor: `hsl(${projectHue(bar.task)} 45% 55%)`, backgroundColor: `hsl(${projectHue(bar.task)} 45% 55% / .17)` }} title={`${title}\n${bar.start} – ${bar.end}${bar.resumed ? ' · Resumed' : ''}\nCurrent status: ${bar.task.status ? statusLabels[bar.task.status] : 'Unverified'}`} onClick={() => onOpenDetail(bar.task)}>
                   {bar.start < start ? "← " : bar.resumed ? "↩ " : ""}{title}{bar.end > end ? " →" : ""}
                 </button>;
               })}

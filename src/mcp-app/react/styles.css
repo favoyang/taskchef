@@ -294,10 +294,9 @@ body { background: var(--taskchef-page); }
 .calendar-outside { opacity: .45; }
 .calendar-today time { border-bottom: 2px solid var(--mantine-primary-color-filled); font-weight: 700; }
 .calendar-view .calendar-bar { position: relative; margin: 0 4px; padding: 3px 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; font: inherit; font-size: 12px; border-left-width: 3px; }
-.calendar-view .calendar-bar:hover { filter: brightness(1.15); }
+.calendar-view .calendar-bar-highlighted { filter: brightness(1.15); }
 .calendar-view .calendar-more { margin: 3px 8px 8px; padding: 3px 8px; font-size: 12px; }
 @media (max-width: 600px) { .calendar-view { padding: 10px; } }
 
-.calendar-navigation button, .calendar-navigation button:disabled { opacity: 0; }
-.calendar-navigation:hover button, .calendar-navigation:focus-within button { opacity: 1; }
-.calendar-navigation:hover button:disabled, .calendar-navigation:focus-within button:disabled { opacity: .35; }
+.calendar-navigation button { border-color: transparent; }
+.calendar-navigation button:hover:not(:disabled) { border-color: var(--mantine-color-default-border); }
