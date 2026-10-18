@@ -608,6 +608,26 @@ test("latest-turn PRs require both registered ownership and a current-turn refer
 });
 
 
+test("number-only PR mentions resolve only unique registered PRs in the latest turn", async t => {
+  const setup = await fixture(t); if (!setup) return;
+  const {home,state,history} = setup;
+  state.exec("CREATE TABLE thread_attachments (thread_id TEXT, attachment_type TEXT, payload TEXT)");
+  state.prepare("INSERT INTO threads (id,name,archived,created_at_ms,updated_at_ms,recency_at_ms) VALUES (?, 'Shipped',0,1,1,1)").run(id);
+  const urls = ["https://github.com/example/website/pull/9", "https://github.com/example/workspace/pull/17", "https://github.com/example/other/pull/17", "https://github.com/example/website/pull/90"];
+  for (const url of urls) state.prepare("INSERT INTO thread_attachments VALUES (?,'pull_request',?)").run(id, JSON.stringify({url}));
+  history.prepare("INSERT INTO thread_turns (thread_id,rollout_ordinal,status,turn_id) VALUES (?,1,'completed','latest')").run(id);
+  const update = text => history.prepare("UPDATE thread_items SET item_json=?").run(JSON.stringify({type:"agentMessage",text}));
+  history.prepare("INSERT INTO thread_items (thread_id,turn_id,item_id,item_type,item_json) VALUES (?,'latest','reply','agentMessage',?)").run(id, JSON.stringify({type:"agentMessage",text:"Website PR #9 is merged. Tracking PR #17 is merged. PR #999 is merged."}));
+  const scanner = new CodexSessionScanner({codexHome:home,statePath:join(home,'done.json')}); t.after(()=>scanner.close());
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests.map(pr=>pr.url), [urls[0]]);
+  state.prepare("DELETE FROM thread_attachments WHERE payload=?").run(JSON.stringify({url:urls[2]}));
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests.map(pr=>pr.url), urls.slice(0,2));
+  update("No PR mentioned in this new reply.");
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests, []);
+  update("PR #90 and pr #9 are merged. PR #17suffix is unrelated.");
+  assert.deepEqual((await scanner.refresh()).tasks[0].pullRequests.map(pr=>pr.url), [urls[0],urls[3]]);
+});
+
 test("Running overrides a saved Done mark when the selected turn resumes", async (t) => {
   const setup=await fixture(t);if(!setup)return;
   const {home,state,history}=setup;

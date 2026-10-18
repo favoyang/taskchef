@@ -335,7 +335,13 @@ function buildDatabaseSnapshot(records, now, doneMarks, schedules, scheduleError
       // Ownership comes from the registry; latest-turn references only narrow that owned set.
       const references = new Set([...`${inputText}\n${replyText}`.matchAll(/https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*\/?(?![A-Za-z0-9_/-])/g)].map((match) => match[0].replace(/\/$/, "")));
       for (const url of records.turnAttachments.get(historyId(row)) ?? []) references.add(url.replace(/\/$/, ""));
-      const turnPrs = (records.attachments.get(row.id) ?? []).filter((url) => references.has(url.replace(/\/$/, "")));
+      const ownedPrs = records.attachments.get(row.id) ?? [];
+      // Number-only mentions can identify an owned PR only when its number is unique.
+      for (const match of `${inputText}\n${replyText}`.matchAll(/\bPR\s+#([1-9]\d*)\b(?![\w/-])/gi)) {
+        const candidates = ownedPrs.filter(url => /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/([1-9]\d*)\/?$/.exec(url)?.[1] === match[1]);
+        if (candidates.length === 1) references.add(candidates[0].replace(/\/$/, ""));
+      }
+      const turnPrs = ownedPrs.filter((url) => references.has(url.replace(/\/$/, "")));
       const manualDone = !active && !scheduled && doneMarks[row.id] === turn.turn_id && turnPrs.every(url => (doneMarks[`done-pr:${row.id}`] ?? "").split("\n").includes(url));
       const manualScheduled = scheduled && !active && doneMarks[`scheduled:${row.id}`] === turn.turn_id;
       const status = row.archived ? "archived" : manualDone ? "completed" : manualScheduled ? "scheduled" : active ? "working"
