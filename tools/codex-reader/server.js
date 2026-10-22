@@ -168,6 +168,7 @@ function publicChat(task) {
     updatedAt: task.updatedAt,
     pinned: Boolean(task.observed?.pinned),
     scheduled: Boolean(task.scheduled),
+    archived: Boolean(task.observed?.archive),
   };
 }
 
@@ -212,15 +213,12 @@ async function start() {
       const snapshot = await scanner.refresh();
       if (!snapshot.healthy) throw new Error(snapshot.scan?.error || "Codex databases are unavailable.");
       const chats = sortChats(snapshot.tasks
-        .filter((task) => !task.observed?.archive)
         // The scanner already removes Guardian reviews and subagents. Exec runs are
         // non-interactive parent sessions, not chats; their review subagent twins
         // are filtered above, but the exec parent would otherwise remain.
         .filter((task) => task.observed?.source !== "exec")
         .map(publicChat));
-      const projects = [...new Map(chats.map((chat) => [chat.project.id, chat.project])).values()]
-        .sort((left, right) => left.name.localeCompare(right.name));
-      listCache = { chats, projects, refreshedAt: new Date().toISOString() };
+      listCache = { chats, refreshedAt: new Date().toISOString() };
       listCacheAt = Date.now();
       return listCache;
     })().finally(() => { listPending = null; });

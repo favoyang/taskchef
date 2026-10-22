@@ -4,6 +4,7 @@ const listElement = document.querySelector("#list");
 const projectElement = document.querySelector("#project");
 const pinnedElement = document.querySelector("#pinned");
 const scheduledElement = document.querySelector("#scheduled");
+const archivedElement = document.querySelector("#archived");
 const threadElement = document.querySelector(".thread");
 const threadEmptyElement = document.querySelector("#thread-empty");
 const threadViewElement = document.querySelector("#thread-view");
@@ -13,22 +14,23 @@ const messagesElement = document.querySelector("#messages");
 
 const PIN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4-1 5-2 2-3-6-5-3 2-2 5-1 4-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
 const CLOCK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const ARCHIVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16v11.5H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 4.5h18V8H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.5 12h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
 const state = {
   chats: [],
-  projects: [],
   selectedId: null,
   project: "",
   pinned: false,
   scheduled: false,
+  archived: false,
   request: 0,
 };
 
 function flagElement(kind) {
   const element = document.createElement("span");
   element.className = `flag flag-${kind}`;
-  element.title = kind === "pinned" ? "Pinned" : "Scheduled";
-  element.innerHTML = kind === "pinned" ? PIN_ICON : CLOCK_ICON;
+  element.title = kind.charAt(0).toUpperCase() + kind.slice(1);
+  element.innerHTML = kind === "pinned" ? PIN_ICON : kind === "scheduled" ? CLOCK_ICON : ARCHIVE_ICON;
   return element;
 }
 
@@ -37,11 +39,13 @@ function flagsFor(chat) {
   element.className = "flags";
   if (chat.pinned) element.append(flagElement("pinned"));
   if (chat.scheduled) element.append(flagElement("scheduled"));
+  if (chat.archived) element.append(flagElement("archived"));
   return element;
 }
 
 function visibleChats() {
   return state.chats
+    .filter((chat) => state.archived || !chat.archived)
     .filter((chat) => !state.project || chat.project.id === state.project)
     .filter((chat) => !state.pinned || chat.pinned)
     .filter((chat) => !state.scheduled || chat.scheduled)
@@ -64,6 +68,7 @@ function renderThread(chat) {
   threadFlagsElement.replaceChildren();
   if (chat.pinned) threadFlagsElement.append(flagElement("pinned"));
   if (chat.scheduled) threadFlagsElement.append(flagElement("scheduled"));
+  if (chat.archived) threadFlagsElement.append(flagElement("archived"));
 }
 
 async function selectChat(id) {
@@ -137,6 +142,7 @@ function renderRow(chat) {
   row.type = "button";
   row.className = "row";
   row.dataset.id = chat.id;
+  row.classList.toggle("archived", chat.archived);
   row.setAttribute("role", "option");
   row.setAttribute("aria-selected", String(chat.id === state.selectedId));
   row.title = chat.title;
@@ -160,10 +166,14 @@ function renderRow(chat) {
 
 function renderProjects() {
   const current = state.project;
+  const projects = [...new Map(state.chats
+    .filter((chat) => state.archived || !chat.archived)
+    .map((chat) => [chat.project.id, chat.project])).values()]
+    .sort((left, right) => left.name.localeCompare(right.name));
   projectElement.replaceChildren();
   projectElement.append(new Option("All projects", ""));
-  for (const project of state.projects) projectElement.append(new Option(project.name, project.id));
-  projectElement.value = state.projects.some((project) => project.id === current) ? current : "";
+  for (const project of projects) projectElement.append(new Option(project.name, project.id));
+  projectElement.value = projects.some((project) => project.id === current) ? current : "";
   state.project = projectElement.value;
 }
 
@@ -177,7 +187,6 @@ async function load() {
     if (!response.ok) throw new Error("Chat list request failed.");
     const data = await response.json();
     state.chats = Array.isArray(data.chats) ? data.chats : [];
-    state.projects = Array.isArray(data.projects) ? data.projects : [];
     renderProjects();
     renderList();
   } catch {
@@ -205,6 +214,13 @@ pinnedElement.addEventListener("click", () => {
 scheduledElement.addEventListener("click", () => {
   state.scheduled = !state.scheduled;
   renderToggle(scheduledElement, state.scheduled);
+  renderList();
+});
+
+archivedElement.addEventListener("click", () => {
+  state.archived = !state.archived;
+  renderToggle(archivedElement, state.archived);
+  renderProjects();
   renderList();
 });
 
