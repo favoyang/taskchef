@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Chats</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Codex Chats</div>
+    <div class="filters">
+      <label class="select-wrap">
+        <select id="project" aria-label="Project">
+          <option value="">All projects</option>
+        </select>
+      </label>
+      <button id="pinned" class="toggle" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4-1 5-2 2-3-6-5-3 2-2 5-1 4-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span>Pinned</span>
+      </button>
+      <button id="scheduled" class="toggle" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Scheduled</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="sidebar" aria-label="Chats">
+      <div id="list" class="list" role="listbox" aria-label="Chats"></div>
+    </section>
+
+    <section class="thread" aria-label="Chat">
+      <div id="thread-empty" class="empty">Select a chat</div>
+      <article id="thread-view" class="thread-view" hidden>
+        <header class="thread-head">
+          <h1 id="thread-title"></h1>
+          <div id="thread-flags" class="thread-flags"></div>
+        </header>
+        <div id="messages" class="messages"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

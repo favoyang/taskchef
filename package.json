@@ -54,6 +54,8 @@
     "test": "npm run test:node && npm run test:dashboard",
     "test:node": "node --test tests/*.test.js",
     "test:dashboard": "vitest run --config vitest.config.ts",
+    "reader": "node tools/codex-reader/server.js",
+    "test:reader": "node --test tools/codex-reader/test/*.test.js",
     "prepack": "node scripts/prepare-github-keyring.js"
   },
   "dependencies": {
@@ -63,6 +65,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@napi-rs/keyring": "2.1.0",
     "@tabler/icons-react": "3.35.0",
+    "marked": "^16.4.2",
     "mdast-util-from-markdown": "2.0.2",
     "micromark-util-sanitize-uri": "2.0.1",
     "proper-lockfile": "^4.1.2",
