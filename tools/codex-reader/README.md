@@ -32,6 +32,8 @@ node tools/codex-reader/server.js --port 4781
 - Codex pins from `.codex-global-state.json`.
 - Active heartbeat schedules from `automations/` and `codex-dev.db`.
 - Guardian review threads and subagent threads are excluded.
+- Non-interactive `codex exec` runs are omitted. They are not chats; the review
+  prompt rows that appear beside a subagent are the exec parent sessions.
 - Thread list sorted by update time, newest first.
 - Project, Pinned, and Scheduled filters in the top bar.
 
