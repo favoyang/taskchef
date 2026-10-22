@@ -11,6 +11,10 @@ const threadViewElement = document.querySelector("#thread-view");
 const threadTitleElement = document.querySelector("#thread-title");
 const threadFlagsElement = document.querySelector("#thread-flags");
 const messagesElement = document.querySelector("#messages");
+const themeElement = document.querySelector("#theme");
+
+const THEME_KEY = "codex-reader-theme";
+const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
 
 const PIN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4-1 5-2 2-3-6-5-3 2-2 5-1 4-4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
 const CLOCK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
@@ -25,6 +29,26 @@ const state = {
   archived: false,
   request: 0,
 };
+
+function storedTheme() {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === "light" || value === "dark" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const label = theme === "dark" ? "Use light theme" : "Use dark theme";
+  themeElement.setAttribute("aria-label", label);
+  themeElement.title = label;
+}
+
+function initialTheme() {
+  return storedTheme() ?? (darkScheme.matches ? "dark" : "light");
+}
 
 function flagElement(kind) {
   const element = document.createElement("span");
@@ -224,4 +248,17 @@ archivedElement.addEventListener("click", () => {
   renderList();
 });
 
+themeElement.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch { /* A local preview can still switch for this page. */ }
+  applyTheme(next);
+});
+
+darkScheme.addEventListener("change", () => {
+  if (!storedTheme()) applyTheme(darkScheme.matches ? "dark" : "light");
+});
+
+applyTheme(initialTheme());
 void load();

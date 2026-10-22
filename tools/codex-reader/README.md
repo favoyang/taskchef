@@ -36,5 +36,7 @@ node tools/codex-reader/server.js --port 4781
   prompt rows that appear beside a subagent are the exec parent sessions.
 - Thread list sorted by update time, newest first.
 - Project, Pinned, Scheduled, and Archived filters in the top bar.
+- Dark theme follows the system appearance; the sun/moon button overrides it and
+  remembers the choice locally.
 
 Archived chats are hidden by default. Turn on **Archived** to include them.
